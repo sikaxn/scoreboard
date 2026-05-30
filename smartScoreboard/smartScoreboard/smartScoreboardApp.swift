@@ -8,7 +8,7 @@ struct SmartScoreboardApp: App {
     var body: some Scene {
         #if os(macOS)
         Window("Control Board", id: "control-board") {
-            ContentView()
+            MacControlBoardWindowView()
                 .environmentObject(store)
                 .environmentObject(externalDisplayState)
         }

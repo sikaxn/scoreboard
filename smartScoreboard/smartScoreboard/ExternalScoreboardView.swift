@@ -25,6 +25,8 @@ struct ExternalScoreboardView: View {
                 isClockRunning: store.isClockRunning,
                 compact: true
             )
+            .aspectRatio(ScoreboardFaceView.preferredAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(36)
         }
     }

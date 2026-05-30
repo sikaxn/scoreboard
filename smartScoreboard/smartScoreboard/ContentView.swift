@@ -61,6 +61,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Game Setup")
                             .font(.system(size: 40, weight: .black, design: .rounded))
+                            .singleLineFitted(minScale: 0.6)
                             .foregroundStyle(.white)
 
                         Text(setupDescription)
@@ -110,11 +111,7 @@ struct ContentView: View {
                 .frame(width: leftPanelWidth)
                 .frame(maxHeight: .infinity, alignment: .top)
 
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Preview")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-
+                previewPanel(title: "Preview", caption: "Opening board layout") {
                     ScoreboardFaceView(
                         homeTeamName: homeTeamDraft,
                         guestTeamName: guestTeamDraft,
@@ -126,13 +123,6 @@ struct ContentView: View {
                         compact: false
                     )
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08))
-                )
             }
             .padding(28)
             .frame(width: cardWidth, height: cardHeight)
@@ -151,10 +141,13 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Opening Clock")
                 .font(.title3.weight(.bold))
+                .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(.white)
 
             Text(formatClock(setupClockSeconds))
                 .font(.system(size: 40, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.35)
                 .foregroundStyle(.white)
 
             HStack(spacing: 10) {
@@ -197,10 +190,12 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.title3.weight(.bold))
+                .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(.white)
 
             Text(value)
                 .font(.system(size: 44, weight: .heavy, design: .rounded))
+                .singleLineFitted(minScale: 0.5)
                 .foregroundStyle(.white)
 
             HStack(spacing: 10) {
@@ -221,6 +216,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.bold))
+                .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(.white)
 
             TextField(title, text: text)
@@ -259,10 +255,12 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Smart Scoreboard")
                     .font(.system(size: 30, weight: .black, design: .rounded))
+                    .singleLineFitted(minScale: 0.6)
                     .foregroundStyle(.white)
 
                 Text("Landscape control board")
                     .font(.headline)
+                    .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(.white.opacity(0.72))
             }
 
@@ -273,6 +271,7 @@ struct ContentView: View {
                 systemImage: displayStatusSystemImage
             )
             .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
             .foregroundStyle(externalDisplayState.isConnected ? Color.green : Color.orange)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -301,11 +300,7 @@ struct ContentView: View {
     }
 
     private var previewPane: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Live Preview")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
-
+        previewPanel(title: "Live Preview", caption: "Public scoreboard output") {
             ScoreboardFaceView(
                 homeTeamName: store.homeTeamName,
                 guestTeamName: store.guestTeamName,
@@ -317,13 +312,6 @@ struct ContentView: View {
                 compact: false
             )
         }
-        .padding(20)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
-        )
     }
 
     private var controlPane: some View {
@@ -362,6 +350,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.bold))
+                .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(.white)
 
             TextField("Team Name", text: teamName)
@@ -379,6 +368,7 @@ struct ContentView: View {
 
             Text("\(score)")
                 .font(.system(size: 48, weight: .black, design: .rounded))
+                .singleLineFitted(minScale: 0.4)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -404,10 +394,13 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Game Clock")
                         .font(.subheadline.weight(.semibold))
+                        .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(.white.opacity(0.68))
 
                     Text(store.formattedClock)
                         .font(.system(size: 42, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .singleLineFitted(minScale: 0.35)
                         .foregroundStyle(.white)
                 }
 
@@ -416,10 +409,12 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Period")
                         .font(.subheadline.weight(.semibold))
+                        .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(.white.opacity(0.68))
 
                     Text("\(store.period)")
                         .font(.system(size: 34, weight: .black, design: .rounded))
+                        .singleLineFitted(minScale: 0.5)
                         .foregroundStyle(.white)
                 }
             }
@@ -462,27 +457,88 @@ struct ContentView: View {
     }
 
     private func actionButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .font(.headline.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
-            .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        Button(action: action) {
+            Text(title)
+                .font(.headline.weight(.bold))
+                .singleLineFitted(minScale: 0.55)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func smallActionButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .font(.headline.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        Button(action: action) {
+            Text(title)
+                .font(.headline.weight(.bold))
+                .singleLineFitted(minScale: 0.55)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func formatClock(_ seconds: Int) -> String {
         let minutes = seconds / 60
         let remainingSeconds = seconds % 60
         return String(format: "%02d:%02d", minutes, remainingSeconds)
+    }
+
+    private func previewBoardSurface<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        let board = content()
+
+        return GeometryReader { proxy in
+            let horizontalInset = max(28, min(proxy.size.width * 0.06, 44))
+            let verticalInset = max(18, min(proxy.size.height * 0.04, 30))
+            let availableWidth = max(proxy.size.width - (horizontalInset * 2), 0)
+            let availableHeight = max(proxy.size.height - (verticalInset * 2), 0)
+            let aspectRatio = ScoreboardFaceView.preferredAspectRatio
+            let fittedWidth = min(availableWidth, availableHeight * aspectRatio)
+            let fittedHeight = min(availableHeight, fittedWidth / aspectRatio)
+
+            board
+                .frame(width: fittedWidth, height: fittedHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .clipped()
+        }
+    }
+
+    private func previewPanel<Content: View>(
+        title: String,
+        caption: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+
+                Text(caption)
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(.white.opacity(0.56))
+            }
+
+            previewBoardSurface {
+                content()
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(.white.opacity(0.08))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
     private var setupDescription: String {
@@ -507,6 +563,13 @@ struct ContentView: View {
         #else
         externalDisplayState.isConnected ? "display.2" : "cable.connector"
         #endif
+    }
+}
+
+private extension View {
+    func singleLineFitted(minScale: CGFloat = 0.55) -> some View {
+        lineLimit(1)
+            .minimumScaleFactor(minScale)
     }
 }
 
