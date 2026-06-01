@@ -9,6 +9,8 @@ struct ScoreboardFaceView: View {
     let guestScore: Int
     let period: Int
     let formattedClock: String
+    let formattedShotClock: String
+    let possessionDirection: PossessionDirection
     let isClockRunning: Bool
     let compact: Bool
 
@@ -39,6 +41,8 @@ struct ScoreboardFaceView: View {
                             placeholder: "HOME",
                             score: homeScore,
                             accent: Color(red: 0.97, green: 0.38, blue: 0.28),
+                            possessionArrowSystemName: "arrowtriangle.right.fill",
+                            showsPossession: possessionDirection == .home,
                             base: base,
                             condensed: condensed,
                             ultraCondensed: ultraCondensed
@@ -55,6 +59,8 @@ struct ScoreboardFaceView: View {
                             placeholder: "GUEST",
                             score: guestScore,
                             accent: Color(red: 0.22, green: 0.68, blue: 0.95),
+                            possessionArrowSystemName: "arrowtriangle.left.fill",
+                            showsPossession: possessionDirection == .guest,
                             base: base,
                             condensed: condensed,
                             ultraCondensed: ultraCondensed
@@ -148,17 +154,27 @@ struct ScoreboardFaceView: View {
         placeholder: String,
         score: Int,
         accent: Color,
+        possessionArrowSystemName: String,
+        showsPossession: Bool,
         base: CGFloat,
         condensed: Bool,
         ultraCondensed: Bool
     ) -> some View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.02) : condensed ? max(18, base * 0.03) : max(22, base * 0.035)) {
             VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
-                Text(role)
-                    .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
-                    .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
-                    .singleLineFitted(minScale: 0.8)
-                    .foregroundStyle(.white.opacity(0.42))
+                HStack(spacing: 8) {
+                    Text(role)
+                        .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
+                        .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
+                        .singleLineFitted(minScale: 0.8)
+                        .foregroundStyle(.white.opacity(0.42))
+
+                    if showsPossession {
+                        Image(systemName: possessionArrowSystemName)
+                            .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.026 : base * 0.022, weight: .black))
+                            .foregroundStyle(accent)
+                    }
+                }
 
                 Text(resolvedTitle(title, placeholder: placeholder))
                     .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
@@ -205,7 +221,8 @@ struct ScoreboardFaceView: View {
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
                 headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
-                headerBadge(title: "MATCH", value: "PERIOD \(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                headerBadge(title: "SHOT", value: formattedShotClock, condensed: condensed, ultraCondensed: ultraCondensed)
+                headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
             }
 
             Spacer(minLength: 0)

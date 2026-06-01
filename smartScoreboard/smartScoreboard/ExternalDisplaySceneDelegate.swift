@@ -23,11 +23,11 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
                 .environmentObject(PublicBoardState.shared)
         )
         hostingController.view.backgroundColor = .black
-        hostingController.view.frame = windowScene.coordinateSpace.bounds
+        hostingController.view.frame = sceneBounds(for: windowScene)
         hostingController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         let window = UIWindow(windowScene: windowScene)
-        window.frame = windowScene.coordinateSpace.bounds
+        window.frame = sceneBounds(for: windowScene)
         window.rootViewController = hostingController
         window.backgroundColor = .black
         window.isHidden = false
@@ -37,16 +37,20 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
-        updateWindowFrame(for: scene)
+        guard let windowScene = scene as? UIWindowScene else {
+            return
+        }
+
+        updateWindowFrame(for: windowScene)
     }
 
-    func scene(
-        _ scene: UIScene,
+    func windowScene(
+        _ windowScene: UIWindowScene,
         didUpdate previousCoordinateSpace: UICoordinateSpace,
         interfaceOrientation previousInterfaceOrientation: UIInterfaceOrientation,
         traitCollection previousTraitCollection: UITraitCollection
     ) {
-        updateWindowFrame(for: scene)
+        updateWindowFrame(for: windowScene)
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
@@ -54,14 +58,18 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
         window = nil
     }
 
-    private func updateWindowFrame(for scene: UIScene) {
-        guard let windowScene = scene as? UIWindowScene else {
-            return
-        }
-
-        let bounds = windowScene.coordinateSpace.bounds
+    private func updateWindowFrame(for windowScene: UIWindowScene) {
+        let bounds = sceneBounds(for: windowScene)
         window?.frame = bounds
         window?.rootViewController?.view.frame = bounds
+    }
+
+    private func sceneBounds(for windowScene: UIWindowScene) -> CGRect {
+        if #available(iOS 26.0, *) {
+            return windowScene.effectiveGeometry.coordinateSpace.bounds
+        } else {
+            return windowScene.coordinateSpace.bounds
+        }
     }
 }
 #endif

@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     @EnvironmentObject private var store: ScoreboardStore
@@ -9,6 +12,7 @@ struct ContentView: View {
     @State private var guestTeamDraft = ScoreboardStore.shared.guestTeamName
     @State private var setupPeriod = ScoreboardStore.shared.period
     @State private var setupClockSeconds = ScoreboardStore.shared.defaultClockSeconds
+    @State private var setupShotClockSeconds = ScoreboardStore.shared.defaultShotClockSeconds
     @State private var presetNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var didOpenMacScoreboardWindow = false
@@ -50,6 +54,9 @@ struct ContentView: View {
             showPublicBoardWindow()
             #endif
         }
+        #if os(macOS)
+        .background(ControlBoardWindowConfigurator())
+        #endif
     }
 
     private func setupScreen(layout: InterfaceLayout) -> some View {
@@ -131,18 +138,23 @@ struct ContentView: View {
                         )
 
                         setupClockCard(layout: layout)
+                        setupShotClockCard(layout: layout)
                     }
                 } else {
-                    HStack(spacing: 16) {
-                        setupStepperCard(
-                            title: "Starting Period",
-                            value: "\(setupPeriod)",
-                            layout: layout,
-                            decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                            increment: { setupPeriod = min(9, setupPeriod + 1) }
-                        )
+                    VStack(spacing: 16) {
+                        HStack(spacing: 16) {
+                            setupStepperCard(
+                                title: "Starting Period",
+                                value: "\(setupPeriod)",
+                                layout: layout,
+                                decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                                increment: { setupPeriod = min(9, setupPeriod + 1) }
+                            )
 
-                        setupClockCard(layout: layout)
+                            setupClockCard(layout: layout)
+                        }
+
+                        setupShotClockCard(layout: layout)
                     }
                 }
             }
@@ -155,6 +167,7 @@ struct ContentView: View {
                         guestTeamDraft = ""
                         setupPeriod = 1
                         setupClockSeconds = 12 * 60
+                        setupShotClockSeconds = 24
                         presetNameDraft = ""
                     },
                     ActionDescriptor(title: "Open Scoreboard", tint: .orange) {
@@ -162,7 +175,8 @@ struct ContentView: View {
                             homeName: homeTeamDraft,
                             guestName: guestTeamDraft,
                             period: setupPeriod,
-                            clockSeconds: setupClockSeconds
+                            clockSeconds: setupClockSeconds,
+                            shotClockSeconds: setupShotClockSeconds
                         )
                         #if os(macOS)
                         showPublicBoardWindow()
@@ -185,6 +199,8 @@ struct ContentView: View {
                 guestScore: 0,
                 period: setupPeriod,
                 formattedClock: formatClock(setupClockSeconds),
+                formattedShotClock: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                possessionDirection: .none,
                 isClockRunning: false,
                 compact: layout.previewUsesCompactBoard
             )
@@ -228,6 +244,54 @@ struct ContentView: View {
                     },
                     ActionDescriptor(title: "+1 Min", tint: .white.opacity(0.14)) {
                         setupClockSeconds = min((59 * 60) + 59, setupClockSeconds + 60)
+                    }
+                ]
+            )
+        }
+        .controlCardStyle()
+    }
+
+    private func setupShotClockCard(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Shot Clock")
+                    .font(.title3.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+
+                Text("Basketball")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.56))
+            }
+
+            Text(ScoreboardStore.formatShotClock(setupShotClockSeconds))
+                .font(.system(size: layout.metricValueSize, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.35)
+                .foregroundStyle(.white)
+
+            buttonGrid(
+                columns: layout.secondaryButtonColumns,
+                buttons: [
+                    ActionDescriptor(title: "24 Sec", tint: setupShotClockSeconds == 24 ? .orange : .white.opacity(0.14)) {
+                        setupShotClockSeconds = 24
+                    },
+                    ActionDescriptor(title: "14 Sec", tint: setupShotClockSeconds == 14 ? .orange : .white.opacity(0.14)) {
+                        setupShotClockSeconds = 14
+                    }
+                ]
+            )
+
+            buttonGrid(
+                columns: layout.secondaryButtonColumns,
+                buttons: [
+                    ActionDescriptor(title: "-1 Sec", tint: .white.opacity(0.14)) {
+                        setupShotClockSeconds = max(0, setupShotClockSeconds - 1)
+                    },
+                    ActionDescriptor(title: "+1 Sec", tint: .white.opacity(0.14)) {
+                        setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1)
                     }
                 ]
             )
@@ -434,7 +498,7 @@ struct ContentView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.72))
 
-            Text("P\(preset.period) • \(formatClock(preset.clockSeconds))")
+            Text("P\(preset.period) • \(formatClock(preset.clockSeconds)) • SC \(ScoreboardStore.formatShotClock(preset.shotClockSeconds))")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white.opacity(0.5))
         }
@@ -457,7 +521,7 @@ struct ContentView: View {
 
                 if layout.dashboardUsesSingleColumn || layout.dashboardStacksPreview {
                     VStack(spacing: layout.sectionSpacing) {
-                        previewPane(layout: layout)
+                        previewPane(layout: layout, height: previewHeight)
                             .frame(height: previewHeight)
 
                         controlPane(layout: layout)
@@ -465,7 +529,7 @@ struct ContentView: View {
                     }
                 } else {
                     HStack(spacing: layout.sectionSpacing) {
-                        previewPane(layout: layout)
+                        previewPane(layout: layout, height: contentHeight)
                             .frame(maxWidth: .infinity)
 
                         controlPane(layout: layout)
@@ -557,19 +621,110 @@ struct ContentView: View {
         return buttonGrid(columns: layout.headerActionColumns, buttons: buttons)
     }
 
-    private func previewPane(layout: InterfaceLayout) -> some View {
-        previewPanel(title: "Live Preview", caption: "Public scoreboard output", layout: layout) {
-            ScoreboardFaceView(
-                homeTeamName: store.homeTeamName,
-                guestTeamName: store.guestTeamName,
-                homeScore: store.homeScore,
-                guestScore: store.guestScore,
-                period: store.period,
-                formattedClock: store.formattedClock,
-                isClockRunning: store.isClockRunning,
-                compact: layout.previewUsesCompactBoard
+    private func previewPane(layout: InterfaceLayout, height: CGFloat) -> some View {
+        let widgetHeight = layout.shotClockWidgetHeight(in: height)
+        let previewHeight = max(height - widgetHeight - layout.sectionSpacing, 0)
+
+        return VStack(spacing: layout.sectionSpacing) {
+            previewPanel(title: "Live Preview", caption: "Public scoreboard output", layout: layout) {
+                ScoreboardFaceView(
+                    homeTeamName: store.homeTeamName,
+                    guestTeamName: store.guestTeamName,
+                    homeScore: store.homeScore,
+                    guestScore: store.guestScore,
+                    period: store.period,
+                    formattedClock: store.formattedClock,
+                    formattedShotClock: store.formattedShotClock,
+                    possessionDirection: store.possessionDirection,
+                    isClockRunning: store.isClockRunning,
+                    compact: layout.previewUsesCompactBoard
+                )
+            }
+            .frame(height: previewHeight)
+
+            shotClockWidget(layout: layout)
+                .frame(height: widgetHeight)
+        }
+    }
+
+    private func shotClockWidget(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("24 Second Timer")
+                    .font(.title3.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+
+                Text("Direction: \(store.possessionDirection.displayName)")
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+
+            HStack(alignment: .center, spacing: 16) {
+                Text(store.formattedShotClock)
+                    .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.4)
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    possessionDirectionButton("Home", tint: Color(red: 0.97, green: 0.38, blue: 0.28), isSelected: store.possessionDirection == .home) {
+                        store.setPossessionDirection(.home)
+                    }
+                    possessionDirectionButton("Off", tint: .white.opacity(0.14), isSelected: store.possessionDirection == .none) {
+                        store.setPossessionDirection(.none)
+                    }
+                    possessionDirectionButton("Guest", tint: Color(red: 0.22, green: 0.68, blue: 0.95), isSelected: store.possessionDirection == .guest) {
+                        store.setPossessionDirection(.guest)
+                    }
+                }
+            }
+
+            buttonGrid(
+                columns: layout.shotClockButtonColumns,
+                buttons: [
+                    ActionDescriptor(title: store.isShotClockRunning ? "Shot Pause" : "Shot Start", tint: .white.opacity(0.14)) {
+                        store.toggleShotClock()
+                    },
+                    ActionDescriptor(title: "Shot 24", tint: .orange) {
+                        store.resetShotClock(to: 24)
+                    },
+                    ActionDescriptor(title: "Shot 14", tint: .white.opacity(0.14)) {
+                        store.resetShotClock(to: 14)
+                    },
+                    ActionDescriptor(title: "Shot -1", tint: .white.opacity(0.14)) {
+                        store.adjustShotClock(by: -1)
+                    },
+                    ActionDescriptor(title: "Shot +1", tint: .white.opacity(0.14)) {
+                        store.adjustShotClock(by: 1)
+                    }
+                ],
+                dense: layout.denseControls
             )
         }
+        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+    }
+
+    private func possessionDirectionButton(
+        _ title: String,
+        tint: Color,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isSelected ? tint : .white.opacity(0.08), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
@@ -804,9 +959,7 @@ struct ContentView: View {
     }
 
     private func formatClock(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        let remainingSeconds = seconds % 60
-        return String(format: "%02d:%02d", minutes, remainingSeconds)
+        ScoreboardStore.formatGameClock(seconds)
     }
 
     private func savePreset() {
@@ -815,7 +968,9 @@ struct ContentView: View {
             homeName: homeTeamDraft,
             guestName: guestTeamDraft,
             period: setupPeriod,
-            clockSeconds: setupClockSeconds
+            clockSeconds: setupClockSeconds,
+            shotClockSeconds: setupShotClockSeconds,
+            possessionDirection: .none
         )
         presetNameDraft = presetNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -825,6 +980,7 @@ struct ContentView: View {
         guestTeamDraft = store.guestTeamName
         setupPeriod = store.period
         setupClockSeconds = store.defaultClockSeconds
+        setupShotClockSeconds = store.defaultShotClockSeconds
     }
 
     private func applyPreset(_ preset: SetupPreset) {
@@ -833,6 +989,7 @@ struct ContentView: View {
         guestTeamDraft = preset.guestTeamName
         setupPeriod = preset.period
         setupClockSeconds = preset.clockSeconds
+        setupShotClockSeconds = preset.shotClockSeconds
     }
 
     private func displayTeamName(_ name: String) -> String {
@@ -1007,6 +1164,15 @@ private struct InterfaceLayout {
         }
         return contentHeight
     }
+    func shotClockWidgetHeight(in totalHeight: CGFloat) -> CGFloat {
+        let minimumBoardHeight: CGFloat = dashboardUsesSingleColumn ? 180 : dashboardStacksPreview ? 210 : 260
+        let baseHeight = min(
+            max(totalHeight * (dashboardUsesSingleColumn ? 0.24 : dashboardStacksPreview ? 0.22 : 0.18), 104),
+            dashboardUsesSingleColumn ? 144 : 156
+        )
+        let availableHeight = max(totalHeight - minimumBoardHeight - sectionSpacing, 0)
+        return min(baseHeight, availableHeight)
+    }
 
     var headerUsesVerticalFlow: Bool { isPortraitish || width < 920 }
     var headerActionColumns: Int {
@@ -1034,6 +1200,11 @@ private struct InterfaceLayout {
         if dashboardStacksPreview { return width < 620 ? 2 : 5 }
         if width < 1000 { return 3 }
         if width < 1320 { return 4 }
+        return 5
+    }
+    var shotClockButtonColumns: Int {
+        if width < 520 { return 2 }
+        if width < 900 { return 3 }
         return 5
     }
 
@@ -1112,3 +1283,64 @@ struct ContentView_Previews: PreviewProvider {
         .environmentObject(PublicBoardState.shared)
     }
 }
+
+#if os(macOS)
+private struct ControlBoardWindowConfigurator: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            context.coordinator.configureWindowIfNeeded(for: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.configureWindowIfNeeded(for: nsView)
+        }
+    }
+
+    final class Coordinator: NSObject, NSWindowDelegate {
+        private var positionedWindowNumbers = Set<Int>()
+        private var delegatedWindowNumbers = Set<Int>()
+
+        func configureWindowIfNeeded(for view: NSView) {
+            guard let window = view.window else {
+                return
+            }
+
+            if delegatedWindowNumbers.insert(window.windowNumber).inserted {
+                window.delegate = self
+            }
+
+            guard
+                positionedWindowNumbers.insert(window.windowNumber).inserted,
+                let primaryScreen = NSScreen.screens.first
+            else {
+                return
+            }
+
+            let visibleFrame = primaryScreen.visibleFrame
+            let currentSize = window.frame.size
+            let fittedSize = CGSize(
+                width: min(currentSize.width, visibleFrame.width),
+                height: min(currentSize.height, visibleFrame.height)
+            )
+            let origin = CGPoint(
+                x: visibleFrame.midX - (fittedSize.width / 2),
+                y: visibleFrame.midY - (fittedSize.height / 2)
+            )
+
+            window.setFrame(CGRect(origin: origin, size: fittedSize), display: true)
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            NSApp.terminate(nil)
+        }
+    }
+}
+#endif

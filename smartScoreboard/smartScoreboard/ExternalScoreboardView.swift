@@ -23,6 +23,8 @@ struct ExternalScoreboardView: View {
                     guestScore: store.guestScore,
                     period: store.period,
                     formattedClock: store.formattedClock,
+                    formattedShotClock: store.formattedShotClock,
+                    possessionDirection: store.possessionDirection,
                     isClockRunning: store.isClockRunning,
                     compact: usesCompactBoard
                 )
@@ -72,6 +74,8 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
 
     final class Coordinator {
         private var configuredWindowNumbers = Set<Int>()
+        private var placedWindowNumbers = Set<Int>()
+        private var fullscreenRequestedWindowNumbers = Set<Int>()
 
         func configureWindowIfNeeded(for view: NSView) {
             guard let window = view.window else {
@@ -84,7 +88,52 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
                 window.styleMask.insert(.fullSizeContentView)
                 window.isMovableByWindowBackground = false
                 window.backgroundColor = .black
-                window.collectionBehavior.insert(.fullScreenAllowsTiling)
+                window.collectionBehavior.insert([.fullScreenPrimary, .fullScreenAllowsTiling])
+            }
+
+            if placedWindowNumbers.insert(window.windowNumber).inserted {
+                placeWindowOnSecondaryDisplayIfAvailable(window)
+            }
+
+            requestFullscreenIfNeeded(window)
+        }
+
+        private func placeWindowOnSecondaryDisplayIfAvailable(_ window: NSWindow) {
+            let screens = NSScreen.screens
+            guard screens.count > 1 else {
+                return
+            }
+
+            let targetScreen = Array(screens.dropFirst()).first ?? screens[1]
+            let visibleFrame = targetScreen.visibleFrame
+            let currentSize = window.frame.size
+            let fittedSize = CGSize(
+                width: min(currentSize.width, visibleFrame.width),
+                height: min(currentSize.height, visibleFrame.height)
+            )
+            let origin = CGPoint(
+                x: visibleFrame.midX - (fittedSize.width / 2),
+                y: visibleFrame.midY - (fittedSize.height / 2)
+            )
+
+            window.setFrame(CGRect(origin: origin, size: fittedSize), display: true)
+        }
+
+        private func requestFullscreenIfNeeded(_ window: NSWindow) {
+            guard !window.styleMask.contains(.fullScreen) else {
+                return
+            }
+
+            guard fullscreenRequestedWindowNumbers.insert(window.windowNumber).inserted else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                guard !window.styleMask.contains(.fullScreen) else {
+                    return
+                }
+
+                window.toggleFullScreen(nil)
             }
         }
     }
