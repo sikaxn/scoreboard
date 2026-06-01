@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var setupPeriod = ScoreboardStore.shared.period
     @State private var setupClockSeconds = ScoreboardStore.shared.defaultClockSeconds
     @State private var setupShotClockSeconds = ScoreboardStore.shared.defaultShotClockSeconds
-    @State private var presetNameDraft = ""
+    @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var storedGameFiles: [StoredGameFile] = []
@@ -263,8 +263,6 @@ struct ContentView: View {
             settingsGamePane(layout: layout)
         case .files:
             settingsFilesPane()
-        case .presets:
-            settingsPresetsPane()
         }
     }
 
@@ -322,7 +320,14 @@ struct ContentView: View {
 
     private func settingsFilesPane() -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Game Files", footer: "Game files now live inside the app library first. Select one to keep working on it with autosave, then import or export when you need to move files in or out.") {
+            settingsSection(title: "Game Files", footer: "Use game files for both reusable setups and live games. Save the current setup as a new file, then load, import, export, or delete from the same library.") {
+                settingsTextEntryRow(title: "New Game File", text: $gameFileNameDraft, placeholder: "Weekend League")
+                settingsDivider()
+                settingsButtonRow(title: "Save Current Setup", buttonTitle: "Save as New File", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
+                    createStoredGameFromDraft()
+                }
+
+                settingsDivider()
                 settingsLibraryToolbar
                 settingsDivider()
                 settingsGameFileList
@@ -347,10 +352,6 @@ struct ContentView: View {
     private var settingsLibraryToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                settingsIconButton("Create", systemImage: "plus", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
-                    createStoredGameFromDraft()
-                }
-
                 settingsIconButton("Import", systemImage: "square.and.arrow.down.on.square", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
                     showsGameImporter = true
                 }
@@ -391,36 +392,6 @@ struct ContentView: View {
                         settingsGameFileRow(gameFile)
 
                         if index < storedGameFiles.count - 1 {
-                            settingsDivider()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func settingsPresetsPane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Save Preset", footer: "Presets are local shortcuts for recurring setups. Game files still hold the full live game state.") {
-                settingsTextEntryRow(title: "Preset Name", text: $presetNameDraft, placeholder: "Weekend League")
-                settingsDivider()
-                settingsButtonRow(title: "Save Current Setup", buttonTitle: "Save", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
-                    savePreset()
-                }
-            }
-
-            settingsSection(title: "Saved Presets") {
-                if store.setupPresets.isEmpty {
-                    Text("No presets saved yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                } else {
-                    ForEach(Array(store.setupPresets.enumerated()), id: \.element.id) { index, preset in
-                        settingsPresetRow(preset)
-
-                        if index < store.setupPresets.count - 1 {
                             settingsDivider()
                         }
                     }
@@ -614,9 +585,17 @@ struct ContentView: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
 
-                    Text(gameFile.detailLine)
+                    Text(gameFile.matchupLine)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+
+                    Text(gameFile.stateLine)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(gameFile.detailLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary.opacity(0.8))
                 }
 
                 Spacer(minLength: 0)
@@ -640,51 +619,6 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsPresetRow(_ preset: SetupPreset) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(preset.name)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
-
-                Text("\(displayTeamName(preset.homeTeamName)) vs \(displayTeamName(preset.guestTeamName))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Text("P\(preset.period) • \(formatClock(preset.clockSeconds)) • SC \(ScoreboardStore.formatShotClock(preset.shotClockSeconds))")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Button {
-                applyPreset(preset)
-                selectedSettingsPane = .game
-            } label: {
-                Text("Load")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 0.20, green: 0.47, blue: 0.94), in: Capsule())
-            }
-            .buttonStyle(.plain)
-
-            Button(role: .destructive) {
-                store.deletePreset(preset)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.red)
-                    .padding(10)
-                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, 10)
-    }
-
     private func settingsDivider() -> some View {
         Divider()
             .overlay(Color.black.opacity(0.07))
@@ -702,631 +636,6 @@ struct ContentView: View {
         } else if guestTeamDraft != normalizedValue {
             guestTeamDraft = normalizedValue
         }
-    }
-
-    private func setupDetailsList(layout: InterfaceLayout) -> some View {
-        setupListCard {
-            List {
-                Section {
-                    Text(setupDescription)
-                        .font(layout.bodyFont)
-                        .foregroundStyle(.white.opacity(0.76))
-                        .listRowBackground(Color.clear)
-                } header: {
-                    Text("Game Setup")
-                }
-
-                Section {
-                    TextField("Home Team", text: $homeTeamDraft)
-                        .scoreboardUppercaseEntry()
-                    TextField("Guest Team", text: $guestTeamDraft)
-                        .scoreboardUppercaseEntry()
-                } header: {
-                    Text("Teams")
-                }
-
-                Section {
-                    settingsStepperRow(
-                        title: "Starting Period",
-                        value: "\(setupPeriod)",
-                        decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                        increment: { setupPeriod = min(9, setupPeriod + 1) }
-                    )
-
-                    settingsStepperRow(
-                        title: "Opening Clock",
-                        value: formatClock(setupClockSeconds),
-                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                        increment: { setupClockSeconds = min((59 * 60) + 59, setupClockSeconds + 60) }
-                    )
-
-                    Picker("Clock Preset", selection: $setupClockSeconds) {
-                        Text("8:00").tag(8 * 60)
-                        Text("10:00").tag(10 * 60)
-                        Text("12:00").tag(12 * 60)
-                    }
-                    .pickerStyle(.segmented)
-
-                    settingsStepperRow(
-                        title: "Shot Clock",
-                        value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                        decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-                        increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-                    )
-
-                    Picker("Shot Preset", selection: $setupShotClockSeconds) {
-                        Text("24").tag(24)
-                        Text("14").tag(14)
-                    }
-                    .pickerStyle(.segmented)
-                } header: {
-                    Text("Rules")
-                }
-
-                Section {
-                    Button("Use Defaults") {
-                        resetSetupDraftsToDefaults()
-                    }
-
-                    Button("Swap Sides") {
-                        swapSetupSides()
-                    }
-
-                    Button("Open Scoreboard") {
-                        openSetupGame()
-                    }
-                    .foregroundStyle(.orange)
-
-                    if store.didCompleteSetup {
-                        Button("Back to Live Board") {
-                            loadSetupDraftsFromStore()
-                            showsSetup = false
-                        }
-                    }
-                } header: {
-                    Text("Actions")
-                }
-            }
-            .scoreboardSetupListStyle()
-        }
-    }
-
-    private func setupLibraryList(layout: InterfaceLayout) -> some View {
-        setupListCard {
-            List {
-                Section {
-                    settingsActionRow(title: "Open Game") {
-                        Button("Choose…") {
-                            showsGameImporter = true
-                        }
-                        .buttonStyle(.borderless)
-                    }
-
-                    settingsActionRow(title: "Save Draft") {
-                        Button("Save As…") {
-                            prepareDraftExport()
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                } header: {
-                    Text("File")
-                } footer: {
-                    Text("Each game lives as its own file. macOS uses the system open/save panels, and iOS uses the native document picker.")
-                }
-
-                Section {
-                    settingsSummaryRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
-                    settingsSummaryRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
-                    settingsSummaryRow(title: "Period", value: "\(setupPeriod)")
-                    settingsSummaryRow(title: "Opening Clock", value: formatClock(setupClockSeconds))
-                    settingsSummaryRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
-                } header: {
-                    Text("Current Draft")
-                } footer: {
-                    Text("Open a game file to replace these settings, or save this draft as a new game file.")
-                }
-            }
-            .scoreboardSetupListStyle()
-        }
-    }
-
-    private func setupListCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .scrollContentBackground(.hidden)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(.white.opacity(0.1))
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func settingsStepperRow(
-        title: String,
-        value: String,
-        decrement: @escaping () -> Void,
-        increment: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                Text(value)
-                    .font(.subheadline.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Stepper("", onIncrement: increment, onDecrement: decrement)
-                .labelsHidden()
-        }
-    }
-
-    private func settingsSummaryRow(title: String, value: String) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-            Spacer(minLength: 0)
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private func settingsActionRow<Content: View>(
-        title: String,
-        @ViewBuilder action: () -> Content
-    ) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-            Spacer(minLength: 0)
-            action()
-        }
-    }
-
-    private func savedGameRow(_ preset: SetupPreset) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                applyPreset(preset)
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(preset.name)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    Text("\(displayTeamName(preset.homeTeamName)) vs \(displayTeamName(preset.guestTeamName))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Text("P\(preset.period) • \(formatClock(preset.clockSeconds)) • SC \(ScoreboardStore.formatShotClock(preset.shotClockSeconds))")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button(role: .destructive) {
-                store.deletePreset(preset)
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-        }
-    }
-
-    private func setupFormPanel(layout: InterfaceLayout) -> some View {
-        VStack(spacing: layout.sectionSpacing) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Game Setup")
-                    .font(.system(size: layout.heroTitleSize, weight: .black, design: .rounded))
-                    .singleLineFitted(minScale: 0.6)
-                    .foregroundStyle(.white)
-
-                Text(setupDescription)
-                    .font(layout.bodyFont)
-                    .foregroundStyle(.white.opacity(0.76))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 18) {
-                setupField(
-                    title: "Home Team",
-                    text: $homeTeamDraft,
-                    tint: Color(red: 0.97, green: 0.38, blue: 0.28),
-                    layout: layout
-                )
-
-                setupField(
-                    title: "Guest Team",
-                    text: $guestTeamDraft,
-                    tint: Color(red: 0.22, green: 0.68, blue: 0.95),
-                    layout: layout
-                )
-
-                presetManagerCard(layout: layout)
-            }
-
-            Group {
-                if layout.setupControlCardsStacked {
-                    VStack(spacing: 16) {
-                        setupStepperCard(
-                            title: "Starting Period",
-                            value: "\(setupPeriod)",
-                            layout: layout,
-                            decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                            increment: { setupPeriod = min(9, setupPeriod + 1) }
-                        )
-
-                        setupClockCard(layout: layout)
-                        setupShotClockCard(layout: layout)
-                    }
-                } else {
-                    VStack(spacing: 16) {
-                        HStack(spacing: 16) {
-                            setupStepperCard(
-                                title: "Starting Period",
-                                value: "\(setupPeriod)",
-                                layout: layout,
-                                decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                                increment: { setupPeriod = min(9, setupPeriod + 1) }
-                            )
-
-                            setupClockCard(layout: layout)
-                        }
-
-                        setupShotClockCard(layout: layout)
-                    }
-                }
-            }
-
-            buttonGrid(
-                columns: layout.setupActionColumns,
-                buttons: [
-                    ActionDescriptor(title: "Use Defaults", tint: .white.opacity(0.14)) {
-                        homeTeamDraft = ""
-                        guestTeamDraft = ""
-                        setupPeriod = 1
-                        setupClockSeconds = 12 * 60
-                        setupShotClockSeconds = 24
-                        presetNameDraft = ""
-                    },
-                    ActionDescriptor(title: "Open Scoreboard", tint: .orange) {
-                        store.applySetup(
-                            homeName: homeTeamDraft,
-                            guestName: guestTeamDraft,
-                            period: setupPeriod,
-                            clockSeconds: setupClockSeconds,
-                            shotClockSeconds: setupShotClockSeconds
-                        )
-                        #if os(macOS)
-                        showPublicBoardWindow()
-                        #endif
-                        showsSetup = false
-                    }
-                ],
-                style: .large
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private func setupPreviewPanel(layout: InterfaceLayout) -> some View {
-        previewPanel(title: "Preview", caption: "Opening board layout", layout: layout) {
-            ScoreboardFaceView(
-                homeTeamName: homeTeamDraft,
-                guestTeamName: guestTeamDraft,
-                homeScore: 0,
-                guestScore: 0,
-                period: setupPeriod,
-                formattedClock: formatClock(setupClockSeconds),
-                formattedShotClock: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                possessionDirection: .none,
-                areSidesSwapped: false,
-                isClockRunning: false,
-                compact: layout.previewUsesCompactBoard
-            )
-        }
-        .frame(minHeight: layout.setupPreviewHeight)
-    }
-
-    private func setupClockCard(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Opening Clock")
-                .font(.title3.weight(.bold))
-                .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white)
-
-            Text(formatClock(setupClockSeconds))
-                .font(.system(size: layout.metricValueSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.35)
-                .foregroundStyle(.white)
-
-            buttonGrid(
-                columns: layout.presetButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "8:00", tint: setupClockSeconds == 8 * 60 ? .orange : .white.opacity(0.14)) {
-                        setupClockSeconds = 8 * 60
-                    },
-                    ActionDescriptor(title: "10:00", tint: setupClockSeconds == 10 * 60 ? .orange : .white.opacity(0.14)) {
-                        setupClockSeconds = 10 * 60
-                    },
-                    ActionDescriptor(title: "12:00", tint: setupClockSeconds == 12 * 60 ? .orange : .white.opacity(0.14)) {
-                        setupClockSeconds = 12 * 60
-                    }
-                ]
-            )
-
-            buttonGrid(
-                columns: layout.secondaryButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "-1 Min", tint: .white.opacity(0.14)) {
-                        setupClockSeconds = max(0, setupClockSeconds - 60)
-                    },
-                    ActionDescriptor(title: "+1 Min", tint: .white.opacity(0.14)) {
-                        setupClockSeconds = min((59 * 60) + 59, setupClockSeconds + 60)
-                    }
-                ]
-            )
-        }
-        .controlCardStyle()
-    }
-
-    private func setupShotClockCard(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Shot Clock")
-                    .font(.title3.weight(.bold))
-                    .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(.white)
-
-                Spacer(minLength: 0)
-
-                Text("Basketball")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.56))
-            }
-
-            Text(ScoreboardStore.formatShotClock(setupShotClockSeconds))
-                .font(.system(size: layout.metricValueSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.35)
-                .foregroundStyle(.white)
-
-            buttonGrid(
-                columns: layout.secondaryButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "24 Sec", tint: setupShotClockSeconds == 24 ? .orange : .white.opacity(0.14)) {
-                        setupShotClockSeconds = 24
-                    },
-                    ActionDescriptor(title: "14 Sec", tint: setupShotClockSeconds == 14 ? .orange : .white.opacity(0.14)) {
-                        setupShotClockSeconds = 14
-                    }
-                ]
-            )
-
-            buttonGrid(
-                columns: layout.secondaryButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "-1 Sec", tint: .white.opacity(0.14)) {
-                        setupShotClockSeconds = max(0, setupShotClockSeconds - 1)
-                    },
-                    ActionDescriptor(title: "+1 Sec", tint: .white.opacity(0.14)) {
-                        setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1)
-                    }
-                ]
-            )
-        }
-        .controlCardStyle()
-    }
-
-    private func setupStepperCard(
-        title: String,
-        value: String,
-        layout: InterfaceLayout,
-        decrement: @escaping () -> Void,
-        increment: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.title3.weight(.bold))
-                .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white)
-
-            Text(value)
-                .font(.system(size: layout.metricValueSize + 4, weight: .heavy, design: .rounded))
-                .singleLineFitted(minScale: 0.5)
-                .foregroundStyle(.white)
-
-            buttonGrid(
-                columns: layout.secondaryButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "Prev", tint: .white.opacity(0.14), action: decrement),
-                    ActionDescriptor(title: "Next", tint: .orange, action: increment)
-                ]
-            )
-        }
-        .controlCardStyle()
-    }
-
-    private func setupField(title: String, text: Binding<String>, tint: Color, layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title3.weight(.bold))
-                .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white)
-
-            TextField(title, text: text)
-                .scoreboardTextField(
-                    font: .system(size: layout.fieldFontSize, weight: .heavy, design: .rounded),
-                    tint: tint.opacity(0.18),
-                    cornerRadius: 22,
-                    horizontalPadding: 18,
-                    verticalPadding: 18
-                )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func presetManagerCard(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Preset List")
-                    .font(.title3.weight(.bold))
-                    .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(.white)
-
-                Spacer(minLength: 0)
-
-                Text("\(store.setupPresets.count) saved")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.56))
-            }
-
-            Group {
-                if layout.isCompactWidth {
-                    VStack(spacing: 10) {
-                        TextField("Preset Name", text: $presetNameDraft)
-                            .scoreboardTextField(
-                                font: .system(size: 18, weight: .bold, design: .rounded),
-                                tint: .white.opacity(0.08),
-                                cornerRadius: 18,
-                                horizontalPadding: 14,
-                                verticalPadding: 12
-                            )
-
-                        buttonGrid(
-                            columns: 1,
-                            buttons: [
-                                ActionDescriptor(title: "Save Preset", tint: .orange) {
-                                    savePreset()
-                                }
-                            ]
-                        )
-                    }
-                } else {
-                    HStack(spacing: 10) {
-                        TextField("Preset Name", text: $presetNameDraft)
-                            .scoreboardTextField(
-                                font: .system(size: 18, weight: .bold, design: .rounded),
-                                tint: .white.opacity(0.08),
-                                cornerRadius: 18,
-                                horizontalPadding: 14,
-                                verticalPadding: 12
-                            )
-
-                        Button {
-                            savePreset()
-                        } label: {
-                            Text("Save")
-                                .font(.headline.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                                .background(.orange, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            if store.setupPresets.isEmpty {
-                Text("Save a preset to reuse team names and opening clock settings.")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.64))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-            } else {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(store.setupPresets) { preset in
-                            presetRow(preset, layout: layout)
-                        }
-                    }
-                }
-                .frame(maxHeight: layout.presetListHeight)
-            }
-        }
-        .padding(18)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
-        )
-    }
-
-    private func presetRow(_ preset: SetupPreset, layout: InterfaceLayout) -> some View {
-        Group {
-            if layout.isCompactWidth {
-                VStack(alignment: .leading, spacing: 12) {
-                    presetSummary(preset)
-
-                    buttonGrid(
-                        columns: 2,
-                        buttons: [
-                            ActionDescriptor(title: "Load", tint: .white.opacity(0.14)) {
-                                applyPreset(preset)
-                            },
-                            ActionDescriptor(title: "Delete", tint: .red.opacity(0.82)) {
-                                store.deletePreset(preset)
-                            }
-                        ]
-                    )
-                }
-            } else {
-                HStack(spacing: 14) {
-                    presetSummary(preset)
-
-                    Spacer(minLength: 0)
-
-                    Button {
-                        applyPreset(preset)
-                    } label: {
-                        Text("Load")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(.white.opacity(0.12), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        store.deletePreset(preset)
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Color.red.opacity(0.82), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func presetSummary(_ preset: SetupPreset) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(preset.name)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
-
-            Text("\(displayTeamName(preset.homeTeamName)) vs \(displayTeamName(preset.guestTeamName))")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
-
-            Text("P\(preset.period) • \(formatClock(preset.clockSeconds)) • SC \(ScoreboardStore.formatShotClock(preset.shotClockSeconds))")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func dashboard(layout: InterfaceLayout) -> some View {
@@ -1837,11 +1146,13 @@ struct ContentView: View {
         setupPeriod = 1
         setupClockSeconds = 12 * 60
         setupShotClockSeconds = 24
+        gameFileNameDraft = ""
     }
 
     private func createNewGame() {
         resetSetupDraftsToDefaults()
         selectedStoredGameFileID = nil
+        gameFileNameDraft = ""
         selectedSettingsPane = .game
         showsSetup = true
     }
@@ -1890,11 +1201,13 @@ struct ContentView: View {
     private func createStoredGameFromDraft() {
         do {
             let snapshot = currentSetupWorkingSnapshot()
-            let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(homeTeamDraft, guestTeamDraft))
+            let preferredFilename = resolvedGameFilenameDraft(homeTeamDraft, guestTeamDraft)
+            let url = try uniqueStoredGameFileURL(preferredFilename: preferredFilename)
             try writeGameSnapshot(snapshot, to: url)
             refreshStoredGameFiles(selectedURL: url)
             store.applyGameSnapshot(snapshot)
             loadSetupDraftsFromStore()
+            gameFileNameDraft = url.deletingPathExtension().lastPathComponent
         } catch {
             fileOperationErrorMessage = error.localizedDescription
         }
@@ -1961,6 +1274,7 @@ struct ContentView: View {
             selectedStoredGameFileID = gameFile.id
             store.applyGameSnapshot(snapshot)
             loadSetupDraftsFromStore()
+            gameFileNameDraft = gameFile.displayName
         } catch {
             fileOperationErrorMessage = error.localizedDescription
         }
@@ -1981,7 +1295,8 @@ struct ContentView: View {
                     let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
                     return StoredGameFile(
                         url: url,
-                        modifiedAt: values.contentModificationDate ?? .distantPast
+                        modifiedAt: values.contentModificationDate ?? .distantPast,
+                        snapshot: try? loadGameSnapshot(from: url)
                     )
                 }
                 .sorted {
@@ -2018,34 +1333,13 @@ struct ContentView: View {
         return "\(resolvedHome) vs \(resolvedGuest).scoreboardgame"
     }
 
-    private func savePreset() {
-        store.savePreset(
-            named: presetNameDraft,
-            homeName: homeTeamDraft,
-            guestName: guestTeamDraft,
-            period: setupPeriod,
-            clockSeconds: setupClockSeconds,
-            shotClockSeconds: setupShotClockSeconds,
-            possessionDirection: .none
-        )
-        presetNameDraft = presetNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private func loadSetupDraftsFromStore() {
         homeTeamDraft = store.homeTeamName
         guestTeamDraft = store.guestTeamName
         setupPeriod = store.period
         setupClockSeconds = store.gameClockSeconds
         setupShotClockSeconds = store.activeShotClockPresetSeconds
-    }
-
-    private func applyPreset(_ preset: SetupPreset) {
-        presetNameDraft = preset.name
-        homeTeamDraft = preset.homeTeamName
-        guestTeamDraft = preset.guestTeamName
-        setupPeriod = preset.period
-        setupClockSeconds = preset.clockSeconds
-        setupShotClockSeconds = preset.shotClockSeconds
+        gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
     }
 
     private func displayTeamName(_ name: String) -> String {
@@ -2092,6 +1386,18 @@ struct ContentView: View {
         return candidateURL
     }
 
+    private func resolvedGameFilenameDraft(_ home: String, _ guest: String, includeExtension: Bool = true) -> String {
+        let trimmed = gameFileNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return includeExtension && !trimmed.lowercased().hasSuffix(".scoreboardgame")
+                ? "\(trimmed).scoreboardgame"
+                : trimmed
+        }
+
+        let suggested = suggestedGameFilename(home, guest)
+        return includeExtension ? suggested : suggested.replacingOccurrences(of: ".scoreboardgame", with: "")
+    }
+
     private func sanitizeGameFilename(_ filename: String) -> String {
         let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = trimmed.isEmpty ? "New Game.scoreboardgame" : trimmed
@@ -2111,6 +1417,7 @@ struct ContentView: View {
     }
 
     private func initializeWorkingGameFile() {
+        migrateLegacyPresetsToStoredGameFilesIfNeeded()
         refreshStoredGameFiles()
 
         if let selectedStoredGameFile {
@@ -2129,6 +1436,7 @@ struct ContentView: View {
             try writeGameSnapshot(snapshot, to: url)
             refreshStoredGameFiles(selectedURL: url)
             loadSetupDraftsFromStore()
+            gameFileNameDraft = url.deletingPathExtension().lastPathComponent
         } catch {
             fileOperationErrorMessage = error.localizedDescription
         }
@@ -2145,6 +1453,7 @@ struct ContentView: View {
                 let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(snapshot.homeTeamName, snapshot.guestTeamName))
                 try writeGameSnapshot(snapshot, to: url)
                 refreshStoredGameFiles(selectedURL: url)
+                gameFileNameDraft = url.deletingPathExtension().lastPathComponent
             } catch {
                 fileOperationErrorMessage = error.localizedDescription
             }
@@ -2195,6 +1504,41 @@ struct ContentView: View {
             if refreshSelection {
                 refreshStoredGameFiles(selectedURL: selectedURL)
             }
+        } catch {
+            fileOperationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func migrateLegacyPresetsToStoredGameFilesIfNeeded() {
+        guard !store.setupPresets.isEmpty else {
+            return
+        }
+
+        do {
+            for preset in store.setupPresets {
+                let snapshot = ScoreboardGameSnapshot(
+                    homeTeamName: preset.homeTeamName,
+                    guestTeamName: preset.guestTeamName,
+                    homeScore: 0,
+                    guestScore: 0,
+                    period: preset.period,
+                    gameClockSeconds: preset.clockSeconds,
+                    defaultClockSeconds: preset.clockSeconds,
+                    shotClockMilliseconds: preset.shotClockSeconds * 1_000,
+                    defaultShotClockSeconds: preset.shotClockSeconds,
+                    activeShotClockPresetSeconds: preset.shotClockSeconds,
+                    possessionDirection: preset.possessionDirection,
+                    areSidesSwapped: false
+                )
+
+                let baseFilename = preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? suggestedGameFilename(preset.homeTeamName, preset.guestTeamName)
+                    : "\(preset.name).scoreboardgame"
+                let url = try uniqueStoredGameFileURL(preferredFilename: baseFilename)
+                try writeGameSnapshot(snapshot, to: url)
+            }
+
+            store.setupPresets.removeAll()
         } catch {
             fileOperationErrorMessage = error.localizedDescription
         }
@@ -2315,19 +1659,47 @@ private struct ActionDescriptor {
     let action: () -> Void
 }
 
-private struct StoredGameFile: Identifiable, Equatable {
+private struct StoredGameFile: Identifiable {
     let url: URL
     let modifiedAt: Date
+    let snapshot: ScoreboardGameSnapshot?
 
     var id: String { url.path }
     var displayName: String { url.deletingPathExtension().lastPathComponent }
+    var matchupLine: String {
+        guard let snapshot else {
+            return "Game file"
+        }
+
+        let home = snapshot.homeTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TBD" : snapshot.homeTeamName
+        let guest = snapshot.guestTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TBD" : snapshot.guestTeamName
+        return "\(home) vs \(guest)"
+    }
+    var stateLine: String {
+        guard let snapshot else {
+            return "Preview unavailable"
+        }
+
+        return "P\(snapshot.period) • \(formatGameClock(snapshot.defaultClockSeconds)) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+    }
     var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
+
+    private func formatGameClock(_ totalSeconds: Int) -> String {
+        let boundedSeconds = max(0, min(59 * 60 + 59, totalSeconds))
+        let minutes = boundedSeconds / 60
+        let seconds = boundedSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func formatShotClock(_ totalSeconds: Int) -> String {
+        let boundedSeconds = max(0, min(99, totalSeconds))
+        return String(format: "%.1f", Double(boundedSeconds))
+    }
 }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
     case files
-    case presets
 
     var id: String { rawValue }
 
@@ -2336,9 +1708,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .game:
             return "Game Setup"
         case .files:
-            return "Game Files"
-        case .presets:
-            return "Presets"
+            return "Library"
         }
     }
 
@@ -2347,9 +1717,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .game:
             return "Edit teams, period, and clock defaults before opening the live control board."
         case .files:
-            return "Manage the app’s local game library, then import or export files when needed."
-        case .presets:
-            return "Store reusable local presets for recurring leagues and venues."
+            return "Manage local game files for both reusable setups and live games."
         }
     }
 
@@ -2358,9 +1726,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .game:
             return "slider.horizontal.3"
         case .files:
-            return "doc.text"
-        case .presets:
-            return "square.stack.3d.up"
+            return "books.vertical"
         }
     }
 }
@@ -2412,9 +1778,7 @@ private struct InterfaceLayout {
     var setupFormWidth: CGFloat { min(max(contentMaxWidth * 0.38, 420), 540) }
     var setupPreviewHeight: CGFloat { max(280, min(height * 0.52, 520)) }
     var setupActionColumns: Int { isCompactWidth ? 1 : 2 }
-    var presetButtonColumns: Int { width < 700 ? 1 : 3 }
     var secondaryButtonColumns: Int { width < 620 ? 1 : 2 }
-    var presetListHeight: CGFloat { isCompactWidth ? 240 : 180 }
 
     var dashboardUsesSingleColumn: Bool { width < 560 }
     var dashboardStacksPreview: Bool { !dashboardUsesSingleColumn && isPortraitish }
