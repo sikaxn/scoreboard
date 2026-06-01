@@ -23,11 +23,11 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
                 .environmentObject(PublicBoardState.shared)
         )
         hostingController.view.backgroundColor = .black
-        hostingController.view.frame = sceneBounds(for: windowScene)
+        hostingController.view.frame = displayBounds(for: windowScene)
         hostingController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         let window = UIWindow(windowScene: windowScene)
-        window.frame = sceneBounds(for: windowScene)
+        window.frame = displayBounds(for: windowScene)
         window.rootViewController = hostingController
         window.backgroundColor = .black
         window.isHidden = false
@@ -59,17 +59,13 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
     }
 
     private func updateWindowFrame(for windowScene: UIWindowScene) {
-        let bounds = sceneBounds(for: windowScene)
+        let bounds = displayBounds(for: windowScene)
         window?.frame = bounds
         window?.rootViewController?.view.frame = bounds
     }
 
-    private func sceneBounds(for windowScene: UIWindowScene) -> CGRect {
-        if #available(iOS 26.0, *) {
-            return windowScene.effectiveGeometry.coordinateSpace.bounds
-        } else {
-            return windowScene.coordinateSpace.bounds
-        }
+    private func displayBounds(for windowScene: UIWindowScene) -> CGRect {
+        windowScene.screen.bounds
     }
 }
 #endif
