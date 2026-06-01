@@ -3,6 +3,14 @@ import SwiftUI
 struct ScoreboardFaceView: View {
     static let preferredAspectRatio: CGFloat = 16.0 / 9.0
 
+    enum BackgroundStyle {
+        case blurred
+        case clear
+        case transparent
+    }
+
+    let theme: ScoreboardTheme
+    let backgroundStyle: BackgroundStyle
     let homeTeamName: String
     let guestTeamName: String
     let homeScore: Int
@@ -14,6 +22,18 @@ struct ScoreboardFaceView: View {
     let areSidesSwapped: Bool
     let isClockRunning: Bool
     let compact: Bool
+
+    private var palette: ThemePalette { theme.palette }
+    private var usesTransparentBoardSurfaces: Bool { backgroundStyle == .transparent }
+    private var boardPrimaryTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardPrimaryText }
+    private var boardSecondaryTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.72) : palette.boardSecondaryText }
+    private var boardPanelBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.78) : palette.boardPanelBackground }
+    private var boardClockPanelBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.84) : palette.boardClockPanelBackground }
+    private var boardPanelBorderColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.16) : palette.boardPanelBorder }
+    private var boardBadgeBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.68) : palette.boardBadgeBackground }
+    private var boardBadgeBorderColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.18) : palette.boardBadgeBorder }
+    private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
+    private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
 
     var body: some View {
         GeometryReader { proxy in
@@ -75,53 +95,55 @@ struct ScoreboardFaceView: View {
 
     private func scoreboardBackground(leftAccent: Color, rightAccent: Color) -> some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.03, blue: 0.05),
-                    Color(red: 0.04, green: 0.04, blue: 0.07),
-                    Color.black
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            HStack {
-                RadialGradient(
-                    colors: [
-                        leftAccent.opacity(0.28),
-                        .clear
-                    ],
-                    center: .center,
-                    startRadius: 24,
-                    endRadius: 420
-                )
-
-                Spacer()
-
-                RadialGradient(
-                    colors: [
-                        rightAccent.opacity(0.28),
-                        .clear
-                    ],
-                    center: .center,
-                    startRadius: 24,
-                    endRadius: 420
+            if backgroundStyle != .transparent {
+                LinearGradient(
+                    colors: palette.boardBackground,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
             }
 
-            Rectangle()
-                .fill(
-                    LinearGradient(
+            if backgroundStyle == .blurred {
+                HStack {
+                    RadialGradient(
                         colors: [
-                            .white.opacity(0.05),
-                            .clear,
-                            .clear,
-                            .white.opacity(0.03)
+                            leftAccent.opacity(0.28),
+                            .clear
                         ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        center: .center,
+                        startRadius: 24,
+                        endRadius: 420
                     )
-                )
+
+                    Spacer()
+
+                    RadialGradient(
+                        colors: [
+                            rightAccent.opacity(0.28),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 24,
+                        endRadius: 420
+                    )
+                }
+            }
+
+            if backgroundStyle == .blurred {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                palette.boardHighlightTop,
+                                .clear,
+                                .clear,
+                                palette.boardHighlightBottom
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
         }
     }
 
@@ -144,7 +166,7 @@ struct ScoreboardFaceView: View {
                         .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
                         .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
                         .singleLineFitted(minScale: 0.8)
-                        .foregroundStyle(.white.opacity(0.42))
+                        .foregroundStyle(boardSecondaryTextColor)
 
                     if showsPossession {
                         Image(systemName: possessionArrowSystemName)
@@ -156,7 +178,7 @@ struct ScoreboardFaceView: View {
                 Text(resolvedTitle(title, placeholder: placeholder))
                     .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.35)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(boardPrimaryTextColor)
 
                 Capsule()
                     .fill(accent)
@@ -171,16 +193,18 @@ struct ScoreboardFaceView: View {
                 .contentTransition(.numericText())
                 .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
                 .foregroundStyle(accent)
+                .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                 .frame(maxWidth: .infinity)
 
             Spacer(minLength: 0)
         }
         .padding(ultraCondensed ? 14 : condensed ? 28 : 24)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous))
+        .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(boardPanelBorderColor)
         )
+        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
     }
 
     private func centerClockPanel(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -193,7 +217,8 @@ struct ScoreboardFaceView: View {
                 .singleLineFitted(minScale: 0.24)
                 .contentTransition(.numericText())
                 .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
-                .foregroundStyle(.white)
+                .foregroundStyle(boardPrimaryTextColor)
+                .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                 .frame(maxWidth: .infinity)
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
@@ -205,11 +230,12 @@ struct ScoreboardFaceView: View {
             Spacer(minLength: 0)
         }
         .padding(ultraCondensed ? 14 : condensed ? 28 : 24)
-        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous))
+        .background(boardClockPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(boardPanelBorderColor)
         )
+        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
     }
 
     private func headerBadge(title: String, value: String, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -218,19 +244,19 @@ struct ScoreboardFaceView: View {
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 16 : 14, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.5)
                 .singleLineFitted(minScale: 0.75)
-                .foregroundStyle(.white.opacity(0.46))
+                .foregroundStyle(boardBadgeTitleTextColor)
 
             Text(value)
                 .font(.system(size: ultraCondensed ? 18 : condensed ? 34 : 28, weight: .heavy, design: .rounded))
                 .singleLineFitted(minScale: 0.55)
-                .foregroundStyle(.white)
+                .foregroundStyle(boardBadgeValueTextColor)
         }
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
         .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(boardBadgeBorderColor)
         )
     }
 
@@ -246,7 +272,7 @@ struct ScoreboardFaceView: View {
                 role: "HOME",
                 title: homeTeamName,
                 score: homeScore,
-                accent: Color(red: 0.97, green: 0.38, blue: 0.28),
+                accent: palette.homeAccent,
                 showsPossession: possessionDirection == .home
             )
         case .guest:
@@ -254,7 +280,7 @@ struct ScoreboardFaceView: View {
                 role: "GUEST",
                 title: guestTeamName,
                 score: guestScore,
-                accent: Color(red: 0.22, green: 0.68, blue: 0.95),
+                accent: palette.guestAccent,
                 showsPossession: possessionDirection == .guest
             )
         case .none:
@@ -262,7 +288,7 @@ struct ScoreboardFaceView: View {
                 role: "",
                 title: "",
                 score: 0,
-                accent: .white,
+                accent: palette.boardPrimaryText,
                 showsPossession: false
             )
         }

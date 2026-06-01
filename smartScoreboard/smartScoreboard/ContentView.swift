@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject private var publicBoardState: PublicBoardState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var homeTeamDraft = ScoreboardStore.shared.homeTeamName
     @State private var guestTeamDraft = ScoreboardStore.shared.guestTeamName
@@ -29,21 +30,26 @@ struct ContentView: View {
     @State private var exportFilename = "Scoreboard Game.scoreboardgame"
     @State private var fileOperationErrorMessage: String?
 
+    private var themePalette: ThemePalette { store.theme.palette }
+    private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
+    private var homeTint: Color { themePalette.homeAccent }
+    private var guestTint: Color { themePalette.guestAccent }
+
     var body: some View {
         GeometryReader { proxy in
             let layout = InterfaceLayout(size: proxy.size)
 
             ZStack {
                 if showsSetup {
-                    Color(red: 0.95, green: 0.96, blue: 0.98)
+                    LinearGradient(
+                        colors: themePalette.appSetupBackground,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                         .ignoresSafeArea()
                 } else {
                     LinearGradient(
-                        colors: [
-                            Color(red: 0.08, green: 0.09, blue: 0.14),
-                            Color(red: 0.16, green: 0.08, blue: 0.08),
-                            Color.black
-                        ],
+                        colors: themePalette.appDashboardBackground,
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -121,11 +127,11 @@ struct ContentView: View {
             settingsDetailPane(layout: layout)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(.white)
+        .background(settingsPalette.shellBackground)
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(Color.black.opacity(0.08))
+                .strokeBorder(settingsPalette.divider)
         )
         .padding(layout.outerPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,11 +142,11 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Settings")
                     .font(.system(size: layout.heroTitleSize - 4, weight: .black, design: .rounded))
-                    .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                    .foregroundStyle(settingsPalette.primaryText)
 
                 Text(setupDescription)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(settingsPalette.secondaryText)
             }
 
             VStack(spacing: 8) {
@@ -158,10 +164,10 @@ struct ContentView: View {
                 } label: {
                     Text(publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(settingsPalette.accentText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color.orange, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(settingsPalette.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 #endif
@@ -171,10 +177,10 @@ struct ContentView: View {
                 } label: {
                     Text("Sound Test")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(settingsPalette.accentText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color.orange, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(settingsPalette.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(!store.isSoundEnabled)
@@ -187,10 +193,10 @@ struct ContentView: View {
                     } label: {
                         Text("Back to Live Board")
                             .font(.headline.weight(.bold))
-                            .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                            .foregroundStyle(settingsPalette.secondaryButtonText)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color(red: 0.93, green: 0.94, blue: 0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .background(settingsPalette.secondaryButtonBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
                 }
@@ -198,10 +204,10 @@ struct ContentView: View {
         }
         .padding(24)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.white)
+        .background(settingsPalette.sidebarBackground)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(Color.black.opacity(0.08))
+                .fill(settingsPalette.divider)
                 .frame(width: 1)
         }
     }
@@ -220,11 +226,11 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(selectedSettingsPane == pane ? .white : Color(red: 0.10, green: 0.12, blue: 0.18))
+            .foregroundStyle(selectedSettingsPane == pane ? settingsPalette.accentText : settingsPalette.primaryText)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
-                (selectedSettingsPane == pane ? Color(red: 0.20, green: 0.47, blue: 0.94) : Color.clear),
+                (selectedSettingsPane == pane ? settingsPalette.accent : Color.clear),
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
         }
@@ -238,11 +244,11 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(selectedSettingsPane.title)
                             .font(.system(size: 30, weight: .black, design: .rounded))
-                            .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                            .foregroundStyle(settingsPalette.primaryText)
 
                         Text(selectedSettingsPane.subtitle)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(settingsPalette.secondaryText)
                     }
 
                     Spacer(minLength: 0)
@@ -253,7 +259,7 @@ struct ContentView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(Color(red: 0.95, green: 0.96, blue: 0.98))
+        .background(settingsPalette.detailBackground)
     }
 
     @ViewBuilder
@@ -261,6 +267,8 @@ struct ContentView: View {
         switch selectedSettingsPane {
         case .game:
             settingsGamePane(layout: layout)
+        case .theme:
+            settingsThemePane()
         case .files:
             settingsFilesPane()
         }
@@ -318,12 +326,36 @@ struct ContentView: View {
         }
     }
 
+    private func settingsThemePane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
+                ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
+                    themeSelectionRow(theme)
+
+                    if index < ScoreboardTheme.allCases.count - 1 {
+                        settingsDivider()
+                    }
+                }
+            }
+
+            settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
+                ForEach(Array(ExternalDisplayBackgroundMode.allCases.enumerated()), id: \.element.id) { index, mode in
+                    externalBackgroundModeRow(mode)
+
+                    if index < ExternalDisplayBackgroundMode.allCases.count - 1 {
+                        settingsDivider()
+                    }
+                }
+            }
+        }
+    }
+
     private func settingsFilesPane() -> some View {
         VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Game Files", footer: "Use game files for both reusable setups and live games. Save the current setup as a new file, then load, import, export, or delete from the same library.") {
                 settingsTextEntryRow(title: "New Game File", text: $gameFileNameDraft, placeholder: "Weekend League")
                 settingsDivider()
-                settingsButtonRow(title: "Save Current Setup", buttonTitle: "Save as New File", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
+                settingsButtonRow(title: "Save Current Setup", buttonTitle: "Save as New File", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
                     createStoredGameFromDraft()
                 }
 
@@ -352,14 +384,15 @@ struct ContentView: View {
     private var settingsLibraryToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                settingsIconButton("Import", systemImage: "square.and.arrow.down.on.square", tint: Color(red: 0.20, green: 0.47, blue: 0.94)) {
+                settingsIconButton("Import", systemImage: "square.and.arrow.down.on.square", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
                     showsGameImporter = true
                 }
 
                 settingsIconButton(
                     "Export",
                     systemImage: "square.and.arrow.up",
-                    tint: Color(red: 0.20, green: 0.47, blue: 0.94),
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
                     isEnabled: selectedStoredGameFile != nil
                 ) {
                     exportSelectedStoredGame()
@@ -368,7 +401,8 @@ struct ContentView: View {
                 settingsIconButton(
                     "Delete",
                     systemImage: "trash",
-                    tint: .red,
+                    tint: themePalette.destructiveTint,
+                    foreground: .white,
                     isEnabled: selectedStoredGameFile != nil
                 ) {
                     deleteSelectedStoredGame()
@@ -383,7 +417,7 @@ struct ContentView: View {
             if storedGameFiles.isEmpty {
                 Text("No local game files yet. Create one from the current draft or import an existing file.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(settingsPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 12)
             } else {
@@ -408,7 +442,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(settingsPalette.secondaryText)
                 .textCase(.uppercase)
 
             VStack(spacing: 0) {
@@ -416,16 +450,16 @@ struct ContentView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 8)
-            .background(.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color.black.opacity(0.06))
+                    .strokeBorder(settingsPalette.cardBorder)
             )
 
             if let footer, !footer.isEmpty {
                 Text(footer)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(settingsPalette.secondaryText)
             }
         }
     }
@@ -439,7 +473,7 @@ struct ContentView: View {
         HStack(spacing: 16) {
             Text(title)
                 .font(.body)
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
@@ -447,10 +481,10 @@ struct ContentView: View {
                 .scoreboardUppercaseEntry()
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color(red: 0.96, green: 0.97, blue: 0.99), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .frame(maxWidth: 280)
                 .onSubmit {
                     guard let teamSide else {
@@ -478,14 +512,14 @@ struct ContentView: View {
     ) -> some View {
         HStack(spacing: 16) {
             Text(title)
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
             Text(value)
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(settingsPalette.secondaryText)
 
             Stepper("", onIncrement: increment, onDecrement: decrement)
                 .labelsHidden()
@@ -500,7 +534,7 @@ struct ContentView: View {
     ) -> some View {
         HStack(spacing: 16) {
             Text(title)
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
@@ -519,19 +553,20 @@ struct ContentView: View {
         title: String,
         buttonTitle: String,
         tint: Color,
+        foreground: Color = .white,
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 16) {
             Text(title)
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
             Button(action: action) {
                 Text(buttonTitle)
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(foreground)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(tint, in: Capsule())
@@ -547,13 +582,14 @@ struct ContentView: View {
         _ title: String,
         systemImage: String,
         tint: Color,
+        foreground: Color = .white,
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(foreground)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(tint, in: Capsule())
@@ -566,10 +602,10 @@ struct ContentView: View {
     private func settingsSummaryValueRow(title: String, value: String) -> some View {
         HStack(spacing: 16) {
             Text(title)
-                .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                .foregroundStyle(settingsPalette.primaryText)
             Spacer(minLength: 0)
             Text(value)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(settingsPalette.secondaryText)
                 .multilineTextAlignment(.trailing)
         }
         .padding(.vertical, 10)
@@ -583,19 +619,19 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(gameFile.displayName)
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.18))
+                        .foregroundStyle(settingsPalette.primaryText)
 
                     Text(gameFile.matchupLine)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(settingsPalette.secondaryText)
 
                     Text(gameFile.stateLine)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(settingsPalette.secondaryText)
 
                     Text(gameFile.detailLine)
                         .font(.caption)
-                        .foregroundStyle(.secondary.opacity(0.8))
+                        .foregroundStyle(settingsPalette.secondaryText.opacity(0.8))
                 }
 
                 Spacer(minLength: 0)
@@ -603,15 +639,15 @@ struct ContentView: View {
                 if selectedStoredGameFileID == gameFile.id {
                     Text("Selected")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color(red: 0.20, green: 0.47, blue: 0.94))
+                        .foregroundStyle(settingsPalette.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color(red: 0.20, green: 0.47, blue: 0.94).opacity(0.12), in: Capsule())
+                        .background(settingsPalette.accent.opacity(0.12), in: Capsule())
                 }
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(settingsPalette.secondaryText)
             }
             .padding(.vertical, 12)
             .contentShape(Rectangle())
@@ -619,9 +655,169 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private func themeSelectionRow(_ theme: ScoreboardTheme) -> some View {
+        let palette = theme.palette
+        let isSelected = store.theme == theme
+
+        return Button {
+            store.theme = theme
+        } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Image(systemName: theme.systemImage)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(settingsPalette.accent)
+
+                        Text(theme.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+                    }
+
+                    Text(theme.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+
+                Spacer(minLength: 0)
+
+                themePalettePreview(for: palette)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(isSelected ? settingsPalette.accent : settingsPalette.secondaryText)
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func externalBackgroundModeRow(_ mode: ExternalDisplayBackgroundMode) -> some View {
+        let isSelected = store.externalDisplayBackgroundMode == mode
+
+        return Button {
+            store.externalDisplayBackgroundMode = mode
+        } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(mode.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(mode.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    externalBackgroundPreview(mode)
+                        .frame(width: 52, height: 28)
+
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(isSelected ? settingsPalette.accent : settingsPalette.secondaryText)
+                }
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func themeSwatch(_ color: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 18, height: 18)
+            .overlay(Circle().stroke(settingsPalette.cardBorder, lineWidth: 1))
+    }
+
+    private func themePalettePreview(for palette: ThemePalette) -> some View {
+        ZStack {
+            externalBackgroundPreview(store.externalDisplayBackgroundMode, palette: palette)
+
+            HStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(palette.boardPanelBackground)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(palette.boardClockPanelBackground)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(palette.boardPanelBackground)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+
+            HStack(spacing: 10) {
+                themeSwatch(palette.homeAccent)
+                themeSwatch(palette.guestAccent)
+                themeSwatch(palette.settingsAccent)
+            }
+            .padding(.top, 30)
+        }
+        .frame(width: 88, height: 52)
+    }
+
+    @ViewBuilder
+    private func externalBackgroundPreview(_ mode: ExternalDisplayBackgroundMode) -> some View {
+        externalBackgroundPreview(mode, palette: themePalette)
+    }
+
+    @ViewBuilder
+    private func externalBackgroundPreview(_ mode: ExternalDisplayBackgroundMode, palette: ThemePalette) -> some View {
+        if mode == .blurred {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(LinearGradient(colors: [palette.homeAccent.opacity(0.65), palette.guestAccent.opacity(0.45), palette.externalDisplayBackground], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else if mode == .clear {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [palette.homeAccent, palette.guestAccent],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else if mode == .clearUnderBoard {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [palette.homeAccent, palette.guestAccent],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        }
+    }
+
     private func settingsDivider() -> some View {
         Divider()
-            .overlay(Color.black.opacity(0.07))
+            .overlay(settingsPalette.divider)
     }
 
     private func synchronizeDraftTeamName(_ value: String, isHome: Bool) {
@@ -696,10 +892,10 @@ struct ContentView: View {
         }
         .padding(.horizontal, layout.headerHorizontalPadding)
         .padding(.vertical, layout.headerVerticalPadding)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(themePalette.dashboardCardBorder)
         )
     }
 
@@ -708,12 +904,12 @@ struct ContentView: View {
             Text("Smart Scoreboard")
                 .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
 
             Text("Responsive control board")
                 .font(layout.headerSubtitleFont)
                 .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(themePalette.dashboardSecondaryText)
         }
     }
 
@@ -721,10 +917,10 @@ struct ContentView: View {
         Label(displayStatusTitle, systemImage: displayStatusSystemImage)
             .font(layout.headerBadgeFont)
             .lineLimit(1)
-            .foregroundStyle(publicBoardState.isPresented ? Color.green : Color.orange)
+            .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
             .padding(.horizontal, layout.headerBadgeHorizontalPadding)
             .padding(.vertical, layout.headerBadgeVerticalPadding)
-            .background(.white.opacity(0.08), in: Capsule())
+            .background(themePalette.dashboardCardBackground, in: Capsule())
     }
 
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
@@ -735,7 +931,8 @@ struct ContentView: View {
             #if os(macOS)
             actionButton(
                 publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard",
-                tint: .white.opacity(0.14),
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
                 verticalPadding: layout.headerActionVerticalPadding
             ) {
                 showPublicBoardWindow()
@@ -744,7 +941,8 @@ struct ContentView: View {
 
             actionButton(
                 store.isSoundEnabled ? "Sound On" : "Sound Off",
-                tint: store.isSoundEnabled ? .green.opacity(0.72) : .white.opacity(0.14),
+                tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
                 verticalPadding: layout.headerActionVerticalPadding
             ) {
                 store.toggleSoundEnabled()
@@ -757,10 +955,10 @@ struct ContentView: View {
             } label: {
                 Label("Setting", systemImage: "gearshape")
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, layout.headerActionVerticalPadding)
-                    .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -773,6 +971,8 @@ struct ContentView: View {
         return VStack(spacing: layout.sectionSpacing) {
             previewPanel(title: "Live Preview", caption: "Public scoreboard output", layout: layout) {
                 ScoreboardFaceView(
+                    theme: store.theme,
+                    backgroundStyle: .clear,
                     homeTeamName: store.homeTeamName,
                     guestTeamName: store.guestTeamName,
                     homeScore: store.homeScore,
@@ -799,32 +999,32 @@ struct ContentView: View {
                 Text("Shot Clock")
                     .font(.title3.weight(.bold))
                     .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
 
                 Spacer(minLength: 0)
 
                 Text("Possession: \(store.possessionDirection.displayName)")
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(themePalette.dashboardMutedText)
             }
 
             Text(store.formattedShotClock)
                 .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
                 columns: max(1, layout.shotClockButtonColumns - 2),
                 buttons: [
-                    ActionDescriptor(title: "Shot Reset", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.resetActiveShotClock()
                     },
-                    ActionDescriptor(title: "Shot -1", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustShotClock(by: -1)
                     },
-                    ActionDescriptor(title: "Shot +1", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Shot +1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustShotClock(by: 1)
                     }
                 ],
@@ -833,7 +1033,12 @@ struct ContentView: View {
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
-        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
@@ -867,7 +1072,7 @@ struct ContentView: View {
                 teamName: store.guestTeamName,
                 score: store.guestScore,
                 isHome: false,
-                tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                tint: guestTint,
                 layout: layout
             )
 
@@ -876,7 +1081,7 @@ struct ContentView: View {
                 teamName: store.homeTeamName,
                 score: store.homeScore,
                 isHome: true,
-                tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                tint: homeTint,
                 layout: layout
             )
         } else {
@@ -885,7 +1090,7 @@ struct ContentView: View {
                 teamName: store.homeTeamName,
                 score: store.homeScore,
                 isHome: true,
-                tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                tint: homeTint,
                 layout: layout
             )
 
@@ -894,7 +1099,7 @@ struct ContentView: View {
                 teamName: store.guestTeamName,
                 score: store.guestScore,
                 isHome: false,
-                tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                tint: guestTint,
                 layout: layout
             )
         }
@@ -912,34 +1117,34 @@ struct ContentView: View {
             Text(title)
                 .font(.title3.weight(.bold))
                 .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
 
             Text(displayTeamName(teamName))
                 .font(.system(size: layout.teamFieldFontSize, weight: .heavy, design: .rounded))
                 .singleLineFitted(minScale: 0.55)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08))
+                        .strokeBorder(themePalette.dashboardCardBorder)
                 )
 
             Text("\(score)")
                 .font(.system(size: layout.scoreValueSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             buttonGrid(
                 columns: layout.teamButtonColumns,
                 buttons: [
-                    ActionDescriptor(title: "+1", tint: tint) { store.adjustScore(isHome: isHome, by: 1) },
-                    ActionDescriptor(title: "+2", tint: tint) { store.adjustScore(isHome: isHome, by: 2) },
-                    ActionDescriptor(title: "+3", tint: tint) { store.adjustScore(isHome: isHome, by: 3) },
-                    ActionDescriptor(title: "-1", tint: .white.opacity(0.14)) { store.adjustScore(isHome: isHome, by: -1) }
+                    ActionDescriptor(title: "+1", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 1) },
+                    ActionDescriptor(title: "+2", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 2) },
+                    ActionDescriptor(title: "+3", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 3) },
+                    ActionDescriptor(title: "-1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) { store.adjustScore(isHome: isHome, by: -1) }
                 ],
                 dense: layout.denseControls
             )
@@ -949,13 +1154,15 @@ struct ContentView: View {
                 buttons: [
                     ActionDescriptor(
                         title: "Shot 24",
-                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : .white.opacity(0.14)
+                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
+                        foreground: .white
                     ) {
                         store.assignShotClock(to: 24, forHomeTeam: isHome)
                     },
                     ActionDescriptor(
                         title: "Shot 14",
-                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : .white.opacity(0.14)
+                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
+                        foreground: .white
                     ) {
                         store.assignShotClock(to: 14, forHomeTeam: isHome)
                     }
@@ -964,7 +1171,12 @@ struct ContentView: View {
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
-        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
@@ -973,7 +1185,8 @@ struct ContentView: View {
 
             actionButton(
                 store.isClockRunning ? "Pause Game Clock" : "Start Game Clock",
-                tint: .green,
+                tint: themePalette.dashboardSuccessButton,
+                foreground: themePalette.dashboardSuccessButtonText,
                 titleFont: .title3.weight(.black),
                 verticalPadding: layout.denseControls ? 16 : 20
             ) {
@@ -983,16 +1196,16 @@ struct ContentView: View {
             buttonGrid(
                 columns: 4,
                 buttons: [
-                    ActionDescriptor(title: "-1 Min", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustClock(by: -60)
                     },
-                    ActionDescriptor(title: "+1 Min", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "+1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustClock(by: 60)
                     },
-                    ActionDescriptor(title: "-1 Sec", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustClock(by: -1)
                     },
-                    ActionDescriptor(title: "+1 Sec", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "+1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustClock(by: 1)
                     }
                 ],
@@ -1003,13 +1216,13 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Prev Period", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Prev Period", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustPeriod(by: -1)
                     },
-                    ActionDescriptor(title: "Swap Sides", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
                     },
-                    ActionDescriptor(title: "Next Period", tint: .orange) {
+                    ActionDescriptor(title: "Next Period", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                         store.adjustPeriod(by: 1)
                     }
                 ],
@@ -1020,10 +1233,10 @@ struct ContentView: View {
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Reset 12:00", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
+                    ActionDescriptor(title: "Reset 12:00", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
                         store.resetClock(to: 12 * 60)
                     },
-                    ActionDescriptor(title: "Zero Scores", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
                         store.resetScores()
                     }
                 ],
@@ -1032,7 +1245,12 @@ struct ContentView: View {
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
-        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
     }
 
     private func gameSummaryRow(layout: InterfaceLayout) -> some View {
@@ -1050,13 +1268,13 @@ struct ContentView: View {
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(themePalette.dashboardSubtleText)
 
             Text(value)
                 .font(.system(size: valueSize, weight: .black, design: .rounded))
                 .monospacedDigitIfNeeded(monospaced)
                 .singleLineFitted(minScale: 0.35)
-                .foregroundStyle(.white)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
         }
     }
 
@@ -1076,6 +1294,7 @@ struct ContentView: View {
                     actionButton(
                         button.title,
                         tint: button.tint,
+                        foreground: button.foreground,
                         verticalPadding: dense ? 14 : 18,
                         isEnabled: button.isEnabled,
                         action: button.action
@@ -1084,6 +1303,7 @@ struct ContentView: View {
                     smallActionButton(
                         button.title,
                         tint: button.tint,
+                        foreground: button.foreground,
                         verticalPadding: compactVerticalPadding ?? (dense ? 10 : 14),
                         isEnabled: button.isEnabled,
                         action: button.action
@@ -1096,6 +1316,7 @@ struct ContentView: View {
     private func actionButton(
         _ title: String,
         tint: Color,
+        foreground: Color = .white,
         titleFont: Font = .headline.weight(.bold),
         verticalPadding: CGFloat = 18,
         isEnabled: Bool = true,
@@ -1105,7 +1326,7 @@ struct ContentView: View {
             Text(title)
                 .font(titleFont)
                 .singleLineFitted(minScale: 0.55)
-                .foregroundStyle(.white)
+                .foregroundStyle(foreground)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -1118,6 +1339,7 @@ struct ContentView: View {
     private func smallActionButton(
         _ title: String,
         tint: Color,
+        foreground: Color = .white,
         verticalPadding: CGFloat = 14,
         isEnabled: Bool = true,
         action: @escaping () -> Void
@@ -1126,7 +1348,7 @@ struct ContentView: View {
             Text(title)
                 .font(.headline.weight(.bold))
                 .singleLineFitted(minScale: 0.55)
-                .foregroundStyle(.white)
+                .foregroundStyle(foreground)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -1585,25 +1807,25 @@ struct ContentView: View {
                     Text(title)
                         .font(.title3.weight(.bold))
                         .singleLineFitted(minScale: 0.7)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
 
                     Text(caption)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.56))
+                        .foregroundStyle(themePalette.dashboardMutedText)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(title)
                         .font(.title3.weight(.bold))
                         .singleLineFitted(minScale: 0.7)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
 
                     Spacer(minLength: 0)
 
                     Text(caption)
                         .font(.subheadline.weight(.semibold))
                         .singleLineFitted(minScale: 0.7)
-                        .foregroundStyle(.white.opacity(0.56))
+                        .foregroundStyle(themePalette.dashboardMutedText)
                 }
             }
 
@@ -1613,10 +1835,10 @@ struct ContentView: View {
         }
         .padding(layout.previewPanelPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(themePalette.dashboardCardBorder)
         )
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
@@ -1655,6 +1877,7 @@ struct ContentView: View {
 private struct ActionDescriptor {
     let title: String
     let tint: Color
+    var foreground: Color = .white
     var isEnabled: Bool = true
     let action: () -> Void
 }
@@ -1699,6 +1922,7 @@ private struct StoredGameFile: Identifiable {
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
+    case theme
     case files
 
     var id: String { rawValue }
@@ -1707,6 +1931,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "Game Setup"
+        case .theme:
+            return "Theme"
         case .files:
             return "Library"
         }
@@ -1716,6 +1942,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "Edit teams, period, and clock defaults before opening the live control board."
+        case .theme:
+            return "Choose the look for both the operator controls and public scoreboard."
         case .files:
             return "Manage local game files for both reusable setups and live games."
         }
@@ -1725,6 +1953,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "slider.horizontal.3"
+        case .theme:
+            return "paintpalette"
         case .files:
             return "books.vertical"
         }
@@ -1898,14 +2128,19 @@ private extension View {
             )
     }
 
-    func controlCardStyle(padding: CGFloat = 18, cornerRadius: CGFloat = 28) -> some View {
+    func controlCardStyle(
+        backgroundColor: Color,
+        borderColor: Color,
+        padding: CGFloat = 18,
+        cornerRadius: CGFloat = 28
+    ) -> some View {
         self
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08))
+                    .strokeBorder(borderColor)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

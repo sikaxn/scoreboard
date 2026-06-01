@@ -7,16 +7,21 @@ struct ExternalScoreboardView: View {
     @EnvironmentObject private var store: ScoreboardStore
 
     var body: some View {
+        let palette = store.theme.palette
+        let boardBackgroundStyle = resolvedBoardBackgroundStyle()
+
         GeometryReader { proxy in
             let displaySize = proxy.size
             let boardSize = fittedBoardSize(in: displaySize)
             let usesCompactBoard = boardSize.width < 1320 || boardSize.height < 760
 
             ZStack {
-                Color.black
+                externalBackgroundView(using: palette)
                     .ignoresSafeArea()
 
                 ScoreboardFaceView(
+                    theme: store.theme,
+                    backgroundStyle: boardBackgroundStyle,
                     homeTeamName: store.homeTeamName,
                     guestTeamName: store.guestTeamName,
                     homeScore: store.homeScore,
@@ -36,9 +41,9 @@ struct ExternalScoreboardView: View {
             .frame(width: displaySize.width, height: displaySize.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
+        .background(externalBackgroundView(using: palette).ignoresSafeArea())
         #if os(macOS)
-        .background(PublicBoardWindowConfigurator())
+        .background(PublicBoardWindowConfigurator(backgroundMode: store.externalDisplayBackgroundMode))
         #endif
     }
 
@@ -51,10 +56,45 @@ struct ExternalScoreboardView: View {
         let preferredHeight = min(usableHeight, preferredWidth / ScoreboardFaceView.preferredAspectRatio)
         return CGSize(width: preferredWidth, height: preferredHeight)
     }
+
+    @ViewBuilder
+    private func externalBackgroundView(using palette: ThemePalette) -> some View {
+        switch store.externalDisplayBackgroundMode {
+        case .blurred:
+            palette.externalDisplayBackground
+        case .clear:
+            HStack(spacing: 0) {
+                palette.homeAccent
+                palette.guestAccent
+            }
+        case .clearUnderBoard:
+            HStack(spacing: 0) {
+                palette.homeAccent
+                palette.guestAccent
+            }
+        case .none:
+            Color.clear
+        }
+    }
+
+    private func resolvedBoardBackgroundStyle() -> ScoreboardFaceView.BackgroundStyle {
+        switch store.externalDisplayBackgroundMode {
+        case .blurred:
+            return .blurred
+        case .clear:
+            return .clear
+        case .clearUnderBoard:
+            return .transparent
+        case .none:
+            return .clear
+        }
+    }
 }
 
 #if os(macOS)
 private struct PublicBoardWindowConfigurator: NSViewRepresentable {
+    let backgroundMode: ExternalDisplayBackgroundMode
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -62,14 +102,14 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            context.coordinator.configureWindowIfNeeded(for: view)
+            context.coordinator.configureWindowIfNeeded(for: view, backgroundMode: backgroundMode)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            context.coordinator.configureWindowIfNeeded(for: nsView)
+            context.coordinator.configureWindowIfNeeded(for: nsView, backgroundMode: backgroundMode)
         }
     }
 
@@ -78,7 +118,7 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
         private var placedWindowNumbers = Set<Int>()
         private var fullscreenRequestedWindowNumbers = Set<Int>()
 
-        func configureWindowIfNeeded(for view: NSView) {
+        func configureWindowIfNeeded(for view: NSView, backgroundMode: ExternalDisplayBackgroundMode) {
             guard let window = view.window else {
                 return
             }
@@ -88,9 +128,11 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
                 window.titlebarAppearsTransparent = true
                 window.styleMask.insert(.fullSizeContentView)
                 window.isMovableByWindowBackground = false
-                window.backgroundColor = .black
                 window.collectionBehavior.insert([.fullScreenPrimary, .fullScreenAllowsTiling])
             }
+
+            window.isOpaque = backgroundMode != .none
+            window.backgroundColor = backgroundMode == .none ? .clear : .black
 
             if placedWindowNumbers.insert(window.windowNumber).inserted {
                 placeWindowOnSecondaryDisplayIfAvailable(window)

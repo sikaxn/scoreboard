@@ -91,6 +91,8 @@ final class ScoreboardStore: ObservableObject {
     @Published var activeShotClockPresetSeconds = 24
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
+    @Published var theme: ScoreboardTheme = .classic
+    @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
     @Published var isClockRunning = false
     @Published var isShotClockRunning = false
@@ -538,6 +540,8 @@ final class ScoreboardStore: ObservableObject {
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
             $possessionDirection.map { _ in () }.eraseToAnyPublisher(),
             $areSidesSwapped.map { _ in () }.eraseToAnyPublisher(),
+            $theme.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
@@ -572,6 +576,8 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
         possessionDirection = persistedState.possessionDirection
         areSidesSwapped = persistedState.areSidesSwapped
+        theme = persistedState.theme
+        externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
         isSoundEnabled = persistedState.isSoundEnabled
         didCompleteSetup = persistedState.didCompleteSetup
         setupPresets = persistedState.setupPresets
@@ -593,6 +599,8 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped,
+            theme: theme,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
             isSoundEnabled: isSoundEnabled,
             didCompleteSetup: didCompleteSetup,
             setupPresets: setupPresets
@@ -619,6 +627,8 @@ private struct PersistedState: Codable {
     var activeShotClockPresetSeconds: Int
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
+    var theme: ScoreboardTheme
+    var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
     var isSoundEnabled: Bool
     var didCompleteSetup: Bool
     var setupPresets: [SetupPreset]
@@ -637,6 +647,8 @@ private struct PersistedState: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case theme
+        case externalDisplayBackgroundMode
         case isSoundEnabled
         case didCompleteSetup
         case setupPresets
@@ -655,6 +667,8 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds: Int,
         possessionDirection: PossessionDirection,
         areSidesSwapped: Bool,
+        theme: ScoreboardTheme,
+        externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
         isSoundEnabled: Bool,
         didCompleteSetup: Bool,
         setupPresets: [SetupPreset]
@@ -671,6 +685,8 @@ private struct PersistedState: Codable {
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
         self.possessionDirection = possessionDirection
         self.areSidesSwapped = areSidesSwapped
+        self.theme = theme
+        self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
         self.isSoundEnabled = isSoundEnabled
         self.didCompleteSetup = didCompleteSetup
         self.setupPresets = setupPresets
@@ -695,6 +711,8 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
+        theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
+        externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
         didCompleteSetup = try container.decode(Bool.self, forKey: .didCompleteSetup)
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
@@ -714,6 +732,8 @@ private struct PersistedState: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encode(theme, forKey: .theme)
+        try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
         try container.encode(setupPresets, forKey: .setupPresets)
