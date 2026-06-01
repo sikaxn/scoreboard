@@ -12,7 +12,7 @@ struct SmartScoreboardApp: App {
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
         }
-        .defaultSize(width: 1320, height: 860)
+        .defaultSize(width: 1280, height: 820)
 
         Window("Public Scoreboard", id: "public-scoreboard") {
             ExternalScoreboardView()
@@ -26,7 +26,7 @@ struct SmartScoreboardApp: App {
                     publicBoardState.isPresented = false
                 }
         }
-        .defaultSize(width: 1280, height: 720)
+        .defaultSize(width: 960, height: 540)
         .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup {

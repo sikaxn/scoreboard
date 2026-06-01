@@ -442,70 +442,63 @@ struct ContentView: View {
     }
 
     private func dashboard(layout: InterfaceLayout) -> some View {
-        Group {
-            if layout.dashboardNeedsScroll {
-                ScrollView(showsIndicators: false) {
-                    dashboardContent(layout: layout)
-                }
-            } else {
-                dashboardContent(layout: layout)
-            }
-        }
+        dashboardContent(layout: layout)
     }
 
     private func dashboardContent(layout: InterfaceLayout) -> some View {
-        VStack(spacing: layout.sectionSpacing) {
-            dashboardHeader(layout: layout)
+        GeometryReader { proxy in
+            let availableHeight = max(proxy.size.height - (layout.outerPadding * 2), 0)
+            let contentHeight = max(availableHeight - layout.dashboardHeaderHeight - layout.sectionSpacing, 0)
+            let previewHeight = layout.dashboardPreviewHeight(in: contentHeight)
 
-            if layout.dashboardUsesSingleColumn {
-                VStack(spacing: layout.sectionSpacing) {
-                    previewPane(layout: layout)
-                        .frame(minHeight: layout.dashboardPreviewHeight)
+            VStack(spacing: layout.sectionSpacing) {
+                dashboardHeader(layout: layout)
+                    .frame(height: layout.dashboardHeaderHeight)
 
-                    controlPane(layout: layout)
+                if layout.dashboardUsesSingleColumn || layout.dashboardStacksPreview {
+                    VStack(spacing: layout.sectionSpacing) {
+                        previewPane(layout: layout)
+                            .frame(height: previewHeight)
+
+                        controlPane(layout: layout)
+                            .frame(height: max(contentHeight - previewHeight - layout.sectionSpacing, 0))
+                    }
+                } else {
+                    HStack(spacing: layout.sectionSpacing) {
+                        previewPane(layout: layout)
+                            .frame(maxWidth: .infinity)
+
+                        controlPane(layout: layout)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .frame(height: contentHeight)
                 }
-            } else if layout.dashboardStacksPreview {
-                VStack(spacing: layout.sectionSpacing) {
-                    previewPane(layout: layout)
-                        .frame(minHeight: layout.dashboardPreviewHeight)
-
-                    controlPane(layout: layout)
-                }
-            } else {
-                HStack(spacing: layout.sectionSpacing) {
-                    previewPane(layout: layout)
-                        .frame(maxWidth: .infinity)
-
-                    controlPane(layout: layout)
-                        .frame(maxWidth: .infinity)
-                }
-                .frame(maxHeight: .infinity)
             }
+            .padding(layout.outerPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(layout.outerPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: layout.denseControls ? 12 : 16) {
             if layout.headerUsesVerticalFlow {
-                VStack(alignment: .leading, spacing: 16) {
-                    headerTitleBlock
-                    headerStatusBadge
+                VStack(alignment: .leading, spacing: layout.denseControls ? 12 : 16) {
+                    headerTitleBlock(layout: layout)
+                    headerStatusBadge(layout: layout)
                     headerActionButtons(layout: layout)
                 }
             } else {
                 HStack(spacing: 16) {
-                    headerTitleBlock
+                    headerTitleBlock(layout: layout)
                     Spacer(minLength: 0)
-                    headerStatusBadge
+                    headerStatusBadge(layout: layout)
                     headerActionButtons(layout: layout)
                         .frame(maxWidth: layout.headerActionWidth)
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
+        .padding(.horizontal, layout.denseControls ? 16 : 20)
+        .padding(.vertical, layout.denseControls ? 14 : 18)
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -513,27 +506,27 @@ struct ContentView: View {
         )
     }
 
-    private var headerTitleBlock: some View {
+    private func headerTitleBlock(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Smart Scoreboard")
-                .font(.system(size: 30, weight: .black, design: .rounded))
+                .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
                 .foregroundStyle(.white)
 
             Text("Responsive control board")
-                .font(.headline)
+                .font(layout.headerSubtitleFont)
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(.white.opacity(0.72))
         }
     }
 
-    private var headerStatusBadge: some View {
+    private func headerStatusBadge(layout: InterfaceLayout) -> some View {
         Label(displayStatusTitle, systemImage: displayStatusSystemImage)
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .foregroundStyle(publicBoardState.isPresented ? Color.green : Color.orange)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, layout.denseControls ? 12 : 14)
+            .padding(.vertical, layout.denseControls ? 8 : 10)
             .background(.white.opacity(0.08), in: Capsule())
     }
 
@@ -580,50 +573,57 @@ struct ContentView: View {
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
-        VStack(spacing: layout.sectionSpacing) {
-            if layout.teamPanelsUseVerticalFlow {
-                VStack(spacing: 16) {
-                    teamControls(
-                        title: "Home",
-                        teamName: $homeTeamDraft,
-                        score: store.homeScore,
-                        isHome: true,
-                        tint: Color(red: 0.97, green: 0.38, blue: 0.28),
-                        layout: layout
-                    )
+        GeometryReader { proxy in
+            let teamSectionHeight = layout.teamSectionHeight(in: proxy.size.height)
 
-                    teamControls(
-                        title: "Guest",
-                        teamName: $guestTeamDraft,
-                        score: store.guestScore,
-                        isHome: false,
-                        tint: Color(red: 0.22, green: 0.68, blue: 0.95),
-                        layout: layout
-                    )
-                }
-            } else {
-                HStack(spacing: 16) {
-                    teamControls(
-                        title: "Home",
-                        teamName: $homeTeamDraft,
-                        score: store.homeScore,
-                        isHome: true,
-                        tint: Color(red: 0.97, green: 0.38, blue: 0.28),
-                        layout: layout
-                    )
+            VStack(spacing: layout.sectionSpacing) {
+                if layout.teamPanelsUseVerticalFlow {
+                    VStack(spacing: 16) {
+                        teamControls(
+                            title: "Home",
+                            teamName: $homeTeamDraft,
+                            score: store.homeScore,
+                            isHome: true,
+                            tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                            layout: layout
+                        )
 
-                    teamControls(
-                        title: "Guest",
-                        teamName: $guestTeamDraft,
-                        score: store.guestScore,
-                        isHome: false,
-                        tint: Color(red: 0.22, green: 0.68, blue: 0.95),
-                        layout: layout
-                    )
+                        teamControls(
+                            title: "Guest",
+                            teamName: $guestTeamDraft,
+                            score: store.guestScore,
+                            isHome: false,
+                            tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                            layout: layout
+                        )
+                    }
+                    .frame(height: teamSectionHeight)
+                } else {
+                    HStack(spacing: 16) {
+                        teamControls(
+                            title: "Home",
+                            teamName: $homeTeamDraft,
+                            score: store.homeScore,
+                            isHome: true,
+                            tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                            layout: layout
+                        )
+
+                        teamControls(
+                            title: "Guest",
+                            teamName: $guestTeamDraft,
+                            score: store.guestScore,
+                            isHome: false,
+                            tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                            layout: layout
+                        )
+                    }
+                    .frame(height: teamSectionHeight)
                 }
+
+                gameControls(layout: layout)
+                    .frame(height: max(proxy.size.height - teamSectionHeight - layout.sectionSpacing, 0))
             }
-
-            gameControls(layout: layout)
         }
     }
 
@@ -669,10 +669,11 @@ struct ContentView: View {
                     ActionDescriptor(title: "+2", tint: tint) { store.adjustScore(isHome: isHome, by: 2) },
                     ActionDescriptor(title: "+3", tint: tint) { store.adjustScore(isHome: isHome, by: 3) },
                     ActionDescriptor(title: "-1", tint: .white.opacity(0.14)) { store.adjustScore(isHome: isHome, by: -1) }
-                ]
+                ],
+                dense: layout.denseControls
             )
         }
-        .controlCardStyle()
+        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
@@ -724,10 +725,11 @@ struct ContentView: View {
                         store.homeScore = 0
                         store.guestScore = 0
                     }
-                ]
+                ],
+                dense: layout.denseControls
             )
         }
-        .controlCardStyle()
+        .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
     }
 
     private func gameMetricBlock(title: String, value: String, valueSize: CGFloat, monospaced: Bool = false) -> some View {
@@ -748,7 +750,8 @@ struct ContentView: View {
     private func buttonGrid(
         columns: Int,
         buttons: [ActionDescriptor],
-        style: ButtonStyleVariant = .compact
+        style: ButtonStyleVariant = .compact,
+        dense: Bool = false
     ) -> some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, columns)),
@@ -756,35 +759,45 @@ struct ContentView: View {
         ) {
             ForEach(Array(buttons.enumerated()), id: \.offset) { _, button in
                 if style == .large {
-                    actionButton(button.title, tint: button.tint, action: button.action)
+                    actionButton(
+                        button.title,
+                        tint: button.tint,
+                        verticalPadding: dense ? 14 : 18,
+                        action: button.action
+                    )
                 } else {
-                    smallActionButton(button.title, tint: button.tint, action: button.action)
+                    smallActionButton(
+                        button.title,
+                        tint: button.tint,
+                        verticalPadding: dense ? 10 : 14,
+                        action: button.action
+                    )
                 }
             }
         }
     }
 
-    private func actionButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ title: String, tint: Color, verticalPadding: CGFloat = 18, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.headline.weight(.bold))
                 .singleLineFitted(minScale: 0.55)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
+                .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 
-    private func smallActionButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+    private func smallActionButton(_ title: String, tint: Color, verticalPadding: CGFloat = 14, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.headline.weight(.bold))
                 .singleLineFitted(minScale: 0.55)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -948,8 +961,10 @@ private struct InterfaceLayout {
     private var width: CGFloat { size.width }
     private var height: CGFloat { size.height }
 
-    var isCompactWidth: Bool { width < 900 }
+    var isCompactWidth: Bool { width < 840 }
     var isShortHeight: Bool { height < 760 }
+    var isPortraitish: Bool { height > width * 1.05 }
+    var denseControls: Bool { isShortHeight || isPortraitish || width < 980 }
 
     var outerPadding: CGFloat { isCompactWidth ? 16 : 24 }
     var cardPadding: CGFloat { isCompactWidth ? 18 : 28 }
@@ -959,10 +974,14 @@ private struct InterfaceLayout {
 
     var heroTitleSize: CGFloat { isCompactWidth ? 34 : 40 }
     var fieldFontSize: CGFloat { isCompactWidth ? 24 : 28 }
-    var teamFieldFontSize: CGFloat { isCompactWidth ? 20 : 22 }
-    var metricValueSize: CGFloat { isCompactWidth ? 34 : 40 }
-    var scoreValueSize: CGFloat { isCompactWidth ? 40 : 48 }
+    var teamFieldFontSize: CGFloat { denseControls ? 18 : isCompactWidth ? 20 : 22 }
+    var metricValueSize: CGFloat { denseControls ? 32 : isCompactWidth ? 34 : 40 }
+    var scoreValueSize: CGFloat { denseControls ? 34 : isCompactWidth ? 40 : 48 }
     var bodyFont: Font { isCompactWidth ? .subheadline : .headline }
+    var headerTitleSize: CGFloat { denseControls ? 26 : 30 }
+    var headerSubtitleFont: Font { denseControls ? .subheadline : .headline }
+    var controlCardPadding: CGFloat { denseControls ? 14 : 18 }
+    var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
 
     var setupUsesVerticalFlow: Bool { width < 1260 || height < 860 }
     var setupControlCardsStacked: Bool { width < 760 }
@@ -973,28 +992,54 @@ private struct InterfaceLayout {
     var secondaryButtonColumns: Int { width < 620 ? 1 : 2 }
     var presetListHeight: CGFloat { isCompactWidth ? 240 : 180 }
 
-    var dashboardUsesSingleColumn: Bool { width < 960 }
-    var dashboardStacksPreview: Bool { !dashboardUsesSingleColumn && (width < 1380 || height < 820) }
-    var dashboardNeedsScroll: Bool { dashboardUsesSingleColumn || isShortHeight }
-    var dashboardPreviewHeight: CGFloat { max(260, min(height * 0.48, 420)) }
-
-    var headerUsesVerticalFlow: Bool { width < 1180 || height < 760 }
-    var headerActionColumns: Int { isCompactWidth ? 1 : width < 1320 ? 2 : 3 }
-    var headerActionWidth: CGFloat { width < 1320 ? 320 : 420 }
-
-    var teamPanelsUseVerticalFlow: Bool { width < 760 }
-    var teamButtonColumns: Int { width < 620 ? 1 : 2 }
-    var gameMetricsUseVerticalFlow: Bool { width < 760 }
-    var gameButtonColumns: Int {
-        if width < 560 { return 1 }
-        if width < 900 { return 2 }
-        if width < 1240 { return 3 }
-        return 4
+    var dashboardUsesSingleColumn: Bool { width < 560 }
+    var dashboardStacksPreview: Bool { !dashboardUsesSingleColumn && isPortraitish }
+    var dashboardHeaderHeight: CGFloat {
+        if isPortraitish { return 140 }
+        return denseControls || headerUsesVerticalFlow ? 120 : 92
+    }
+    func dashboardPreviewHeight(in contentHeight: CGFloat) -> CGFloat {
+        if dashboardUsesSingleColumn {
+            return min(max(contentHeight * 0.28, 180), 240)
+        }
+        if dashboardStacksPreview {
+            return min(max(contentHeight * 0.26, 200), 300)
+        }
+        return contentHeight
     }
 
-    var previewPanelPadding: CGFloat { isCompactWidth ? 18 : 24 }
+    var headerUsesVerticalFlow: Bool { isPortraitish || width < 920 }
+    var headerActionColumns: Int {
+        if width < 520 { return 1 }
+        if isPortraitish { return 3 }
+        if width < 1320 { return 2 }
+        return 3
+    }
+    var headerActionWidth: CGFloat { width < 1320 ? 320 : 420 }
+
+    var teamPanelsUseVerticalFlow: Bool { width < 620 && !isPortraitish }
+    var teamButtonColumns: Int { width < 520 ? 1 : 2 }
+    func teamSectionHeight(in totalHeight: CGFloat) -> CGFloat {
+        if teamPanelsUseVerticalFlow {
+            return min(max(totalHeight * 0.58, 280), totalHeight - 120)
+        }
+        if isPortraitish {
+            return min(max(totalHeight * 0.42, 210), 300)
+        }
+        return min(max(totalHeight * 0.45, 220), 320)
+    }
+    var gameMetricsUseVerticalFlow: Bool { width < 540 }
+    var gameButtonColumns: Int {
+        if dashboardUsesSingleColumn { return width < 420 ? 1 : 2 }
+        if dashboardStacksPreview { return width < 620 ? 2 : 5 }
+        if width < 1000 { return 3 }
+        if width < 1320 { return 4 }
+        return 5
+    }
+
+    var previewPanelPadding: CGFloat { denseControls ? 16 : isCompactWidth ? 18 : 24 }
     var previewHeaderUsesVerticalFlow: Bool { isCompactWidth }
-    var previewUsesCompactBoard: Bool { width < 1200 || height < 760 }
+    var previewUsesCompactBoard: Bool { width < 1280 || height < 780 }
 }
 
 private extension View {
@@ -1027,12 +1072,13 @@ private extension View {
             )
     }
 
-    func controlCardStyle() -> some View {
-        padding(18)
+    func controlCardStyle(padding: CGFloat = 18, cornerRadius: CGFloat = 28) -> some View {
+        self
+            .padding(padding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.08))
             )
     }

@@ -72,7 +72,6 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
 
     final class Coordinator {
         private var configuredWindowNumbers = Set<Int>()
-        private var fullscreenRequestedWindowNumbers = Set<Int>()
 
         func configureWindowIfNeeded(for view: NSView) {
             guard let window = view.window else {
@@ -85,28 +84,7 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
                 window.styleMask.insert(.fullSizeContentView)
                 window.isMovableByWindowBackground = false
                 window.backgroundColor = .black
-                window.collectionBehavior.insert([.fullScreenPrimary, .fullScreenAllowsTiling])
-                window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            }
-
-            guard fullscreenRequestedWindowNumbers.insert(window.windowNumber).inserted else {
-                return
-            }
-
-            if let screen = window.screen {
-                window.setFrame(screen.frame, display: true)
-            }
-
-            guard !window.styleMask.contains(.fullScreen) else {
-                return
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                guard window.isVisible, !window.styleMask.contains(.fullScreen) else {
-                    return
-                }
-
-                window.toggleFullScreen(nil)
+                window.collectionBehavior.insert(.fullScreenAllowsTiling)
             }
         }
     }
