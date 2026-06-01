@@ -88,6 +88,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var defaultClockSeconds = 12 * 60
     @Published var shotClockMilliseconds = 24_000
     @Published var defaultShotClockSeconds = 24
+    @Published var activeShotClockPresetSeconds = 24
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
     @Published var isSoundEnabled = true
@@ -190,7 +191,9 @@ final class ScoreboardStore: ObservableObject {
 
     func resetShotClock(to seconds: Int? = nil) {
         pauseShotClock()
-        shotClockMilliseconds = boundedShotClockMilliseconds((seconds ?? defaultShotClockSeconds) * 1_000)
+        let targetSeconds = boundedShotClockSeconds(seconds ?? defaultShotClockSeconds)
+        activeShotClockPresetSeconds = targetSeconds
+        shotClockMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
     }
 
     func toggleClock() {
@@ -203,6 +206,14 @@ final class ScoreboardStore: ObservableObject {
         if !isSoundEnabled {
             buzzerPlayer.stop()
         }
+    }
+
+    func playTestBuzzer() {
+        guard isSoundEnabled else {
+            return
+        }
+
+        buzzerPlayer.play()
     }
 
     func toggleShotClock() {
@@ -226,8 +237,9 @@ final class ScoreboardStore: ObservableObject {
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
         let targetDirection: PossessionDirection = isHome ? .home : .guest
-        let targetMilliseconds = boundedShotClockMilliseconds(seconds * 1_000)
-        let isSameSelection = possessionDirection == targetDirection && shotClockMilliseconds == targetMilliseconds
+        let targetSeconds = boundedShotClockSeconds(seconds)
+        let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
+        let isSameSelection = possessionDirection == targetDirection && activeShotClockPresetSeconds == targetSeconds
 
         if isSameSelection {
             isShotClockRunning ? pauseShotClock() : startShotClock()
@@ -235,12 +247,14 @@ final class ScoreboardStore: ObservableObject {
         }
 
         possessionDirection = targetDirection
+        activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
         startShotClock()
     }
 
     func resetActiveShotClock() {
-        let targetMilliseconds = boundedShotClockMilliseconds(defaultShotClockSeconds * 1_000)
+        let targetSeconds = boundedShotClockSeconds(activeShotClockPresetSeconds)
+        let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
 
         shotClockMilliseconds = targetMilliseconds
 
@@ -254,6 +268,7 @@ final class ScoreboardStore: ObservableObject {
         guestScore = 0
         period = 1
         possessionDirection = .none
+        activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
     }
@@ -283,6 +298,7 @@ final class ScoreboardStore: ObservableObject {
             defaultClockSeconds: defaultClockSeconds,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
+            activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped
         )
@@ -301,6 +317,7 @@ final class ScoreboardStore: ObservableObject {
         defaultClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
         shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
         defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
+        activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
         possessionDirection = snapshot.possessionDirection
         areSidesSwapped = snapshot.areSidesSwapped
         didCompleteSetup = true
@@ -320,6 +337,7 @@ final class ScoreboardStore: ObservableObject {
         setPeriod(period)
         defaultClockSeconds = boundedGameClockSeconds(clockSeconds)
         defaultShotClockSeconds = boundedShotClockSeconds(shotClockSeconds)
+        activeShotClockPresetSeconds = defaultShotClockSeconds
         possessionDirection = .none
         areSidesSwapped = false
         didCompleteSetup = true
@@ -507,7 +525,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func configurePersistence() {
-        Publishers.MergeMany(
+        let persistencePublishers: [AnyPublisher<Void, Never>] = [
             $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
@@ -517,6 +535,7 @@ final class ScoreboardStore: ObservableObject {
             $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $shotClockMilliseconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultShotClockSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
             $possessionDirection.map { _ in () }.eraseToAnyPublisher(),
             $areSidesSwapped.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
@@ -524,7 +543,9 @@ final class ScoreboardStore: ObservableObject {
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
             $setupPresets.map { _ in () }.eraseToAnyPublisher()
-        )
+        ]
+
+        Publishers.MergeMany(persistencePublishers)
         .sink { [weak self] _ in
             self?.persistState()
         }
@@ -548,6 +569,7 @@ final class ScoreboardStore: ObservableObject {
         defaultClockSeconds = boundedGameClockSeconds(persistedState.defaultClockSeconds)
         shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
         defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
+        activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
         possessionDirection = persistedState.possessionDirection
         areSidesSwapped = persistedState.areSidesSwapped
         isSoundEnabled = persistedState.isSoundEnabled
@@ -568,6 +590,7 @@ final class ScoreboardStore: ObservableObject {
             defaultClockSeconds: defaultClockSeconds,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
+            activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped,
             isSoundEnabled: isSoundEnabled,
@@ -593,6 +616,7 @@ private struct PersistedState: Codable {
     var defaultClockSeconds: Int
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
+    var activeShotClockPresetSeconds: Int
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
     var isSoundEnabled: Bool
@@ -610,6 +634,7 @@ private struct PersistedState: Codable {
         case shotClockMilliseconds
         case shotClockSeconds
         case defaultShotClockSeconds
+        case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
         case isSoundEnabled
@@ -627,6 +652,7 @@ private struct PersistedState: Codable {
         defaultClockSeconds: Int,
         shotClockMilliseconds: Int,
         defaultShotClockSeconds: Int,
+        activeShotClockPresetSeconds: Int,
         possessionDirection: PossessionDirection,
         areSidesSwapped: Bool,
         isSoundEnabled: Bool,
@@ -642,6 +668,7 @@ private struct PersistedState: Codable {
         self.defaultClockSeconds = defaultClockSeconds
         self.shotClockMilliseconds = shotClockMilliseconds
         self.defaultShotClockSeconds = defaultShotClockSeconds
+        self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
         self.possessionDirection = possessionDirection
         self.areSidesSwapped = areSidesSwapped
         self.isSoundEnabled = isSoundEnabled
@@ -665,6 +692,7 @@ private struct PersistedState: Codable {
             self.shotClockMilliseconds = shotClockSeconds * 1_000
         }
         defaultShotClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultShotClockSeconds) ?? 24
+        activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
@@ -683,6 +711,7 @@ private struct PersistedState: Codable {
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
+        try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)

@@ -17,6 +17,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var defaultClockSeconds: Int
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
+    var activeShotClockPresetSeconds: Int?
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
 
@@ -30,6 +31,7 @@ struct ScoreboardGameSnapshot: Sendable {
         defaultClockSeconds: 12 * 60,
         shotClockMilliseconds: 24_000,
         defaultShotClockSeconds: 24,
+        activeShotClockPresetSeconds: 24,
         possessionDirection: .none,
         areSidesSwapped: false
     )
@@ -47,6 +49,7 @@ extension ScoreboardGameSnapshot: Codable {
         case defaultClockSeconds
         case shotClockMilliseconds
         case defaultShotClockSeconds
+        case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
     }
@@ -63,6 +66,7 @@ extension ScoreboardGameSnapshot: Codable {
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         shotClockMilliseconds = try container.decode(Int.self, forKey: .shotClockMilliseconds)
         defaultShotClockSeconds = try container.decode(Int.self, forKey: .defaultShotClockSeconds)
+        activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds)
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
     }
@@ -79,6 +83,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
+        try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
     }
