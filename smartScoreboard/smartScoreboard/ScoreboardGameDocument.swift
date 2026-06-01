@@ -7,7 +7,7 @@ extension UTType {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 2
+    var fileVersion = 3
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -20,6 +20,11 @@ struct ScoreboardGameSnapshot: Sendable {
     var activeShotClockPresetSeconds: Int?
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
+    var isPlayerTrackingEnabled: Bool?
+    var isPlayerOverlayPaused: Bool?
+    var rosterSizePerTeam: Int?
+    var homeRoster: TeamRoster?
+    var guestRoster: TeamRoster?
 
     static let empty = ScoreboardGameSnapshot(
         homeTeamName: "",
@@ -33,7 +38,12 @@ struct ScoreboardGameSnapshot: Sendable {
         defaultShotClockSeconds: 24,
         activeShotClockPresetSeconds: 24,
         possessionDirection: .none,
-        areSidesSwapped: false
+        areSidesSwapped: false,
+        isPlayerTrackingEnabled: false,
+        isPlayerOverlayPaused: false,
+        rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
+        homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
+        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
     )
 }
 
@@ -52,6 +62,11 @@ extension ScoreboardGameSnapshot: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case isPlayerTrackingEnabled
+        case isPlayerOverlayPaused
+        case rosterSizePerTeam
+        case homeRoster
+        case guestRoster
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -69,6 +84,11 @@ extension ScoreboardGameSnapshot: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds)
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
+        isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled)
+        isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused)
+        rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam)
+        homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
+        guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -86,6 +106,11 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encodeIfPresent(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
+        try container.encodeIfPresent(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
+        try container.encodeIfPresent(rosterSizePerTeam, forKey: .rosterSizePerTeam)
+        try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
+        try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
     }
 }
 

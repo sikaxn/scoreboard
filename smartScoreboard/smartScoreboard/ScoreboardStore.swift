@@ -18,6 +18,48 @@ enum PossessionDirection: String, Codable, CaseIterable {
     }
 }
 
+enum TeamSide: String, Codable, CaseIterable, Identifiable {
+    case home
+    case guest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .home:
+            return "Home"
+        case .guest:
+            return "Guest"
+        }
+    }
+}
+
+struct TrackedPlayer: Identifiable, Codable, Equatable {
+    let id: UUID
+    var number: String
+    var name: String
+    var foulCount: Int
+    var isInActiveLineup: Bool
+
+    init(
+        id: UUID = UUID(),
+        number: String,
+        name: String = "",
+        foulCount: Int = 0,
+        isInActiveLineup: Bool = false
+    ) {
+        self.id = id
+        self.number = number
+        self.name = name
+        self.foulCount = foulCount
+        self.isInActiveLineup = isInActiveLineup
+    }
+}
+
+struct TeamRoster: Codable, Equatable {
+    var players: [TrackedPlayer]
+}
+
 struct SetupPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
@@ -75,9 +117,13 @@ struct SetupPreset: Identifiable, Codable, Equatable {
 @MainActor
 final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
-    static let maxGameClockSeconds = 59 * 60 + 59
-    static let maxShotClockSeconds = 99
-    static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
+    nonisolated static let maxGameClockSeconds = 59 * 60 + 59
+    nonisolated static let maxShotClockSeconds = 99
+    nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
+    nonisolated static let defaultRosterSize = 12
+    nonisolated static let minRosterSize = 5
+    nonisolated static let maxRosterSize = 15
+    nonisolated static let activeLineupSize = 5
 
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
@@ -91,6 +137,11 @@ final class ScoreboardStore: ObservableObject {
     @Published var activeShotClockPresetSeconds = 24
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
+    @Published var isPlayerTrackingEnabled = false
+    @Published var isPlayerOverlayPaused = false
+    @Published var rosterSizePerTeam = defaultRosterSize
+    @Published var homeRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
+    @Published var guestRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
@@ -124,26 +175,38 @@ final class ScoreboardStore: ObservableObject {
         isClockRunning
     }
 
-    static func formatGameClock(_ totalSeconds: Int) -> String {
+    var displayedHomePlayers: [TrackedPlayer] {
+        activeLineupPlayers(for: .home)
+    }
+
+    var displayedGuestPlayers: [TrackedPlayer] {
+        activeLineupPlayers(for: .guest)
+    }
+
+    nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
         let boundedSeconds = max(0, min(maxGameClockSeconds, totalSeconds))
         let minutes = boundedSeconds / 60
         let seconds = boundedSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    static func formatShotClock(_ totalSeconds: Int) -> String {
+    nonisolated static func formatShotClock(_ totalSeconds: Int) -> String {
         formatShotClock(milliseconds: totalSeconds * 1_000)
     }
 
-    static func formatShotClock(milliseconds totalMilliseconds: Int) -> String {
+    nonisolated static func formatShotClock(milliseconds totalMilliseconds: Int) -> String {
         let boundedMilliseconds = max(0, min(maxShotClockMilliseconds, totalMilliseconds))
         return String(format: "%.1f", Double(boundedMilliseconds) / 1_000)
     }
 
+    nonisolated static func makeDefaultRosterPlayers(count: Int) -> [TrackedPlayer] {
+        (0..<count).map { index in
+            TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < activeLineupSize)
+        }
+    }
+
     func updateTeamName(_ name: String, isHome: Bool) {
-        let resolvedName = name
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
+        let resolvedName = normalizedTeamName(name)
 
         if isHome {
             homeTeamName = resolvedName
@@ -274,6 +337,8 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        isPlayerOverlayPaused = false
+        resetPlayerTrackingForNewGame()
     }
 
     func resetScores() {
@@ -289,9 +354,102 @@ final class ScoreboardStore: ObservableObject {
         areSidesSwapped.toggle()
     }
 
+    func setPlayerTrackingEnabled(_ isEnabled: Bool) {
+        isPlayerTrackingEnabled = isEnabled
+    }
+
+    func togglePlayerOverlayPaused() {
+        isPlayerOverlayPaused.toggle()
+    }
+
+    func setRosterSizePerTeam(_ size: Int) {
+        let boundedSize = max(Self.minRosterSize, min(Self.maxRosterSize, size))
+        rosterSizePerTeam = boundedSize
+        resizeRoster(for: .home, to: boundedSize)
+        resizeRoster(for: .guest, to: boundedSize)
+    }
+
+    func trackedPlayers(for side: TeamSide) -> [TrackedPlayer] {
+        roster(for: side).players
+    }
+
+    func updateTrackedPlayerNumber(_ number: String, for side: TeamSide, playerID: UUID) {
+        updateRoster(for: side) { roster in
+            guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            roster.players[index].number = normalizedPlayerNumber(number)
+        }
+    }
+
+    func updateTrackedPlayerName(_ name: String, for side: TeamSide, playerID: UUID) {
+        updateRoster(for: side) { roster in
+            guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            roster.players[index].name = normalizedPlayerName(name)
+        }
+    }
+
+    func adjustFoulCount(for side: TeamSide, playerID: UUID, by delta: Int) {
+        updateRoster(for: side) { roster in
+            guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            roster.players[index].foulCount = max(0, roster.players[index].foulCount + delta)
+        }
+    }
+
+    func resetFouls(for side: TeamSide, playerID: UUID) {
+        updateRoster(for: side) { roster in
+            guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            roster.players[index].foulCount = 0
+        }
+    }
+
+    func resetFouls(for side: TeamSide) {
+        updateRoster(for: side) { roster in
+            for index in roster.players.indices {
+                roster.players[index].foulCount = 0
+            }
+        }
+    }
+
+    func resetAllPlayerFouls() {
+        resetFouls(for: .home)
+        resetFouls(for: .guest)
+    }
+
+    func setPlayerActiveLineup(_ isActive: Bool, for side: TeamSide, playerID: UUID) {
+        updateRoster(for: side) { roster in
+            guard let targetIndex = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            if isActive {
+                let activeIDs = roster.players
+                    .filter { $0.isInActiveLineup && $0.id != playerID }
+                    .map(\.id)
+                let retainedIDs = Set([playerID] + Array(activeIDs.prefix(max(activeLineupCountLimit - 1, 0))))
+
+                for index in roster.players.indices {
+                    roster.players[index].isInActiveLineup = retainedIDs.contains(roster.players[index].id)
+                }
+            } else {
+                roster.players[targetIndex].isInActiveLineup = false
+            }
+        }
+    }
+
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 2,
+            fileVersion: 3,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
@@ -303,7 +461,12 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
-            areSidesSwapped: areSidesSwapped
+            areSidesSwapped: areSidesSwapped,
+            isPlayerTrackingEnabled: isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: isPlayerOverlayPaused,
+            rosterSizePerTeam: rosterSizePerTeam,
+            homeRoster: homeRoster,
+            guestRoster: guestRoster
         )
     }
 
@@ -323,6 +486,11 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
         possessionDirection = snapshot.possessionDirection
         areSidesSwapped = snapshot.areSidesSwapped
+        isPlayerTrackingEnabled = snapshot.isPlayerTrackingEnabled ?? false
+        isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
+        rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
+        homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
+        guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
         didCompleteSetup = true
     }
 
@@ -343,6 +511,8 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = defaultShotClockSeconds
         possessionDirection = .none
         areSidesSwapped = false
+        isPlayerOverlayPaused = false
+        resetPlayerTrackingForNewGame()
         didCompleteSetup = true
         resetClock(to: defaultClockSeconds)
         resetShotClock(to: defaultShotClockSeconds)
@@ -501,6 +671,16 @@ final class ScoreboardStore: ObservableObject {
             .uppercased()
     }
 
+    private func normalizedPlayerName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
+
+    private func normalizedPlayerNumber(_ number: String) -> String {
+        number.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func boundedGameClockSeconds(_ value: Int) -> Int {
         max(0, min(Self.maxGameClockSeconds, value))
     }
@@ -541,6 +721,11 @@ final class ScoreboardStore: ObservableObject {
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
             $possessionDirection.map { _ in () }.eraseToAnyPublisher(),
             $areSidesSwapped.map { _ in () }.eraseToAnyPublisher(),
+            $isPlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isPlayerOverlayPaused.map { _ in () }.eraseToAnyPublisher(),
+            $rosterSizePerTeam.map { _ in () }.eraseToAnyPublisher(),
+            $homeRoster.map { _ in () }.eraseToAnyPublisher(),
+            $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
@@ -551,10 +736,10 @@ final class ScoreboardStore: ObservableObject {
         ]
 
         Publishers.MergeMany(persistencePublishers)
-        .sink { [weak self] _ in
-            self?.persistState()
-        }
-        .store(in: &cancellables)
+            .sink { [weak self] _ in
+                self?.persistState()
+            }
+            .store(in: &cancellables)
     }
 
     private func loadPersistedState() {
@@ -577,6 +762,11 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
         possessionDirection = persistedState.possessionDirection
         areSidesSwapped = persistedState.areSidesSwapped
+        isPlayerTrackingEnabled = persistedState.isPlayerTrackingEnabled
+        isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
+        rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
+        homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
+        guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
         theme = persistedState.theme
         externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
         isSoundEnabled = persistedState.isSoundEnabled
@@ -600,6 +790,11 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped,
+            isPlayerTrackingEnabled: isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: isPlayerOverlayPaused,
+            rosterSizePerTeam: rosterSizePerTeam,
+            homeRoster: homeRoster,
+            guestRoster: guestRoster,
             theme: theme,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
             isSoundEnabled: isSoundEnabled,
@@ -612,6 +807,96 @@ final class ScoreboardStore: ObservableObject {
         }
 
         UserDefaults.standard.set(data, forKey: persistenceKey)
+    }
+
+    private var activeLineupCountLimit: Int {
+        min(Self.activeLineupSize, rosterSizePerTeam)
+    }
+
+    private func resetPlayerTrackingForNewGame() {
+        resetRosterForNewGame(.home)
+        resetRosterForNewGame(.guest)
+    }
+
+    private func resetRosterForNewGame(_ side: TeamSide) {
+        updateRoster(for: side) { roster in
+            for index in roster.players.indices {
+                roster.players[index].foulCount = 0
+                roster.players[index].isInActiveLineup = index < activeLineupCountLimit
+            }
+        }
+    }
+
+    private func resizeRoster(for side: TeamSide, to count: Int) {
+        updateRoster(for: side) { roster in
+            if roster.players.count > count {
+                roster.players = Array(roster.players.prefix(count))
+            } else if roster.players.count < count {
+                let startIndex = roster.players.count
+                roster.players.append(contentsOf: (startIndex..<count).map { index in
+                    TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < activeLineupCountLimit)
+                })
+            }
+
+            normalizeActiveLineup(in: &roster)
+        }
+    }
+
+    private func activeLineupPlayers(for side: TeamSide) -> [TrackedPlayer] {
+        Array(roster(for: side).players.filter(\.isInActiveLineup).prefix(activeLineupCountLimit))
+    }
+
+    private func roster(for side: TeamSide) -> TeamRoster {
+        switch side {
+        case .home:
+            return homeRoster
+        case .guest:
+            return guestRoster
+        }
+    }
+
+    private func updateRoster(for side: TeamSide, mutate: (inout TeamRoster) -> Void) {
+        switch side {
+        case .home:
+            var roster = homeRoster
+            mutate(&roster)
+            homeRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+        case .guest:
+            var roster = guestRoster
+            mutate(&roster)
+            guestRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+        }
+    }
+
+    private func normalizedRoster(_ roster: TeamRoster?, fallbackCount: Int) -> TeamRoster {
+        var resolved = roster ?? TeamRoster(players: Self.makeDefaultRosterPlayers(count: fallbackCount))
+
+        if resolved.players.count > fallbackCount {
+            resolved.players = Array(resolved.players.prefix(fallbackCount))
+        } else if resolved.players.count < fallbackCount {
+            let startIndex = resolved.players.count
+            resolved.players.append(contentsOf: (startIndex..<fallbackCount).map { index in
+                TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < activeLineupCountLimit)
+            })
+        }
+
+        for index in resolved.players.indices {
+            resolved.players[index].number = normalizedPlayerNumber(resolved.players[index].number)
+            resolved.players[index].name = normalizedPlayerName(resolved.players[index].name)
+            resolved.players[index].foulCount = max(0, resolved.players[index].foulCount)
+        }
+
+        normalizeActiveLineup(in: &resolved)
+        return resolved
+    }
+
+    private func normalizeActiveLineup(in roster: inout TeamRoster) {
+        let activeIndices = roster.players.indices.filter { roster.players[$0].isInActiveLineup }
+        if activeIndices.count > activeLineupCountLimit {
+            for index in activeIndices.dropFirst(activeLineupCountLimit) {
+                roster.players[index].isInActiveLineup = false
+            }
+        }
     }
 }
 
@@ -628,6 +913,11 @@ private struct PersistedState: Codable {
     var activeShotClockPresetSeconds: Int
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
+    var isPlayerTrackingEnabled: Bool
+    var isPlayerOverlayPaused: Bool
+    var rosterSizePerTeam: Int
+    var homeRoster: TeamRoster
+    var guestRoster: TeamRoster
     var theme: ScoreboardTheme
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
     var isSoundEnabled: Bool
@@ -648,6 +938,11 @@ private struct PersistedState: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case isPlayerTrackingEnabled
+        case isPlayerOverlayPaused
+        case rosterSizePerTeam
+        case homeRoster
+        case guestRoster
         case theme
         case externalDisplayBackgroundMode
         case isSoundEnabled
@@ -668,6 +963,11 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds: Int,
         possessionDirection: PossessionDirection,
         areSidesSwapped: Bool,
+        isPlayerTrackingEnabled: Bool,
+        isPlayerOverlayPaused: Bool,
+        rosterSizePerTeam: Int,
+        homeRoster: TeamRoster,
+        guestRoster: TeamRoster,
         theme: ScoreboardTheme,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
         isSoundEnabled: Bool,
@@ -686,6 +986,11 @@ private struct PersistedState: Codable {
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
         self.possessionDirection = possessionDirection
         self.areSidesSwapped = areSidesSwapped
+        self.isPlayerTrackingEnabled = isPlayerTrackingEnabled
+        self.isPlayerOverlayPaused = isPlayerOverlayPaused
+        self.rosterSizePerTeam = rosterSizePerTeam
+        self.homeRoster = homeRoster
+        self.guestRoster = guestRoster
         self.theme = theme
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
         self.isSoundEnabled = isSoundEnabled
@@ -712,6 +1017,11 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
+        isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? false
+        isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
+        rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
+        homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
+        guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
@@ -733,6 +1043,11 @@ private struct PersistedState: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encode(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
+        try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
+        try container.encode(rosterSizePerTeam, forKey: .rosterSizePerTeam)
+        try container.encode(homeRoster, forKey: .homeRoster)
+        try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)

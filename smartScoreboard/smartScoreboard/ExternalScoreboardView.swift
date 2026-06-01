@@ -32,6 +32,10 @@ struct ExternalScoreboardView: View {
                     possessionDirection: store.possessionDirection,
                     areSidesSwapped: store.areSidesSwapped,
                     isClockRunning: store.isClockRunning,
+                    isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
+                    isPlayerOverlayPaused: store.isPlayerOverlayPaused,
+                    homePlayers: store.displayedHomePlayers,
+                    guestPlayers: store.displayedGuestPlayers,
                     compact: usesCompactBoard
                 )
                 .frame(width: boardSize.width, height: boardSize.height)

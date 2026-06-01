@@ -75,6 +75,11 @@ struct ContentView: View {
         .onReceive(store.$activeShotClockPresetSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$possessionDirection) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$areSidesSwapped) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isPlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
         .onAppear {
             initializeWorkingGameFile()
             updateIdleTimer(for: scenePhase)
@@ -267,6 +272,8 @@ struct ContentView: View {
         switch selectedSettingsPane {
         case .game:
             settingsGamePane(layout: layout)
+        case .players:
+            settingsPlayersPane(layout: layout)
         case .theme:
             settingsThemePane()
         case .files:
@@ -350,6 +357,37 @@ struct ContentView: View {
         }
     }
 
+    private func settingsPlayersPane(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Tracking") {
+                settingsToggleRow(title: "Enable Player/Foul Tracking", isOn: Binding(
+                    get: { store.isPlayerTrackingEnabled },
+                    set: { store.setPlayerTrackingEnabled($0) }
+                ))
+                settingsDivider()
+                settingsToggleRow(title: "Pause Public Player Overlay", isOn: Binding(
+                    get: { store.isPlayerOverlayPaused },
+                    set: { if store.isPlayerOverlayPaused != $0 { store.togglePlayerOverlayPaused() } }
+                ))
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Roster Size",
+                    value: "\(store.rosterSizePerTeam)",
+                    decrement: { store.setRosterSizePerTeam(store.rosterSizePerTeam - 1) },
+                    increment: { store.setRosterSizePerTeam(store.rosterSizePerTeam + 1) }
+                )
+            }
+
+            settingsSection(title: "Home Roster", footer: "Edit player number, display name, and active lineup status for the home team.") {
+                settingsRosterEditor(side: .home, layout: layout)
+            }
+
+            settingsSection(title: "Guest Roster", footer: "Edit player number, display name, and active lineup status for the guest team.") {
+                settingsRosterEditor(side: .guest, layout: layout)
+            }
+        }
+    }
+
     private func settingsFilesPane() -> some View {
         VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Game Files", footer: "Use game files for both reusable setups and live games. Save the current setup as a new file, then load, import, export, or delete from the same library.") {
@@ -377,6 +415,10 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Opening Clock", value: formatClock(setupClockSeconds))
                 settingsDivider()
                 settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
+                settingsDivider()
+                settingsSummaryValueRow(title: "Player Tracking", value: store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")
+                settingsDivider()
+                settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
             }
         }
     }
@@ -527,6 +569,15 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    private func settingsToggleRow(title: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title)
+                .foregroundStyle(settingsPalette.primaryText)
+        }
+        .toggleStyle(.switch)
+        .padding(.vertical, 10)
+    }
+
     private func settingsSegmentRow(
         title: String,
         options: [(String, Int)],
@@ -547,6 +598,78 @@ struct ContentView: View {
             .frame(maxWidth: 280)
         }
         .padding(.vertical, 10)
+    }
+
+    private func settingsRosterEditor(side: TeamSide, layout: InterfaceLayout) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(store.trackedPlayers(for: side).enumerated()), id: \.element.id) { index, player in
+                settingsTrackedPlayerRow(player, side: side, layout: layout)
+
+                if index < store.trackedPlayers(for: side).count - 1 {
+                    settingsDivider()
+                }
+            }
+        }
+    }
+
+    private func settingsTrackedPlayerRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text("#\(player.number.isEmpty ? "--" : player.number)")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                Text("F \(player.foulCount)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(settingsPalette.fieldBackground, in: Capsule())
+            }
+
+            HStack(spacing: 12) {
+                TextField(
+                    "No.",
+                    text: Binding(
+                        get: { player.number },
+                        set: { store.updateTrackedPlayerNumber($0, for: side, playerID: player.id) }
+                    )
+                )
+                .multilineTextAlignment(.center)
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 84)
+
+                TextField(
+                    "Player Name",
+                    text: Binding(
+                        get: { player.name },
+                        set: { store.updateTrackedPlayerName($0, for: side, playerID: player.id) }
+                    )
+                )
+                .scoreboardUppercaseEntry()
+                .autocorrectionDisabled()
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            Toggle(isOn: Binding(
+                get: { player.isInActiveLineup },
+                set: { store.setPlayerActiveLineup($0, for: side, playerID: player.id) }
+            )) {
+                Text("Show In Active Lineup")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+            .toggleStyle(.switch)
+        }
+        .padding(.vertical, 12)
     }
 
     private func settingsButtonRow(
@@ -997,7 +1120,7 @@ struct ContentView: View {
 
     private func controlPane(layout: InterfaceLayout) -> some View {
         Group {
-            if layout.requiresDashboardScroll {
+            if layout.requiresDashboardScroll || store.isPlayerTrackingEnabled {
                 ScrollView(.vertical, showsIndicators: false) {
                     dashboardControlStack(layout: layout)
                         .padding(.bottom, layout.sectionSpacing)
@@ -1022,6 +1145,10 @@ struct ContentView: View {
         VStack(spacing: layout.sectionSpacing) {
             topControlRow(layout: layout)
             bottomControlRow(layout: layout)
+
+            if store.isPlayerTrackingEnabled {
+                playerTrackingPanel(layout: layout)
+            }
         }
     }
 
@@ -1242,6 +1369,143 @@ struct ContentView: View {
         )
     }
 
+    private func playerTrackingPanel(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Player Tracking")
+                    .font(.title3.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text(store.isPlayerOverlayPaused ? "Overlay Paused" : "Overlay Live")
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(store.isPlayerOverlayPaused ? themePalette.dashboardWarningButtonText : themePalette.dashboardStatusLive)
+            }
+
+            buttonGrid(
+                columns: layout.playerActionButtonColumns,
+                buttons: [
+                    ActionDescriptor(
+                        title: store.isPlayerOverlayPaused ? "Resume Overlay" : "Pause Overlay",
+                        tint: store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                        foreground: store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText
+                    ) {
+                        store.togglePlayerOverlayPaused()
+                    },
+                    ActionDescriptor(title: "Reset Home Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.resetFouls(for: .home)
+                    },
+                    ActionDescriptor(title: "Reset Guest Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.resetFouls(for: .guest)
+                    },
+                    ActionDescriptor(title: "Reset All Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                        store.resetAllPlayerFouls()
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+
+            if layout.playerPanelsUseVerticalFlow {
+                VStack(spacing: layout.sectionSpacing) {
+                    playerTeamPanel(side: .home, layout: layout)
+                    playerTeamPanel(side: .guest, layout: layout)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    playerTeamPanel(side: .home, layout: layout)
+                    playerTeamPanel(side: .guest, layout: layout)
+                }
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
+    }
+
+    private func playerTeamPanel(side: TeamSide, layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("\(side.title) Roster")
+                    .font(.headline.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text("Showing \(store.trackedPlayers(for: side).filter(\.isInActiveLineup).count)/\(min(ScoreboardStore.activeLineupSize, store.rosterSizePerTeam))")
+                    .font(.caption.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(store.trackedPlayers(for: side)) { player in
+                    playerControlRow(player, side: side, layout: layout)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 2)
+    }
+
+    private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("#\(player.number.isEmpty ? "--" : player.number) \(player.name.isEmpty ? "PLAYER" : player.name)")
+                    .font(.subheadline.weight(.bold))
+                    .singleLineFitted(minScale: 0.65)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Text(player.isInActiveLineup ? "Active Lineup" : "Bench")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(player.isInActiveLineup ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+            }
+
+            Spacer(minLength: 0)
+
+            Text("F \(player.foulCount)")
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
+
+            smallActionButton("-", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.adjustFoulCount(for: side, playerID: player.id, by: -1)
+            }
+            .frame(width: 40)
+
+            smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.adjustFoulCount(for: side, playerID: player.id, by: 1)
+            }
+            .frame(width: 40)
+
+            smallActionButton(
+                player.isInActiveLineup ? "Bench" : "Show",
+                tint: player.isInActiveLineup ? themePalette.dashboardNeutralButton : (side == .home ? homeTint.opacity(0.86) : guestTint.opacity(0.86)),
+                foreground: player.isInActiveLineup ? themePalette.dashboardNeutralButtonText : .white,
+                verticalPadding: layout.advancedButtonVerticalPadding
+            ) {
+                store.setPlayerActiveLineup(!player.isInActiveLineup, for: side, playerID: player.id)
+            }
+            .frame(width: 78)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.7))
+        )
+    }
+
     private func gameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             gameSummaryRow(layout: layout)
@@ -1447,6 +1711,7 @@ struct ContentView: View {
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
+            fileVersion: 3,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: 0,
@@ -1458,7 +1723,12 @@ struct ContentView: View {
             defaultShotClockSeconds: setupShotClockSeconds,
             activeShotClockPresetSeconds: setupShotClockSeconds,
             possessionDirection: .none,
-            areSidesSwapped: false
+            areSidesSwapped: false,
+            isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: store.isPlayerOverlayPaused,
+            rosterSizePerTeam: store.rosterSizePerTeam,
+            homeRoster: store.homeRoster,
+            guestRoster: store.guestRoster
         )
     }
 
@@ -1752,7 +2022,7 @@ struct ContentView: View {
         let currentSnapshot = store.currentGameSnapshot()
 
         return ScoreboardGameSnapshot(
-            fileVersion: 2,
+            fileVersion: 3,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: currentSnapshot.homeScore,
@@ -1764,7 +2034,12 @@ struct ContentView: View {
             defaultShotClockSeconds: setupShotClockSeconds,
             activeShotClockPresetSeconds: setupShotClockSeconds,
             possessionDirection: .none,
-            areSidesSwapped: currentSnapshot.areSidesSwapped
+            areSidesSwapped: currentSnapshot.areSidesSwapped,
+            isPlayerTrackingEnabled: currentSnapshot.isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
+            rosterSizePerTeam: currentSnapshot.rosterSizePerTeam,
+            homeRoster: currentSnapshot.homeRoster,
+            guestRoster: currentSnapshot.guestRoster
         )
     }
 
@@ -1793,6 +2068,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
+                    fileVersion: 3,
                     homeTeamName: preset.homeTeamName,
                     guestTeamName: preset.guestTeamName,
                     homeScore: 0,
@@ -1804,7 +2080,12 @@ struct ContentView: View {
                     defaultShotClockSeconds: preset.shotClockSeconds,
                     activeShotClockPresetSeconds: preset.shotClockSeconds,
                     possessionDirection: preset.possessionDirection,
-                    areSidesSwapped: false
+                    areSidesSwapped: false,
+                    isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
+                    isPlayerOverlayPaused: false,
+                    rosterSizePerTeam: store.rosterSizePerTeam,
+                    homeRoster: store.homeRoster,
+                    guestRoster: store.guestRoster
                 )
 
                 let baseFilename = preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1976,6 +2257,7 @@ private struct StoredGameFile: Identifiable {
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
+    case players
     case theme
     case files
 
@@ -1985,6 +2267,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "Game Setup"
+        case .players:
+            return "Players"
         case .theme:
             return "Theme"
         case .files:
@@ -1996,6 +2280,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "Edit teams, period, and clock defaults before opening the live control board."
+        case .players:
+            return "Configure roster size, player identities, active lineup, and foul tracking."
         case .theme:
             return "Choose the look for both the operator controls and public scoreboard."
         case .files:
@@ -2007,6 +2293,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .game:
             return "slider.horizontal.3"
+        case .players:
+            return "person.3"
         case .theme:
             return "paintpalette"
         case .files:
@@ -2086,6 +2374,8 @@ private struct InterfaceLayout {
     var centerMetricValueSize: CGFloat { denseControls ? 24 : 28 }
     var centerMetricColumns: Int { width < 720 ? 1 : 3 }
     var teamButtonColumns: Int { width < 900 ? 1 : 2 }
+    var playerActionButtonColumns: Int { width < 700 ? 2 : 4 }
+    var playerPanelsUseVerticalFlow: Bool { width < 1180 }
     func controlTopSectionHeight(in totalHeight: CGFloat) -> CGFloat {
         if topControlUsesVerticalFlow {
             return min(max(totalHeight * 0.58, 360), totalHeight - 140)

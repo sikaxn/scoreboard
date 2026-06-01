@@ -21,6 +21,10 @@ struct ScoreboardFaceView: View {
     let possessionDirection: PossessionDirection
     let areSidesSwapped: Bool
     let isClockRunning: Bool
+    let isPlayerTrackingEnabled: Bool
+    let isPlayerOverlayPaused: Bool
+    let homePlayers: [TrackedPlayer]
+    let guestPlayers: [TrackedPlayer]
     let compact: Bool
 
     private var palette: ThemePalette { theme.palette }
@@ -60,6 +64,7 @@ struct ScoreboardFaceView: View {
                         placeholder: leftTeam.role,
                         score: leftTeam.score,
                         accent: leftTeam.accent,
+                        displayedPlayers: displayedPlayers(for: leftTeam.side),
                         base: base,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed
@@ -76,6 +81,7 @@ struct ScoreboardFaceView: View {
                         placeholder: rightTeam.role,
                         score: rightTeam.score,
                         accent: rightTeam.accent,
+                        displayedPlayers: displayedPlayers(for: rightTeam.side),
                         base: base,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed
@@ -149,6 +155,7 @@ struct ScoreboardFaceView: View {
         placeholder: String,
         score: Int,
         accent: Color,
+        displayedPlayers: [TrackedPlayer],
         base: CGFloat,
         condensed: Bool,
         ultraCondensed: Bool
@@ -182,7 +189,11 @@ struct ScoreboardFaceView: View {
                 .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                 .frame(maxWidth: .infinity)
 
-            Spacer(minLength: 0)
+            if !displayedPlayers.isEmpty {
+                activeLineupStrip(displayedPlayers, accent: accent, base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .padding(ultraCondensed ? 14 : condensed ? 28 : 24)
         .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous))
@@ -191,6 +202,51 @@ struct ScoreboardFaceView: View {
                 .strokeBorder(boardPanelBorderColor)
         )
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
+    }
+
+    private func activeLineupStrip(
+        _ players: [TrackedPlayer],
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
+            Text("PLAYERS")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            VStack(spacing: ultraCondensed ? 4 : 6) {
+                ForEach(players) { player in
+                    HStack(spacing: 8) {
+                        Text("#\(player.number.isEmpty ? "--" : player.number)")
+                            .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.027 : base * 0.024, weight: .black, design: .rounded))
+                            .foregroundStyle(accent)
+                            .frame(width: ultraCondensed ? 34 : 44, alignment: .leading)
+
+                        Text(player.name.isEmpty ? "PLAYER" : player.name)
+                            .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
+                            .singleLineFitted(minScale: 0.55)
+                            .foregroundStyle(boardPrimaryTextColor)
+
+                        Spacer(minLength: 0)
+
+                        Text("F\(player.foulCount)")
+                            .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
+                            .foregroundStyle(boardPrimaryTextColor)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
     }
 
     private func centerClockPanel(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -285,10 +341,24 @@ struct ScoreboardFaceView: View {
         }
     }
 
+    private func displayedPlayers(for side: TeamSide) -> [TrackedPlayer] {
+        guard isPlayerTrackingEnabled, !isPlayerOverlayPaused else {
+            return []
+        }
+
+        switch side {
+        case .home:
+            return homePlayers
+        case .guest:
+            return guestPlayers
+        }
+    }
+
     private func sidePanelData(for side: PossessionDirection) -> SidePanelData {
         switch side {
         case .home:
             return SidePanelData(
+                side: .home,
                 role: "HOME",
                 title: homeTeamName,
                 score: homeScore,
@@ -296,6 +366,7 @@ struct ScoreboardFaceView: View {
             )
         case .guest:
             return SidePanelData(
+                side: .guest,
                 role: "GUEST",
                 title: guestTeamName,
                 score: guestScore,
@@ -303,6 +374,7 @@ struct ScoreboardFaceView: View {
             )
         case .none:
             return SidePanelData(
+                side: .home,
                 role: "",
                 title: "",
                 score: 0,
@@ -313,6 +385,7 @@ struct ScoreboardFaceView: View {
 }
 
 private struct SidePanelData {
+    let side: TeamSide
     let role: String
     let title: String
     let score: Int
