@@ -3,28 +3,36 @@ import SwiftUI
 @main
 struct SmartScoreboardApp: App {
     @StateObject private var store = ScoreboardStore.shared
-    @StateObject private var externalDisplayState = ExternalDisplayState.shared
+    @StateObject private var publicBoardState = PublicBoardState.shared
 
     var body: some Scene {
         #if os(macOS)
         Window("Control Board", id: "control-board") {
-            MacControlBoardWindowView()
+            ContentView()
                 .environmentObject(store)
-                .environmentObject(externalDisplayState)
+                .environmentObject(publicBoardState)
         }
-        .defaultSize(width: 1480, height: 920)
+        .defaultSize(width: 1320, height: 860)
 
         Window("Public Scoreboard", id: "public-scoreboard") {
-            MacScoreboardWindowView()
+            ExternalScoreboardView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environmentObject(store)
-                .environmentObject(externalDisplayState)
+                .environmentObject(publicBoardState)
+                .onAppear {
+                    publicBoardState.isPresented = true
+                }
+                .onDisappear {
+                    publicBoardState.isPresented = false
+                }
         }
-        .defaultSize(width: 1380, height: 820)
+        .defaultSize(width: 1280, height: 720)
+        .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup {
             ContentView()
                 .environmentObject(store)
-                .environmentObject(externalDisplayState)
+                .environmentObject(publicBoardState)
         }
         #endif
     }

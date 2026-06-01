@@ -1,8 +1,33 @@
 import Combine
 import Foundation
 
+struct SetupPreset: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var homeTeamName: String
+    var guestTeamName: String
+    var period: Int
+    var clockSeconds: Int
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        homeTeamName: String,
+        guestTeamName: String,
+        period: Int,
+        clockSeconds: Int
+    ) {
+        self.id = id
+        self.name = name
+        self.homeTeamName = homeTeamName
+        self.guestTeamName = guestTeamName
+        self.period = period
+        self.clockSeconds = clockSeconds
+    }
+}
+
 @MainActor
-final class ScoreboardStore: NSObject, ObservableObject {
+final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
 
     @Published var homeTeamName = ""
@@ -11,12 +36,18 @@ final class ScoreboardStore: NSObject, ObservableObject {
     @Published var guestScore = 0
     @Published var period = 1
     @Published var gameClockSeconds = 12 * 60
+    @Published var defaultClockSeconds = 12 * 60
     @Published var isClockRunning = false
+    @Published var didCompleteSetup = false
+    @Published var setupPresets: [SetupPreset] = []
 
     private var timer: Timer?
+    private var cancellables = Set<AnyCancellable>()
+    private let persistenceKey = "smartScoreboard.persistedState"
 
-    private override init() {
-        super.init()
+    private init() {
+        loadPersistedState()
+        configurePersistence()
     }
 
     var formattedClock: String {
@@ -60,9 +91,9 @@ final class ScoreboardStore: NSObject, ObservableObject {
         }
     }
 
-    func resetClock(to seconds: Int = 12 * 60) {
+    func resetClock(to seconds: Int? = nil) {
         pauseClock()
-        gameClockSeconds = seconds
+        gameClockSeconds = boundedClockSeconds(seconds ?? defaultClockSeconds)
     }
 
     func toggleClock() {
@@ -74,7 +105,7 @@ final class ScoreboardStore: NSObject, ObservableObject {
         homeScore = 0
         guestScore = 0
         period = 1
-        gameClockSeconds = 12 * 60
+        gameClockSeconds = defaultClockSeconds
     }
 
     func applySetup(homeName: String, guestName: String, period: Int, clockSeconds: Int) {
@@ -83,24 +114,60 @@ final class ScoreboardStore: NSObject, ObservableObject {
         homeScore = 0
         guestScore = 0
         setPeriod(period)
-        resetClock(to: clockSeconds)
+        defaultClockSeconds = boundedClockSeconds(clockSeconds)
+        didCompleteSetup = true
+        resetClock(to: defaultClockSeconds)
+    }
+
+    func savePreset(
+        named name: String,
+        homeName: String,
+        guestName: String,
+        period: Int,
+        clockSeconds: Int
+    ) {
+        let resolvedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedName.isEmpty else {
+            return
+        }
+
+        let preset = SetupPreset(
+            id: existingPresetID(named: resolvedName) ?? UUID(),
+            name: resolvedName,
+            homeTeamName: normalizedTeamName(homeName),
+            guestTeamName: normalizedTeamName(guestName),
+            period: max(1, min(9, period)),
+            clockSeconds: boundedClockSeconds(clockSeconds)
+        )
+
+        setupPresets.removeAll {
+            $0.id == preset.id ||
+            $0.name.caseInsensitiveCompare(resolvedName) == .orderedSame
+        }
+        setupPresets.insert(preset, at: 0)
+    }
+
+    func deletePreset(_ preset: SetupPreset) {
+        setupPresets.removeAll { $0.id == preset.id }
     }
 
     private func startClock() {
         if gameClockSeconds == 0 {
-            gameClockSeconds = 12 * 60
+            gameClockSeconds = defaultClockSeconds
         }
 
         isClockRunning = true
 
         timer?.invalidate()
-        timer = Timer.scheduledTimer(
-            timeInterval: 1,
-            target: self,
-            selector: #selector(handleTimerTick),
-            userInfo: nil,
-            repeats: true
-        )
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            Task { @MainActor in
+                self.tick()
+            }
+        }
     }
 
     private func pauseClock() {
@@ -126,16 +193,103 @@ final class ScoreboardStore: NSObject, ObservableObject {
         }
     }
 
-    @objc private func handleTimerTick() {
-        tick()
+    deinit {
+        timer?.invalidate()
+    }
+
+    private func normalizedTeamName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
+
+    private func boundedClockSeconds(_ value: Int) -> Int {
+        max(0, min(59 * 60 + 59, value))
+    }
+
+    private func existingPresetID(named name: String) -> UUID? {
+        setupPresets.first {
+            $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }?.id
+    }
+
+    private func configurePersistence() {
+        Publishers.MergeMany(
+            $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
+            $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
+            $homeScore.map { _ in () }.eraseToAnyPublisher(),
+            $guestScore.map { _ in () }.eraseToAnyPublisher(),
+            $period.map { _ in () }.eraseToAnyPublisher(),
+            $gameClockSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
+            $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
+            $setupPresets.map { _ in () }.eraseToAnyPublisher()
+        )
+        .sink { [weak self] _ in
+            self?.persistState()
+        }
+        .store(in: &cancellables)
+    }
+
+    private func loadPersistedState() {
+        guard
+            let data = UserDefaults.standard.data(forKey: persistenceKey),
+            let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data)
+        else {
+            return
+        }
+
+        homeTeamName = persistedState.homeTeamName
+        guestTeamName = persistedState.guestTeamName
+        homeScore = persistedState.homeScore
+        guestScore = persistedState.guestScore
+        period = max(1, min(9, persistedState.period))
+        gameClockSeconds = boundedClockSeconds(persistedState.gameClockSeconds)
+        defaultClockSeconds = boundedClockSeconds(persistedState.defaultClockSeconds)
+        didCompleteSetup = persistedState.didCompleteSetup
+        setupPresets = persistedState.setupPresets
+        isClockRunning = false
+    }
+
+    private func persistState() {
+        let persistedState = PersistedState(
+            homeTeamName: homeTeamName,
+            guestTeamName: guestTeamName,
+            homeScore: homeScore,
+            guestScore: guestScore,
+            period: period,
+            gameClockSeconds: gameClockSeconds,
+            defaultClockSeconds: defaultClockSeconds,
+            didCompleteSetup: didCompleteSetup,
+            setupPresets: setupPresets
+        )
+
+        guard let data = try? JSONEncoder().encode(persistedState) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: persistenceKey)
     }
 }
 
-@MainActor
-final class ExternalDisplayState: ObservableObject {
-    static let shared = ExternalDisplayState()
+private struct PersistedState: Codable {
+    var homeTeamName: String
+    var guestTeamName: String
+    var homeScore: Int
+    var guestScore: Int
+    var period: Int
+    var gameClockSeconds: Int
+    var defaultClockSeconds: Int
+    var didCompleteSetup: Bool
+    var setupPresets: [SetupPreset]
+}
 
-    @Published var isConnected = false
+@MainActor
+final class PublicBoardState: ObservableObject {
+    static let shared = PublicBoardState()
+
+    @Published var isPresented = false
 
     private init() {}
 }
