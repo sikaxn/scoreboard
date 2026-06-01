@@ -60,8 +60,6 @@ struct ScoreboardFaceView: View {
                         placeholder: leftTeam.role,
                         score: leftTeam.score,
                         accent: leftTeam.accent,
-                        possessionArrowSystemName: "arrowtriangle.right.fill",
-                        showsPossession: leftTeam.showsPossession,
                         base: base,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed
@@ -78,8 +76,6 @@ struct ScoreboardFaceView: View {
                         placeholder: rightTeam.role,
                         score: rightTeam.score,
                         accent: rightTeam.accent,
-                        possessionArrowSystemName: "arrowtriangle.left.fill",
-                        showsPossession: rightTeam.showsPossession,
                         base: base,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed
@@ -153,27 +149,17 @@ struct ScoreboardFaceView: View {
         placeholder: String,
         score: Int,
         accent: Color,
-        possessionArrowSystemName: String,
-        showsPossession: Bool,
         base: CGFloat,
         condensed: Bool,
         ultraCondensed: Bool
     ) -> some View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.02) : condensed ? max(18, base * 0.03) : max(22, base * 0.035)) {
             VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
-                HStack(spacing: 8) {
-                    Text(role)
-                        .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
-                        .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
-                        .singleLineFitted(minScale: 0.8)
-                        .foregroundStyle(boardSecondaryTextColor)
-
-                    if showsPossession {
-                        Image(systemName: possessionArrowSystemName)
-                            .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.026 : base * 0.022, weight: .black))
-                            .foregroundStyle(accent)
-                    }
-                }
+                Text(role)
+                    .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
+                    .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
+                    .singleLineFitted(minScale: 0.8)
+                    .foregroundStyle(boardSecondaryTextColor)
 
                 Text(resolvedTitle(title, placeholder: placeholder))
                     .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
@@ -211,6 +197,14 @@ struct ScoreboardFaceView: View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.018) : condensed ? max(18, base * 0.026) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
+            if let possessionIndicator = centerPossessionIndicator {
+                Image(systemName: possessionIndicator.systemName)
+                    .font(.system(size: ultraCondensed ? base * 0.12 : condensed ? base * 0.16 : base * 0.14, weight: .black))
+                    .foregroundStyle(possessionIndicator.color)
+                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+                    .frame(maxWidth: .infinity)
+            }
+
             Text(formattedClock)
                 .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
                 .monospacedDigit()
@@ -223,7 +217,14 @@ struct ScoreboardFaceView: View {
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
                 headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
-                headerBadge(title: "SHOT", value: formattedShotClock, condensed: condensed, ultraCondensed: ultraCondensed)
+                headerBadge(
+                    title: "SHOT",
+                    value: formattedShotClock,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed,
+                    valueFontSize: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19,
+                    valueMinScale: 0.24
+                )
                 headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
             }
 
@@ -238,7 +239,14 @@ struct ScoreboardFaceView: View {
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
     }
 
-    private func headerBadge(title: String, value: String, condensed: Bool, ultraCondensed: Bool) -> some View {
+    private func headerBadge(
+        title: String,
+        value: String,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        valueFontSize: CGFloat? = nil,
+        valueMinScale: CGFloat = 0.55
+    ) -> some View {
         VStack(spacing: ultraCondensed ? 3 : 6) {
             Text(title)
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 16 : 14, weight: .black, design: .rounded))
@@ -247,8 +255,9 @@ struct ScoreboardFaceView: View {
                 .foregroundStyle(boardBadgeTitleTextColor)
 
             Text(value)
-                .font(.system(size: ultraCondensed ? 18 : condensed ? 34 : 28, weight: .heavy, design: .rounded))
-                .singleLineFitted(minScale: 0.55)
+                .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 34 : 28), weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: valueMinScale)
                 .foregroundStyle(boardBadgeValueTextColor)
         }
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
@@ -265,6 +274,17 @@ struct ScoreboardFaceView: View {
         return trimmed.isEmpty ? placeholder : trimmed
     }
 
+    private var centerPossessionIndicator: (systemName: String, color: Color)? {
+        switch possessionDirection {
+        case .home:
+            return (areSidesSwapped ? "arrow.left.circle.fill" : "arrow.right.circle.fill", palette.homeAccent)
+        case .guest:
+            return (areSidesSwapped ? "arrow.right.circle.fill" : "arrow.left.circle.fill", palette.guestAccent)
+        case .none:
+            return nil
+        }
+    }
+
     private func sidePanelData(for side: PossessionDirection) -> SidePanelData {
         switch side {
         case .home:
@@ -272,24 +292,21 @@ struct ScoreboardFaceView: View {
                 role: "HOME",
                 title: homeTeamName,
                 score: homeScore,
-                accent: palette.homeAccent,
-                showsPossession: possessionDirection == .home
+                accent: palette.homeAccent
             )
         case .guest:
             return SidePanelData(
                 role: "GUEST",
                 title: guestTeamName,
                 score: guestScore,
-                accent: palette.guestAccent,
-                showsPossession: possessionDirection == .guest
+                accent: palette.guestAccent
             )
         case .none:
             return SidePanelData(
                 role: "",
                 title: "",
                 score: 0,
-                accent: palette.boardPrimaryText,
-                showsPossession: false
+                accent: palette.boardPrimaryText
             )
         }
     }
@@ -300,7 +317,6 @@ private struct SidePanelData {
     let title: String
     let score: Int
     let accent: Color
-    let showsPossession: Bool
 }
 
 private extension View {

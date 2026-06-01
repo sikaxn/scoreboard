@@ -259,6 +259,7 @@ final class ScoreboardStore: ObservableObject {
         let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
 
         shotClockMilliseconds = targetMilliseconds
+        possessionDirection = .none
 
         pauseShotClock()
     }

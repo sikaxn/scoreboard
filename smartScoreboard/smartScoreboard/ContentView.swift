@@ -842,30 +842,13 @@ struct ContentView: View {
         GeometryReader { proxy in
             let availableHeight = max(proxy.size.height - (layout.outerPadding * 2), 0)
             let contentHeight = max(availableHeight - layout.dashboardHeaderHeight - layout.sectionSpacing, 0)
-            let previewHeight = layout.dashboardPreviewHeight(in: contentHeight)
 
             VStack(spacing: layout.sectionSpacing) {
                 dashboardHeader(layout: layout)
                     .frame(height: layout.dashboardHeaderHeight)
 
-                if layout.dashboardUsesSingleColumn || layout.dashboardStacksPreview {
-                    VStack(spacing: layout.sectionSpacing) {
-                        previewPane(layout: layout, height: previewHeight)
-                            .frame(height: previewHeight)
-
-                        controlPane(layout: layout)
-                            .frame(height: max(contentHeight - previewHeight - layout.sectionSpacing, 0))
-                    }
-                } else {
-                    HStack(spacing: layout.sectionSpacing) {
-                        previewPane(layout: layout, height: contentHeight)
-                            .frame(maxWidth: .infinity)
-
-                        controlPane(layout: layout)
-                            .frame(maxWidth: .infinity)
-                    }
+                controlPane(layout: layout)
                     .frame(height: contentHeight)
-                }
             }
             .padding(layout.outerPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -964,35 +947,6 @@ struct ContentView: View {
         }
     }
 
-    private func previewPane(layout: InterfaceLayout, height: CGFloat) -> some View {
-        let widgetHeight = layout.shotClockWidgetHeight(in: height)
-        let previewHeight = max(height - widgetHeight - layout.sectionSpacing, 0)
-
-        return VStack(spacing: layout.sectionSpacing) {
-            previewPanel(title: "Live Preview", caption: "Public scoreboard output", layout: layout) {
-                ScoreboardFaceView(
-                    theme: store.theme,
-                    backgroundStyle: .clear,
-                    homeTeamName: store.homeTeamName,
-                    guestTeamName: store.guestTeamName,
-                    homeScore: store.homeScore,
-                    guestScore: store.guestScore,
-                    period: store.period,
-                    formattedClock: store.formattedClock,
-                    formattedShotClock: store.formattedShotClock,
-                    possessionDirection: store.possessionDirection,
-                    areSidesSwapped: store.areSidesSwapped,
-                    isClockRunning: store.isClockRunning,
-                    compact: layout.previewUsesCompactBoard
-                )
-            }
-            .frame(height: previewHeight)
-
-            shotClockWidget(layout: layout)
-                .frame(height: widgetHeight)
-        }
-    }
-
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -1042,67 +996,176 @@ struct ContentView: View {
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
-        GeometryReader { proxy in
-            let teamSectionHeight = layout.teamSectionHeight(in: proxy.size.height)
-
-            VStack(spacing: layout.sectionSpacing) {
-                if layout.teamPanelsUseVerticalFlow {
-                    VStack(spacing: 16) {
-                        teamControlsGroup(layout: layout)
-                    }
-                    .frame(height: teamSectionHeight)
-                } else {
-                    HStack(spacing: 16) {
-                        teamControlsGroup(layout: layout)
-                    }
-                    .frame(height: teamSectionHeight)
+        Group {
+            if layout.requiresDashboardScroll {
+                ScrollView(.vertical, showsIndicators: false) {
+                    dashboardControlStack(layout: layout)
+                        .padding(.bottom, layout.sectionSpacing)
                 }
+            } else {
+                GeometryReader { proxy in
+                    let topSectionHeight = layout.controlTopSectionHeight(in: proxy.size.height)
 
+                    VStack(spacing: layout.sectionSpacing) {
+                        topControlRow(layout: layout)
+                            .frame(height: topSectionHeight)
+
+                        bottomControlRow(layout: layout)
+                            .frame(height: max(proxy.size.height - topSectionHeight - layout.sectionSpacing, 0))
+                    }
+                }
+            }
+        }
+    }
+
+    private func dashboardControlStack(layout: InterfaceLayout) -> some View {
+        VStack(spacing: layout.sectionSpacing) {
+            topControlRow(layout: layout)
+            bottomControlRow(layout: layout)
+        }
+    }
+
+    @ViewBuilder
+    private func bottomControlRow(layout: InterfaceLayout) -> some View {
+        if layout.controlBottomUsesVerticalFlow {
+            VStack(spacing: layout.sectionSpacing) {
                 gameControls(layout: layout)
-                    .frame(height: max(proxy.size.height - teamSectionHeight - layout.sectionSpacing, 0))
+                shotClockWidget(layout: layout)
+            }
+        } else {
+            HStack(spacing: 16) {
+                gameControls(layout: layout)
+                    .frame(maxWidth: .infinity)
+
+                shotClockWidget(layout: layout)
+                    .frame(maxWidth: .infinity)
             }
         }
     }
 
     @ViewBuilder
-    private func teamControlsGroup(layout: InterfaceLayout) -> some View {
-        if store.areSidesSwapped {
-            teamControls(
-                title: "Guest",
-                teamName: store.guestTeamName,
-                score: store.guestScore,
-                isHome: false,
-                tint: guestTint,
-                layout: layout
-            )
+    private func topControlRow(layout: InterfaceLayout) -> some View {
+        let leftIsHome = !store.areSidesSwapped
 
-            teamControls(
-                title: "Home",
-                teamName: store.homeTeamName,
-                score: store.homeScore,
-                isHome: true,
-                tint: homeTint,
-                layout: layout
-            )
+        if layout.topControlUsesVerticalFlow {
+            VStack(spacing: layout.sectionSpacing) {
+                centeredStatusWidget(layout: layout)
+
+                teamControls(
+                    title: leftIsHome ? "Home" : "Guest",
+                    teamName: leftIsHome ? store.homeTeamName : store.guestTeamName,
+                    score: leftIsHome ? store.homeScore : store.guestScore,
+                    isHome: leftIsHome,
+                    tint: leftIsHome ? homeTint : guestTint,
+                    layout: layout
+                )
+
+                teamControls(
+                    title: leftIsHome ? "Guest" : "Home",
+                    teamName: leftIsHome ? store.guestTeamName : store.homeTeamName,
+                    score: leftIsHome ? store.guestScore : store.homeScore,
+                    isHome: !leftIsHome,
+                    tint: leftIsHome ? guestTint : homeTint,
+                    layout: layout
+                )
+            }
         } else {
-            teamControls(
-                title: "Home",
-                teamName: store.homeTeamName,
-                score: store.homeScore,
-                isHome: true,
-                tint: homeTint,
-                layout: layout
-            )
+            HStack(spacing: 16) {
+                teamControls(
+                    title: leftIsHome ? "Home" : "Guest",
+                    teamName: leftIsHome ? store.homeTeamName : store.guestTeamName,
+                    score: leftIsHome ? store.homeScore : store.guestScore,
+                    isHome: leftIsHome,
+                    tint: leftIsHome ? homeTint : guestTint,
+                    layout: layout
+                )
+                .frame(maxWidth: .infinity)
 
-            teamControls(
-                title: "Guest",
-                teamName: store.guestTeamName,
-                score: store.guestScore,
-                isHome: false,
-                tint: guestTint,
-                layout: layout
-            )
+                centeredStatusWidget(layout: layout)
+                    .frame(maxWidth: layout.centerStatusWidth)
+
+                teamControls(
+                    title: leftIsHome ? "Guest" : "Home",
+                    teamName: leftIsHome ? store.guestTeamName : store.homeTeamName,
+                    score: leftIsHome ? store.guestScore : store.homeScore,
+                    isHome: !leftIsHome,
+                    tint: leftIsHome ? guestTint : homeTint,
+                    layout: layout
+                )
+                .frame(maxWidth: .infinity)
+            }
         }
+    }
+
+    private func centeredStatusWidget(layout: InterfaceLayout) -> some View {
+        let leftScore = store.areSidesSwapped ? store.guestScore : store.homeScore
+        let rightScore = store.areSidesSwapped ? store.homeScore : store.guestScore
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Game State")
+                    .font(.title3.weight(.bold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text(store.isClockRunning ? "Running" : "Stopped")
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+            }
+
+            Text("\(leftScore) - \(rightScore)")
+                .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.4)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
+                spacing: 10
+            ) {
+                gameMetricCard(title: "Time", value: store.formattedClock, monospaced: true, layout: layout)
+                gameMetricCard(title: "24s", value: store.formattedShotClock, monospaced: true, layout: layout)
+                gameMetricCard(title: "Period", value: "\(store.period)", layout: layout)
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
+    }
+
+    private func gameMetricCard(
+        title: String,
+        value: String,
+        monospaced: Bool = false,
+        layout: InterfaceLayout
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardSubtleText)
+
+            Text(value)
+                .font(.system(size: layout.centerMetricValueSize, weight: .black, design: .rounded))
+                .monospacedDigitIfNeeded(monospaced)
+                .singleLineFitted(minScale: 0.4)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(themePalette.dashboardCardBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
+        )
     }
 
     private func teamControls(
@@ -1254,27 +1317,18 @@ struct ContentView: View {
     }
 
     private func gameSummaryRow(layout: InterfaceLayout) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            gameMetricBlock(title: "Game Clock", value: store.formattedClock, valueSize: layout.metricValueSize - 2, monospaced: true)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text("Game Clock")
+                .font(.title3.weight(.bold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
 
             Spacer(minLength: 0)
 
-            gameMetricBlock(title: "Period", value: "\(store.period)", valueSize: layout.metricValueSize - 10)
-        }
-    }
-
-    private func gameMetricBlock(title: String, value: String, valueSize: CGFloat, monospaced: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
+            Text(store.isClockRunning ? "Running" : "Stopped")
                 .font(.subheadline.weight(.semibold))
                 .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(themePalette.dashboardSubtleText)
-
-            Text(value)
-                .font(.system(size: valueSize, weight: .black, design: .rounded))
-                .monospacedDigitIfNeeded(monospaced)
-                .singleLineFitted(minScale: 0.35)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
+                .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
         }
     }
 
@@ -2010,29 +2064,9 @@ private struct InterfaceLayout {
     var setupActionColumns: Int { isCompactWidth ? 1 : 2 }
     var secondaryButtonColumns: Int { width < 620 ? 1 : 2 }
 
-    var dashboardUsesSingleColumn: Bool { width < 560 }
-    var dashboardStacksPreview: Bool { !dashboardUsesSingleColumn && isPortraitish }
     var dashboardHeaderHeight: CGFloat {
         if isPortraitish { return 118 }
         return denseControls || headerUsesVerticalFlow ? 96 : 76
-    }
-    func dashboardPreviewHeight(in contentHeight: CGFloat) -> CGFloat {
-        if dashboardUsesSingleColumn {
-            return min(max(contentHeight * 0.28, 180), 240)
-        }
-        if dashboardStacksPreview {
-            return min(max(contentHeight * 0.26, 200), 300)
-        }
-        return contentHeight
-    }
-    func shotClockWidgetHeight(in totalHeight: CGFloat) -> CGFloat {
-        let minimumBoardHeight: CGFloat = dashboardUsesSingleColumn ? 180 : dashboardStacksPreview ? 210 : 250
-        let baseHeight = min(
-            max(totalHeight * (dashboardUsesSingleColumn ? 0.34 : dashboardStacksPreview ? 0.30 : 0.26), 188),
-            dashboardUsesSingleColumn ? 236 : 212
-        )
-        let availableHeight = max(totalHeight - minimumBoardHeight - sectionSpacing, 0)
-        return min(baseHeight, availableHeight)
     }
 
     var headerUsesVerticalFlow: Bool { isPortraitish || width < 920 }
@@ -2044,29 +2078,19 @@ private struct InterfaceLayout {
     }
     var headerActionWidth: CGFloat { width < 1320 ? 320 : 420 }
 
-    var teamPanelsUseVerticalFlow: Bool { width < 620 && !isPortraitish }
-    var teamButtonColumns: Int { width < 520 ? 1 : 2 }
-    func teamSectionHeight(in totalHeight: CGFloat) -> CGFloat {
-        if teamPanelsUseVerticalFlow {
-            return min(max(totalHeight * 0.58, 280), totalHeight - 120)
+    var requiresDashboardScroll: Bool { isPortraitish || width < 760 || height < 820 }
+    var topControlUsesVerticalFlow: Bool { width < 720 }
+    var controlBottomUsesVerticalFlow: Bool { width < 980 || isPortraitish }
+    var centerStatusWidth: CGFloat { width < 960 ? 280 : width < 1280 ? 320 : 360 }
+    var centerScoreSize: CGFloat { denseControls ? 42 : width < 1280 ? 50 : 58 }
+    var centerMetricValueSize: CGFloat { denseControls ? 24 : 28 }
+    var centerMetricColumns: Int { width < 720 ? 1 : 3 }
+    var teamButtonColumns: Int { width < 900 ? 1 : 2 }
+    func controlTopSectionHeight(in totalHeight: CGFloat) -> CGFloat {
+        if topControlUsesVerticalFlow {
+            return min(max(totalHeight * 0.58, 360), totalHeight - 140)
         }
-        if isPortraitish {
-            return min(max(totalHeight * 0.42, 210), 300)
-        }
-        return min(max(totalHeight * 0.45, 220), 320)
-    }
-    var gameMetricsUseVerticalFlow: Bool { width < 540 }
-    var gamePrimaryButtonColumns: Int {
-        if width < 520 { return 1 }
-        if dashboardStacksPreview { return 3 }
-        return 3
-    }
-    var gameSecondaryButtonColumns: Int {
-        if dashboardUsesSingleColumn { return width < 420 ? 1 : 2 }
-        if dashboardStacksPreview { return width < 620 ? 2 : 5 }
-        if width < 1000 { return 3 }
-        if width < 1320 { return 4 }
-        return 5
+        return min(max(totalHeight * 0.48, 280), 360)
     }
     var advancedButtonVerticalPadding: CGFloat { denseControls ? 8 : 11 }
     var shotClockButtonColumns: Int {
