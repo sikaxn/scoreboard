@@ -831,6 +831,14 @@ struct ContentView: View {
             }
             #endif
 
+            actionButton(
+                store.isSoundEnabled ? "Sound On" : "Sound Off",
+                tint: store.isSoundEnabled ? .green.opacity(0.72) : .white.opacity(0.14),
+                verticalPadding: layout.headerActionVerticalPadding
+            ) {
+                store.toggleSoundEnabled()
+            }
+
             Menu {
                 Button("Create Game") {
                     createNewGame()
@@ -885,14 +893,14 @@ struct ContentView: View {
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("24 Second Timer")
+                Text("Shot Clock")
                     .font(.title3.weight(.bold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(.white)
 
                 Spacer(minLength: 0)
 
-                Text("Direction: \(store.possessionDirection.displayName)")
+                Text("Possession: \(store.possessionDirection.displayName)")
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(.white.opacity(0.6))
@@ -904,19 +912,11 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.4)
                 .foregroundStyle(.white)
 
-            possessionDirectionGrid(layout: layout)
-
             buttonGrid(
-                columns: layout.shotClockButtonColumns,
+                columns: max(1, layout.shotClockButtonColumns - 2),
                 buttons: [
-                    ActionDescriptor(title: store.isShotClockRunning ? "Shot Pause" : "Shot Start", tint: .white.opacity(0.14)) {
-                        store.toggleShotClock()
-                    },
-                    ActionDescriptor(title: "Shot 24", tint: .orange, isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetShotClock(to: 24)
-                    },
-                    ActionDescriptor(title: "Shot 14", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetShotClock(to: 14)
+                    ActionDescriptor(title: "Shot Reset", tint: .white.opacity(0.14)) {
+                        store.resetActiveShotClock()
                     },
                     ActionDescriptor(title: "Shot -1", tint: .white.opacity(0.14)) {
                         store.adjustShotClock(by: -1)
@@ -931,25 +931,6 @@ struct ContentView: View {
             )
         }
         .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
-    }
-
-    private func possessionDirectionGrid(layout: InterfaceLayout) -> some View {
-        buttonGrid(
-            columns: 3,
-            buttons: [
-                ActionDescriptor(title: "Home", tint: store.possessionDirection == .home ? Color(red: 0.97, green: 0.38, blue: 0.28) : .white.opacity(0.08)) {
-                    store.setPossessionDirection(.home, autoStartShotClock: true)
-                },
-                ActionDescriptor(title: "Off", tint: store.possessionDirection == .none ? .white.opacity(0.18) : .white.opacity(0.08)) {
-                    store.setPossessionDirection(.none)
-                },
-                ActionDescriptor(title: "Guest", tint: store.possessionDirection == .guest ? Color(red: 0.22, green: 0.68, blue: 0.95) : .white.opacity(0.08)) {
-                    store.setPossessionDirection(.guest, autoStartShotClock: true)
-                }
-            ],
-            style: .large,
-            dense: layout.denseControls
-        )
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
@@ -1024,7 +1005,9 @@ struct ContentView: View {
         tint: Color,
         layout: InterfaceLayout
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let roundedShotClockSeconds = max(0, min(ScoreboardStore.maxShotClockSeconds, Int(round(Double(store.shotClockMilliseconds) / 1_000))))
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.bold))
                 .singleLineFitted(minScale: 0.7)
@@ -1054,12 +1037,32 @@ struct ContentView: View {
             buttonGrid(
                 columns: layout.teamButtonColumns,
                 buttons: [
-                    ActionDescriptor(title: "+1", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 1) },
-                    ActionDescriptor(title: "+2", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 2) },
-                    ActionDescriptor(title: "+3", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 3) },
-                    ActionDescriptor(title: "-1", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: -1) }
+                    ActionDescriptor(title: "+1", tint: tint) { store.adjustScore(isHome: isHome, by: 1) },
+                    ActionDescriptor(title: "+2", tint: tint) { store.adjustScore(isHome: isHome, by: 2) },
+                    ActionDescriptor(title: "+3", tint: tint) { store.adjustScore(isHome: isHome, by: 3) },
+                    ActionDescriptor(title: "-1", tint: .white.opacity(0.14)) { store.adjustScore(isHome: isHome, by: -1) }
                 ],
                 dense: layout.denseControls
+            )
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(
+                        title: "Shot 24",
+                        tint: (store.possessionDirection == (isHome ? .home : .guest) && roundedShotClockSeconds == 24) ? tint : .white.opacity(0.14)
+                    ) {
+                        store.assignShotClock(to: 24, forHomeTeam: isHome)
+                    },
+                    ActionDescriptor(
+                        title: "Shot 14",
+                        tint: (store.possessionDirection == (isHome ? .home : .guest) && roundedShotClockSeconds == 14) ? tint.opacity(0.82) : .white.opacity(0.14)
+                    ) {
+                        store.assignShotClock(to: 14, forHomeTeam: isHome)
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
         .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
@@ -1067,45 +1070,19 @@ struct ContentView: View {
 
     private func gameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            if layout.gameMetricsUseVerticalFlow {
-                VStack(alignment: .leading, spacing: 12) {
-                    gameMetricBlock(title: "Game Clock", value: store.formattedClock, valueSize: layout.metricValueSize + 2, monospaced: true)
-                    gameMetricBlock(title: "Period", value: "\(store.period)", valueSize: layout.metricValueSize - 4)
-                }
-            } else {
-                HStack(alignment: .top) {
-                    gameMetricBlock(title: "Game Clock", value: store.formattedClock, valueSize: layout.metricValueSize + 2, monospaced: true)
-                    Spacer(minLength: 0)
-                    gameMetricBlock(title: "Period", value: "\(store.period)", valueSize: layout.metricValueSize - 4)
-                }
-            }
+            gameSummaryRow(layout: layout)
 
-            actionButton(store.isClockRunning ? "Pause Game Clock" : "Start Game Clock", tint: .green, verticalPadding: layout.denseControls ? 16 : 20) {
+            actionButton(
+                store.isClockRunning ? "Pause Game Clock" : "Start Game Clock",
+                tint: .green,
+                titleFont: .title3.weight(.black),
+                verticalPadding: layout.denseControls ? 16 : 20
+            ) {
                 store.toggleClock()
             }
 
             buttonGrid(
-                columns: layout.gamePrimaryButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "Reset 12:00", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetClock(to: 12 * 60)
-                    },
-                    ActionDescriptor(title: "Reset Clock", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetClock()
-                    },
-                    ActionDescriptor(title: "Zero Scores", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetScores()
-                    },
-                    ActionDescriptor(title: "Swap Sides", tint: .white.opacity(0.14)) {
-                        store.swapSides()
-                    }
-                ],
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
-
-            buttonGrid(
-                columns: layout.gameSecondaryButtonColumns,
+                columns: 4,
                 buttons: [
                     ActionDescriptor(title: "-1 Min", tint: .white.opacity(0.14)) {
                         store.adjustClock(by: -60)
@@ -1118,9 +1095,20 @@ struct ContentView: View {
                     },
                     ActionDescriptor(title: "+1 Sec", tint: .white.opacity(0.14)) {
                         store.adjustClock(by: 1)
-                    },
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+
+            buttonGrid(
+                columns: 3,
+                buttons: [
                     ActionDescriptor(title: "Prev Period", tint: .white.opacity(0.14)) {
                         store.adjustPeriod(by: -1)
+                    },
+                    ActionDescriptor(title: "Swap Sides", tint: .white.opacity(0.14)) {
+                        store.swapSides()
                     },
                     ActionDescriptor(title: "Next Period", tint: .orange) {
                         store.adjustPeriod(by: 1)
@@ -1129,8 +1117,33 @@ struct ContentView: View {
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Reset 12:00", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
+                        store.resetClock(to: 12 * 60)
+                    },
+                    ActionDescriptor(title: "Zero Scores", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
+                        store.resetScores()
+                    }
+                ],
+                style: .compact,
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
         }
         .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+    }
+
+    private func gameSummaryRow(layout: InterfaceLayout) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            gameMetricBlock(title: "Game Clock", value: store.formattedClock, valueSize: layout.metricValueSize - 2, monospaced: true)
+
+            Spacer(minLength: 0)
+
+            gameMetricBlock(title: "Period", value: "\(store.period)", valueSize: layout.metricValueSize - 10)
+        }
     }
 
     private func gameMetricBlock(title: String, value: String, valueSize: CGFloat, monospaced: Bool = false) -> some View {
@@ -1184,13 +1197,14 @@ struct ContentView: View {
     private func actionButton(
         _ title: String,
         tint: Color,
+        titleFont: Font = .headline.weight(.bold),
         verticalPadding: CGFloat = 18,
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.headline.weight(.bold))
+                .font(titleFont)
                 .singleLineFitted(minScale: 0.55)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
