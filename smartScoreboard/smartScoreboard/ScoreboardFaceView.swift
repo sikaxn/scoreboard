@@ -11,6 +11,7 @@ struct ScoreboardFaceView: View {
     let formattedClock: String
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
+    let areSidesSwapped: Bool
     let isClockRunning: Bool
     let compact: Bool
 
@@ -21,61 +22,58 @@ struct ScoreboardFaceView: View {
             let condensed = compact || size.width < 960 || size.height < 560
             let ultraCondensed = size.width < 760 || size.height < 430
             let outerPadding = ultraCondensed ? max(12, base * 0.04) : condensed ? max(18, base * 0.055) : max(24, base * 0.07)
-            let topBandHeight = ultraCondensed ? max(56, size.height * 0.11) : condensed ? max(74, size.height * 0.12) : max(86, size.height * 0.13)
             let columnSpacing = ultraCondensed ? max(10, size.width * 0.012) : condensed ? max(18, size.width * 0.018) : max(24, size.width * 0.024)
             let centerWidth = min(
                 max(size.width * (condensed ? 0.32 : 0.3), ultraCondensed ? 180 : condensed ? 220 : 260),
                 size.width * (ultraCondensed ? 0.42 : 0.38)
             )
+            let leftTeam = areSidesSwapped ? sidePanelData(for: .guest) : sidePanelData(for: .home)
+            let rightTeam = areSidesSwapped ? sidePanelData(for: .home) : sidePanelData(for: .guest)
 
             ZStack {
-                scoreboardBackground
+                scoreboardBackground(leftAccent: leftTeam.accent, rightAccent: rightTeam.accent)
 
-                VStack(spacing: ultraCondensed ? max(10, size.height * 0.018) : condensed ? max(18, size.height * 0.026) : max(22, size.height * 0.03)) {
-                    topStatusBand(height: topBandHeight, condensed: condensed, ultraCondensed: ultraCondensed)
+                HStack(spacing: columnSpacing) {
+                    teamPanel(
+                        role: leftTeam.role,
+                        title: leftTeam.title,
+                        placeholder: leftTeam.role,
+                        score: leftTeam.score,
+                        accent: leftTeam.accent,
+                        possessionArrowSystemName: "arrowtriangle.right.fill",
+                        showsPossession: leftTeam.showsPossession,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    HStack(spacing: columnSpacing) {
-                        teamPanel(
-                            role: "HOME",
-                            title: homeTeamName,
-                            placeholder: "HOME",
-                            score: homeScore,
-                            accent: Color(red: 0.97, green: 0.38, blue: 0.28),
-                            possessionArrowSystemName: "arrowtriangle.right.fill",
-                            showsPossession: possessionDirection == .home,
-                            base: base,
-                            condensed: condensed,
-                            ultraCondensed: ultraCondensed
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    centerClockPanel(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                        .frame(width: centerWidth)
+                        .frame(maxHeight: .infinity)
 
-                        centerClockPanel(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
-                            .frame(width: centerWidth)
-                            .frame(maxHeight: .infinity)
-
-                        teamPanel(
-                            role: "GUEST",
-                            title: guestTeamName,
-                            placeholder: "GUEST",
-                            score: guestScore,
-                            accent: Color(red: 0.22, green: 0.68, blue: 0.95),
-                            possessionArrowSystemName: "arrowtriangle.left.fill",
-                            showsPossession: possessionDirection == .guest,
-                            base: base,
-                            condensed: condensed,
-                            ultraCondensed: ultraCondensed
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    teamPanel(
+                        role: rightTeam.role,
+                        title: rightTeam.title,
+                        placeholder: rightTeam.role,
+                        score: rightTeam.score,
+                        accent: rightTeam.accent,
+                        possessionArrowSystemName: "arrowtriangle.left.fill",
+                        showsPossession: rightTeam.showsPossession,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .padding(outerPadding)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var scoreboardBackground: some View {
+    private func scoreboardBackground(leftAccent: Color, rightAccent: Color) -> some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -90,7 +88,7 @@ struct ScoreboardFaceView: View {
             HStack {
                 RadialGradient(
                     colors: [
-                        Color(red: 0.82, green: 0.18, blue: 0.1).opacity(0.28),
+                        leftAccent.opacity(0.28),
                         .clear
                     ],
                     center: .center,
@@ -102,7 +100,7 @@ struct ScoreboardFaceView: View {
 
                 RadialGradient(
                     colors: [
-                        Color(red: 0.05, green: 0.46, blue: 0.88).opacity(0.28),
+                        rightAccent.opacity(0.28),
                         .clear
                     ],
                     center: .center,
@@ -125,27 +123,6 @@ struct ScoreboardFaceView: View {
                     )
                 )
         }
-    }
-
-    private func topStatusBand(height: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        HStack(spacing: ultraCondensed ? 10 : 18) {
-            headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
-
-            Spacer(minLength: 0)
-
-            Text(isClockRunning ? "LIVE" : "STOP")
-                .font(.system(size: ultraCondensed ? 16 : condensed ? 20 : 22, weight: .black, design: .rounded))
-                .foregroundStyle(isClockRunning ? Color.green : Color.orange)
-                .padding(.horizontal, ultraCondensed ? 14 : condensed ? 18 : 20)
-                .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 12)
-                .background(.white.opacity(0.08), in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder((isClockRunning ? Color.green : Color.orange).opacity(0.45))
-                )
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
     }
 
     private func teamPanel(
@@ -261,6 +238,43 @@ struct ScoreboardFaceView: View {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? placeholder : trimmed
     }
+
+    private func sidePanelData(for side: PossessionDirection) -> SidePanelData {
+        switch side {
+        case .home:
+            return SidePanelData(
+                role: "HOME",
+                title: homeTeamName,
+                score: homeScore,
+                accent: Color(red: 0.97, green: 0.38, blue: 0.28),
+                showsPossession: possessionDirection == .home
+            )
+        case .guest:
+            return SidePanelData(
+                role: "GUEST",
+                title: guestTeamName,
+                score: guestScore,
+                accent: Color(red: 0.22, green: 0.68, blue: 0.95),
+                showsPossession: possessionDirection == .guest
+            )
+        case .none:
+            return SidePanelData(
+                role: "",
+                title: "",
+                score: 0,
+                accent: .white,
+                showsPossession: false
+            )
+        }
+    }
+}
+
+private struct SidePanelData {
+    let role: String
+    let title: String
+    let score: Int
+    let accent: Color
+    let showsPossession: Bool
 }
 
 private extension View {

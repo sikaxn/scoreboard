@@ -25,6 +25,7 @@ struct ExternalScoreboardView: View {
                     formattedClock: store.formattedClock,
                     formattedShotClock: store.formattedShotClock,
                     possessionDirection: store.possessionDirection,
+                    areSidesSwapped: store.areSidesSwapped,
                     isClockRunning: store.isClockRunning,
                     compact: usesCompactBoard
                 )

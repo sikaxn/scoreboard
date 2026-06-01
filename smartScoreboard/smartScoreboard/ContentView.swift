@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -16,6 +17,11 @@ struct ContentView: View {
     @State private var presetNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var didOpenMacScoreboardWindow = false
+    @State private var showsGameImporter = false
+    @State private var showsGameExporter = false
+    @State private var exportDocument = ScoreboardGameDocument(snapshot: .empty)
+    @State private var exportFilename = "Scoreboard Game.scoreboardgame"
+    @State private var fileOperationErrorMessage: String?
 
     var body: some View {
         GeometryReader { proxy in
@@ -54,43 +60,262 @@ struct ContentView: View {
             showPublicBoardWindow()
             #endif
         }
+        .fileImporter(
+            isPresented: $showsGameImporter,
+            allowedContentTypes: [.scoreboardGame],
+            allowsMultipleSelection: false
+        ) { result in
+            handleGameImport(result)
+        }
+        .fileExporter(
+            isPresented: $showsGameExporter,
+            document: exportDocument,
+            contentType: .scoreboardGame,
+            defaultFilename: exportFilename
+        ) { result in
+            handleGameExport(result)
+        }
+        .alert("File Error", isPresented: Binding(
+            get: { fileOperationErrorMessage != nil },
+            set: { if !$0 { fileOperationErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fileOperationErrorMessage ?? "")
+        }
         #if os(macOS)
         .background(ControlBoardWindowConfigurator())
         #endif
     }
 
     private func setupScreen(layout: InterfaceLayout) -> some View {
-        ScrollView(showsIndicators: false) {
-            HStack {
-                Spacer(minLength: 0)
+        Group {
+            if layout.setupUsesVerticalFlow {
+                VStack(spacing: layout.sectionSpacing) {
+                    setupDetailsList(layout: layout)
+                    setupLibraryList(layout: layout)
+                }
+            } else {
+                HStack(alignment: .top, spacing: layout.sectionSpacing) {
+                    setupDetailsList(layout: layout)
+                    setupLibraryList(layout: layout)
+                }
+            }
+        }
+        .padding(layout.outerPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 
-                Group {
-                    if layout.setupUsesVerticalFlow {
-                        VStack(spacing: layout.sectionSpacing) {
-                            setupFormPanel(layout: layout)
-                            setupPreviewPanel(layout: layout)
-                        }
-                    } else {
-                        HStack(alignment: .top, spacing: layout.sectionSpacing) {
-                            setupFormPanel(layout: layout)
-                                .frame(width: layout.setupFormWidth)
+    private func setupDetailsList(layout: InterfaceLayout) -> some View {
+        setupListCard {
+            List {
+                Section {
+                    Text(setupDescription)
+                        .font(layout.bodyFont)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .listRowBackground(Color.clear)
+                } header: {
+                    Text("Game Setup")
+                }
 
-                            setupPreviewPanel(layout: layout)
-                                .frame(maxWidth: .infinity)
+                Section {
+                    TextField("Home Team", text: $homeTeamDraft)
+                        .scoreboardUppercaseEntry()
+                    TextField("Guest Team", text: $guestTeamDraft)
+                        .scoreboardUppercaseEntry()
+                } header: {
+                    Text("Teams")
+                }
+
+                Section {
+                    settingsStepperRow(
+                        title: "Starting Period",
+                        value: "\(setupPeriod)",
+                        decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                        increment: { setupPeriod = min(9, setupPeriod + 1) }
+                    )
+
+                    settingsStepperRow(
+                        title: "Opening Clock",
+                        value: formatClock(setupClockSeconds),
+                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                        increment: { setupClockSeconds = min((59 * 60) + 59, setupClockSeconds + 60) }
+                    )
+
+                    Picker("Clock Preset", selection: $setupClockSeconds) {
+                        Text("8:00").tag(8 * 60)
+                        Text("10:00").tag(10 * 60)
+                        Text("12:00").tag(12 * 60)
+                    }
+                    .pickerStyle(.segmented)
+
+                    settingsStepperRow(
+                        title: "Shot Clock",
+                        value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                        decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                        increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+                    )
+
+                    Picker("Shot Preset", selection: $setupShotClockSeconds) {
+                        Text("24").tag(24)
+                        Text("14").tag(14)
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Rules")
+                }
+
+                Section {
+                    Button("Use Defaults") {
+                        resetSetupDraftsToDefaults()
+                    }
+
+                    Button("Swap Sides") {
+                        swapSetupSides()
+                    }
+
+                    Button("Open Scoreboard") {
+                        openSetupGame()
+                    }
+                    .foregroundStyle(.orange)
+
+                    if store.didCompleteSetup {
+                        Button("Back to Live Board") {
+                            loadSetupDraftsFromStore()
+                            showsSetup = false
                         }
                     }
+                } header: {
+                    Text("Actions")
                 }
-                .padding(layout.cardPadding)
-                .frame(maxWidth: layout.contentMaxWidth)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.1))
-                )
-
-                Spacer(minLength: 0)
             }
-            .padding(layout.outerPadding)
+            .scoreboardSetupListStyle()
+        }
+    }
+
+    private func setupLibraryList(layout: InterfaceLayout) -> some View {
+        setupListCard {
+            List {
+                Section {
+                    settingsActionRow(title: "Open Game") {
+                        Button("Choose…") {
+                            showsGameImporter = true
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    settingsActionRow(title: "Save Draft") {
+                        Button("Save As…") {
+                            prepareDraftExport()
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                } header: {
+                    Text("File")
+                } footer: {
+                    Text("Each game lives as its own file. macOS uses the system open/save panels, and iOS uses the native document picker.")
+                }
+
+                Section {
+                    settingsSummaryRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
+                    settingsSummaryRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
+                    settingsSummaryRow(title: "Period", value: "\(setupPeriod)")
+                    settingsSummaryRow(title: "Opening Clock", value: formatClock(setupClockSeconds))
+                    settingsSummaryRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
+                } header: {
+                    Text("Current Draft")
+                } footer: {
+                    Text("Open a game file to replace these settings, or save this draft as a new game file.")
+                }
+            }
+            .scoreboardSetupListStyle()
+        }
+    }
+
+    private func setupListCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .scrollContentBackground(.hidden)
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.white.opacity(0.1))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func settingsStepperRow(
+        title: String,
+        value: String,
+        decrement: @escaping () -> Void,
+        increment: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(value)
+                    .font(.subheadline.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Stepper("", onIncrement: increment, onDecrement: decrement)
+                .labelsHidden()
+        }
+    }
+
+    private func settingsSummaryRow(title: String, value: String) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+            Spacer(minLength: 0)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func settingsActionRow<Content: View>(
+        title: String,
+        @ViewBuilder action: () -> Content
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+            Spacer(minLength: 0)
+            action()
+        }
+    }
+
+    private func savedGameRow(_ preset: SetupPreset) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                applyPreset(preset)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(preset.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("\(displayTeamName(preset.homeTeamName)) vs \(displayTeamName(preset.guestTeamName))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Text("P\(preset.period) • \(formatClock(preset.clockSeconds)) • SC \(ScoreboardStore.formatShotClock(preset.shotClockSeconds))")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive) {
+                store.deletePreset(preset)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
         }
     }
 
@@ -201,6 +426,7 @@ struct ContentView: View {
                 formattedClock: formatClock(setupClockSeconds),
                 formattedShotClock: ScoreboardStore.formatShotClock(setupShotClockSeconds),
                 possessionDirection: .none,
+                areSidesSwapped: false,
                 isClockRunning: false,
                 compact: layout.previewUsesCompactBoard
             )
@@ -544,15 +770,15 @@ struct ContentView: View {
     }
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: layout.denseControls ? 12 : 16) {
+        VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
             if layout.headerUsesVerticalFlow {
-                VStack(alignment: .leading, spacing: layout.denseControls ? 12 : 16) {
+                VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
                     headerTitleBlock(layout: layout)
                     headerStatusBadge(layout: layout)
                     headerActionButtons(layout: layout)
                 }
             } else {
-                HStack(spacing: 16) {
+                HStack(spacing: layout.headerInlineSpacing) {
                     headerTitleBlock(layout: layout)
                     Spacer(minLength: 0)
                     headerStatusBadge(layout: layout)
@@ -561,8 +787,8 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(.horizontal, layout.denseControls ? 16 : 20)
-        .padding(.vertical, layout.denseControls ? 14 : 18)
+        .padding(.horizontal, layout.headerHorizontalPadding)
+        .padding(.vertical, layout.headerVerticalPadding)
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -571,7 +797,7 @@ struct ContentView: View {
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: layout.headerTitleSpacing) {
             Text("Smart Scoreboard")
                 .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
@@ -586,39 +812,47 @@ struct ContentView: View {
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
         Label(displayStatusTitle, systemImage: displayStatusSystemImage)
-            .font(.subheadline.weight(.semibold))
+            .font(layout.headerBadgeFont)
             .lineLimit(1)
             .foregroundStyle(publicBoardState.isPresented ? Color.green : Color.orange)
-            .padding(.horizontal, layout.denseControls ? 12 : 14)
-            .padding(.vertical, layout.denseControls ? 8 : 10)
+            .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+            .padding(.vertical, layout.headerBadgeVerticalPadding)
             .background(.white.opacity(0.08), in: Capsule())
     }
 
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
-        var buttons: [ActionDescriptor] = []
-
-        #if os(macOS)
-        buttons.append(
-            ActionDescriptor(title: "Show Board", tint: .white.opacity(0.14)) {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, layout.headerActionColumns)),
+            spacing: 10
+        ) {
+            #if os(macOS)
+            actionButton("Show Board", tint: .white.opacity(0.14), verticalPadding: layout.headerActionVerticalPadding) {
                 showPublicBoardWindow()
             }
-        )
-        #endif
+            #endif
 
-        buttons.append(
-            ActionDescriptor(title: "Setup", tint: .white.opacity(0.14)) {
-                loadSetupDraftsFromStore()
-                showsSetup = true
+            Menu {
+                Button("Create Game") {
+                    createNewGame()
+                }
+
+                Button("Open Game File…") {
+                    showsGameImporter = true
+                }
+
+                Button("Save Game…") {
+                    prepareLiveGameExport()
+                }
+            } label: {
+                Label("File", systemImage: "doc")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, layout.headerActionVerticalPadding)
+                    .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-        )
-
-        buttons.append(
-            ActionDescriptor(title: "New Game", tint: .red) {
-                store.newGame()
-            }
-        )
-
-        return buttonGrid(columns: layout.headerActionColumns, buttons: buttons)
+            .buttonStyle(.plain)
+        }
     }
 
     private func previewPane(layout: InterfaceLayout, height: CGFloat) -> some View {
@@ -636,6 +870,7 @@ struct ContentView: View {
                     formattedClock: store.formattedClock,
                     formattedShotClock: store.formattedShotClock,
                     possessionDirection: store.possessionDirection,
+                    areSidesSwapped: store.areSidesSwapped,
                     isClockRunning: store.isClockRunning,
                     compact: layout.previewUsesCompactBoard
                 )
@@ -663,27 +898,13 @@ struct ContentView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
 
-            HStack(alignment: .center, spacing: 16) {
-                Text(store.formattedShotClock)
-                    .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
-                    .monospacedDigit()
-                    .singleLineFitted(minScale: 0.4)
-                    .foregroundStyle(.white)
+            Text(store.formattedShotClock)
+                .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.4)
+                .foregroundStyle(.white)
 
-                Spacer(minLength: 0)
-
-                HStack(spacing: 10) {
-                    possessionDirectionButton("Home", tint: Color(red: 0.97, green: 0.38, blue: 0.28), isSelected: store.possessionDirection == .home) {
-                        store.setPossessionDirection(.home)
-                    }
-                    possessionDirectionButton("Off", tint: .white.opacity(0.14), isSelected: store.possessionDirection == .none) {
-                        store.setPossessionDirection(.none)
-                    }
-                    possessionDirectionButton("Guest", tint: Color(red: 0.22, green: 0.68, blue: 0.95), isSelected: store.possessionDirection == .guest) {
-                        store.setPossessionDirection(.guest)
-                    }
-                }
-            }
+            possessionDirectionGrid(layout: layout)
 
             buttonGrid(
                 columns: layout.shotClockButtonColumns,
@@ -691,10 +912,10 @@ struct ContentView: View {
                     ActionDescriptor(title: store.isShotClockRunning ? "Shot Pause" : "Shot Start", tint: .white.opacity(0.14)) {
                         store.toggleShotClock()
                     },
-                    ActionDescriptor(title: "Shot 24", tint: .orange) {
+                    ActionDescriptor(title: "Shot 24", tint: .orange, isEnabled: !store.isGameClockInterlockActive) {
                         store.resetShotClock(to: 24)
                     },
-                    ActionDescriptor(title: "Shot 14", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Shot 14", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
                         store.resetShotClock(to: 14)
                     },
                     ActionDescriptor(title: "Shot -1", tint: .white.opacity(0.14)) {
@@ -704,27 +925,31 @@ struct ContentView: View {
                         store.adjustShotClock(by: 1)
                     }
                 ],
-                dense: layout.denseControls
+                style: .compact,
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
         .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
     }
 
-    private func possessionDirectionButton(
-        _ title: String,
-        tint: Color,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(isSelected ? tint : .white.opacity(0.08), in: Capsule())
-        }
-        .buttonStyle(.plain)
+    private func possessionDirectionGrid(layout: InterfaceLayout) -> some View {
+        buttonGrid(
+            columns: 3,
+            buttons: [
+                ActionDescriptor(title: "Home", tint: store.possessionDirection == .home ? Color(red: 0.97, green: 0.38, blue: 0.28) : .white.opacity(0.08)) {
+                    store.setPossessionDirection(.home, autoStartShotClock: true)
+                },
+                ActionDescriptor(title: "Off", tint: store.possessionDirection == .none ? .white.opacity(0.18) : .white.opacity(0.08)) {
+                    store.setPossessionDirection(.none)
+                },
+                ActionDescriptor(title: "Guest", tint: store.possessionDirection == .guest ? Color(red: 0.22, green: 0.68, blue: 0.95) : .white.opacity(0.08)) {
+                    store.setPossessionDirection(.guest, autoStartShotClock: true)
+                }
+            ],
+            style: .large,
+            dense: layout.denseControls
+        )
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
@@ -734,44 +959,12 @@ struct ContentView: View {
             VStack(spacing: layout.sectionSpacing) {
                 if layout.teamPanelsUseVerticalFlow {
                     VStack(spacing: 16) {
-                        teamControls(
-                            title: "Home",
-                            teamName: $homeTeamDraft,
-                            score: store.homeScore,
-                            isHome: true,
-                            tint: Color(red: 0.97, green: 0.38, blue: 0.28),
-                            layout: layout
-                        )
-
-                        teamControls(
-                            title: "Guest",
-                            teamName: $guestTeamDraft,
-                            score: store.guestScore,
-                            isHome: false,
-                            tint: Color(red: 0.22, green: 0.68, blue: 0.95),
-                            layout: layout
-                        )
+                        teamControlsGroup(layout: layout)
                     }
                     .frame(height: teamSectionHeight)
                 } else {
                     HStack(spacing: 16) {
-                        teamControls(
-                            title: "Home",
-                            teamName: $homeTeamDraft,
-                            score: store.homeScore,
-                            isHome: true,
-                            tint: Color(red: 0.97, green: 0.38, blue: 0.28),
-                            layout: layout
-                        )
-
-                        teamControls(
-                            title: "Guest",
-                            teamName: $guestTeamDraft,
-                            score: store.guestScore,
-                            isHome: false,
-                            tint: Color(red: 0.22, green: 0.68, blue: 0.95),
-                            layout: layout
-                        )
+                        teamControlsGroup(layout: layout)
                     }
                     .frame(height: teamSectionHeight)
                 }
@@ -779,6 +972,47 @@ struct ContentView: View {
                 gameControls(layout: layout)
                     .frame(height: max(proxy.size.height - teamSectionHeight - layout.sectionSpacing, 0))
             }
+        }
+    }
+
+    @ViewBuilder
+    private func teamControlsGroup(layout: InterfaceLayout) -> some View {
+        if store.areSidesSwapped {
+            teamControls(
+                title: "Guest",
+                teamName: $guestTeamDraft,
+                score: store.guestScore,
+                isHome: false,
+                tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                layout: layout
+            )
+
+            teamControls(
+                title: "Home",
+                teamName: $homeTeamDraft,
+                score: store.homeScore,
+                isHome: true,
+                tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                layout: layout
+            )
+        } else {
+            teamControls(
+                title: "Home",
+                teamName: $homeTeamDraft,
+                score: store.homeScore,
+                isHome: true,
+                tint: Color(red: 0.97, green: 0.38, blue: 0.28),
+                layout: layout
+            )
+
+            teamControls(
+                title: "Guest",
+                teamName: $guestTeamDraft,
+                score: store.guestScore,
+                isHome: false,
+                tint: Color(red: 0.22, green: 0.68, blue: 0.95),
+                layout: layout
+            )
         }
     }
 
@@ -820,10 +1054,10 @@ struct ContentView: View {
             buttonGrid(
                 columns: layout.teamButtonColumns,
                 buttons: [
-                    ActionDescriptor(title: "+1", tint: tint) { store.adjustScore(isHome: isHome, by: 1) },
-                    ActionDescriptor(title: "+2", tint: tint) { store.adjustScore(isHome: isHome, by: 2) },
-                    ActionDescriptor(title: "+3", tint: tint) { store.adjustScore(isHome: isHome, by: 3) },
-                    ActionDescriptor(title: "-1", tint: .white.opacity(0.14)) { store.adjustScore(isHome: isHome, by: -1) }
+                    ActionDescriptor(title: "+1", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 1) },
+                    ActionDescriptor(title: "+2", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 2) },
+                    ActionDescriptor(title: "+3", tint: tint, isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: 3) },
+                    ActionDescriptor(title: "-1", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) { store.adjustScore(isHome: isHome, by: -1) }
                 ],
                 dense: layout.denseControls
             )
@@ -846,18 +1080,33 @@ struct ContentView: View {
                 }
             }
 
+            actionButton(store.isClockRunning ? "Pause Game Clock" : "Start Game Clock", tint: .green, verticalPadding: layout.denseControls ? 16 : 20) {
+                store.toggleClock()
+            }
+
             buttonGrid(
-                columns: layout.gameButtonColumns,
+                columns: layout.gamePrimaryButtonColumns,
                 buttons: [
-                    ActionDescriptor(title: store.isClockRunning ? "Pause" : "Start", tint: .green) {
-                        store.toggleClock()
-                    },
-                    ActionDescriptor(title: "Reset 12:00", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Reset 12:00", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
                         store.resetClock(to: 12 * 60)
                     },
-                    ActionDescriptor(title: "Reset Clock", tint: .white.opacity(0.14)) {
+                    ActionDescriptor(title: "Reset Clock", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
                         store.resetClock()
                     },
+                    ActionDescriptor(title: "Zero Scores", tint: .white.opacity(0.14), isEnabled: !store.isGameClockInterlockActive) {
+                        store.resetScores()
+                    },
+                    ActionDescriptor(title: "Swap Sides", tint: .white.opacity(0.14)) {
+                        store.swapSides()
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+
+            buttonGrid(
+                columns: layout.gameSecondaryButtonColumns,
+                buttons: [
                     ActionDescriptor(title: "-1 Min", tint: .white.opacity(0.14)) {
                         store.adjustClock(by: -60)
                     },
@@ -875,13 +1124,10 @@ struct ContentView: View {
                     },
                     ActionDescriptor(title: "Next Period", tint: .orange) {
                         store.adjustPeriod(by: 1)
-                    },
-                    ActionDescriptor(title: "Zero Scores", tint: .white.opacity(0.14)) {
-                        store.homeScore = 0
-                        store.guestScore = 0
                     }
                 ],
-                dense: layout.denseControls
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
         .controlCardStyle(padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
@@ -906,7 +1152,8 @@ struct ContentView: View {
         columns: Int,
         buttons: [ActionDescriptor],
         style: ButtonStyleVariant = .compact,
-        dense: Bool = false
+        dense: Bool = false,
+        compactVerticalPadding: CGFloat? = nil
     ) -> some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, columns)),
@@ -918,13 +1165,15 @@ struct ContentView: View {
                         button.title,
                         tint: button.tint,
                         verticalPadding: dense ? 14 : 18,
+                        isEnabled: button.isEnabled,
                         action: button.action
                     )
                 } else {
                     smallActionButton(
                         button.title,
                         tint: button.tint,
-                        verticalPadding: dense ? 10 : 14,
+                        verticalPadding: compactVerticalPadding ?? (dense ? 10 : 14),
+                        isEnabled: button.isEnabled,
                         action: button.action
                     )
                 }
@@ -932,7 +1181,13 @@ struct ContentView: View {
         }
     }
 
-    private func actionButton(_ title: String, tint: Color, verticalPadding: CGFloat = 18, action: @escaping () -> Void) -> some View {
+    private func actionButton(
+        _ title: String,
+        tint: Color,
+        verticalPadding: CGFloat = 18,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.headline.weight(.bold))
@@ -942,10 +1197,18 @@ struct ContentView: View {
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
+        .opacity(isEnabled ? 1 : 0.42)
+        .disabled(!isEnabled)
         .buttonStyle(.plain)
     }
 
-    private func smallActionButton(_ title: String, tint: Color, verticalPadding: CGFloat = 14, action: @escaping () -> Void) -> some View {
+    private func smallActionButton(
+        _ title: String,
+        tint: Color,
+        verticalPadding: CGFloat = 14,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.headline.weight(.bold))
@@ -955,11 +1218,110 @@ struct ContentView: View {
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+        .opacity(isEnabled ? 1 : 0.42)
+        .disabled(!isEnabled)
         .buttonStyle(.plain)
     }
 
     private func formatClock(_ seconds: Int) -> String {
         ScoreboardStore.formatGameClock(seconds)
+    }
+
+    private func resetSetupDraftsToDefaults() {
+        homeTeamDraft = ""
+        guestTeamDraft = ""
+        setupPeriod = 1
+        setupClockSeconds = 12 * 60
+        setupShotClockSeconds = 24
+    }
+
+    private func createNewGame() {
+        resetSetupDraftsToDefaults()
+        showsSetup = true
+    }
+
+    private func swapSetupSides() {
+        swap(&homeTeamDraft, &guestTeamDraft)
+    }
+
+    private func openSetupGame() {
+        store.applySetup(
+            homeName: homeTeamDraft,
+            guestName: guestTeamDraft,
+            period: setupPeriod,
+            clockSeconds: setupClockSeconds,
+            shotClockSeconds: setupShotClockSeconds
+        )
+        #if os(macOS)
+        showPublicBoardWindow()
+        #endif
+        showsSetup = false
+    }
+
+    private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
+        ScoreboardGameSnapshot(
+            homeTeamName: homeTeamDraft,
+            guestTeamName: guestTeamDraft,
+            homeScore: 0,
+            guestScore: 0,
+            period: setupPeriod,
+            gameClockSeconds: setupClockSeconds,
+            defaultClockSeconds: setupClockSeconds,
+            shotClockMilliseconds: setupShotClockSeconds * 1_000,
+            defaultShotClockSeconds: setupShotClockSeconds,
+            possessionDirection: .none,
+            areSidesSwapped: false
+        )
+    }
+
+    private func prepareDraftExport() {
+        exportDocument = ScoreboardGameDocument(snapshot: makeDraftSnapshot())
+        exportFilename = suggestedGameFilename(homeTeamDraft, guestTeamDraft)
+        showsGameExporter = true
+    }
+
+    private func prepareLiveGameExport() {
+        exportDocument = ScoreboardGameDocument(snapshot: store.currentGameSnapshot())
+        exportFilename = suggestedGameFilename(store.homeTeamName, store.guestTeamName)
+        showsGameExporter = true
+    }
+
+    private func handleGameImport(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else {
+                return
+            }
+
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            let snapshot = try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: data)
+            store.applyGameSnapshot(snapshot)
+            loadSetupDraftsFromStore()
+            showsSetup = false
+            #if os(macOS)
+            showPublicBoardWindow()
+            #endif
+        } catch {
+            fileOperationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleGameExport(_ result: Result<URL, Error>) {
+        if case .failure(let error) = result {
+            fileOperationErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func suggestedGameFilename(_ home: String, _ guest: String) -> String {
+        let resolvedHome = displayTeamName(home)
+        let resolvedGuest = displayTeamName(guest)
+        return "\(resolvedHome) vs \(resolvedGuest).scoreboardgame"
     }
 
     private func savePreset() {
@@ -979,8 +1341,8 @@ struct ContentView: View {
         homeTeamDraft = store.homeTeamName
         guestTeamDraft = store.guestTeamName
         setupPeriod = store.period
-        setupClockSeconds = store.defaultClockSeconds
-        setupShotClockSeconds = store.defaultShotClockSeconds
+        setupClockSeconds = store.gameClockSeconds
+        setupShotClockSeconds = max(0, min(ScoreboardStore.maxShotClockSeconds, Int(round(Double(store.shotClockMilliseconds) / 1_000))))
     }
 
     private func applyPreset(_ preset: SetupPreset) {
@@ -1014,7 +1376,7 @@ struct ContentView: View {
 
         return GeometryReader { proxy in
             let horizontalInset = max(24, min(proxy.size.width * (layout.isCompactWidth ? 0.05 : 0.09), 72))
-            let verticalInset = max(18, min(proxy.size.height * 0.05, 34))
+            let verticalInset = max(8, min(proxy.size.height * 0.025, 16))
             let availableWidth = max(proxy.size.width - (horizontalInset * 2), 0)
             let availableHeight = max(proxy.size.height - (verticalInset * 2), 0)
             let aspectRatio = ScoreboardFaceView.preferredAspectRatio
@@ -1023,7 +1385,8 @@ struct ContentView: View {
 
             board
                 .frame(width: fittedWidth, height: fittedHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .top)
                 .clipped()
         }
     }
@@ -1104,6 +1467,7 @@ struct ContentView: View {
 private struct ActionDescriptor {
     let title: String
     let tint: Color
+    var isEnabled: Bool = true
     let action: () -> Void
 }
 
@@ -1135,8 +1499,17 @@ private struct InterfaceLayout {
     var metricValueSize: CGFloat { denseControls ? 32 : isCompactWidth ? 34 : 40 }
     var scoreValueSize: CGFloat { denseControls ? 34 : isCompactWidth ? 40 : 48 }
     var bodyFont: Font { isCompactWidth ? .subheadline : .headline }
-    var headerTitleSize: CGFloat { denseControls ? 26 : 30 }
-    var headerSubtitleFont: Font { denseControls ? .subheadline : .headline }
+    var headerTitleSize: CGFloat { denseControls ? 22 : 26 }
+    var headerSubtitleFont: Font { denseControls ? .caption : .subheadline }
+    var headerBadgeFont: Font { denseControls ? .caption.weight(.semibold) : .subheadline.weight(.semibold) }
+    var headerTitleSpacing: CGFloat { denseControls ? 4 : 5 }
+    var headerBlockSpacing: CGFloat { denseControls ? 8 : 12 }
+    var headerInlineSpacing: CGFloat { denseControls ? 12 : 14 }
+    var headerHorizontalPadding: CGFloat { denseControls ? 14 : 18 }
+    var headerVerticalPadding: CGFloat { denseControls ? 10 : 12 }
+    var headerBadgeHorizontalPadding: CGFloat { denseControls ? 10 : 12 }
+    var headerBadgeVerticalPadding: CGFloat { denseControls ? 6 : 8 }
+    var headerActionVerticalPadding: CGFloat { denseControls ? 8 : 10 }
     var controlCardPadding: CGFloat { denseControls ? 14 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
 
@@ -1152,8 +1525,8 @@ private struct InterfaceLayout {
     var dashboardUsesSingleColumn: Bool { width < 560 }
     var dashboardStacksPreview: Bool { !dashboardUsesSingleColumn && isPortraitish }
     var dashboardHeaderHeight: CGFloat {
-        if isPortraitish { return 140 }
-        return denseControls || headerUsesVerticalFlow ? 120 : 92
+        if isPortraitish { return 118 }
+        return denseControls || headerUsesVerticalFlow ? 96 : 76
     }
     func dashboardPreviewHeight(in contentHeight: CGFloat) -> CGFloat {
         if dashboardUsesSingleColumn {
@@ -1165,10 +1538,10 @@ private struct InterfaceLayout {
         return contentHeight
     }
     func shotClockWidgetHeight(in totalHeight: CGFloat) -> CGFloat {
-        let minimumBoardHeight: CGFloat = dashboardUsesSingleColumn ? 180 : dashboardStacksPreview ? 210 : 260
+        let minimumBoardHeight: CGFloat = dashboardUsesSingleColumn ? 180 : dashboardStacksPreview ? 210 : 250
         let baseHeight = min(
-            max(totalHeight * (dashboardUsesSingleColumn ? 0.24 : dashboardStacksPreview ? 0.22 : 0.18), 104),
-            dashboardUsesSingleColumn ? 144 : 156
+            max(totalHeight * (dashboardUsesSingleColumn ? 0.34 : dashboardStacksPreview ? 0.30 : 0.26), 188),
+            dashboardUsesSingleColumn ? 236 : 212
         )
         let availableHeight = max(totalHeight - minimumBoardHeight - sectionSpacing, 0)
         return min(baseHeight, availableHeight)
@@ -1195,13 +1568,19 @@ private struct InterfaceLayout {
         return min(max(totalHeight * 0.45, 220), 320)
     }
     var gameMetricsUseVerticalFlow: Bool { width < 540 }
-    var gameButtonColumns: Int {
+    var gamePrimaryButtonColumns: Int {
+        if width < 520 { return 1 }
+        if dashboardStacksPreview { return 3 }
+        return 3
+    }
+    var gameSecondaryButtonColumns: Int {
         if dashboardUsesSingleColumn { return width < 420 ? 1 : 2 }
         if dashboardStacksPreview { return width < 620 ? 2 : 5 }
         if width < 1000 { return 3 }
         if width < 1320 { return 4 }
         return 5
     }
+    var advancedButtonVerticalPadding: CGFloat { denseControls ? 8 : 11 }
     var shotClockButtonColumns: Int {
         if width < 520 { return 2 }
         if width < 900 { return 3 }
@@ -1217,6 +1596,24 @@ private extension View {
     func singleLineFitted(minScale: CGFloat = 0.55) -> some View {
         lineLimit(1)
             .minimumScaleFactor(minScale)
+    }
+
+    @ViewBuilder
+    func scoreboardUppercaseEntry() -> some View {
+        #if os(macOS)
+        self
+        #else
+        textInputAutocapitalization(.characters)
+        #endif
+    }
+
+    @ViewBuilder
+    func scoreboardSetupListStyle() -> some View {
+        #if os(macOS)
+        listStyle(.inset)
+        #else
+        listStyle(.insetGrouped)
+        #endif
     }
 
     func scoreboardTextField(
@@ -1252,6 +1649,7 @@ private extension View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.08))
             )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
     @ViewBuilder
