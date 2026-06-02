@@ -34,6 +34,9 @@ struct ExternalScoreboardView: View {
                     isClockRunning: store.isClockRunning,
                     isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
                     isPlayerOverlayPaused: store.isPlayerOverlayPaused,
+                    playerFoulHighlightColor: store.playerFoulHighlightColor,
+                    isDisplayGameClockAlertActive: store.isDisplayGameClockAlertActive,
+                    isDisplayShotClockAlertActive: store.isDisplayShotClockAlertActive,
                     homePlayers: store.displayedHomePlayers,
                     guestPlayers: store.displayedGuestPlayers,
                     compact: usesCompactBoard

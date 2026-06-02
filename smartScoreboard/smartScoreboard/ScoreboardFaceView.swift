@@ -23,6 +23,9 @@ struct ScoreboardFaceView: View {
     let isClockRunning: Bool
     let isPlayerTrackingEnabled: Bool
     let isPlayerOverlayPaused: Bool
+    let playerFoulHighlightColor: PlayerFoulHighlightColor
+    let isDisplayGameClockAlertActive: Bool
+    let isDisplayShotClockAlertActive: Bool
     let homePlayers: [TrackedPlayer]
     let guestPlayers: [TrackedPlayer]
     let compact: Bool
@@ -38,6 +41,7 @@ struct ScoreboardFaceView: View {
     private var boardBadgeBorderColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.18) : palette.boardBadgeBorder }
     private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
     private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
+    private var displayAlertColor: Color { .red }
 
     var body: some View {
         GeometryReader { proxy in
@@ -228,13 +232,14 @@ struct ScoreboardFaceView: View {
                         Text(player.name.isEmpty ? "PLAYER" : player.name)
                             .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
                             .singleLineFitted(minScale: 0.55)
-                            .foregroundStyle(boardPrimaryTextColor)
+                            .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
 
                         Spacer(minLength: 0)
 
-                        Text("F\(player.foulCount)")
+                        Text(foulDisplayText(for: player.foulCount))
                             .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
-                            .foregroundStyle(boardPrimaryTextColor)
+                            .monospaced()
+                            .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
                     }
                 }
             }
@@ -253,35 +258,31 @@ struct ScoreboardFaceView: View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.018) : condensed ? max(18, base * 0.026) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
-            if let possessionIndicator = centerPossessionIndicator {
-                Image(systemName: possessionIndicator.systemName)
-                    .font(.system(size: ultraCondensed ? base * 0.12 : condensed ? base * 0.16 : base * 0.14, weight: .black))
-                    .foregroundStyle(possessionIndicator.color)
-                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
-                    .frame(maxWidth: .infinity)
-            }
-
             Text(formattedClock)
                 .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.24)
                 .contentTransition(.numericText())
                 .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
-                .foregroundStyle(boardPrimaryTextColor)
+                .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
                 .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                 .frame(maxWidth: .infinity)
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
-                headerBadge(
-                    title: "SHOT",
+                shotClockBadge(
                     value: formattedShotClock,
                     condensed: condensed,
                     ultraCondensed: ultraCondensed,
+                    base: base,
                     valueFontSize: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19,
-                    valueMinScale: 0.24
+                    valueMinScale: 0.24,
+                    valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
                 )
-                headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+
+                HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
+                    headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
+                    headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                }
             }
 
             Spacer(minLength: 0)
@@ -295,13 +296,89 @@ struct ScoreboardFaceView: View {
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
     }
 
+    private func shotClockBadge(
+        value: String,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        base: CGFloat,
+        valueFontSize: CGFloat,
+        valueMinScale: CGFloat,
+        valueColor: Color
+    ) -> some View {
+        let arrowFontSize = ultraCondensed ? base * 0.072 : condensed ? base * 0.102 : base * 0.088
+        let arrowSlotWidth = ultraCondensed ? base * 0.1 : condensed ? base * 0.14 : base * 0.12
+        let arrowIndicator = centerPossessionIndicator
+        let showsLeftArrow = arrowIndicator?.systemName.contains("left") == true
+        let showsRightArrow = arrowIndicator?.systemName.contains("right") == true
+
+        return HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
+            shotArrowSlot(
+                systemName: arrowIndicator?.systemName,
+                color: arrowIndicator?.color,
+                isVisible: showsLeftArrow,
+                fontSize: arrowFontSize,
+                slotWidth: arrowSlotWidth
+            )
+
+            headerBadge(
+                title: "SHOT",
+                value: value,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                valueFontSize: valueFontSize,
+                valueMinScale: valueMinScale,
+                valueColor: valueColor,
+                showsContainer: false
+            )
+            .frame(maxWidth: .infinity)
+
+            shotArrowSlot(
+                systemName: arrowIndicator?.systemName,
+                color: arrowIndicator?.color,
+                isVisible: showsRightArrow,
+                fontSize: arrowFontSize,
+                slotWidth: arrowSlotWidth
+            )
+        }
+        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
+        .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
+    private func shotArrowSlot(
+        systemName: String?,
+        color: Color?,
+        isVisible: Bool,
+        fontSize: CGFloat,
+        slotWidth: CGFloat
+    ) -> some View {
+        Group {
+            if isVisible, let systemName, let color {
+                Image(systemName: systemName)
+                    .foregroundStyle(color)
+            } else {
+                Image(systemName: "arrow.left.circle.fill")
+                    .foregroundStyle(.clear)
+            }
+        }
+        .font(.system(size: fontSize, weight: .black))
+        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+        .frame(width: slotWidth)
+    }
+
     private func headerBadge(
         title: String,
         value: String,
         condensed: Bool,
         ultraCondensed: Bool,
         valueFontSize: CGFloat? = nil,
-        valueMinScale: CGFloat = 0.55
+        valueMinScale: CGFloat = 0.55,
+        valueColor: Color? = nil,
+        showsContainer: Bool = true
     ) -> some View {
         VStack(spacing: ultraCondensed ? 3 : 6) {
             Text(title)
@@ -314,15 +391,27 @@ struct ScoreboardFaceView: View {
                 .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 34 : 28), weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: valueMinScale)
-                .foregroundStyle(boardBadgeValueTextColor)
+                .foregroundStyle(valueColor ?? boardBadgeValueTextColor)
         }
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
         .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
-        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
-                .strokeBorder(boardBadgeBorderColor)
+        .background(
+            Group {
+                if showsContainer {
+                    RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+                        .fill(boardBadgeBackgroundColor)
+                }
+            }
         )
+        .overlay(
+            Group {
+                if showsContainer {
+                    RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+                        .strokeBorder(boardBadgeBorderColor)
+                }
+            }
+        )
+        .frame(maxWidth: .infinity)
     }
 
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
@@ -352,6 +441,22 @@ struct ScoreboardFaceView: View {
         case .guest:
             return guestPlayers
         }
+    }
+
+    private var foulHighlightColor: Color {
+        switch playerFoulHighlightColor {
+        case .red:
+            return .red
+        case .orange:
+            return .orange
+        case .yellow:
+            return .yellow
+        }
+    }
+
+    private func foulDisplayText(for foulCount: Int) -> String {
+        let count = max(0, foulCount)
+        return count == 0 ? "-" : String(repeating: "X", count: count)
     }
 
     private func sidePanelData(for side: PossessionDirection) -> SidePanelData {

@@ -34,6 +34,25 @@ enum TeamSide: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
+    case red
+    case orange
+    case yellow
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .red:
+            return "Red"
+        case .orange:
+            return "Orange"
+        case .yellow:
+            return "Yellow"
+        }
+    }
+}
+
 struct TrackedPlayer: Identifiable, Codable, Equatable {
     let id: UUID
     var number: String
@@ -123,7 +142,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let defaultRosterSize = 12
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
-    nonisolated static let activeLineupSize = 5
+    nonisolated static let defaultDisplayLineupSize = 5
 
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
@@ -140,6 +159,12 @@ final class ScoreboardStore: ObservableObject {
     @Published var isPlayerTrackingEnabled = false
     @Published var isPlayerOverlayPaused = false
     @Published var rosterSizePerTeam = defaultRosterSize
+    @Published var displayLineupSize = defaultDisplayLineupSize
+    @Published var playerFoulHighlightColor: PlayerFoulHighlightColor = .yellow
+    @Published var isGameClockRedEnabled = false
+    @Published var gameClockRedThresholdSeconds = 60
+    @Published var isShotClockRedEnabled = false
+    @Published var shotClockRedThresholdSeconds = 5
     @Published var homeRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
     @Published var guestRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
     @Published var theme: ScoreboardTheme = .classic
@@ -183,6 +208,14 @@ final class ScoreboardStore: ObservableObject {
         activeLineupPlayers(for: .guest)
     }
 
+    var isDisplayGameClockAlertActive: Bool {
+        isGameClockRedEnabled && gameClockSeconds <= boundedGameClockSeconds(gameClockRedThresholdSeconds)
+    }
+
+    var isDisplayShotClockAlertActive: Bool {
+        isShotClockRedEnabled && shotClockMilliseconds <= boundedShotClockMilliseconds(shotClockRedThresholdSeconds * 1_000)
+    }
+
     nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
         let boundedSeconds = max(0, min(maxGameClockSeconds, totalSeconds))
         let minutes = boundedSeconds / 60
@@ -201,7 +234,7 @@ final class ScoreboardStore: ObservableObject {
 
     nonisolated static func makeDefaultRosterPlayers(count: Int) -> [TrackedPlayer] {
         (0..<count).map { index in
-            TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < activeLineupSize)
+            TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < defaultDisplayLineupSize)
         }
     }
 
@@ -365,8 +398,15 @@ final class ScoreboardStore: ObservableObject {
     func setRosterSizePerTeam(_ size: Int) {
         let boundedSize = max(Self.minRosterSize, min(Self.maxRosterSize, size))
         rosterSizePerTeam = boundedSize
+        displayLineupSize = min(displayLineupSize, boundedSize)
         resizeRoster(for: .home, to: boundedSize)
         resizeRoster(for: .guest, to: boundedSize)
+    }
+
+    func setDisplayLineupSize(_ size: Int) {
+        displayLineupSize = max(1, min(rosterSizePerTeam, size))
+        homeRoster = normalizedRoster(homeRoster, fallbackCount: rosterSizePerTeam)
+        guestRoster = normalizedRoster(guestRoster, fallbackCount: rosterSizePerTeam)
     }
 
     func trackedPlayers(for side: TeamSide) -> [TrackedPlayer] {
@@ -465,6 +505,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
+            displayLineupSize: displayLineupSize,
+            playerFoulHighlightColor: playerFoulHighlightColor,
+            isGameClockRedEnabled: isGameClockRedEnabled,
+            gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
+            isShotClockRedEnabled: isShotClockRedEnabled,
+            shotClockRedThresholdSeconds: shotClockRedThresholdSeconds,
             homeRoster: homeRoster,
             guestRoster: guestRoster
         )
@@ -489,6 +535,12 @@ final class ScoreboardStore: ObservableObject {
         isPlayerTrackingEnabled = snapshot.isPlayerTrackingEnabled ?? false
         isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
+        displayLineupSize = max(1, min(rosterSizePerTeam, snapshot.displayLineupSize ?? Self.defaultDisplayLineupSize))
+        playerFoulHighlightColor = snapshot.playerFoulHighlightColor ?? .yellow
+        isGameClockRedEnabled = snapshot.isGameClockRedEnabled ?? false
+        gameClockRedThresholdSeconds = boundedGameClockSeconds(snapshot.gameClockRedThresholdSeconds ?? 60)
+        isShotClockRedEnabled = snapshot.isShotClockRedEnabled ?? false
+        shotClockRedThresholdSeconds = boundedShotClockSeconds(snapshot.shotClockRedThresholdSeconds ?? 5)
         homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
         didCompleteSetup = true
@@ -724,6 +776,12 @@ final class ScoreboardStore: ObservableObject {
             $isPlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isPlayerOverlayPaused.map { _ in () }.eraseToAnyPublisher(),
             $rosterSizePerTeam.map { _ in () }.eraseToAnyPublisher(),
+            $displayLineupSize.map { _ in () }.eraseToAnyPublisher(),
+            $playerFoulHighlightColor.map { _ in () }.eraseToAnyPublisher(),
+            $isGameClockRedEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $gameClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $isShotClockRedEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $shotClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
@@ -765,6 +823,12 @@ final class ScoreboardStore: ObservableObject {
         isPlayerTrackingEnabled = persistedState.isPlayerTrackingEnabled
         isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
+        displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
+        playerFoulHighlightColor = persistedState.playerFoulHighlightColor
+        isGameClockRedEnabled = persistedState.isGameClockRedEnabled
+        gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
+        isShotClockRedEnabled = persistedState.isShotClockRedEnabled
+        shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
         homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
         theme = persistedState.theme
@@ -793,6 +857,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
+            displayLineupSize: displayLineupSize,
+            playerFoulHighlightColor: playerFoulHighlightColor,
+            isGameClockRedEnabled: isGameClockRedEnabled,
+            gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
+            isShotClockRedEnabled: isShotClockRedEnabled,
+            shotClockRedThresholdSeconds: shotClockRedThresholdSeconds,
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
@@ -810,7 +880,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private var activeLineupCountLimit: Int {
-        min(Self.activeLineupSize, rosterSizePerTeam)
+        min(displayLineupSize, rosterSizePerTeam)
     }
 
     private func resetPlayerTrackingForNewGame() {
@@ -916,6 +986,12 @@ private struct PersistedState: Codable {
     var isPlayerTrackingEnabled: Bool
     var isPlayerOverlayPaused: Bool
     var rosterSizePerTeam: Int
+    var displayLineupSize: Int
+    var playerFoulHighlightColor: PlayerFoulHighlightColor
+    var isGameClockRedEnabled: Bool
+    var gameClockRedThresholdSeconds: Int
+    var isShotClockRedEnabled: Bool
+    var shotClockRedThresholdSeconds: Int
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
@@ -941,6 +1017,12 @@ private struct PersistedState: Codable {
         case isPlayerTrackingEnabled
         case isPlayerOverlayPaused
         case rosterSizePerTeam
+        case displayLineupSize
+        case playerFoulHighlightColor
+        case isGameClockRedEnabled
+        case gameClockRedThresholdSeconds
+        case isShotClockRedEnabled
+        case shotClockRedThresholdSeconds
         case homeRoster
         case guestRoster
         case theme
@@ -966,6 +1048,12 @@ private struct PersistedState: Codable {
         isPlayerTrackingEnabled: Bool,
         isPlayerOverlayPaused: Bool,
         rosterSizePerTeam: Int,
+        displayLineupSize: Int,
+        playerFoulHighlightColor: PlayerFoulHighlightColor,
+        isGameClockRedEnabled: Bool,
+        gameClockRedThresholdSeconds: Int,
+        isShotClockRedEnabled: Bool,
+        shotClockRedThresholdSeconds: Int,
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
@@ -989,6 +1077,12 @@ private struct PersistedState: Codable {
         self.isPlayerTrackingEnabled = isPlayerTrackingEnabled
         self.isPlayerOverlayPaused = isPlayerOverlayPaused
         self.rosterSizePerTeam = rosterSizePerTeam
+        self.displayLineupSize = displayLineupSize
+        self.playerFoulHighlightColor = playerFoulHighlightColor
+        self.isGameClockRedEnabled = isGameClockRedEnabled
+        self.gameClockRedThresholdSeconds = gameClockRedThresholdSeconds
+        self.isShotClockRedEnabled = isShotClockRedEnabled
+        self.shotClockRedThresholdSeconds = shotClockRedThresholdSeconds
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
@@ -1020,6 +1114,12 @@ private struct PersistedState: Codable {
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? false
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
+        displayLineupSize = try container.decodeIfPresent(Int.self, forKey: .displayLineupSize) ?? ScoreboardStore.defaultDisplayLineupSize
+        playerFoulHighlightColor = try container.decodeIfPresent(PlayerFoulHighlightColor.self, forKey: .playerFoulHighlightColor) ?? .yellow
+        isGameClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockRedEnabled) ?? false
+        gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds) ?? 60
+        isShotClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockRedEnabled) ?? false
+        shotClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .shotClockRedThresholdSeconds) ?? 5
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
@@ -1046,6 +1146,12 @@ private struct PersistedState: Codable {
         try container.encode(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
         try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encode(rosterSizePerTeam, forKey: .rosterSizePerTeam)
+        try container.encode(displayLineupSize, forKey: .displayLineupSize)
+        try container.encode(playerFoulHighlightColor, forKey: .playerFoulHighlightColor)
+        try container.encode(isGameClockRedEnabled, forKey: .isGameClockRedEnabled)
+        try container.encode(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
+        try container.encode(isShotClockRedEnabled, forKey: .isShotClockRedEnabled)
+        try container.encode(shotClockRedThresholdSeconds, forKey: .shotClockRedThresholdSeconds)
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)

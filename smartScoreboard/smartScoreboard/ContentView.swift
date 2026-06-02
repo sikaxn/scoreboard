@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var exportDocument = ScoreboardGameDocument(snapshot: .empty)
     @State private var exportFilename = "Scoreboard Game.scoreboardgame"
     @State private var fileOperationErrorMessage: String?
+    @State private var dashboardPage: DashboardPage = .main
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
@@ -78,6 +79,12 @@ struct ContentView: View {
         .onReceive(store.$isPlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$displayLineupSize) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerFoulHighlightColor) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isGameClockRedEnabled) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isShotClockRedEnabled) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$shotClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
         .onAppear {
@@ -96,6 +103,11 @@ struct ContentView: View {
         .onChange(of: setupPeriod) { _, _ in commitSetupEdits() }
         .onChange(of: setupClockSeconds) { _, _ in commitSetupEdits() }
         .onChange(of: setupShotClockSeconds) { _, _ in commitSetupEdits() }
+        .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
+            if !isEnabled {
+                dashboardPage = .main
+            }
+        }
         .fileImporter(
             isPresented: $showsGameImporter,
             allowedContentTypes: [.scoreboardGame],
@@ -274,6 +286,8 @@ struct ContentView: View {
             settingsGamePane(layout: layout)
         case .players:
             settingsPlayersPane(layout: layout)
+        case .display:
+            settingsDisplayPane()
         case .theme:
             settingsThemePane()
         case .files:
@@ -384,6 +398,58 @@ struct ContentView: View {
 
             settingsSection(title: "Guest Roster", footer: "Edit player number, display name, and active lineup status for the guest team.") {
                 settingsRosterEditor(side: .guest, layout: layout)
+            }
+        }
+    }
+
+    private func settingsDisplayPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Lineup") {
+                settingsStepperValueRow(
+                    title: "Player Lineup Size",
+                    value: "\(store.displayLineupSize)",
+                    decrement: { store.setDisplayLineupSize(store.displayLineupSize - 1) },
+                    increment: { store.setDisplayLineupSize(store.displayLineupSize + 1) }
+                )
+            }
+
+            settingsSection(title: "Foul Highlight") {
+                settingsPickerRow(
+                    title: "Foul Highlight Color",
+                    selection: Binding(
+                        get: { store.playerFoulHighlightColor },
+                        set: { store.playerFoulHighlightColor = $0 }
+                    ),
+                    options: PlayerFoulHighlightColor.allCases
+                ) { option in
+                    option.title
+                }
+            }
+
+            settingsSection(title: "Clock Alerts", footer: "These affect the public scoreboard display only.") {
+                settingsToggleRow(title: "Turn Game Clock Red", isOn: Binding(
+                    get: { store.isGameClockRedEnabled },
+                    set: { store.isGameClockRedEnabled = $0 }
+                ))
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Game Clock Red At",
+                    value: "\(store.gameClockRedThresholdSeconds)s",
+                    decrement: { store.gameClockRedThresholdSeconds = max(0, store.gameClockRedThresholdSeconds - 5) },
+                    increment: { store.gameClockRedThresholdSeconds = min(ScoreboardStore.maxGameClockSeconds, store.gameClockRedThresholdSeconds + 5) }
+                )
+                settingsDivider()
+                settingsToggleRow(title: "Turn Shot Clock Red", isOn: Binding(
+                    get: { store.isShotClockRedEnabled },
+                    set: { store.isShotClockRedEnabled = $0 }
+                ))
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Shot Clock Red At",
+                    value: "\(store.shotClockRedThresholdSeconds)s",
+                    decrement: { store.shotClockRedThresholdSeconds = max(0, store.shotClockRedThresholdSeconds - 1) },
+                    increment: { store.shotClockRedThresholdSeconds = min(ScoreboardStore.maxShotClockSeconds, store.shotClockRedThresholdSeconds + 1) }
+                )
             }
         }
     }
@@ -596,6 +662,28 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 280)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func settingsPickerRow<Option: Hashable>(
+        title: String,
+        selection: Binding<Option>,
+        options: [Option],
+        label: @escaping (Option) -> String
+    ) -> some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            Picker(title, selection: selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(label(option)).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
         }
         .padding(.vertical, 10)
     }
@@ -1006,17 +1094,10 @@ struct ContentView: View {
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: layout.headerTitleSpacing) {
-            Text("Smart Scoreboard")
-                .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
-                .singleLineFitted(minScale: 0.6)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-
-            Text("Responsive control board")
-                .font(layout.headerSubtitleFont)
-                .singleLineFitted(minScale: 0.7)
-                .foregroundStyle(themePalette.dashboardSecondaryText)
-        }
+        Text(selectedStoredGameFile?.displayName ?? "New Game")
+            .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
+            .singleLineFitted(minScale: 0.6)
+            .foregroundStyle(themePalette.dashboardPrimaryText)
     }
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
@@ -1119,8 +1200,28 @@ struct ContentView: View {
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
+        if store.isPlayerTrackingEnabled {
+            return AnyView(trackedControlPane(layout: layout))
+        }
+
+        return AnyView(mainControlPane(layout: layout))
+    }
+
+    private func trackedControlPane(layout: InterfaceLayout) -> some View {
         Group {
-            if layout.requiresDashboardScroll || store.isPlayerTrackingEnabled {
+            switch dashboardPage {
+            case .main:
+                mainControlPane(layout: layout)
+            case .players:
+                playerTrackingScreen(layout: layout)
+            }
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: dashboardPage)
+    }
+
+    private func mainControlPane(layout: InterfaceLayout) -> some View {
+        Group {
+            if layout.requiresDashboardScroll {
                 ScrollView(.vertical, showsIndicators: false) {
                     dashboardControlStack(layout: layout)
                         .padding(.bottom, layout.sectionSpacing)
@@ -1141,15 +1242,70 @@ struct ContentView: View {
         }
     }
 
+    private func playerTrackingScreen(layout: InterfaceLayout) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: layout.sectionSpacing) {
+                pageIntroCard(
+                    title: "Player Tracking",
+                    caption: "Roster, foul, and active-lineup controls.",
+                    actionTitle: "Back to Game",
+                    actionSystemImage: "chevron.left",
+                    action: { dashboardPage = .main },
+                    layout: layout
+                )
+
+                playerTrackingPanel(layout: layout)
+            }
+            .padding(.bottom, layout.sectionSpacing)
+        }
+    }
+
     private func dashboardControlStack(layout: InterfaceLayout) -> some View {
         VStack(spacing: layout.sectionSpacing) {
             topControlRow(layout: layout)
             bottomControlRow(layout: layout)
+        }
+    }
 
-            if store.isPlayerTrackingEnabled {
-                playerTrackingPanel(layout: layout)
+    private func pageIntroCard(
+        title: String,
+        caption: String,
+        actionTitle: String? = nil,
+        actionSystemImage: String? = nil,
+        action: (() -> Void)? = nil,
+        layout: InterfaceLayout
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Text(caption)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: actionSystemImage ?? "arrow.right")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(themePalette.dashboardNeutralButton, in: Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, layout.controlCardPadding)
+        .padding(.vertical, layout.controlCardPadding)
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder)
+        )
     }
 
     @ViewBuilder
@@ -1180,8 +1336,6 @@ struct ContentView: View {
 
                 teamControls(
                     title: leftIsHome ? "Home" : "Guest",
-                    teamName: leftIsHome ? store.homeTeamName : store.guestTeamName,
-                    score: leftIsHome ? store.homeScore : store.guestScore,
                     isHome: leftIsHome,
                     tint: leftIsHome ? homeTint : guestTint,
                     layout: layout
@@ -1189,8 +1343,6 @@ struct ContentView: View {
 
                 teamControls(
                     title: leftIsHome ? "Guest" : "Home",
-                    teamName: leftIsHome ? store.guestTeamName : store.homeTeamName,
-                    score: leftIsHome ? store.guestScore : store.homeScore,
                     isHome: !leftIsHome,
                     tint: leftIsHome ? guestTint : homeTint,
                     layout: layout
@@ -1200,8 +1352,6 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 teamControls(
                     title: leftIsHome ? "Home" : "Guest",
-                    teamName: leftIsHome ? store.homeTeamName : store.guestTeamName,
-                    score: leftIsHome ? store.homeScore : store.guestScore,
                     isHome: leftIsHome,
                     tint: leftIsHome ? homeTint : guestTint,
                     layout: layout
@@ -1213,8 +1363,6 @@ struct ContentView: View {
 
                 teamControls(
                     title: leftIsHome ? "Guest" : "Home",
-                    teamName: leftIsHome ? store.guestTeamName : store.homeTeamName,
-                    score: leftIsHome ? store.guestScore : store.homeScore,
                     isHome: !leftIsHome,
                     tint: leftIsHome ? guestTint : homeTint,
                     layout: layout
@@ -1225,8 +1373,12 @@ struct ContentView: View {
     }
 
     private func centeredStatusWidget(layout: InterfaceLayout) -> some View {
+        let leftName = store.areSidesSwapped ? store.guestTeamName : store.homeTeamName
         let leftScore = store.areSidesSwapped ? store.guestScore : store.homeScore
+        let leftTint = store.areSidesSwapped ? guestTint : homeTint
+        let rightName = store.areSidesSwapped ? store.homeTeamName : store.guestTeamName
         let rightScore = store.areSidesSwapped ? store.homeScore : store.guestScore
+        let rightTint = store.areSidesSwapped ? homeTint : guestTint
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -1243,12 +1395,26 @@ struct ContentView: View {
                     .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
             }
 
-            Text("\(leftScore) - \(rightScore)")
-                .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: 12) {
+                gameStateScoreColumn(
+                    title: displayTeamName(leftName),
+                    score: leftScore,
+                    tint: leftTint,
+                    layout: layout
+                )
+
+                Text("-")
+                    .font(.system(size: layout.centerScoreSize - 10, weight: .black, design: .rounded))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+
+                gameStateScoreColumn(
+                    title: displayTeamName(rightName),
+                    score: rightScore,
+                    tint: rightTint,
+                    layout: layout
+                )
+            }
+            .frame(maxWidth: .infinity)
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
@@ -1258,6 +1424,21 @@ struct ContentView: View {
                 gameMetricCard(title: "24s", value: store.formattedShotClock, monospaced: true, layout: layout)
                 gameMetricCard(title: "Period", value: "\(store.period)", layout: layout)
             }
+
+            if store.isPlayerTrackingEnabled {
+                Button {
+                    dashboardPage = .players
+                } label: {
+                    Label("Open Players", systemImage: "person.3")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(themePalette.dashboardNeutralButton, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
@@ -1265,6 +1446,27 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+    }
+
+    private func gameStateScoreColumn(
+        title: String,
+        score: Int,
+        tint: Color,
+        layout: InterfaceLayout
+    ) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.bold))
+                .singleLineFitted(minScale: 0.55)
+                .foregroundStyle(themePalette.dashboardSubtleText)
+
+            Text("\(score)")
+                .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.4)
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func gameMetricCard(
@@ -1297,8 +1499,6 @@ struct ContentView: View {
 
     private func teamControls(
         title: String,
-        teamName: String,
-        score: Int,
         isHome: Bool,
         tint: Color,
         layout: InterfaceLayout
@@ -1308,25 +1508,6 @@ struct ContentView: View {
                 .font(.title3.weight(.bold))
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
-
-            Text(displayTeamName(teamName))
-                .font(.system(size: layout.teamFieldFontSize, weight: .heavy, design: .rounded))
-                .singleLineFitted(minScale: 0.55)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(themePalette.dashboardCardBorder)
-                )
-
-            Text("\(score)")
-                .font(.system(size: layout.scoreValueSize, weight: .black, design: .rounded))
-                .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
             buttonGrid(
                 columns: layout.teamButtonColumns,
@@ -1439,7 +1620,7 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                Text("Showing \(store.trackedPlayers(for: side).filter(\.isInActiveLineup).count)/\(min(ScoreboardStore.activeLineupSize, store.rosterSizePerTeam))")
+                Text("Showing \(store.trackedPlayers(for: side).filter(\.isInActiveLineup).count)/\(min(store.displayLineupSize, store.rosterSizePerTeam))")
                     .font(.caption.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardMutedText)
@@ -1727,6 +1908,12 @@ struct ContentView: View {
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
             rosterSizePerTeam: store.rosterSizePerTeam,
+            displayLineupSize: store.displayLineupSize,
+            playerFoulHighlightColor: store.playerFoulHighlightColor,
+            isGameClockRedEnabled: store.isGameClockRedEnabled,
+            gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
+            isShotClockRedEnabled: store.isShotClockRedEnabled,
+            shotClockRedThresholdSeconds: store.shotClockRedThresholdSeconds,
             homeRoster: store.homeRoster,
             guestRoster: store.guestRoster
         )
@@ -2038,6 +2225,12 @@ struct ContentView: View {
             isPlayerTrackingEnabled: currentSnapshot.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
             rosterSizePerTeam: currentSnapshot.rosterSizePerTeam,
+            displayLineupSize: currentSnapshot.displayLineupSize,
+            playerFoulHighlightColor: currentSnapshot.playerFoulHighlightColor,
+            isGameClockRedEnabled: currentSnapshot.isGameClockRedEnabled,
+            gameClockRedThresholdSeconds: currentSnapshot.gameClockRedThresholdSeconds,
+            isShotClockRedEnabled: currentSnapshot.isShotClockRedEnabled,
+            shotClockRedThresholdSeconds: currentSnapshot.shotClockRedThresholdSeconds,
             homeRoster: currentSnapshot.homeRoster,
             guestRoster: currentSnapshot.guestRoster
         )
@@ -2084,6 +2277,12 @@ struct ContentView: View {
                     isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
                     isPlayerOverlayPaused: false,
                     rosterSizePerTeam: store.rosterSizePerTeam,
+                    displayLineupSize: store.displayLineupSize,
+                    playerFoulHighlightColor: store.playerFoulHighlightColor,
+                    isGameClockRedEnabled: store.isGameClockRedEnabled,
+                    gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
+                    isShotClockRedEnabled: store.isShotClockRedEnabled,
+                    shotClockRedThresholdSeconds: store.shotClockRedThresholdSeconds,
                     homeRoster: store.homeRoster,
                     guestRoster: store.guestRoster
                 )
@@ -2258,6 +2457,7 @@ private struct StoredGameFile: Identifiable {
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
     case players
+    case display
     case theme
     case files
 
@@ -2269,6 +2469,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Game Setup"
         case .players:
             return "Players"
+        case .display:
+            return "Display"
         case .theme:
             return "Theme"
         case .files:
@@ -2282,6 +2484,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Edit teams, period, and clock defaults before opening the live control board."
         case .players:
             return "Configure roster size, player identities, active lineup, and foul tracking."
+        case .display:
+            return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
         case .theme:
             return "Choose the look for both the operator controls and public scoreboard."
         case .files:
@@ -2295,6 +2499,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "slider.horizontal.3"
         case .players:
             return "person.3"
+        case .display:
+            return "tv"
         case .theme:
             return "paintpalette"
         case .files:
@@ -2306,6 +2512,11 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 private enum ButtonStyleVariant: Equatable {
     case compact
     case large
+}
+
+private enum DashboardPage: Hashable {
+    case main
+    case players
 }
 
 private struct InterfaceLayout {

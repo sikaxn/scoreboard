@@ -23,6 +23,12 @@ struct ScoreboardGameSnapshot: Sendable {
     var isPlayerTrackingEnabled: Bool?
     var isPlayerOverlayPaused: Bool?
     var rosterSizePerTeam: Int?
+    var displayLineupSize: Int?
+    var playerFoulHighlightColor: PlayerFoulHighlightColor?
+    var isGameClockRedEnabled: Bool?
+    var gameClockRedThresholdSeconds: Int?
+    var isShotClockRedEnabled: Bool?
+    var shotClockRedThresholdSeconds: Int?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
 
@@ -42,6 +48,12 @@ struct ScoreboardGameSnapshot: Sendable {
         isPlayerTrackingEnabled: false,
         isPlayerOverlayPaused: false,
         rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
+        displayLineupSize: ScoreboardStore.defaultDisplayLineupSize,
+        playerFoulHighlightColor: .yellow,
+        isGameClockRedEnabled: false,
+        gameClockRedThresholdSeconds: 60,
+        isShotClockRedEnabled: false,
+        shotClockRedThresholdSeconds: 5,
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
         guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
     )
@@ -65,6 +77,12 @@ extension ScoreboardGameSnapshot: Codable {
         case isPlayerTrackingEnabled
         case isPlayerOverlayPaused
         case rosterSizePerTeam
+        case displayLineupSize
+        case playerFoulHighlightColor
+        case isGameClockRedEnabled
+        case gameClockRedThresholdSeconds
+        case isShotClockRedEnabled
+        case shotClockRedThresholdSeconds
         case homeRoster
         case guestRoster
     }
@@ -87,6 +105,12 @@ extension ScoreboardGameSnapshot: Codable {
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled)
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused)
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam)
+        displayLineupSize = try container.decodeIfPresent(Int.self, forKey: .displayLineupSize)
+        playerFoulHighlightColor = try container.decodeIfPresent(PlayerFoulHighlightColor.self, forKey: .playerFoulHighlightColor)
+        isGameClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockRedEnabled)
+        gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds)
+        isShotClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockRedEnabled)
+        shotClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .shotClockRedThresholdSeconds)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
     }
@@ -109,6 +133,12 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
         try container.encodeIfPresent(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encodeIfPresent(rosterSizePerTeam, forKey: .rosterSizePerTeam)
+        try container.encodeIfPresent(displayLineupSize, forKey: .displayLineupSize)
+        try container.encodeIfPresent(playerFoulHighlightColor, forKey: .playerFoulHighlightColor)
+        try container.encodeIfPresent(isGameClockRedEnabled, forKey: .isGameClockRedEnabled)
+        try container.encodeIfPresent(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
+        try container.encodeIfPresent(isShotClockRedEnabled, forKey: .isShotClockRedEnabled)
+        try container.encodeIfPresent(shotClockRedThresholdSeconds, forKey: .shotClockRedThresholdSeconds)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
     }
