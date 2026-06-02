@@ -7,7 +7,7 @@ extension UTType {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 4
+    var fileVersion = 5
     var sport: SportType?
     var homeTeamName: String
     var guestTeamName: String
@@ -16,6 +16,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var period: Int
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
+    var isGameClockEnabled: Bool?
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
     var activeShotClockPresetSeconds: Int?
@@ -48,6 +49,7 @@ struct ScoreboardGameSnapshot: Sendable {
         period: 1,
         gameClockSeconds: 12 * 60,
         defaultClockSeconds: 12 * 60,
+        isGameClockEnabled: true,
         shotClockMilliseconds: 24_000,
         defaultShotClockSeconds: 24,
         activeShotClockPresetSeconds: 24,
@@ -84,6 +86,7 @@ extension ScoreboardGameSnapshot: Codable {
         case period
         case gameClockSeconds
         case defaultClockSeconds
+        case isGameClockEnabled
         case shotClockMilliseconds
         case defaultShotClockSeconds
         case activeShotClockPresetSeconds
@@ -119,6 +122,7 @@ extension ScoreboardGameSnapshot: Codable {
         period = try container.decode(Int.self, forKey: .period)
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
+        isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled)
         shotClockMilliseconds = try container.decode(Int.self, forKey: .shotClockMilliseconds)
         defaultShotClockSeconds = try container.decode(Int.self, forKey: .defaultShotClockSeconds)
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds)
@@ -154,6 +158,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(period, forKey: .period)
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
+        try container.encodeIfPresent(isGameClockEnabled, forKey: .isGameClockEnabled)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)

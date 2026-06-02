@@ -18,6 +18,7 @@ struct ScoreboardFaceView: View {
     let guestScore: Int
     let period: Int
     let formattedClock: String
+    let showsGameClock: Bool
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
     let areSidesSwapped: Bool
@@ -314,15 +315,18 @@ struct ScoreboardFaceView: View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.018) : condensed ? max(18, base * 0.026) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
-            Text(formattedClock)
-                .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.24)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
-                .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
-                .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
-                .frame(maxWidth: .infinity)
+            if showsGameClock {
+                Text(formattedClock)
+                    .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.24)
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
+                    .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
+                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+                    .frame(maxWidth: .infinity)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
                 if sport.supportsShotClock {
@@ -338,7 +342,10 @@ struct ScoreboardFaceView: View {
                 }
 
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                    headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
+                    if showsGameClock {
+                        headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     headerBadge(title: sport.periodTitle.uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
                 }
 

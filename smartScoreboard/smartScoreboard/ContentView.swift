@@ -19,53 +19,47 @@ struct ContentView: View {
     @State private var setupSport = ScoreboardStore.shared.selectedSport
     @State private var setupPeriod = ScoreboardStore.shared.period
     @State private var setupClockSeconds = ScoreboardStore.shared.defaultClockSeconds
+    @State private var setupUsesGameClock = ScoreboardStore.shared.isGameClockEnabled
     @State private var setupShotClockSeconds = ScoreboardStore.shared.defaultShotClockSeconds
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
+    @State private var storedLogSessions: [StoredLogSession] = []
+    @State private var selectedStoredLogSessionID: String?
     @State private var showsGameImporter = false
     @State private var showsGameExporter = false
+    @State private var showsLogExporter = false
     @State private var exportDocument = ScoreboardGameDocument(snapshot: .empty)
     @State private var exportFilename = "Scoreboard Game.scoreboardgame"
-    @State private var fileOperationErrorMessage: String?
+    @State private var logExportDocument = ScoreboardLogExportDocument()
+    @State private var logExportFilename = "Scoreboard Log.json"
+    @State private var logExportContentType: UTType = .scoreboardLogSession
+    @State private var fileOperationError: FileOperationAlert?
     @State private var dashboardPage: DashboardPage = .main
     @State private var pendingGameConfirmation: GameConfirmationAction?
+    @State private var pendingLogDeletion: StoredLogSession?
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
+    private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
+        alertConfiguredRootView
+    }
+
+    private var rootView: some View {
         GeometryReader { proxy in
             let layout = InterfaceLayout(size: proxy.size)
-
-            ZStack {
-                if showsSetup {
-                    LinearGradient(
-                        colors: themePalette.appSetupBackground,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                        .ignoresSafeArea()
-                } else {
-                    LinearGradient(
-                        colors: themePalette.appDashboardBackground,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
-                }
-
-                if showsSetup {
-                    setupScreen(layout: layout)
-                } else {
-                    dashboard(layout: layout)
-                }
-            }
+            contentRoot(layout: layout)
         }
+    }
+
+    private var synchronizedRootView: some View {
+        rootView
         .onReceive(store.$homeTeamName) { homeTeamDraft = $0 }
         .onReceive(store.$guestTeamName) { guestTeamDraft = $0 }
         .onReceive(store.$homeScore) { _ in autosaveSelectedGameFile() }
@@ -96,16 +90,13 @@ struct ContentView: View {
         .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
-        .onAppear {
-            initializeWorkingGameFile()
-            updateIdleTimer(for: scenePhase)
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            updateIdleTimer(for: newPhase)
+    }
 
-            if newPhase != .active {
-                autosaveSelectedGameFile(refreshSelection: true)
-            }
+    private var lifecycleConfiguredRootView: some View {
+        synchronizedRootView
+        .onAppear(perform: handleRootAppear)
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
         }
         .onChange(of: homeTeamDraft) { _, _ in commitSetupEdits() }
         .onChange(of: guestTeamDraft) { _, _ in commitSetupEdits() }
@@ -114,12 +105,18 @@ struct ContentView: View {
         }
         .onChange(of: setupPeriod) { _, _ in commitSetupEdits() }
         .onChange(of: setupClockSeconds) { _, _ in commitSetupEdits() }
+        .onChange(of: setupUsesGameClock) { _, _ in commitSetupEdits() }
         .onChange(of: setupShotClockSeconds) { _, _ in commitSetupEdits() }
-        .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
-            if !isEnabled {
-                dashboardPage = .main
-            }
+        .onChange(of: selectedStoredGameFileID) { _, _ in
+            syncCurrentLogGameFile()
         }
+        .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
+            handlePlayerTrackingEnabledChange(isEnabled)
+        }
+    }
+
+    private var filePresentationConfiguredRootView: some View {
+        lifecycleConfiguredRootView
         .fileImporter(
             isPresented: $showsGameImporter,
             allowedContentTypes: [.scoreboardGame],
@@ -135,13 +132,24 @@ struct ContentView: View {
         ) { result in
             handleGameExport(result)
         }
-        .alert("File Error", isPresented: Binding(
-            get: { fileOperationErrorMessage != nil },
-            set: { if !$0 { fileOperationErrorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(fileOperationErrorMessage ?? "")
+        .fileExporter(
+            isPresented: $showsLogExporter,
+            document: logExportDocument,
+            contentType: logExportContentType,
+            defaultFilename: logExportFilename
+        ) { result in
+            handleLogExport(result)
+        }
+    }
+
+    private var alertConfiguredRootView: some View {
+        filePresentationConfiguredRootView
+        .alert(item: $fileOperationError) { error in
+            Alert(
+                title: Text("File Error"),
+                message: Text(error.message),
+                dismissButton: .cancel(Text("OK"))
+            )
         }
         .alert(item: $pendingGameConfirmation) { action in
             Alert(
@@ -152,6 +160,19 @@ struct ContentView: View {
                 },
                 secondaryButton: .cancel()
             )
+        }
+        .alert(item: $pendingLogDeletion) { session in
+            Alert(
+                title: Text("Delete Log Session"),
+                message: Text(logDeletionMessage(for: session)),
+                primaryButton: .destructive(Text("Delete")) {
+                    deleteLogSession(session)
+                },
+                secondaryButton: .cancel()
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
+            refreshStoredLogSessions()
         }
         #if os(macOS)
         .background(ControlBoardWindowConfigurator())
@@ -314,6 +335,8 @@ struct ContentView: View {
             settingsThemePane()
         case .files:
             settingsFilesPane()
+        case .logs:
+            settingsLogsPane()
         }
     }
 
@@ -340,19 +363,27 @@ struct ContentView: View {
                     decrement: { setupPeriod = max(1, setupPeriod - 1) },
                     increment: { setupPeriod = min(9, setupPeriod + 1) }
                 )
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Opening Clock",
-                    value: formatClock(setupClockSeconds),
-                    decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                    increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                )
-                settingsDivider()
-                settingsSegmentRow(
-                    title: "Clock Preset",
-                    options: clockPresetOptions(for: setupSport),
-                    selection: $setupClockSeconds
-                )
+
+                if setupSport == .volleyball {
+                    settingsDivider()
+                    settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
+                }
+
+                if setupSport != .volleyball || setupUsesGameClock {
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Opening Clock",
+                        value: formatClock(setupClockSeconds),
+                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+                    )
+                    settingsDivider()
+                    settingsSegmentRow(
+                        title: "Clock Preset",
+                        options: clockPresetOptions(for: setupSport),
+                        selection: $setupClockSeconds
+                    )
+                }
 
                 if setupSport.supportsShotClock {
                     settingsDivider()
@@ -536,7 +567,7 @@ struct ContentView: View {
                 settingsDivider()
                 settingsSummaryValueRow(title: setupSport.periodTitle, value: "\(setupPeriod)")
                 settingsDivider()
-                settingsSummaryValueRow(title: "Opening Clock", value: formatClock(setupClockSeconds))
+                settingsSummaryValueRow(title: "Opening Clock", value: setupSport == .volleyball && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
                 if setupSport.supportsShotClock {
                     settingsDivider()
                     settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
@@ -549,6 +580,38 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Home Subs", value: "\(store.homeSubstitutionsUsed)/\(store.homeSubstitutionsAllowed)")
                 settingsDivider()
                 settingsSummaryValueRow(title: "Guest Subs", value: "\(store.guestSubstitutionsUsed)/\(store.guestSubstitutionsAllowed)")
+            }
+        }
+    }
+
+    private func settingsLogsPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Log Sessions", footer: "Each app launch writes to its own audit session. Export or delete the selected session below.") {
+                settingsLogToolbar
+                settingsDivider()
+                settingsLogSessionList
+            }
+
+            settingsSection(title: "Playback") {
+                if let selectedStoredLogSession {
+                    settingsSummaryValueRow(title: "Session Start", value: selectedStoredLogSession.startedAt.formatted(date: .abbreviated, time: .shortened))
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Last Update", value: selectedStoredLogSession.lastUpdatedAt.formatted(date: .abbreviated, time: .shortened))
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Event Count", value: "\(selectedStoredLogSession.eventCount)")
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Sports", value: selectedStoredLogSession.sportsLine)
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Game Files", value: selectedStoredLogSession.gameFilesLine)
+                    settingsDivider()
+                    settingsLogPlaybackList(selectedStoredLogSession)
+                } else {
+                    Text("Select a log session to inspect exported actions and captured game context.")
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 12)
+                }
             }
         }
     }
@@ -598,6 +661,65 @@ struct ContentView: View {
                         settingsGameFileRow(gameFile)
 
                         if index < storedGameFiles.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var settingsLogToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                settingsIconButton(
+                    "Export JSON",
+                    systemImage: "doc.badge.arrow.up",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: selectedStoredLogSession != nil
+                ) {
+                    prepareLogExport(as: .scoreboardLogSession)
+                }
+
+                settingsIconButton(
+                    "Export CSV",
+                    systemImage: "tablecells.badge.ellipsis",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: selectedStoredLogSession != nil
+                ) {
+                    prepareLogExport(as: .commaSeparatedText)
+                }
+
+                settingsIconButton(
+                    "Delete",
+                    systemImage: "trash",
+                    tint: themePalette.destructiveTint,
+                    foreground: .white,
+                    isEnabled: selectedStoredLogSession != nil
+                ) {
+                    pendingLogDeletion = selectedStoredLogSession
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var settingsLogSessionList: some View {
+        Group {
+            if storedLogSessions.isEmpty {
+                Text("No log sessions yet. Start operating the scoreboard to create the first per-run log.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(storedLogSessions.enumerated()), id: \.element.id) { index, session in
+                        settingsLogSessionRow(session)
+
+                        if index < storedLogSessions.count - 1 {
                             settingsDivider()
                         }
                     }
@@ -977,6 +1099,99 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func settingsLogSessionRow(_ session: StoredLogSession) -> some View {
+        Button {
+            selectedStoredLogSessionID = session.id
+        } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(session.summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+
+                    Text(session.sportsLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+
+                    Text(session.gameFilesLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+
+                Spacer(minLength: 0)
+
+                if selectedStoredLogSessionID == session.id {
+                    Text("Selected")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(settingsPalette.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(settingsPalette.accent.opacity(0.12), in: Capsule())
+                }
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsLogPlaybackList(_ session: StoredLogSession) -> some View {
+        VStack(spacing: 10) {
+            ForEach(session.session.entries) { entry in
+                settingsLogEntryRow(entry)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func settingsLogEntryRow(_ entry: ScoreboardLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(entry.operation.kind.title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                Text(entry.timestamp.formatted(date: .omitted, time: .standard))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            Text(entry.operation.summary)
+                .font(.subheadline)
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Text(logEntryContextLine(entry))
+                .font(.caption)
+                .foregroundStyle(settingsPalette.secondaryText)
+
+            if let playerLine = logEntryPlayerLine(entry) {
+                Text(playerLine)
+                    .font(.caption)
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            if let fileLine = logEntryFileLine(entry) {
+                Text(fileLine)
+                    .font(.caption)
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            Text("Outcome: \(entry.outcome.title)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(entry.outcome == .applied ? settingsPalette.accent : settingsPalette.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func themeSelectionRow(_ theme: ScoreboardTheme) -> some View {
@@ -1611,10 +1826,10 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                Text(store.isClockRunning ? "Running" : "Stopped")
+                Text(store.showsGameClock ? (store.isClockRunning ? "Running" : "Stopped") : "Timer Off")
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+                    .foregroundStyle(store.showsGameClock && store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
             }
 
             HStack(spacing: 12) {
@@ -1638,14 +1853,17 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Text(store.formattedClock)
-                .font(.system(size: layout.centerScoreSize + 6, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.formattedClock)
+            if store.showsGameClock {
+                Text(store.formattedClock)
+                    .font(.system(size: layout.centerScoreSize + 6, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.4)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.formattedClock)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
@@ -2031,37 +2249,53 @@ struct ContentView: View {
 
     private func gameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            gameSummaryRow(layout: layout)
+            if store.showsGameClock {
+                gameSummaryRow(layout: layout)
 
-            actionButton(
-                store.isClockRunning ? "Pause Game Clock" : "Start Game Clock",
-                tint: themePalette.dashboardSuccessButton,
-                foreground: themePalette.dashboardSuccessButtonText,
-                titleFont: .title3.weight(.black),
-                verticalPadding: layout.denseControls ? 16 : 20
-            ) {
-                store.toggleClock()
+                actionButton(
+                    store.isClockRunning ? "Pause Game Clock" : "Start Game Clock",
+                    tint: themePalette.dashboardSuccessButton,
+                    foreground: themePalette.dashboardSuccessButtonText,
+                    titleFont: .title3.weight(.black),
+                    verticalPadding: layout.denseControls ? 16 : 20
+                ) {
+                    store.toggleClock()
+                }
+
+                buttonGrid(
+                    columns: 4,
+                    buttons: [
+                        ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                            store.adjustClock(by: -60)
+                        },
+                        ActionDescriptor(title: "+1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                            store.adjustClock(by: 60)
+                        },
+                        ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                            store.adjustClock(by: -1)
+                        },
+                        ActionDescriptor(title: "+1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                            store.adjustClock(by: 1)
+                        }
+                    ],
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Match Controls")
+                        .font(.title3.weight(.bold))
+                        .singleLineFitted(minScale: 0.7)
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                    Spacer(minLength: 0)
+
+                    Text("Timer Disabled")
+                        .font(.subheadline.weight(.semibold))
+                        .singleLineFitted(minScale: 0.7)
+                        .foregroundStyle(themePalette.dashboardMutedText)
+                }
             }
-
-            buttonGrid(
-                columns: 4,
-                buttons: [
-                    ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustClock(by: -60)
-                    },
-                    ActionDescriptor(title: "+1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustClock(by: 60)
-                    },
-                    ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustClock(by: -1)
-                    },
-                    ActionDescriptor(title: "+1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustClock(by: 1)
-                    }
-                ],
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
 
             buttonGrid(
                 columns: 3,
@@ -2081,11 +2315,15 @@ struct ContentView: View {
             )
 
             buttonGrid(
-                columns: 2,
-                buttons: [
+                columns: store.showsGameClock ? 2 : 1,
+                buttons: store.showsGameClock ? [
                     ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
                         pendingGameConfirmation = .resetClock
                     },
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                        pendingGameConfirmation = .zeroScores
+                    }
+                ] : [
                     ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
                         pendingGameConfirmation = .zeroScores
                     }
@@ -2252,6 +2490,53 @@ struct ContentView: View {
         }
     }
 
+    private func handleRootAppear() {
+        initializeWorkingGameFile()
+        refreshStoredLogSessions()
+        syncCurrentLogGameFile()
+        updateIdleTimer(for: scenePhase)
+    }
+
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        updateIdleTimer(for: newPhase)
+
+        if newPhase != .active {
+            autosaveSelectedGameFile(refreshSelection: true)
+        }
+    }
+
+    private func handlePlayerTrackingEnabledChange(_ isEnabled: Bool) {
+        if !isEnabled {
+            dashboardPage = .main
+        }
+    }
+
+    private func contentRoot(layout: InterfaceLayout) -> some View {
+        ZStack {
+            if showsSetup {
+                LinearGradient(
+                    colors: themePalette.appSetupBackground,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                    .ignoresSafeArea()
+            } else {
+                LinearGradient(
+                    colors: themePalette.appDashboardBackground,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            }
+
+            if showsSetup {
+                setupScreen(layout: layout)
+            } else {
+                dashboard(layout: layout)
+            }
+        }
+    }
+
     private func teamFoulControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Team Fouls \(store.teamFouls(for: side))")
@@ -2322,7 +2607,7 @@ struct ContentView: View {
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 4,
+            fileVersion: 5,
             sport: setupSport,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
@@ -2331,6 +2616,7 @@ struct ContentView: View {
             period: setupPeriod,
             gameClockSeconds: setupClockSeconds,
             defaultClockSeconds: setupClockSeconds,
+            isGameClockEnabled: setupSport == .volleyball ? setupUsesGameClock : true,
             shotClockMilliseconds: setupShotClockSeconds * 1_000,
             defaultShotClockSeconds: setupShotClockSeconds,
             activeShotClockPresetSeconds: setupShotClockSeconds,
@@ -2378,8 +2664,14 @@ struct ContentView: View {
             store.applyGameSnapshot(snapshot)
             loadSetupDraftsFromStore()
             gameFileNameDraft = url.deletingPathExtension().lastPathComponent
+            recordFileLog(
+                kind: .fileCreate,
+                summary: "Create game file",
+                outcome: .applied,
+                fileURL: url
+            )
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2405,8 +2697,15 @@ struct ContentView: View {
             refreshStoredGameFiles(selectedURL: destinationURL)
             store.applyGameSnapshot(snapshot)
             loadSetupDraftsFromStore()
+            recordFileLog(
+                kind: .fileImport,
+                summary: "Import game file",
+                outcome: .applied,
+                fileURL: destinationURL,
+                notes: sourceURL.lastPathComponent
+            )
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2420,8 +2719,14 @@ struct ContentView: View {
             exportDocument = ScoreboardGameDocument(snapshot: snapshot)
             exportFilename = selectedURL.lastPathComponent
             showsGameExporter = true
+            recordFileLog(
+                kind: .fileExport,
+                summary: "Export game file",
+                outcome: .applied,
+                fileURL: selectedURL
+            )
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2433,8 +2738,14 @@ struct ContentView: View {
 
             try FileManager.default.removeItem(at: selectedURL)
             refreshStoredGameFiles()
+            recordFileLog(
+                kind: .fileDelete,
+                summary: "Delete game file",
+                outcome: .applied,
+                fileURL: selectedURL
+            )
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2445,8 +2756,14 @@ struct ContentView: View {
             store.applyGameSnapshot(snapshot)
             loadSetupDraftsFromStore()
             gameFileNameDraft = gameFile.displayName
+            recordFileLog(
+                kind: .fileLoad,
+                summary: "Load game file",
+                outcome: .applied,
+                fileURL: gameFile.url
+            )
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2487,14 +2804,107 @@ struct ContentView: View {
         } catch {
             storedGameFiles = []
             selectedStoredGameFileID = nil
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
     private func handleGameExport(_ result: Result<URL, Error>) {
         if case .failure(let error) = result {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
+    }
+
+    private func handleLogExport(_ result: Result<URL, Error>) {
+        if case .failure(let error) = result {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func refreshStoredLogSessions() {
+        do {
+            storedLogSessions = try logManager.listSessions()
+
+            if let selectedStoredLogSessionID, storedLogSessions.contains(where: { $0.id == selectedStoredLogSessionID }) {
+                self.selectedStoredLogSessionID = selectedStoredLogSessionID
+            } else {
+                selectedStoredLogSessionID = storedLogSessions.first?.id
+            }
+        } catch {
+            storedLogSessions = []
+            selectedStoredLogSessionID = nil
+            presentFileOperationError(error)
+        }
+    }
+
+    private func prepareLogExport(as contentType: UTType) {
+        do {
+            guard let session = selectedStoredLogSession else {
+                return
+            }
+
+            let data: Data
+            let fileExtension: String
+
+            if contentType == .commaSeparatedText {
+                data = logManager.exportCSVData(for: session.session)
+                fileExtension = "csv"
+            } else {
+                data = try logManager.exportJSONData(for: session.session)
+                fileExtension = "json"
+            }
+
+            logExportDocument = ScoreboardLogExportDocument(data: data)
+            logExportContentType = contentType
+            let timestamp = session.startedAt.ISO8601Format()
+                .replacingOccurrences(of: ":", with: "-")
+            logExportFilename = "Scoreboard Log \(timestamp).\(fileExtension)"
+            showsLogExporter = true
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func deleteLogSession(_ session: StoredLogSession) {
+        do {
+            try logManager.deleteSession(at: session.url)
+            refreshStoredLogSessions()
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func syncCurrentLogGameFile() {
+        logManager.setCurrentGameFile(url: selectedStoredGameFile?.url)
+    }
+
+    private func recordFileLog(
+        kind: ScoreboardLogOperationKind,
+        summary: String,
+        outcome: ScoreboardLogOutcome,
+        fileURL: URL? = nil,
+        notes: String? = nil
+    ) {
+        let resolvedURL = fileURL ?? selectedStoredGameFile?.url
+        var context = store.currentLogContext()
+        context.gameFileName = resolvedURL?.deletingPathExtension().lastPathComponent
+        context.gameFilePath = resolvedURL?.path
+
+        logManager.record(
+            operation: ScoreboardLogOperation(
+                kind: kind,
+                summary: summary,
+                teamSide: nil,
+                playerID: nil,
+                playerNumber: nil,
+                playerName: nil,
+                delta: nil,
+                value: nil,
+                fileName: resolvedURL?.lastPathComponent,
+                notes: notes
+            ),
+            context: context,
+            outcome: outcome
+        )
     }
 
     private func suggestedGameFilename(_ home: String, _ guest: String) -> String {
@@ -2509,12 +2919,70 @@ struct ContentView: View {
         setupSport = store.selectedSport
         setupPeriod = store.period
         setupClockSeconds = store.defaultClockSeconds
+        setupUsesGameClock = store.isGameClockEnabled
         setupShotClockSeconds = store.activeShotClockPresetSeconds
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
     }
 
     private func displayTeamName(_ name: String) -> String {
         name.isEmpty ? "TBD" : name
+    }
+
+    private func logEntryContextLine(_ entry: ScoreboardLogEntry) -> String {
+        var segments: [String] = []
+        segments.append(entry.context.sport.title)
+        segments.append("\(entry.context.sport.periodTitle) \(entry.context.period)")
+        segments.append("Clock \(entry.context.isClockRunning ? "Running" : "Stopped") \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
+
+        if entry.context.supportsShotClock, let milliseconds = entry.context.shotClockMilliseconds {
+            let shotState = entry.context.isShotClockRunning == true ? "Running" : "Stopped"
+            segments.append("Shot \(shotState) \(ScoreboardStore.formatShotClock(milliseconds: milliseconds))")
+        }
+
+        segments.append("\(displayTeamName(entry.context.homeTeamName)) \(entry.context.homeScore)-\(entry.context.guestScore) \(displayTeamName(entry.context.guestTeamName))")
+        return segments.joined(separator: " • ")
+    }
+
+    private func logEntryPlayerLine(_ entry: ScoreboardLogEntry) -> String? {
+        guard
+            entry.operation.playerNumber != nil ||
+            !(entry.operation.playerName?.isEmpty ?? true) ||
+            entry.operation.teamSide != nil
+        else {
+            return nil
+        }
+
+        var segments: [String] = []
+
+        if let side = entry.operation.teamSide {
+            segments.append(side.title)
+        }
+
+        if let number = entry.operation.playerNumber, !number.isEmpty {
+            segments.append("#\(number)")
+        }
+
+        if let name = entry.operation.playerName, !name.isEmpty {
+            segments.append(name)
+        }
+
+        return segments.joined(separator: " • ")
+    }
+
+    private func logEntryFileLine(_ entry: ScoreboardLogEntry) -> String? {
+        guard let fileName = entry.operation.fileName ?? entry.context.gameFileName else {
+            return nil
+        }
+
+        return "File: \(fileName)"
+    }
+
+    private func logDeletionMessage(for session: StoredLogSession) -> String {
+        "Delete the log session from \(session.startedAt.formatted(date: .abbreviated, time: .shortened))?"
+    }
+
+    private func presentFileOperationError(_ error: Error) {
+        fileOperationError = FileOperationAlert(message: error.localizedDescription)
     }
 
     private var selectedStoredGameFile: StoredGameFile? {
@@ -2525,11 +2993,22 @@ struct ContentView: View {
         return storedGameFiles.first { $0.id == selectedStoredGameFileID }
     }
 
+    private var selectedStoredLogSession: StoredLogSession? {
+        guard let selectedStoredLogSessionID else {
+            return nil
+        }
+
+        return storedLogSessions.first { $0.id == selectedStoredLogSessionID }
+    }
+
     private func applySetupSportDraft(_ sport: SportType) {
         let previousSport = store.selectedSport
         store.setSelectedSport(sport, applyDefaults: previousSport != sport)
         setupPeriod = 1
         setupClockSeconds = sport.defaultClockSeconds
+        if sport != .volleyball {
+            setupUsesGameClock = true
+        }
         setupShotClockSeconds = sport.defaultShotClockSeconds
         commitSetupEdits()
     }
@@ -2618,7 +3097,7 @@ struct ContentView: View {
             loadSetupDraftsFromStore()
             gameFileNameDraft = url.deletingPathExtension().lastPathComponent
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2635,7 +3114,7 @@ struct ContentView: View {
                 refreshStoredGameFiles(selectedURL: url)
                 gameFileNameDraft = url.deletingPathExtension().lastPathComponent
             } catch {
-                fileOperationErrorMessage = error.localizedDescription
+                presentFileOperationError(error)
             }
             return
         }
@@ -2656,7 +3135,7 @@ struct ContentView: View {
         let currentSnapshot = store.currentGameSnapshot()
 
         return ScoreboardGameSnapshot(
-            fileVersion: 4,
+            fileVersion: 5,
             sport: setupSport,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
@@ -2665,6 +3144,7 @@ struct ContentView: View {
             period: setupPeriod,
             gameClockSeconds: setupClockSeconds,
             defaultClockSeconds: setupClockSeconds,
+            isGameClockEnabled: setupSport == .volleyball ? setupUsesGameClock : true,
             shotClockMilliseconds: setupSport.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
             defaultShotClockSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
             activeShotClockPresetSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
@@ -2703,7 +3183,7 @@ struct ContentView: View {
                 refreshStoredGameFiles(selectedURL: selectedURL)
             }
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2715,7 +3195,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 4,
+                    fileVersion: 5,
                     sport: preset.sport,
                     homeTeamName: preset.homeTeamName,
                     guestTeamName: preset.guestTeamName,
@@ -2724,6 +3204,7 @@ struct ContentView: View {
                     period: preset.period,
                     gameClockSeconds: preset.clockSeconds,
                     defaultClockSeconds: preset.clockSeconds,
+                    isGameClockEnabled: true,
                     shotClockMilliseconds: preset.shotClockSeconds * 1_000,
                     defaultShotClockSeconds: preset.shotClockSeconds,
                     activeShotClockPresetSeconds: preset.shotClockSeconds,
@@ -2757,7 +3238,7 @@ struct ContentView: View {
 
             store.setupPresets.removeAll()
         } catch {
-            fileOperationErrorMessage = error.localizedDescription
+            presentFileOperationError(error)
         }
     }
 
@@ -2849,6 +3330,7 @@ struct ContentView: View {
             guestScore: store.guestScore,
             period: store.period,
             formattedClock: store.formattedClock,
+            showsGameClock: store.showsGameClock,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
             areSidesSwapped: store.areSidesSwapped,
@@ -2992,12 +3474,18 @@ private struct StoredGameFile: Identifiable {
     }
 }
 
+private struct FileOperationAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
     case players
     case display
     case theme
     case files
+    case logs
 
     var id: String { rawValue }
 
@@ -3013,6 +3501,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Theme"
         case .files:
             return "Library"
+        case .logs:
+            return "Logs"
         }
     }
 
@@ -3028,6 +3518,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Choose the look for both the operator controls and public scoreboard."
         case .files:
             return "Manage local game files for both reusable setups and live games."
+        case .logs:
+            return "Review per-run audit sessions with export and delete tools."
         }
     }
 
@@ -3043,6 +3535,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "paintpalette"
         case .files:
             return "books.vertical"
+        case .logs:
+            return "list.bullet.rectangle.portrait"
         }
     }
 }

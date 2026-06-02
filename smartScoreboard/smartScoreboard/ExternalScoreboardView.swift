@@ -29,6 +29,7 @@ struct ExternalScoreboardView: View {
                     guestScore: store.guestScore,
                     period: store.period,
                     formattedClock: store.formattedClock,
+                    showsGameClock: store.showsGameClock,
                     formattedShotClock: store.formattedShotClock,
                     possessionDirection: store.possessionDirection,
                     areSidesSwapped: store.areSidesSwapped,
