@@ -97,6 +97,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
     var usesChessClocks: Bool
     var mainClockMode: MainClockMode
     var defaultClockSeconds: Int
+    var isScoreEnabled: Bool
     var scoreStepPreset: CustomScoreStepPreset
     var isShotClockEnabled: Bool
     var defaultShotClockSeconds: Int
@@ -119,6 +120,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         usesChessClocks: Bool,
         mainClockMode: MainClockMode,
         defaultClockSeconds: Int,
+        isScoreEnabled: Bool,
         scoreStepPreset: CustomScoreStepPreset,
         isShotClockEnabled: Bool,
         defaultShotClockSeconds: Int,
@@ -140,6 +142,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         self.usesChessClocks = usesChessClocks
         self.mainClockMode = mainClockMode
         self.defaultClockSeconds = defaultClockSeconds
+        self.isScoreEnabled = isScoreEnabled
         self.scoreStepPreset = scoreStepPreset
         self.isShotClockEnabled = isShotClockEnabled
         self.defaultShotClockSeconds = defaultShotClockSeconds
@@ -163,6 +166,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         usesChessClocks: false,
         mainClockMode: .countdown,
         defaultClockSeconds: 10 * 60,
+        isScoreEnabled: true,
         scoreStepPreset: .oneTwoThree,
         isShotClockEnabled: false,
         defaultShotClockSeconds: 24,
@@ -186,6 +190,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         case usesChessClocks
         case mainClockMode
         case defaultClockSeconds
+        case isScoreEnabled
         case scoreStepPreset
         case isShotClockEnabled
         case defaultShotClockSeconds
@@ -210,6 +215,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         usesChessClocks = try container.decodeIfPresent(Bool.self, forKey: .usesChessClocks) ?? Self.default.usesChessClocks
         mainClockMode = try container.decodeIfPresent(MainClockMode.self, forKey: .mainClockMode) ?? Self.default.mainClockMode
         defaultClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultClockSeconds) ?? Self.default.defaultClockSeconds
+        isScoreEnabled = try container.decodeIfPresent(Bool.self, forKey: .isScoreEnabled) ?? Self.default.isScoreEnabled
         scoreStepPreset = try container.decodeIfPresent(CustomScoreStepPreset.self, forKey: .scoreStepPreset) ?? Self.default.scoreStepPreset
         isShotClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockEnabled) ?? Self.default.isShotClockEnabled
         defaultShotClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultShotClockSeconds) ?? Self.default.defaultShotClockSeconds
@@ -253,6 +259,7 @@ struct SportRules: Sendable {
 }
 
 enum SportType: String, Codable, CaseIterable, Identifiable {
+    case simple
     case basketball
     case volleyball
     case soccer
@@ -286,6 +293,32 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
 
     func rules(customConfig: CustomSportConfig?) -> SportRules {
         switch self {
+        case .simple:
+            return SportRules(
+                sport: self,
+                title: "Simple",
+                periodTitle: "Period",
+                periodShortTitle: "P",
+                scoreStepOptions: [1],
+                defaultClockSeconds: 10 * 60,
+                defaultShotClockSeconds: 0,
+                defaultRosterSize: 0,
+                defaultDisplayLineupSize: 0,
+                defaultSubstitutionLimit: 0,
+                mainClockMode: .countdown,
+                supportsScore: true,
+                supportsPeriod: false,
+                supportsShotClock: false,
+                supportsPossession: false,
+                supportsFouls: false,
+                supportsTeamFouls: false,
+                supportsPlayerTracking: false,
+                usesCenterPlayerStrip: false,
+                supportsCards: false,
+                showsSubstitutionTracking: false,
+                supportsHockeyPenalties: false,
+                usesChessClocks: false
+            )
         case .basketball:
             return SportRules(
                 sport: self,
@@ -456,7 +489,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultDisplayLineupSize: config.defaultDisplayLineupSize,
                 defaultSubstitutionLimit: config.isSubstitutionTrackingEnabled ? config.defaultSubstitutionLimit : 0,
                 mainClockMode: config.usesChessClocks ? .disabled : config.mainClockMode,
-                supportsScore: true,
+                supportsScore: config.isScoreEnabled,
                 supportsPeriod: config.isPeriodEnabled,
                 supportsShotClock: config.isShotClockEnabled,
                 supportsPossession: config.isPossessionEnabled,

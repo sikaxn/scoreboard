@@ -62,7 +62,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestRoster: TeamRoster?
 
     static let empty = ScoreboardGameSnapshot(
-        sport: .basketball,
+        sport: .simple,
         customSportConfig: .default,
         customDebatePreset: .customDefault,
         homeTeamName: "",
@@ -70,12 +70,12 @@ struct ScoreboardGameSnapshot: Sendable {
         homeScore: 0,
         guestScore: 0,
         period: 1,
-        gameClockSeconds: 12 * 60,
-        defaultClockSeconds: 12 * 60,
+        gameClockSeconds: 10 * 60,
+        defaultClockSeconds: 10 * 60,
         isGameClockEnabled: true,
-        shotClockMilliseconds: 24_000,
-        defaultShotClockSeconds: 24,
-        activeShotClockPresetSeconds: 24,
+        shotClockMilliseconds: 0,
+        defaultShotClockSeconds: 0,
+        activeShotClockPresetSeconds: 0,
         possessionDirection: .none,
         areSidesSwapped: false,
         isPlayerTrackingEnabled: false,

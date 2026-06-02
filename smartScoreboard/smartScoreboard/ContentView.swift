@@ -16,12 +16,15 @@ struct ContentView: View {
 
     @State private var homeTeamDraft = ""
     @State private var guestTeamDraft = ""
-    @State private var setupSport: SportType = .basketball
+    @State private var setupSport: SportType = .simple
     @State private var setupPeriod = 1
-    @State private var setupClockSeconds = 12 * 60
+    @State private var setupClockSeconds = 10 * 60
     @State private var setupUsesGameClock = true
     @State private var setupShotClockSeconds = 24
     @State private var setupGuestClockSeconds = ChessClockPreset.rapid.seconds
+    @State private var setupClockSecondsBaseline = 10 * 60
+    @State private var setupShotClockSecondsBaseline = 24
+    @State private var setupGuestClockSecondsBaseline = ChessClockPreset.rapid.seconds
     @State private var setupChessPreset: ChessClockPreset = .rapid
     @State private var setupCustomSportConfig: CustomSportConfig = .default
     @State private var setupDebatePresetID = DebatePreset.publicForum.id
@@ -63,6 +66,12 @@ struct ContentView: View {
     private var guestTint: Color { themePalette.guestAccent }
     private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
     private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
+    private var resolvedSetupCustomSportConfig: CustomSportConfig {
+        var config = setupCustomSportConfig
+        config.defaultClockSeconds = setupClockSeconds
+        config.defaultShotClockSeconds = setupShotClockSeconds
+        return config
+    }
     private var resolvedSetupCustomDebatePreset: DebatePreset {
         var preset = setupCustomDebatePreset
         preset.id = DebatePreset.customID
@@ -85,6 +94,13 @@ struct ContentView: View {
         setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : DebatePreset.preset(id: setupDebatePresetID)
     }
     private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
+    private var isResetInterlockActive: Bool {
+        store.isClockRunning ||
+            store.isShotClockRunning ||
+            store.isDebatePrepClockRunning ||
+            store.homePenaltyTimers.contains(where: \.isRunning) ||
+            store.guestPenaltyTimers.contains(where: \.isRunning)
+    }
     private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
@@ -283,9 +299,9 @@ struct ContentView: View {
         }
         .alert(item: $pendingGameConfirmation) { action in
             Alert(
-                title: Text(action.title(periodTitle: store.periodTitle, resetClockTitle: formatClock(store.defaultClockSeconds))),
-                message: Text(action.message(periodTitle: store.periodTitle)),
-                primaryButton: .destructive(Text(action.confirmButtonTitle(periodTitle: store.periodTitle))) {
+                title: Text(gameConfirmationTitle(for: action)),
+                message: Text(gameConfirmationMessage(for: action)),
+                primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
                     performConfirmedGameAction(action)
                 },
                 secondaryButton: .cancel()
@@ -655,11 +671,19 @@ struct ContentView: View {
                         increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
                     )
                     settingsDivider()
-                    settingsSegmentRow(
-                        title: "Clock Preset",
-                        options: clockPresetOptions(for: setupSport),
-                        selection: $setupClockSeconds
-                    )
+                    if setupSport == .simple {
+                        settingsPresetButtonGrid(
+                            title: "Clock Preset",
+                            options: clockPresetOptions(for: setupSport),
+                            selection: $setupClockSeconds
+                        )
+                    } else {
+                        settingsSegmentRow(
+                            title: "Clock Preset",
+                            options: clockPresetOptions(for: setupSport),
+                            selection: $setupClockSeconds
+                        )
+                    }
                 }
 
                 if setupRules.supportsShotClock {
@@ -721,14 +745,21 @@ struct ContentView: View {
                         ) { $0.title }
                     }
                     settingsDivider()
-                    settingsPickerRow(
-                        title: "Score Buttons",
-                        selection: Binding(
-                            get: { setupCustomSportConfig.scoreStepPreset },
-                            set: { setupCustomSportConfig.scoreStepPreset = $0 }
-                        ),
-                        options: CustomScoreStepPreset.allCases
-                    ) { $0.title }
+                    settingsToggleRow(title: "Score Tracking", isOn: Binding(
+                        get: { setupCustomSportConfig.isScoreEnabled },
+                        set: { setupCustomSportConfig.isScoreEnabled = $0 }
+                    ))
+                    if setupCustomSportConfig.isScoreEnabled {
+                        settingsDivider()
+                        settingsPickerRow(
+                            title: "Score Buttons",
+                            selection: Binding(
+                                get: { setupCustomSportConfig.scoreStepPreset },
+                                set: { setupCustomSportConfig.scoreStepPreset = $0 }
+                            ),
+                            options: CustomScoreStepPreset.allCases
+                        ) { $0.title }
+                    }
                     settingsDivider()
                     settingsToggleRow(title: "Player Tracking", isOn: Binding(
                         get: { setupCustomSportConfig.isPlayerTrackingEnabled },
@@ -792,7 +823,7 @@ struct ContentView: View {
                 }
             }
 
-            if setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
+            if setupRules.showsSubstitutionTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
                 settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
                 settingsStepperValueRow(
                     title: "Home Allowed",
@@ -881,6 +912,8 @@ struct ContentView: View {
 
     private func sportSelectionSystemImage(for sport: SportType) -> String {
         switch sport {
+        case .simple:
+            return "timer"
         case .basketball:
             return "basketball.fill"
         case .volleyball:
@@ -900,6 +933,8 @@ struct ContentView: View {
 
     private func sportSelectionSubtitle(for sport: SportType) -> String {
         switch sport {
+        case .simple:
+            return "Score and countdown"
         case .basketball:
             return "Score, clock, shot clock"
         case .volleyball:
@@ -1354,6 +1389,50 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    private func settingsPresetButtonGrid(
+        title: String,
+        options: [(String, Int)],
+        selection: Binding<Int>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 16) {
+                Text(title)
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                Text(formatClock(selection.wrappedValue))
+                    .font(.subheadline.weight(.black))
+                    .monospacedDigit()
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                ForEach(options, id: \.1) { option in
+                    let isSelected = selection.wrappedValue == option.1
+                    Button {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                            selection.wrappedValue = option.1
+                        }
+                    } label: {
+                        Text(option.0)
+                            .font(.subheadline.weight(.black))
+                            .monospacedDigit()
+                            .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                isSelected ? settingsPalette.accent : settingsPalette.fieldBackground,
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
     private func settingsPickerRow<Option: Hashable>(
         title: String,
         selection: Binding<Option>,
@@ -1649,11 +1728,8 @@ struct ContentView: View {
 
             if store.supportsCards {
                 HStack(spacing: 10) {
-                    smallSettingsActionButton("Clear", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
-                        store.setCardStatus(.none, for: side, playerID: player.id)
-                        if store.supportsFouls {
-                            store.resetFouls(for: side, playerID: player.id)
-                        }
+                    smallSettingsActionButton("Clear", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .clearPlayerState(side, player.id)
                     }
                     smallSettingsActionButton("Yellow", tint: .yellow.opacity(0.85), foreground: .black) {
                         store.setCardStatus(.yellow, for: side, playerID: player.id)
@@ -1744,6 +1820,7 @@ struct ContentView: View {
         _ title: String,
         tint: Color,
         foreground: Color,
+        isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1754,6 +1831,8 @@ struct ContentView: View {
                 .padding(.vertical, 9)
                 .background(tint, in: Capsule())
         }
+        .opacity(isEnabled ? 1 : 0.42)
+        .disabled(!isEnabled)
         .buttonStyle(.plain)
     }
 
@@ -2224,8 +2303,8 @@ struct ContentView: View {
             buttonGrid(
                 columns: max(1, layout.shotClockButtonColumns - 2),
                 buttons: [
-                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.resetActiveShotClock()
+                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .resetShotClock
                     },
                     ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustShotClock(by: -1)
@@ -3014,24 +3093,24 @@ struct ContentView: View {
 
         if store.supportsFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset All Player Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                    store.resetAllPlayerFouls()
+                ActionDescriptor(title: "Reset All Player Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetAllPlayerFouls
                 }
             )
         }
 
         if store.supportsTeamFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset All Team Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                    store.resetAllTeamFouls()
+                ActionDescriptor(title: "Reset All Team Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetAllTeamFouls
                 }
             )
         }
 
         if store.supportsCards {
             buttons.append(
-                ActionDescriptor(title: "Reset All Cards", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                    store.resetAllPlayerCards()
+                ActionDescriptor(title: "Reset All Cards", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetAllCards
                 }
             )
         }
@@ -3102,24 +3181,24 @@ struct ContentView: View {
 
         if store.supportsFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Player Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                    store.resetFouls(for: side)
+                ActionDescriptor(title: "Reset \(sideTitle) Player Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetSidePlayerFouls(side)
                 }
             )
         }
 
         if store.supportsTeamFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Team Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                    store.resetTeamFouls(for: side)
+                ActionDescriptor(title: "Reset \(sideTitle) Team Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetSideTeamFouls(side)
                 }
             )
         }
 
         if store.supportsCards {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Cards", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                    store.resetCards(for: side)
+                ActionDescriptor(title: "Reset \(sideTitle) Cards", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .resetSideCards(side)
                 }
             )
         }
@@ -3150,11 +3229,8 @@ struct ContentView: View {
                     .padding(.vertical, 8)
                     .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
 
-                smallActionButton("Clr", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.setCardStatus(.none, for: side, playerID: player.id)
-                    if store.supportsFouls {
-                        store.resetFouls(for: side, playerID: player.id)
-                    }
+                smallActionButton("Clr", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding, isEnabled: !isResetInterlockActive) {
+                    pendingGameConfirmation = .clearPlayerState(side, player.id)
                 }
                 .frame(width: 46)
 
@@ -3289,14 +3365,14 @@ struct ContentView: View {
             buttonGrid(
                 columns: store.showsGameClock ? 2 : 1,
                 buttons: store.showsGameClock ? [
-                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .resetClock
                     },
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .zeroScores
                     }
                 ] : [
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .zeroScores
                     }
                 ],
@@ -3350,8 +3426,8 @@ struct ContentView: View {
                     ActionDescriptor(title: "Swap Side", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
                     },
-                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: .white) {
-                        store.resetChessClocks()
+                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .resetChessClocks
                     }
                 ],
                 dense: layout.denseControls
@@ -3378,7 +3454,7 @@ struct ContentView: View {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
                             pendingGameConfirmation = .zeroScores
                         }
                     ],
@@ -3590,15 +3666,11 @@ struct ContentView: View {
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: .white) {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
-                            store.resetDebateCurrentSegment()
-                        }
+                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .resetDebateSegment
                     },
-                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: .white) {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
-                            store.resetDebateRound()
-                        }
+                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .resetDebateRound
                     }
                 ],
                 dense: layout.denseControls
@@ -3608,7 +3680,7 @@ struct ContentView: View {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white) {
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
                             pendingGameConfirmation = .zeroScores
                         }
                     ],
@@ -3707,8 +3779,8 @@ struct ContentView: View {
                     ) {
                         store.toggleDebatePrepClock(for: side)
                     },
-                    ActionDescriptor(title: "Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.resetDebatePrepClock(for: side)
+                    ActionDescriptor(title: "Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                        pendingGameConfirmation = .resetDebatePrep(side)
                     },
                     ActionDescriptor(title: "-15s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustDebatePrepClock(for: side, by: -15)
@@ -3828,6 +3900,10 @@ struct ContentView: View {
 
     private func clockPresetOptions(for sport: SportType) -> [(String, Int)] {
         switch sport {
+        case .simple:
+            return stride(from: 5, through: 60, by: 5).map { minutes in
+                ("\(minutes):00", minutes * 60)
+            }
         case .basketball:
             return [("8:00", 8 * 60), ("10:00", 10 * 60), ("12:00", 12 * 60)]
         case .volleyball:
@@ -3940,8 +4016,8 @@ struct ContentView: View {
                             ActionDescriptor(title: "+1s", tint: tint, foreground: .white) {
                                 store.adjustPenaltyTimer(for: side, timerID: timer.id, by: 1)
                             },
-                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white) {
-                                store.removePenaltyTimer(for: side, timerID: timer.id)
+                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                                pendingGameConfirmation = .clearPenalty(side, timer.id)
                             }
                         ],
                         dense: layout.denseControls,
@@ -4088,9 +4164,9 @@ struct ContentView: View {
     private func resetSetupDraftsToDefaults() {
         homeTeamDraft = ""
         guestTeamDraft = ""
-        setupSport = .basketball
+        setupSport = .simple
         setupPeriod = 1
-        setupClockSeconds = 12 * 60
+        setupClockSeconds = 10 * 60
         setupShotClockSeconds = 24
         setupGuestClockSeconds = ChessClockPreset.rapid.seconds
         setupChessPreset = .rapid
@@ -4105,6 +4181,7 @@ struct ContentView: View {
         setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
         setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
         gameFileNameDraft = ""
+        markSetupClockBaselinesCurrent()
     }
 
     private func openSettingsFromLiveBoard() {
@@ -4160,7 +4237,7 @@ struct ContentView: View {
         ScoreboardGameSnapshot(
             fileVersion: 7,
             sport: setupSport,
-            customSportConfig: setupSport == .custom ? setupCustomSportConfig : nil,
+            customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
                 ? (setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : setupCustomDebatePreset)
                 : nil,
@@ -4186,10 +4263,10 @@ struct ContentView: View {
             gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
             isShotClockRedEnabled: store.isShotClockRedEnabled,
             shotClockRedThresholdSeconds: store.shotClockRedThresholdSeconds,
-            homeSubstitutionsAllowed: setupSport == .debate ? 0 : store.homeSubstitutionsAllowed,
-            guestSubstitutionsAllowed: setupSport == .debate ? 0 : store.guestSubstitutionsAllowed,
-            homeSubstitutionsUsed: setupSport == .debate ? 0 : store.homeSubstitutionsUsed,
-            guestSubstitutionsUsed: setupSport == .debate ? 0 : store.guestSubstitutionsUsed,
+            homeSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? store.homeSubstitutionsAllowed : 0,
+            guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsAllowed : 0,
+            homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.homeSubstitutionsUsed : 0,
+            guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsUsed : 0,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homeChessClockSeconds: setupRules.usesChessClocks ? setupClockSeconds : nil,
@@ -4512,6 +4589,7 @@ struct ContentView: View {
         setupDebatePlayerCardsEnabled = store.isDebatePlayerCardsEnabled
         setupDebatePrepTimeEnabled = store.isDebatePrepTimeEnabled
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
+        markSetupClockBaselinesCurrent()
         if !keepsLoadingFlag {
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
@@ -4795,6 +4873,11 @@ struct ContentView: View {
         }
 
         ensureWorkingGameFileExists()
+        let currentSnapshot = store.currentGameSnapshot()
+        let shouldPreserveRuntime = currentSnapshot.sport == setupSport
+        let clockWasRunning = store.isClockRunning
+        let shotClockWasRunning = store.isShotClockRunning
+        let debatePrepWasRunning = store.isDebatePrepClockRunning
         let snapshot = currentSetupWorkingSnapshot()
         if animated {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
@@ -4803,28 +4886,53 @@ struct ContentView: View {
         } else {
             store.applyGameSnapshot(snapshot)
         }
+        if shouldPreserveRuntime {
+            store.restoreRuntimeAfterSetupApply(
+                clockWasRunning: clockWasRunning,
+                shotClockWasRunning: shotClockWasRunning,
+                debatePrepWasRunning: debatePrepWasRunning
+            )
+        }
+        markSetupClockBaselinesCurrent()
         autosaveSelectedGameFile(refreshSelection: forceRefresh)
     }
 
     private func currentSetupWorkingSnapshot() -> ScoreboardGameSnapshot {
         let currentSnapshot = store.currentGameSnapshot()
+        let isSameSport = currentSnapshot.sport == setupSport
+        let didEditMainClock = !isSameSport || setupClockSeconds != setupClockSecondsBaseline
+        let didEditShotClock = !isSameSport || setupShotClockSeconds != setupShotClockSecondsBaseline
+        let didEditGuestClock = !isSameSport || setupGuestClockSeconds != setupGuestClockSecondsBaseline
+        let resolvedDebatePreset = setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : setupCustomDebatePreset
+        let isSameDebateFormat = isSameSport
+            && setupSport == .debate
+            && currentSnapshot.selectedDebatePresetID == setupDebatePresetID
+            && (setupDebatePresetID != DebatePreset.customID || currentSnapshot.customDebatePreset == resolvedDebatePreset)
+        let gameClockSeconds = didEditMainClock ? setupClockSeconds : currentSnapshot.gameClockSeconds
+        let shotClockMilliseconds = didEditShotClock ? setupShotClockSeconds * 1_000 : currentSnapshot.shotClockMilliseconds
+        let homeChessClockSeconds = setupRules.usesChessClocks
+            ? (didEditMainClock ? setupClockSeconds : currentSnapshot.homeChessClockSeconds)
+            : currentSnapshot.homeChessClockSeconds
+        let guestChessClockSeconds = setupRules.usesChessClocks
+            ? (didEditGuestClock ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds)
+            : currentSnapshot.guestChessClockSeconds
 
         return ScoreboardGameSnapshot(
             fileVersion: 7,
             sport: setupSport,
-            customSportConfig: setupSport == .custom ? setupCustomSportConfig : nil,
+            customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
-                ? (setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : setupCustomDebatePreset)
+                ? resolvedDebatePreset
                 : currentSnapshot.customDebatePreset,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: currentSnapshot.homeScore,
             guestScore: currentSnapshot.guestScore,
             period: setupPeriod,
-            gameClockSeconds: setupClockSeconds,
+            gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: setupClockSeconds,
             isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
-            shotClockMilliseconds: setupRules.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
+            shotClockMilliseconds: setupRules.supportsShotClock ? shotClockMilliseconds : 0,
             defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
             activeShotClockPresetSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
             possessionDirection: setupRules.supportsPossession ? .none : .none,
@@ -4838,25 +4946,25 @@ struct ContentView: View {
             gameClockRedThresholdSeconds: currentSnapshot.gameClockRedThresholdSeconds,
             isShotClockRedEnabled: currentSnapshot.isShotClockRedEnabled,
             shotClockRedThresholdSeconds: currentSnapshot.shotClockRedThresholdSeconds,
-            homeSubstitutionsAllowed: setupSport == .debate ? 0 : currentSnapshot.homeSubstitutionsAllowed,
-            guestSubstitutionsAllowed: setupSport == .debate ? 0 : currentSnapshot.guestSubstitutionsAllowed,
-            homeSubstitutionsUsed: setupSport == .debate ? 0 : currentSnapshot.homeSubstitutionsUsed,
-            guestSubstitutionsUsed: setupSport == .debate ? 0 : currentSnapshot.guestSubstitutionsUsed,
+            homeSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsAllowed : 0,
+            guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsAllowed : 0,
+            homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsUsed : 0,
+            guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsUsed : 0,
             homeTeamFouls: currentSnapshot.homeTeamFouls,
             guestTeamFouls: currentSnapshot.guestTeamFouls,
-            homeChessClockSeconds: setupRules.usesChessClocks ? setupClockSeconds : currentSnapshot.homeChessClockSeconds,
-            guestChessClockSeconds: setupRules.usesChessClocks ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds,
-            activeChessClockSide: setupRules.usesChessClocks ? .home : currentSnapshot.activeChessClockSide,
+            homeChessClockSeconds: homeChessClockSeconds,
+            guestChessClockSeconds: guestChessClockSeconds,
+            activeChessClockSide: isSameSport && setupRules.usesChessClocks ? currentSnapshot.activeChessClockSide : (setupRules.usesChessClocks ? .home : currentSnapshot.activeChessClockSide),
             chessClockPreset: setupSport == .chess ? setupChessPreset : currentSnapshot.chessClockPreset,
             selectedDebatePresetID: setupSport == .debate ? setupDebatePresetID : currentSnapshot.selectedDebatePresetID,
             debateHomeSideLabel: setupSport == .debate ? setupDebateHomeSideLabel : currentSnapshot.debateHomeSideLabel,
             debateGuestSideLabel: setupSport == .debate ? setupDebateGuestSideLabel : currentSnapshot.debateGuestSideLabel,
-            debateCurrentSegmentIndex: setupSport == .debate ? 0 : currentSnapshot.debateCurrentSegmentIndex,
-            debatePrepHomeSeconds: setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepHomeSeconds,
-            debatePrepGuestSeconds: setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepGuestSeconds,
+            debateCurrentSegmentIndex: isSameDebateFormat ? currentSnapshot.debateCurrentSegmentIndex : (setupSport == .debate ? 0 : currentSnapshot.debateCurrentSegmentIndex),
+            debatePrepHomeSeconds: isSameDebateFormat ? currentSnapshot.debatePrepHomeSeconds : (setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepHomeSeconds),
+            debatePrepGuestSeconds: isSameDebateFormat ? currentSnapshot.debatePrepGuestSeconds : (setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepGuestSeconds),
             isDebatePrepTimeEnabled: setupSport == .debate ? setupDebatePrepTimeEnabled : currentSnapshot.isDebatePrepTimeEnabled,
-            debateActiveTimer: setupSport == .debate ? .segment : currentSnapshot.debateActiveTimer,
-            isDebatePrepClockRunning: setupSport == .debate ? false : currentSnapshot.isDebatePrepClockRunning,
+            debateActiveTimer: isSameDebateFormat ? currentSnapshot.debateActiveTimer : (setupSport == .debate ? .segment : currentSnapshot.debateActiveTimer),
+            isDebatePrepClockRunning: isSameDebateFormat ? currentSnapshot.isDebatePrepClockRunning : (setupSport == .debate ? false : currentSnapshot.isDebatePrepClockRunning),
             isDebateScoreTrackingEnabled: setupSport == .debate ? setupDebateScoreTrackingEnabled : currentSnapshot.isDebateScoreTrackingEnabled,
             isDebatePlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled && setupDebatePlayerFoulsEnabled : currentSnapshot.isDebatePlayerFoulsEnabled,
@@ -4866,6 +4974,12 @@ struct ContentView: View {
             homeRoster: currentSnapshot.homeRoster,
             guestRoster: currentSnapshot.guestRoster
         )
+    }
+
+    private func markSetupClockBaselinesCurrent() {
+        setupClockSecondsBaseline = setupClockSeconds
+        setupShotClockSecondsBaseline = setupShotClockSeconds
+        setupGuestClockSecondsBaseline = setupGuestClockSeconds
     }
 
     private func autosaveSelectedGameFile(refreshSelection: Bool = false) {
@@ -5142,14 +5256,156 @@ struct ContentView: View {
         #endif
     }
 
+    private func gameConfirmationTitle(for action: GameConfirmationAction) -> String {
+        switch action {
+        case .previousPeriod:
+            return "Confirm Previous \(store.periodTitle)"
+        case .resetClock:
+            return "Confirm Clock Reset"
+        case .resetShotClock:
+            return "Confirm Shot Clock Reset"
+        case .zeroScores:
+            return "Confirm Zero Scores"
+        case .resetChessClocks:
+            return "Confirm Clock Reset"
+        case .resetDebateSegment:
+            return "Confirm Segment Reset"
+        case .resetDebateRound:
+            return "Confirm Round Reset"
+        case .resetDebatePrep(let side):
+            return "Confirm \(store.sideRoleLabel(for: side)) Prep Reset"
+        case .resetAllPlayerFouls:
+            return "Confirm Player Foul Reset"
+        case .resetAllTeamFouls:
+            return "Confirm Team Foul Reset"
+        case .resetAllCards:
+            return "Confirm Card Reset"
+        case .resetSidePlayerFouls(let side):
+            return "Confirm \(store.sideRoleLabel(for: side)) Foul Reset"
+        case .resetSideTeamFouls(let side):
+            return "Confirm \(store.sideRoleLabel(for: side)) Team Foul Reset"
+        case .resetSideCards(let side):
+            return "Confirm \(store.sideRoleLabel(for: side)) Card Reset"
+        case .clearPlayerState(let side, _):
+            return "Confirm \(store.sideRoleLabel(for: side)) Player Clear"
+        case .clearPenalty(let side, _):
+            return "Confirm \(store.sideRoleLabel(for: side)) Penalty Clear"
+        }
+    }
+
+    private func gameConfirmationMessage(for action: GameConfirmationAction) -> String {
+        switch action {
+        case .previousPeriod:
+            return "Move back one \(store.periodTitle.lowercased())?"
+        case .resetClock:
+            return "Reset the game clock to \(formatClock(store.defaultClockSeconds))?"
+        case .resetShotClock:
+            return "Reset the shot clock to its active preset?"
+        case .zeroScores:
+            return "Set both team scores back to zero?"
+        case .resetChessClocks:
+            return "Reset both side clocks to their configured starting time?"
+        case .resetDebateSegment:
+            return "Reset the current debate segment timer?"
+        case .resetDebateRound:
+            return "Reset the full debate round, including segment, prep, and player state?"
+        case .resetDebatePrep(let side):
+            return "Reset \(store.sideRoleLabel(for: side)) prep time?"
+        case .resetAllPlayerFouls:
+            return "Reset all player fouls for both sides?"
+        case .resetAllTeamFouls:
+            return "Reset all team fouls for both sides?"
+        case .resetAllCards:
+            return "Clear all player cards for both sides?"
+        case .resetSidePlayerFouls(let side):
+            return "Reset all player fouls for \(store.sideRoleLabel(for: side))?"
+        case .resetSideTeamFouls(let side):
+            return "Reset team fouls for \(store.sideRoleLabel(for: side))?"
+        case .resetSideCards(let side):
+            return "Clear all player cards for \(store.sideRoleLabel(for: side))?"
+        case .clearPlayerState(let side, _):
+            return "Clear this \(store.sideRoleLabel(for: side)) player's card state and foul count?"
+        case .clearPenalty(let side, _):
+            return "Clear this \(store.sideRoleLabel(for: side)) penalty timer?"
+        }
+    }
+
+    private func gameConfirmationButtonTitle(for action: GameConfirmationAction) -> String {
+        switch action {
+        case .previousPeriod:
+            return "Previous \(store.periodTitle)"
+        case .resetClock:
+            return "Reset Clock"
+        case .resetShotClock:
+            return "Reset Shot"
+        case .zeroScores:
+            return "Zero Scores"
+        case .resetChessClocks:
+            return "Reset Clocks"
+        case .resetDebateSegment:
+            return "Reset Segment"
+        case .resetDebateRound:
+            return "Reset Round"
+        case .resetDebatePrep:
+            return "Reset Prep"
+        case .resetAllPlayerFouls, .resetSidePlayerFouls:
+            return "Reset Fouls"
+        case .resetAllTeamFouls, .resetSideTeamFouls:
+            return "Reset Team Fouls"
+        case .resetAllCards, .resetSideCards:
+            return "Clear Cards"
+        case .clearPlayerState:
+            return "Clear Player"
+        case .clearPenalty:
+            return "Clear Penalty"
+        }
+    }
+
     private func performConfirmedGameAction(_ action: GameConfirmationAction) {
+        guard !action.isResetInterlocked || !isResetInterlockActive else {
+            return
+        }
+
         switch action {
         case .previousPeriod:
             store.adjustPeriod(by: -1)
         case .resetClock:
             store.resetClock(to: store.defaultClockSeconds)
+        case .resetShotClock:
+            store.resetActiveShotClock()
         case .zeroScores:
             store.resetScores()
+        case .resetChessClocks:
+            store.resetChessClocks()
+        case .resetDebateSegment:
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+                store.resetDebateCurrentSegment()
+            }
+        case .resetDebateRound:
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+                store.resetDebateRound()
+            }
+        case .resetDebatePrep(let side):
+            store.resetDebatePrepClock(for: side)
+        case .resetAllPlayerFouls:
+            store.resetAllPlayerFouls()
+        case .resetAllTeamFouls:
+            store.resetAllTeamFouls()
+        case .resetAllCards:
+            store.resetAllPlayerCards()
+        case .resetSidePlayerFouls(let side):
+            store.resetFouls(for: side)
+        case .resetSideTeamFouls(let side):
+            store.resetTeamFouls(for: side)
+        case .resetSideCards(let side):
+            store.resetCards(for: side)
+        case .clearPlayerState(let side, let playerID):
+            store.setCardStatus(.none, for: side, playerID: playerID)
+            if store.supportsFouls {
+                store.resetFouls(for: side, playerID: playerID)
+            }
+        case .clearPenalty(let side, let timerID):
+            store.removePenaltyTimer(for: side, timerID: timerID)
         }
     }
 }
@@ -5304,43 +5560,67 @@ private enum DashboardPage: Hashable {
     case preview
 }
 
-private enum GameConfirmationAction: String, Identifiable {
+private enum GameConfirmationAction: Identifiable {
     case previousPeriod
     case resetClock
+    case resetShotClock
     case zeroScores
+    case resetChessClocks
+    case resetDebateSegment
+    case resetDebateRound
+    case resetDebatePrep(TeamSide)
+    case resetAllPlayerFouls
+    case resetAllTeamFouls
+    case resetAllCards
+    case resetSidePlayerFouls(TeamSide)
+    case resetSideTeamFouls(TeamSide)
+    case resetSideCards(TeamSide)
+    case clearPlayerState(TeamSide, UUID)
+    case clearPenalty(TeamSide, UUID)
 
-    var id: String { rawValue }
-
-    func title(periodTitle: String, resetClockTitle: String) -> String {
+    var id: String {
         switch self {
         case .previousPeriod:
-            return "Confirm Previous \(periodTitle)"
+            return "previousPeriod"
         case .resetClock:
-            return "Confirm Clock Reset"
+            return "resetClock"
+        case .resetShotClock:
+            return "resetShotClock"
         case .zeroScores:
-            return "Confirm Zero Scores"
+            return "zeroScores"
+        case .resetChessClocks:
+            return "resetChessClocks"
+        case .resetDebateSegment:
+            return "resetDebateSegment"
+        case .resetDebateRound:
+            return "resetDebateRound"
+        case .resetDebatePrep(let side):
+            return "resetDebatePrep-\(side.rawValue)"
+        case .resetAllPlayerFouls:
+            return "resetAllPlayerFouls"
+        case .resetAllTeamFouls:
+            return "resetAllTeamFouls"
+        case .resetAllCards:
+            return "resetAllCards"
+        case .resetSidePlayerFouls(let side):
+            return "resetSidePlayerFouls-\(side.rawValue)"
+        case .resetSideTeamFouls(let side):
+            return "resetSideTeamFouls-\(side.rawValue)"
+        case .resetSideCards(let side):
+            return "resetSideCards-\(side.rawValue)"
+        case .clearPlayerState(let side, let playerID):
+            return "clearPlayerState-\(side.rawValue)-\(playerID.uuidString)"
+        case .clearPenalty(let side, let timerID):
+            return "clearPenalty-\(side.rawValue)-\(timerID.uuidString)"
         }
     }
 
-    func message(periodTitle: String) -> String {
+    var isResetInterlocked: Bool {
         switch self {
         case .previousPeriod:
-            return "Move back one \(periodTitle.lowercased())?"
-        case .resetClock:
-            return "Reset the game clock to its configured starting time?"
-        case .zeroScores:
-            return "Set both team scores back to zero?"
-        }
-    }
-
-    func confirmButtonTitle(periodTitle: String) -> String {
-        switch self {
-        case .previousPeriod:
-            return "Previous \(periodTitle)"
-        case .resetClock:
-            return "Reset Clock"
-        case .zeroScores:
-            return "Zero Scores"
+            return false
+        default:
+            return true
         }
     }
 }

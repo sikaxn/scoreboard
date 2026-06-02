@@ -220,19 +220,19 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let maxRosterSize = 15
     nonisolated static let defaultDisplayLineupSize = 5
 
-    @Published var selectedSport: SportType = .basketball
+    @Published var selectedSport: SportType = .simple
     @Published var customSportConfig: CustomSportConfig = .default
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
     @Published var homeScore = 0
     @Published var guestScore = 0
     @Published var period = 1
-    @Published var gameClockSeconds = 12 * 60
-    @Published var defaultClockSeconds = 12 * 60
+    @Published var gameClockSeconds = 10 * 60
+    @Published var defaultClockSeconds = 10 * 60
     @Published var isGameClockEnabled = true
-    @Published var shotClockMilliseconds = 24_000
-    @Published var defaultShotClockSeconds = 24
-    @Published var activeShotClockPresetSeconds = 24
+    @Published var shotClockMilliseconds = 0
+    @Published var defaultShotClockSeconds = 0
+    @Published var activeShotClockPresetSeconds = 0
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
     @Published var isPlayerTrackingEnabled = false
@@ -1900,6 +1900,17 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    func restoreRuntimeAfterSetupApply(
+        clockWasRunning: Bool,
+        shotClockWasRunning: Bool,
+        debatePrepWasRunning: Bool
+    ) {
+        isClockRunning = clockWasRunning && (showsGameClock || usesChessClocks)
+        isShotClockRunning = shotClockWasRunning && supportsShotClock
+        isDebatePrepClockRunning = debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
+        updateTimerState()
+    }
+
     func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
         selectedSport = sport
         let rules = currentRules
@@ -1940,8 +1951,10 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers = []
             setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
-            if sport == .debate {
+            if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
+            }
+            if sport == .debate {
                 applyDebatePreset(id: DebatePreset.publicForum.id, resetRound: true)
                 setDebatePlayerTrackingEnabled(DebatePreset.publicForum.defaultPlayerTrackingEnabled)
                 isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
@@ -1959,8 +1972,10 @@ final class ScoreboardStore: ObservableObject {
                 possessionDirection = .none
                 isShotClockRunning = false
             }
-            if sport == .debate {
+            if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
+            }
+            if sport == .debate {
                 isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
             } else if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
@@ -2197,6 +2212,15 @@ final class ScoreboardStore: ObservableObject {
                 let preset = currentDebatePreset
                 debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
                 configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
+                switch currentDebateSegment?.timerMode {
+                case .masterClock:
+                    gameClockSeconds = boundedGameClockSeconds(snapshot.gameClockSeconds)
+                case .dualClock:
+                    homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+                    guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
+                case .some(.none), nil:
+                    gameClockSeconds = 0
+                }
                 if let restoredActiveSide = snapshot.activeChessClockSide, currentDebateSegment?.timerMode == .dualClock {
                     activeChessClockSide = restoredActiveSide
                 }
