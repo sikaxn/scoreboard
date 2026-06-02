@@ -34,6 +34,16 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case possessionChange
     case sideSwap
     case substitutionsAdjustment
+    case chessClockToggle
+    case chessClockSwitch
+    case chessClockAdjustment
+    case chessClockReset
+    case hockeyPenaltyAdd
+    case hockeyPenaltyRemove
+    case hockeyPenaltyToggle
+    case hockeyPenaltyAdjustment
+    case hockeyPenaltyPlayerEdit
+    case customSportConfigChange
     case playerFoulAdjustment
     case playerFoulReset
     case playerFoulResetAll
@@ -83,6 +93,26 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Swap Sides"
         case .substitutionsAdjustment:
             return "Substitution Swap"
+        case .chessClockToggle:
+            return "Chess Clock Toggle"
+        case .chessClockSwitch:
+            return "Chess Clock Switch"
+        case .chessClockAdjustment:
+            return "Chess Clock Adjust"
+        case .chessClockReset:
+            return "Chess Clock Reset"
+        case .hockeyPenaltyAdd:
+            return "Hockey Penalty Add"
+        case .hockeyPenaltyRemove:
+            return "Hockey Penalty Remove"
+        case .hockeyPenaltyToggle:
+            return "Hockey Penalty Toggle"
+        case .hockeyPenaltyAdjustment:
+            return "Hockey Penalty Adjust"
+        case .hockeyPenaltyPlayerEdit:
+            return "Hockey Penalty Player"
+        case .customSportConfigChange:
+            return "Custom Sport Config"
         case .playerFoulAdjustment:
             return "Player Foul Change"
         case .playerFoulReset:
@@ -136,16 +166,109 @@ struct ScoreboardLogContext: Codable, Sendable {
     var gameFileName: String?
     var gameFilePath: String?
     var sport: SportType
+    var customSportTitle: String?
     var period: Int
+    var showsGameClock: Bool
     var isClockRunning: Bool
     var gameClockSeconds: Int
     var supportsShotClock: Bool
     var isShotClockRunning: Bool?
     var shotClockMilliseconds: Int?
+    var homeChessClockSeconds: Int?
+    var guestChessClockSeconds: Int?
+    var activeChessClockSide: TeamSide?
+    var hockeyPenaltySummary: String?
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
     var guestScore: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case gameFileName
+        case gameFilePath
+        case sport
+        case customSportTitle
+        case period
+        case showsGameClock
+        case isClockRunning
+        case gameClockSeconds
+        case supportsShotClock
+        case isShotClockRunning
+        case shotClockMilliseconds
+        case homeChessClockSeconds
+        case guestChessClockSeconds
+        case activeChessClockSide
+        case hockeyPenaltySummary
+        case homeTeamName
+        case guestTeamName
+        case homeScore
+        case guestScore
+    }
+
+    init(
+        gameFileName: String?,
+        gameFilePath: String?,
+        sport: SportType,
+        customSportTitle: String?,
+        period: Int,
+        showsGameClock: Bool,
+        isClockRunning: Bool,
+        gameClockSeconds: Int,
+        supportsShotClock: Bool,
+        isShotClockRunning: Bool?,
+        shotClockMilliseconds: Int?,
+        homeChessClockSeconds: Int?,
+        guestChessClockSeconds: Int?,
+        activeChessClockSide: TeamSide?,
+        hockeyPenaltySummary: String?,
+        homeTeamName: String,
+        guestTeamName: String,
+        homeScore: Int,
+        guestScore: Int
+    ) {
+        self.gameFileName = gameFileName
+        self.gameFilePath = gameFilePath
+        self.sport = sport
+        self.customSportTitle = customSportTitle
+        self.period = period
+        self.showsGameClock = showsGameClock
+        self.isClockRunning = isClockRunning
+        self.gameClockSeconds = gameClockSeconds
+        self.supportsShotClock = supportsShotClock
+        self.isShotClockRunning = isShotClockRunning
+        self.shotClockMilliseconds = shotClockMilliseconds
+        self.homeChessClockSeconds = homeChessClockSeconds
+        self.guestChessClockSeconds = guestChessClockSeconds
+        self.activeChessClockSide = activeChessClockSide
+        self.hockeyPenaltySummary = hockeyPenaltySummary
+        self.homeTeamName = homeTeamName
+        self.guestTeamName = guestTeamName
+        self.homeScore = homeScore
+        self.guestScore = guestScore
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gameFileName = try container.decodeIfPresent(String.self, forKey: .gameFileName)
+        gameFilePath = try container.decodeIfPresent(String.self, forKey: .gameFilePath)
+        sport = try container.decodeIfPresent(SportType.self, forKey: .sport) ?? .basketball
+        customSportTitle = try container.decodeIfPresent(String.self, forKey: .customSportTitle)
+        period = try container.decodeIfPresent(Int.self, forKey: .period) ?? 1
+        showsGameClock = try container.decodeIfPresent(Bool.self, forKey: .showsGameClock) ?? true
+        isClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isClockRunning) ?? false
+        gameClockSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockSeconds) ?? 0
+        supportsShotClock = try container.decodeIfPresent(Bool.self, forKey: .supportsShotClock) ?? false
+        isShotClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isShotClockRunning)
+        shotClockMilliseconds = try container.decodeIfPresent(Int.self, forKey: .shotClockMilliseconds)
+        homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds)
+        guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds)
+        activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide)
+        hockeyPenaltySummary = try container.decodeIfPresent(String.self, forKey: .hockeyPenaltySummary)
+        homeTeamName = try container.decodeIfPresent(String.self, forKey: .homeTeamName) ?? ""
+        guestTeamName = try container.decodeIfPresent(String.self, forKey: .guestTeamName) ?? ""
+        homeScore = try container.decodeIfPresent(Int.self, forKey: .homeScore) ?? 0
+        guestScore = try container.decodeIfPresent(Int.self, forKey: .guestScore) ?? 0
+    }
 }
 
 struct ScoreboardLogEntry: Identifiable, Codable, Sendable {
@@ -369,11 +492,17 @@ final class ScoreboardLogManager {
             "session_id",
             "game_file",
             "sport",
+            "custom_sport_title",
             "period",
+            "shows_game_clock",
             "game_clock_status",
             "game_clock_remaining",
+            "chess_home_clock",
+            "chess_guest_clock",
+            "chess_active_side",
             "shot_clock_status",
             "shot_clock_remaining",
+            "hockey_penalties",
             "home_team",
             "guest_team",
             "home_score",
@@ -399,11 +528,17 @@ final class ScoreboardLogManager {
                 csvField(session.sessionID.uuidString),
                 csvField(entry.context.gameFileName ?? ""),
                 csvField(entry.context.sport.title),
+                csvField(entry.context.customSportTitle ?? ""),
                 csvField("\(entry.context.period)"),
+                csvField(entry.context.showsGameClock ? "yes" : "no"),
                 csvField(entry.context.isClockRunning ? "running" : "stopped"),
                 csvField(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds)),
+                csvField(entry.context.homeChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? ""),
+                csvField(entry.context.guestChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? ""),
+                csvField(entry.context.activeChessClockSide?.title ?? ""),
                 csvField(shotClockStatus(for: entry.context)),
                 csvField(shotClockValue(for: entry.context)),
+                csvField(entry.context.hockeyPenaltySummary ?? ""),
                 csvField(entry.context.homeTeamName),
                 csvField(entry.context.guestTeamName),
                 csvField("\(entry.context.homeScore)"),

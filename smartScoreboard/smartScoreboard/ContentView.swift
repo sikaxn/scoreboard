@@ -21,6 +21,9 @@ struct ContentView: View {
     @State private var setupClockSeconds = ScoreboardStore.shared.defaultClockSeconds
     @State private var setupUsesGameClock = ScoreboardStore.shared.isGameClockEnabled
     @State private var setupShotClockSeconds = ScoreboardStore.shared.defaultShotClockSeconds
+    @State private var setupGuestClockSeconds = ScoreboardStore.shared.guestChessClockSeconds
+    @State private var setupChessPreset = ScoreboardStore.shared.chessClockPreset
+    @State private var setupCustomSportConfig = ScoreboardStore.shared.customSportConfig
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
@@ -45,6 +48,7 @@ struct ContentView: View {
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
+    private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
     private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
@@ -70,6 +74,13 @@ struct ContentView: View {
         .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$shotClockMilliseconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultShotClockSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$customSportConfig) { setupCustomSportConfig = $0 }
+        .onReceive(store.$homeChessClockSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestChessClockSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$activeChessClockSide) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$chessClockPreset) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homePenaltyTimers) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestPenaltyTimers) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$activeShotClockPresetSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$possessionDirection) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$areSidesSwapped) { _ in autosaveSelectedGameFile() }
@@ -107,6 +118,13 @@ struct ContentView: View {
         .onChange(of: setupClockSeconds) { _, _ in commitSetupEdits() }
         .onChange(of: setupUsesGameClock) { _, _ in commitSetupEdits() }
         .onChange(of: setupShotClockSeconds) { _, _ in commitSetupEdits() }
+        .onChange(of: setupGuestClockSeconds) { _, _ in commitSetupEdits() }
+        .onChange(of: setupChessPreset) { _, _ in
+            setupClockSeconds = setupChessPreset.seconds
+            setupGuestClockSeconds = setupChessPreset.seconds
+            commitSetupEdits()
+        }
+        .onChange(of: setupCustomSportConfig) { _, _ in commitSetupEdits() }
         .onChange(of: selectedStoredGameFileID) { _, _ in
             syncCurrentLogGameFile()
         }
@@ -356,20 +374,50 @@ struct ContentView: View {
                 ) { option in
                     option.title
                 }
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Starting \(setupSport.periodTitle)",
-                    value: "\(setupPeriod)",
-                    decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                    increment: { setupPeriod = min(9, setupPeriod + 1) }
-                )
+                if setupRules.supportsPeriod {
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Starting \(setupRules.periodTitle)",
+                        value: "\(setupPeriod)",
+                        decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                        increment: { setupPeriod = min(9, setupPeriod + 1) }
+                    )
+                }
 
                 if setupSport == .volleyball {
                     settingsDivider()
                     settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
                 }
 
-                if setupSport != .volleyball || setupUsesGameClock {
+                if setupSport == .chess {
+                    settingsDivider()
+                    settingsSegmentRow(
+                        title: "Preset",
+                        options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                        selection: Binding(
+                            get: { setupChessPreset.seconds },
+                            set: { value in
+                                if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                                    setupChessPreset = preset
+                                }
+                            }
+                        )
+                    )
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Home Clock",
+                        value: formatClock(setupClockSeconds),
+                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+                    )
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Guest Clock",
+                        value: formatClock(setupGuestClockSeconds),
+                        decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                        increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+                    )
+                } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
                     settingsDivider()
                     settingsStepperValueRow(
                         title: "Opening Clock",
@@ -385,7 +433,7 @@ struct ContentView: View {
                     )
                 }
 
-                if setupSport.supportsShotClock {
+                if setupRules.supportsShotClock {
                     settingsDivider()
                     settingsStepperValueRow(
                         title: "Shot Clock",
@@ -403,9 +451,106 @@ struct ContentView: View {
                         selection: $setupShotClockSeconds
                     )
                 }
+
+                if setupSport == .custom {
+                    settingsDivider()
+                    settingsTextEntryRow(title: "Custom Title", text: Binding(
+                        get: { setupCustomSportConfig.title },
+                        set: { setupCustomSportConfig.title = $0 }
+                    ))
+                    settingsDivider()
+                    settingsTextEntryRow(title: "Period Label", text: Binding(
+                        get: { setupCustomSportConfig.periodTitle },
+                        set: { setupCustomSportConfig.periodTitle = $0 }
+                    ))
+                    settingsDivider()
+                    settingsTextEntryRow(title: "Short Label", text: Binding(
+                        get: { setupCustomSportConfig.periodShortTitle },
+                        set: { setupCustomSportConfig.periodShortTitle = $0 }
+                    ))
+                    settingsDivider()
+                    settingsPickerRow(
+                        title: "Clock Mode",
+                        selection: Binding(
+                            get: { setupCustomSportConfig.mainClockMode },
+                            set: { setupCustomSportConfig.mainClockMode = $0 }
+                        ),
+                        options: MainClockMode.allCases
+                    ) { $0.title }
+                    settingsDivider()
+                    settingsPickerRow(
+                        title: "Score Buttons",
+                        selection: Binding(
+                            get: { setupCustomSportConfig.scoreStepPreset },
+                            set: { setupCustomSportConfig.scoreStepPreset = $0 }
+                        ),
+                        options: CustomScoreStepPreset.allCases
+                    ) { $0.title }
+                    settingsDivider()
+                    settingsToggleRow(title: "Player Tracking", isOn: Binding(
+                        get: { setupCustomSportConfig.isPlayerTrackingEnabled },
+                        set: { setupCustomSportConfig.isPlayerTrackingEnabled = $0 }
+                    ))
+                    if setupCustomSportConfig.isPlayerTrackingEnabled {
+                        settingsDivider()
+                        settingsToggleRow(title: "Soccer Style Player Display", isOn: Binding(
+                            get: { setupCustomSportConfig.usesCenterPlayerStrip },
+                            set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
+                        ))
+                    }
+                    settingsDivider()
+                    settingsToggleRow(title: "Player Fouls", isOn: Binding(
+                        get: { setupCustomSportConfig.isPlayerFoulsEnabled },
+                        set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
+                    ))
+                    settingsDivider()
+                    settingsToggleRow(title: "Player Cards", isOn: Binding(
+                        get: { setupCustomSportConfig.isPlayerCardsEnabled },
+                        set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
+                    ))
+                    settingsDivider()
+                    settingsToggleRow(title: "Possession", isOn: Binding(
+                        get: { setupCustomSportConfig.isPossessionEnabled },
+                        set: { setupCustomSportConfig.isPossessionEnabled = $0 }
+                    ))
+                    settingsDivider()
+                    settingsToggleRow(title: "Shot Clock", isOn: Binding(
+                        get: { setupCustomSportConfig.isShotClockEnabled },
+                        set: { setupCustomSportConfig.isShotClockEnabled = $0 }
+                    ))
+                    if setupCustomSportConfig.isShotClockEnabled {
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Shot Default",
+                            value: "\(setupCustomSportConfig.defaultShotClockSeconds)s",
+                            decrement: { setupCustomSportConfig.defaultShotClockSeconds = max(0, setupCustomSportConfig.defaultShotClockSeconds - 1) },
+                            increment: { setupCustomSportConfig.defaultShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupCustomSportConfig.defaultShotClockSeconds + 1) }
+                        )
+                    }
+                    settingsDivider()
+                    settingsToggleRow(title: "Substitutions", isOn: Binding(
+                        get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
+                        set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
+                    ))
+                    if setupCustomSportConfig.isSubstitutionTrackingEnabled {
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Default Subs",
+                            value: "\(setupCustomSportConfig.defaultSubstitutionLimit)",
+                            decrement: { setupCustomSportConfig.defaultSubstitutionLimit = max(0, setupCustomSportConfig.defaultSubstitutionLimit - 1) },
+                            increment: { setupCustomSportConfig.defaultSubstitutionLimit = min(99, setupCustomSportConfig.defaultSubstitutionLimit + 1) }
+                        )
+                    }
+                    settingsDivider()
+                    settingsToggleRow(title: "Team Fouls", isOn: Binding(
+                        get: { setupCustomSportConfig.isTeamFoulsEnabled },
+                        set: { setupCustomSportConfig.isTeamFoulsEnabled = $0 }
+                    ))
+                }
             }
 
-            settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
+            if setupRules.showsSubstitutionTracking {
+                settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
                 settingsStepperValueRow(
                     title: "Home Allowed",
                     value: "\(store.homeSubstitutionsAllowed)",
@@ -419,6 +564,7 @@ struct ContentView: View {
                     decrement: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed - 1) },
                     increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
                 )
+            }
             }
         }
     }
@@ -468,7 +614,7 @@ struct ContentView: View {
                 )
             }
 
-            if store.selectedSport.supportsPlayerTracking {
+            if store.supportsPlayerTracking {
                 settingsSection(title: "Home Roster", footer: "Edit player number, display name, and active lineup status for the home team.") {
                     settingsRosterEditor(side: .home, layout: layout)
                 }
@@ -564,11 +710,17 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
                 settingsDivider()
                 settingsSummaryValueRow(title: "Sport", value: setupSport.title)
+                if setupRules.supportsPeriod {
+                    settingsDivider()
+                    settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
+                }
                 settingsDivider()
-                settingsSummaryValueRow(title: setupSport.periodTitle, value: "\(setupPeriod)")
-                settingsDivider()
-                settingsSummaryValueRow(title: "Opening Clock", value: setupSport == .volleyball && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
-                if setupSport.supportsShotClock {
+                settingsSummaryValueRow(title: setupSport == .chess ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
+                if setupSport == .chess {
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
+                }
+                if setupRules.supportsShotClock {
                     settingsDivider()
                     settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
                 }
@@ -1810,6 +1962,10 @@ struct ContentView: View {
     }
 
     private func centeredStatusWidget(layout: InterfaceLayout) -> some View {
+        if store.usesChessClocks {
+            return AnyView(chessStatusWidget(layout: layout))
+        }
+
         let leftName = store.areSidesSwapped ? store.guestTeamName : store.homeTeamName
         let leftScore = store.areSidesSwapped ? store.guestScore : store.homeScore
         let leftTint = store.areSidesSwapped ? guestTint : homeTint
@@ -1817,7 +1973,7 @@ struct ContentView: View {
         let rightScore = store.areSidesSwapped ? store.homeScore : store.guestScore
         let rightTint = store.areSidesSwapped ? homeTint : guestTint
 
-        return VStack(alignment: .leading, spacing: 16) {
+        return AnyView(VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("Game State")
                     .font(.title3.weight(.bold))
@@ -1895,7 +2051,65 @@ struct ContentView: View {
             borderColor: themePalette.dashboardCardBorder,
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
+        ))
+    }
+
+    private func chessStatusWidget(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Chess Clocks")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text(store.isClockRunning ? "Running" : "Paused")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+            }
+
+            HStack(spacing: 12) {
+                chessClockColumn(
+                    title: displayTeamName(store.homeTeamName),
+                    value: store.formattedHomeChessClock,
+                    tint: homeTint,
+                    isActive: store.activeChessClockSide == .home,
+                    layout: layout
+                )
+
+                chessClockColumn(
+                    title: displayTeamName(store.guestTeamName),
+                    value: store.formattedGuestChessClock,
+                    tint: guestTint,
+                    isActive: store.activeChessClockSide == .guest,
+                    layout: layout
+                )
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
         )
+    }
+
+    private func chessClockColumn(title: String, value: String, tint: Color, isActive: Bool, layout: InterfaceLayout) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(themePalette.dashboardSubtleText)
+
+            Text(value)
+                .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+
+            Text(isActive ? "ACTIVE" : "WAITING")
+                .font(.caption.weight(.black))
+                .foregroundStyle(isActive ? tint : themePalette.dashboardMutedText)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func gameStateScoreColumn(
@@ -1953,14 +2167,18 @@ struct ContentView: View {
         tint: Color,
         layout: InterfaceLayout
     ) -> some View {
-        return VStack(alignment: .leading, spacing: 12) {
+        if store.usesChessClocks {
+            return AnyView(chessTeamControls(side: isHome ? .home : .guest, tint: tint, layout: layout))
+        }
+
+        return AnyView(VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.bold))
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
-                columns: max(1, min(2, store.selectedSport.scoreStepOptions.count + 1)),
+                columns: max(1, min(2, store.currentRules.scoreStepOptions.count + 1)),
                 buttons: scoreButtons(forHomeTeam: isHome, tint: tint),
                 dense: layout.denseControls
             )
@@ -1999,6 +2217,11 @@ struct ContentView: View {
                 teamFoulControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
+
+            if store.supportsHockeyPenalties {
+                hockeyPenaltyPanel(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
         }
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
@@ -2009,6 +2232,52 @@ struct ContentView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsShotClock)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsSubstitutionTracking)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsTeamFouls)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
+        )
+    }
+
+    private func chessTeamControls(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        let isHome = side == .home
+        let clockText = isHome ? store.formattedHomeChessClock : store.formattedGuestChessClock
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(side.title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+
+            Text(clockText)
+                .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+
+            Text(store.activeChessClockSide == side ? "Active Clock" : "Waiting")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(store.activeChessClockSide == side ? tint : themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustChessClock(for: side, by: -60)
+                    },
+                    ActionDescriptor(title: "+1 Min", tint: tint, foreground: .white) {
+                        store.adjustChessClock(for: side, by: 60)
+                    },
+                    ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustChessClock(for: side, by: -1)
+                    },
+                    ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: .white) {
+                        store.adjustChessClock(for: side, by: 1)
+                    }
+                ],
+                dense: layout.denseControls
+            )
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
     }
 
     private func playerTrackingPanel(layout: InterfaceLayout) -> some View {
@@ -2197,6 +2466,9 @@ struct ContentView: View {
 
                 smallActionButton("Clr", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
                     store.setCardStatus(.none, for: side, playerID: player.id)
+                    if store.supportsFouls {
+                        store.resetFouls(for: side, playerID: player.id)
+                    }
                 }
                 .frame(width: 46)
 
@@ -2209,7 +2481,9 @@ struct ContentView: View {
                     store.setCardStatus(.red, for: side, playerID: player.id)
                 }
                 .frame(width: 40)
-            } else if store.supportsFouls {
+            }
+
+            if store.supportsFouls {
                 Text("F \(player.foulCount)")
                     .font(.subheadline.weight(.black))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
@@ -2248,7 +2522,11 @@ struct ContentView: View {
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        if store.usesChessClocks {
+            return AnyView(chessGameControls(layout: layout))
+        }
+
+        return AnyView(VStack(alignment: .leading, spacing: 16) {
             if store.showsGameClock {
                 gameSummaryRow(layout: layout)
 
@@ -2331,6 +2609,49 @@ struct ContentView: View {
                 style: .compact,
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        ))
+    }
+
+    private func chessGameControls(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Chess Controls")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+                Spacer(minLength: 0)
+                Text(store.chessClockPreset.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            actionButton(
+                store.isClockRunning ? "Pause Active Clock" : "Start Active Clock",
+                tint: themePalette.dashboardSuccessButton,
+                foreground: themePalette.dashboardSuccessButtonText,
+                titleFont: .title3.weight(.black),
+                verticalPadding: layout.denseControls ? 16 : 20
+            ) {
+                store.toggleChessClock()
+            }
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Switch Turn", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                        store.switchChessClock()
+                    },
+                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: .white) {
+                        store.resetChessClocks()
+                    }
+                ],
+                dense: layout.denseControls
             )
         }
         .controlCardStyle(
@@ -2445,11 +2766,17 @@ struct ContentView: View {
             return [("00:00", 0), ("15:00", 15 * 60), ("25:00", 25 * 60)]
         case .soccer:
             return [("40:00", 40 * 60), ("45:00", 45 * 60), ("50:00", 50 * 60)]
+        case .hockey:
+            return [("15:00", 15 * 60), ("20:00", 20 * 60), ("25:00", 25 * 60)]
+        case .chess:
+            return ChessClockPreset.allCases.map { ($0.title, $0.seconds) }
+        case .custom:
+            return [("5:00", 5 * 60), ("10:00", 10 * 60), ("15:00", 15 * 60)]
         }
     }
 
     private func scoreButtons(forHomeTeam isHome: Bool, tint: Color) -> [ActionDescriptor] {
-        let sportButtons = store.selectedSport.scoreStepOptions.map { value in
+        let sportButtons = store.currentRules.scoreStepOptions.map { value in
             ActionDescriptor(title: "+\(value)", tint: tint, foreground: .white) {
                 store.adjustScore(isHome: isHome, by: value)
             }
@@ -2487,6 +2814,92 @@ struct ContentView: View {
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
+        }
+    }
+
+    private func hockeyPenaltyPanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        let timers = side == .home ? store.homePenaltyTimers : store.guestPenaltyTimers
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Penalty Bench")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 3,
+                buttons: [
+                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { store.addPenaltyTimer(for: side, seconds: 120) },
+                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { store.addPenaltyTimer(for: side, seconds: 240) },
+                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { store.addPenaltyTimer(for: side, seconds: 300) }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+
+            ForEach(timers) { timer in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("\(timer.playerNumber.isEmpty ? "#" : "#\(timer.playerNumber)") \(timer.playerName.isEmpty ? "PLAYER" : timer.playerName)")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(themePalette.dashboardPrimaryText)
+                        Spacer(minLength: 0)
+                        Text(formatClock(timer.remainingSeconds))
+                            .font(.system(size: layout.centerMetricValueSize - 4, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(tint)
+                    }
+                    HStack(spacing: 8) {
+                        Menu {
+                            ForEach(store.trackedPlayers(for: side)) { player in
+                                Button("#\(player.number) \(player.name.isEmpty ? "PLAYER" : player.name)") {
+                                    store.assignPenaltyTimerPlayer(player, for: side, timerID: timer.id)
+                                }
+                            }
+                        } label: {
+                            Label("Assign Player", systemImage: "person.crop.circle.badge.plus")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, layout.advancedButtonVerticalPadding)
+                                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+
+                        TextField("No.", text: Binding(
+                            get: { timer.playerNumber },
+                            set: { store.updatePenaltyTimerPlayerNumber($0, for: side, timerID: timer.id) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+
+                        TextField("Name", text: Binding(
+                            get: { timer.playerName },
+                            set: { store.updatePenaltyTimerPlayerName($0, for: side, timerID: timer.id) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+                    buttonGrid(
+                        columns: 4,
+                        buttons: [
+                            ActionDescriptor(title: timer.isRunning ? "Pause" : "Start", tint: themePalette.dashboardSuccessButton, foreground: themePalette.dashboardSuccessButtonText) {
+                                store.togglePenaltyTimer(for: side, timerID: timer.id)
+                            },
+                            ActionDescriptor(title: "-1s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                                store.adjustPenaltyTimer(for: side, timerID: timer.id, by: -1)
+                            },
+                            ActionDescriptor(title: "+1s", tint: tint, foreground: .white) {
+                                store.adjustPenaltyTimer(for: side, timerID: timer.id, by: 1)
+                            },
+                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white) {
+                                store.removePenaltyTimer(for: side, timerID: timer.id)
+                            }
+                        ],
+                        dense: layout.denseControls,
+                        compactVerticalPadding: layout.advancedButtonVerticalPadding
+                    )
+                }
+                .padding(10)
+                .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
         }
     }
 
@@ -2582,6 +2995,9 @@ struct ContentView: View {
         setupPeriod = 1
         setupClockSeconds = 12 * 60
         setupShotClockSeconds = 24
+        setupGuestClockSeconds = ChessClockPreset.rapid.seconds
+        setupChessPreset = .rapid
+        setupCustomSportConfig = .default
         gameFileNameDraft = ""
     }
 
@@ -2607,8 +3023,9 @@ struct ContentView: View {
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 5,
+            fileVersion: 6,
             sport: setupSport,
+            customSportConfig: setupSport == .custom ? setupCustomSportConfig : nil,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: 0,
@@ -2616,10 +3033,10 @@ struct ContentView: View {
             period: setupPeriod,
             gameClockSeconds: setupClockSeconds,
             defaultClockSeconds: setupClockSeconds,
-            isGameClockEnabled: setupSport == .volleyball ? setupUsesGameClock : true,
-            shotClockMilliseconds: setupShotClockSeconds * 1_000,
-            defaultShotClockSeconds: setupShotClockSeconds,
-            activeShotClockPresetSeconds: setupShotClockSeconds,
+            isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
+            shotClockMilliseconds: setupRules.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
+            defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
+            activeShotClockPresetSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
             possessionDirection: .none,
             areSidesSwapped: false,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
@@ -2637,6 +3054,12 @@ struct ContentView: View {
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
+            homeChessClockSeconds: setupSport == .chess ? setupClockSeconds : nil,
+            guestChessClockSeconds: setupSport == .chess ? setupGuestClockSeconds : nil,
+            activeChessClockSide: setupSport == .chess ? .home : nil,
+            chessClockPreset: setupSport == .chess ? setupChessPreset : nil,
+            homePenaltyTimers: [],
+            guestPenaltyTimers: [],
             homeRoster: store.homeRoster,
             guestRoster: store.guestRoster
         )
@@ -2921,6 +3344,9 @@ struct ContentView: View {
         setupClockSeconds = store.defaultClockSeconds
         setupUsesGameClock = store.isGameClockEnabled
         setupShotClockSeconds = store.activeShotClockPresetSeconds
+        setupGuestClockSeconds = store.guestChessClockSeconds
+        setupChessPreset = store.chessClockPreset
+        setupCustomSportConfig = store.customSportConfig
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
     }
 
@@ -2930,13 +3356,27 @@ struct ContentView: View {
 
     private func logEntryContextLine(_ entry: ScoreboardLogEntry) -> String {
         var segments: [String] = []
-        segments.append(entry.context.sport.title)
-        segments.append("\(entry.context.sport.periodTitle) \(entry.context.period)")
-        segments.append("Clock \(entry.context.isClockRunning ? "Running" : "Stopped") \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
+        segments.append(entry.context.customSportTitle ?? entry.context.sport.title)
+        if entry.context.sport != .chess {
+            segments.append("\(entry.context.sport.periodTitle) \(entry.context.period)")
+        }
+        if entry.context.sport == .chess {
+            let home = entry.context.homeChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
+            let guest = entry.context.guestChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
+            segments.append("Chess \(home) / \(guest) • \(entry.context.activeChessClockSide?.title ?? "None")")
+        } else if entry.context.showsGameClock {
+            segments.append("Clock \(entry.context.isClockRunning ? "Running" : "Stopped") \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
+        } else {
+            segments.append("Clock Disabled")
+        }
 
         if entry.context.supportsShotClock, let milliseconds = entry.context.shotClockMilliseconds {
             let shotState = entry.context.isShotClockRunning == true ? "Running" : "Stopped"
             segments.append("Shot \(shotState) \(ScoreboardStore.formatShotClock(milliseconds: milliseconds))")
+        }
+
+        if let hockeyPenaltySummary = entry.context.hockeyPenaltySummary, !hockeyPenaltySummary.isEmpty {
+            segments.append(hockeyPenaltySummary)
         }
 
         segments.append("\(displayTeamName(entry.context.homeTeamName)) \(entry.context.homeScore)-\(entry.context.guestScore) \(displayTeamName(entry.context.guestTeamName))")
@@ -3003,13 +3443,21 @@ struct ContentView: View {
 
     private func applySetupSportDraft(_ sport: SportType) {
         let previousSport = store.selectedSport
+        if sport == .custom {
+            store.customSportConfig = setupCustomSportConfig
+        }
         store.setSelectedSport(sport, applyDefaults: previousSport != sport)
         setupPeriod = 1
-        setupClockSeconds = sport.defaultClockSeconds
-        if sport != .volleyball {
+        setupClockSeconds = setupRules.defaultClockSeconds
+        setupGuestClockSeconds = sport == .chess ? setupChessPreset.seconds : setupGuestClockSeconds
+        if sport != .volleyball && sport != .custom {
             setupUsesGameClock = true
         }
-        setupShotClockSeconds = sport.defaultShotClockSeconds
+        if sport == .chess {
+            setupClockSeconds = setupChessPreset.seconds
+            setupGuestClockSeconds = setupChessPreset.seconds
+        }
+        setupShotClockSeconds = setupRules.defaultShotClockSeconds
         commitSetupEdits()
     }
 
@@ -3135,8 +3583,9 @@ struct ContentView: View {
         let currentSnapshot = store.currentGameSnapshot()
 
         return ScoreboardGameSnapshot(
-            fileVersion: 5,
+            fileVersion: 6,
             sport: setupSport,
+            customSportConfig: setupSport == .custom ? setupCustomSportConfig : nil,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: currentSnapshot.homeScore,
@@ -3144,11 +3593,11 @@ struct ContentView: View {
             period: setupPeriod,
             gameClockSeconds: setupClockSeconds,
             defaultClockSeconds: setupClockSeconds,
-            isGameClockEnabled: setupSport == .volleyball ? setupUsesGameClock : true,
-            shotClockMilliseconds: setupSport.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
-            defaultShotClockSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
-            activeShotClockPresetSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
-            possessionDirection: setupSport.supportsPossession ? .none : .none,
+            isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
+            shotClockMilliseconds: setupRules.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
+            defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
+            activeShotClockPresetSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
+            possessionDirection: setupRules.supportsPossession ? .none : .none,
             areSidesSwapped: currentSnapshot.areSidesSwapped,
             isPlayerTrackingEnabled: currentSnapshot.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
@@ -3165,6 +3614,12 @@ struct ContentView: View {
             guestSubstitutionsUsed: currentSnapshot.guestSubstitutionsUsed,
             homeTeamFouls: currentSnapshot.homeTeamFouls,
             guestTeamFouls: currentSnapshot.guestTeamFouls,
+            homeChessClockSeconds: setupSport == .chess ? setupClockSeconds : currentSnapshot.homeChessClockSeconds,
+            guestChessClockSeconds: setupSport == .chess ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds,
+            activeChessClockSide: setupSport == .chess ? .home : currentSnapshot.activeChessClockSide,
+            chessClockPreset: setupSport == .chess ? setupChessPreset : currentSnapshot.chessClockPreset,
+            homePenaltyTimers: currentSnapshot.homePenaltyTimers,
+            guestPenaltyTimers: currentSnapshot.guestPenaltyTimers,
             homeRoster: currentSnapshot.homeRoster,
             guestRoster: currentSnapshot.guestRoster
         )
@@ -3195,8 +3650,9 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 5,
+                    fileVersion: 6,
                     sport: preset.sport,
+                    customSportConfig: preset.customSportConfig,
                     homeTeamName: preset.homeTeamName,
                     guestTeamName: preset.guestTeamName,
                     homeScore: 0,
@@ -3225,6 +3681,12 @@ struct ContentView: View {
                     guestSubstitutionsUsed: 0,
                     homeTeamFouls: 0,
                     guestTeamFouls: 0,
+                    homeChessClockSeconds: preset.sport == .chess ? preset.clockSeconds : nil,
+                    guestChessClockSeconds: preset.sport == .chess ? preset.clockSeconds : nil,
+                    activeChessClockSide: preset.sport == .chess ? .home : nil,
+                    chessClockPreset: preset.sport == .chess ? .rapid : nil,
+                    homePenaltyTimers: [],
+                    guestPenaltyTimers: [],
                     homeRoster: store.homeRoster,
                     guestRoster: store.guestRoster
                 )
@@ -3324,6 +3786,7 @@ struct ContentView: View {
             theme: store.theme,
             backgroundStyle: currentPreviewBoardBackgroundStyle,
             sport: store.selectedSport,
+            rules: store.currentRules,
             homeTeamName: store.homeTeamName,
             guestTeamName: store.guestTeamName,
             homeScore: store.homeScore,
@@ -3331,6 +3794,9 @@ struct ContentView: View {
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
+            formattedHomeChessClock: store.formattedHomeChessClock,
+            formattedGuestChessClock: store.formattedGuestChessClock,
+            activeChessClockSide: store.activeChessClockSide,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
             areSidesSwapped: store.areSidesSwapped,
@@ -3346,6 +3812,8 @@ struct ContentView: View {
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
+            homePenaltyTimers: store.homePenaltyTimers,
+            guestPenaltyTimers: store.guestPenaltyTimers,
             homePlayers: store.displayedHomePlayers,
             guestPlayers: store.displayedGuestPlayers,
             compact: layout.previewUsesCompactBoard
@@ -3450,14 +3918,21 @@ private struct StoredGameFile: Identifiable {
         }
 
         let sport = snapshot.sport ?? .basketball
-        let periodLine = "\(sport.periodShortTitle)\(snapshot.period)"
+        let rules = sport.rules(customConfig: snapshot.customSportConfig)
+        let periodLine = "\(rules.periodShortTitle)\(snapshot.period)"
         let clockLine = formatGameClock(snapshot.defaultClockSeconds)
 
-        if sport.supportsShotClock {
-            return "\(sport.title) • \(periodLine) • \(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+        if sport == .chess {
+            let homeClock = formatGameClock(snapshot.homeChessClockSeconds ?? ChessClockPreset.rapid.seconds)
+            let guestClock = formatGameClock(snapshot.guestChessClockSeconds ?? ChessClockPreset.rapid.seconds)
+            return "\(rules.title) • \(homeClock) / \(guestClock)"
         }
 
-        return "\(sport.title) • \(periodLine) • \(clockLine)"
+        if rules.supportsShotClock {
+            return "\(rules.title) • \(periodLine) • \(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+        }
+
+        return "\(rules.title) • \(periodLine) • \(clockLine)"
     }
     var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
 

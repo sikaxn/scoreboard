@@ -12,6 +12,7 @@ struct ScoreboardFaceView: View {
     let theme: ScoreboardTheme
     let backgroundStyle: BackgroundStyle
     let sport: SportType
+    let rules: SportRules
     let homeTeamName: String
     let guestTeamName: String
     let homeScore: Int
@@ -19,6 +20,9 @@ struct ScoreboardFaceView: View {
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
+    let formattedHomeChessClock: String
+    let formattedGuestChessClock: String
+    let activeChessClockSide: TeamSide?
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
     let areSidesSwapped: Bool
@@ -34,6 +38,8 @@ struct ScoreboardFaceView: View {
     let guestSubstitutionsUsed: Int
     let homeTeamFouls: Int
     let guestTeamFouls: Int
+    let homePenaltyTimers: [HockeyPenaltyTimer]
+    let guestPenaltyTimers: [HockeyPenaltyTimer]
     let homePlayers: [TrackedPlayer]
     let guestPlayers: [TrackedPlayer]
     let compact: Bool
@@ -50,8 +56,8 @@ struct ScoreboardFaceView: View {
     private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
     private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
     private var displayAlertColor: Color { .red }
-    private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 || sport.showsSubstitutionTracking }
-    private var shouldShowSoccerCenterPlayers: Bool { sport == .soccer && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
+    private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 || rules.showsSubstitutionTracking }
+    private var shouldShowSoccerCenterPlayers: Bool { rules.usesCenterPlayerStrip && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -71,42 +77,50 @@ struct ScoreboardFaceView: View {
             ZStack {
                 scoreboardBackground(leftAccent: leftTeam.accent, rightAccent: rightTeam.accent)
 
-                HStack(spacing: columnSpacing) {
-                    teamPanel(
-                        role: leftTeam.role,
-                        title: leftTeam.title,
-                        placeholder: leftTeam.role,
-                        score: leftTeam.score,
-                        accent: leftTeam.accent,
-                        substitutionsUsed: substitutionsUsed(for: leftTeam.side),
-                        substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
-                        teamFouls: teamFouls(for: leftTeam.side),
-                        displayedPlayers: displayedPlayers(for: leftTeam.side),
-                        base: base,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if rules.usesChessClocks {
+                        chessBoard(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                    } else {
+                        HStack(spacing: columnSpacing) {
+                            teamPanel(
+                                role: leftTeam.role,
+                                title: leftTeam.title,
+                                placeholder: leftTeam.role,
+                                score: leftTeam.score,
+                                accent: leftTeam.accent,
+                                substitutionsUsed: substitutionsUsed(for: leftTeam.side),
+                                substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
+                                teamFouls: teamFouls(for: leftTeam.side),
+                                penaltyTimers: penaltyTimers(for: leftTeam.side),
+                                displayedPlayers: displayedPlayers(for: leftTeam.side),
+                                base: base,
+                                condensed: condensed,
+                                ultraCondensed: ultraCondensed
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    centerClockPanel(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
-                        .frame(width: centerWidth)
-                        .frame(maxHeight: .infinity)
+                            centerClockPanel(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                                .frame(width: centerWidth)
+                                .frame(maxHeight: .infinity)
 
-                    teamPanel(
-                        role: rightTeam.role,
-                        title: rightTeam.title,
-                        placeholder: rightTeam.role,
-                        score: rightTeam.score,
-                        accent: rightTeam.accent,
-                        substitutionsUsed: substitutionsUsed(for: rightTeam.side),
-                        substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
-                        teamFouls: teamFouls(for: rightTeam.side),
-                        displayedPlayers: displayedPlayers(for: rightTeam.side),
-                        base: base,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            teamPanel(
+                                role: rightTeam.role,
+                                title: rightTeam.title,
+                                placeholder: rightTeam.role,
+                                score: rightTeam.score,
+                                accent: rightTeam.accent,
+                                substitutionsUsed: substitutionsUsed(for: rightTeam.side),
+                                substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
+                                teamFouls: teamFouls(for: rightTeam.side),
+                                penaltyTimers: penaltyTimers(for: rightTeam.side),
+                                displayedPlayers: displayedPlayers(for: rightTeam.side),
+                                base: base,
+                                condensed: condensed,
+                                ultraCondensed: ultraCondensed
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .padding(outerPadding)
@@ -178,6 +192,7 @@ struct ScoreboardFaceView: View {
         substitutionsUsed: Int,
         substitutionsAllowed: Int,
         teamFouls: Int,
+        penaltyTimers: [HockeyPenaltyTimer],
         displayedPlayers: [TrackedPlayer],
         base: CGFloat,
         condensed: Bool,
@@ -203,14 +218,16 @@ struct ScoreboardFaceView: View {
 
             Spacer(minLength: 0)
 
-            Text("\(score)")
-                .font(.system(size: ultraCondensed ? base * 0.22 : condensed ? base * 0.34 : base * 0.28, weight: .black, design: .rounded))
-                .singleLineFitted(minScale: 0.32)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
-                .foregroundStyle(accent)
-                .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
-                .frame(maxWidth: .infinity)
+            if rules.supportsScore {
+                Text("\(score)")
+                    .font(.system(size: ultraCondensed ? base * 0.22 : condensed ? base * 0.34 : base * 0.28, weight: .black, design: .rounded))
+                    .singleLineFitted(minScale: 0.32)
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
+                    .foregroundStyle(accent)
+                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+                    .frame(maxWidth: .infinity)
+            }
 
             if shouldShowSubstitutionTracking, substitutionsAllowed > 0 {
                 substitutionLightStrip(
@@ -224,7 +241,7 @@ struct ScoreboardFaceView: View {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
-            if sport.supportsTeamFouls {
+            if rules.supportsTeamFouls {
                 teamFoulStrip(
                     fouls: teamFouls,
                     accent: accent,
@@ -234,7 +251,17 @@ struct ScoreboardFaceView: View {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
-            if sport != .soccer && !displayedPlayers.isEmpty {
+            if rules.supportsHockeyPenalties {
+                hockeyPenaltyStrip(
+                    penaltyTimers: penaltyTimers,
+                    accent: accent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
+            }
+
+            if !rules.usesCenterPlayerStrip && !displayedPlayers.isEmpty {
                 activeLineupStrip(displayedPlayers, accent: accent, base: base, condensed: condensed, ultraCondensed: ultraCondensed)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
@@ -283,7 +310,7 @@ struct ScoreboardFaceView: View {
 
                         Spacer(minLength: 0)
 
-                        if sport.supportsFouls {
+                        if rules.supportsFouls {
                             Text(foulDisplayText(for: player.foulCount))
                                 .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
                                 .monospaced()
@@ -329,7 +356,7 @@ struct ScoreboardFaceView: View {
             }
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                if sport.supportsShotClock {
+                if rules.supportsShotClock {
                     shotClockBadge(
                         value: formattedShotClock,
                         condensed: condensed,
@@ -346,7 +373,9 @@ struct ScoreboardFaceView: View {
                         headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    headerBadge(title: sport.periodTitle.uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                    if rules.supportsPeriod {
+                        headerBadge(title: rules.periodTitle.uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                    }
                 }
 
                 if shouldShowSoccerCenterPlayers {
@@ -420,6 +449,55 @@ struct ScoreboardFaceView: View {
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
+    private func chessBoard(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
+        HStack(spacing: ultraCondensed ? 12 : 18) {
+            chessClockCard(
+                title: resolvedTitle(homeTeamName, placeholder: "HOME"),
+                clock: formattedHomeChessClock,
+                isActive: activeChessClockSide == .home,
+                accent: palette.homeAccent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed
+            )
+
+            chessClockCard(
+                title: resolvedTitle(guestTeamName, placeholder: "GUEST"),
+                clock: formattedGuestChessClock,
+                isActive: activeChessClockSide == .guest,
+                accent: palette.guestAccent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed
+            )
+        }
+    }
+
+    private func chessClockCard(title: String, clock: String, isActive: Bool, accent: Color, base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
+        VStack(spacing: ultraCondensed ? 10 : 16) {
+            Text(title)
+                .font(.system(size: ultraCondensed ? base * 0.05 : condensed ? base * 0.065 : base * 0.058, weight: .black, design: .rounded))
+                .singleLineFitted(minScale: 0.5)
+                .foregroundStyle(boardPrimaryTextColor)
+
+            Text(clock)
+                .font(.system(size: ultraCondensed ? base * 0.16 : condensed ? base * 0.22 : base * 0.2, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(accent)
+
+            Text(isActive ? "ACTIVE" : "WAITING")
+                .font(.system(size: ultraCondensed ? 12 : 16, weight: .black, design: .rounded))
+                .foregroundStyle(isActive ? accent : boardSecondaryTextColor)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(ultraCondensed ? 18 : 28)
+        .background(boardClockPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 22 : 30, style: .continuous)
+                .strokeBorder(boardPanelBorderColor)
         )
     }
 
@@ -579,6 +657,55 @@ struct ScoreboardFaceView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.74), value: visibleFouls)
     }
 
+    private func hockeyPenaltyStrip(
+        penaltyTimers: [HockeyPenaltyTimer],
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        let visibleTimers = Array(penaltyTimers.prefix(3))
+        let overflow = max(0, penaltyTimers.count - visibleTimers.count)
+
+        return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
+            Text("PENALTIES")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            ForEach(visibleTimers) { timer in
+                HStack(spacing: 8) {
+                    Text(timer.playerNumber.isEmpty ? "#" : "#\(timer.playerNumber)")
+                        .font(.system(size: ultraCondensed ? base * 0.018 : base * 0.02, weight: .black, design: .rounded))
+                        .foregroundStyle(accent)
+                    Text(timer.playerName.isEmpty ? "PLAYER" : timer.playerName)
+                        .font(.system(size: ultraCondensed ? base * 0.016 : base * 0.018, weight: .bold, design: .rounded))
+                        .singleLineFitted(minScale: 0.6)
+                        .foregroundStyle(boardPrimaryTextColor)
+                    Spacer(minLength: 0)
+                    Text(ScoreboardStore.formatGameClock(timer.remainingSeconds))
+                        .font(.system(size: ultraCondensed ? base * 0.02 : base * 0.022, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(timer.isRunning ? accent : boardBadgeValueTextColor)
+                }
+            }
+
+            if overflow > 0 {
+                Text("+\(overflow) more")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(boardSecondaryTextColor)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
     private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
         HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
             soccerPlayerColumn(
@@ -657,7 +784,7 @@ struct ScoreboardFaceView: View {
     }
 
     private var centerPossessionIndicator: (systemName: String, color: Color)? {
-        guard sport.supportsPossession else {
+        guard rules.supportsPossession else {
             return nil
         }
 
@@ -707,11 +834,11 @@ struct ScoreboardFaceView: View {
     }
 
     private func playerStatusColor(_ player: TrackedPlayer) -> Color {
-        if sport.supportsCards, player.cardStatus != .none {
+        if rules.supportsCards, player.cardStatus != .none {
             return playerCardColor(player.cardStatus)
         }
 
-        if sport.supportsFouls, player.foulCount > 0 {
+        if rules.supportsFouls, player.foulCount > 0 {
             return foulHighlightColor
         }
 
@@ -733,6 +860,10 @@ struct ScoreboardFaceView: View {
 
     private func teamFouls(for side: TeamSide) -> Int {
         side == .home ? homeTeamFouls : guestTeamFouls
+    }
+
+    private func penaltyTimers(for side: TeamSide) -> [HockeyPenaltyTimer] {
+        side == .home ? homePenaltyTimers : guestPenaltyTimers
     }
 
     private func sidePanelData(for side: PossessionDirection) -> SidePanelData {

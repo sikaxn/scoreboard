@@ -7,8 +7,9 @@ extension UTType {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 5
+    var fileVersion = 6
     var sport: SportType?
+    var customSportConfig: CustomSportConfig?
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -37,11 +38,18 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestSubstitutionsUsed: Int?
     var homeTeamFouls: Int?
     var guestTeamFouls: Int?
+    var homeChessClockSeconds: Int?
+    var guestChessClockSeconds: Int?
+    var activeChessClockSide: TeamSide?
+    var chessClockPreset: ChessClockPreset?
+    var homePenaltyTimers: [HockeyPenaltyTimer]?
+    var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
 
     static let empty = ScoreboardGameSnapshot(
         sport: .basketball,
+        customSportConfig: .default,
         homeTeamName: "",
         guestTeamName: "",
         homeScore: 0,
@@ -70,6 +78,12 @@ struct ScoreboardGameSnapshot: Sendable {
         guestSubstitutionsUsed: 0,
         homeTeamFouls: 0,
         guestTeamFouls: 0,
+        homeChessClockSeconds: ChessClockPreset.rapid.seconds,
+        guestChessClockSeconds: ChessClockPreset.rapid.seconds,
+        activeChessClockSide: .home,
+        chessClockPreset: .rapid,
+        homePenaltyTimers: [],
+        guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
         guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
     )
@@ -79,6 +93,7 @@ extension ScoreboardGameSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
         case fileVersion
         case sport
+        case customSportConfig
         case homeTeamName
         case guestTeamName
         case homeScore
@@ -107,6 +122,12 @@ extension ScoreboardGameSnapshot: Codable {
         case guestSubstitutionsUsed
         case homeTeamFouls
         case guestTeamFouls
+        case homeChessClockSeconds
+        case guestChessClockSeconds
+        case activeChessClockSide
+        case chessClockPreset
+        case homePenaltyTimers
+        case guestPenaltyTimers
         case homeRoster
         case guestRoster
     }
@@ -115,6 +136,7 @@ extension ScoreboardGameSnapshot: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
         sport = try container.decodeIfPresent(SportType.self, forKey: .sport)
+        customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig)
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         homeScore = try container.decode(Int.self, forKey: .homeScore)
@@ -143,6 +165,12 @@ extension ScoreboardGameSnapshot: Codable {
         guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed)
         homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls)
         guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls)
+        homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds)
+        guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds)
+        activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide)
+        chessClockPreset = try container.decodeIfPresent(ChessClockPreset.self, forKey: .chessClockPreset)
+        homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers)
+        guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
     }
@@ -151,6 +179,7 @@ extension ScoreboardGameSnapshot: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(fileVersion, forKey: .fileVersion)
         try container.encodeIfPresent(sport, forKey: .sport)
+        try container.encodeIfPresent(customSportConfig, forKey: .customSportConfig)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
         try container.encode(homeScore, forKey: .homeScore)
@@ -179,6 +208,12 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
         try container.encodeIfPresent(homeTeamFouls, forKey: .homeTeamFouls)
         try container.encodeIfPresent(guestTeamFouls, forKey: .guestTeamFouls)
+        try container.encodeIfPresent(homeChessClockSeconds, forKey: .homeChessClockSeconds)
+        try container.encodeIfPresent(guestChessClockSeconds, forKey: .guestChessClockSeconds)
+        try container.encodeIfPresent(activeChessClockSide, forKey: .activeChessClockSide)
+        try container.encodeIfPresent(chessClockPreset, forKey: .chessClockPreset)
+        try container.encodeIfPresent(homePenaltyTimers, forKey: .homePenaltyTimers)
+        try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
     }

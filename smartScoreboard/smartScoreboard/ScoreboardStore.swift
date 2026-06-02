@@ -72,6 +72,31 @@ enum PlayerCardStatus: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct HockeyPenaltyTimer: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var teamSide: TeamSide
+    var playerNumber: String
+    var playerName: String
+    var remainingSeconds: Int
+    var isRunning: Bool
+
+    init(
+        id: UUID = UUID(),
+        teamSide: TeamSide,
+        playerNumber: String = "",
+        playerName: String = "",
+        remainingSeconds: Int,
+        isRunning: Bool = false
+    ) {
+        self.id = id
+        self.teamSide = teamSide
+        self.playerNumber = playerNumber
+        self.playerName = playerName
+        self.remainingSeconds = remainingSeconds
+        self.isRunning = isRunning
+    }
+}
+
 struct TrackedPlayer: Identifiable, Codable, Equatable {
     let id: UUID
     var number: String
@@ -130,6 +155,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
     var clockSeconds: Int
     var shotClockSeconds: Int
     var possessionDirection: PossessionDirection
+    var customSportConfig: CustomSportConfig?
 
     init(
         id: UUID = UUID(),
@@ -140,7 +166,8 @@ struct SetupPreset: Identifiable, Codable, Equatable {
         period: Int,
         clockSeconds: Int,
         shotClockSeconds: Int = 24,
-        possessionDirection: PossessionDirection = .none
+        possessionDirection: PossessionDirection = .none,
+        customSportConfig: CustomSportConfig? = nil
     ) {
         self.id = id
         self.name = name
@@ -151,6 +178,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
         self.clockSeconds = clockSeconds
         self.shotClockSeconds = shotClockSeconds
         self.possessionDirection = possessionDirection
+        self.customSportConfig = customSportConfig
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -163,6 +191,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
         case clockSeconds
         case shotClockSeconds
         case possessionDirection
+        case customSportConfig
     }
 
     init(from decoder: Decoder) throws {
@@ -176,6 +205,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
         clockSeconds = try container.decode(Int.self, forKey: .clockSeconds)
         shotClockSeconds = try container.decodeIfPresent(Int.self, forKey: .shotClockSeconds) ?? 24
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
+        customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig)
     }
 }
 
@@ -191,6 +221,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let defaultDisplayLineupSize = 5
 
     @Published var selectedSport: SportType = .basketball
+    @Published var customSportConfig: CustomSportConfig = .default
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
     @Published var homeScore = 0
@@ -221,6 +252,12 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestSubstitutionsUsed = 0
     @Published var homeTeamFouls = 0
     @Published var guestTeamFouls = 0
+    @Published var homeChessClockSeconds = ChessClockPreset.rapid.seconds
+    @Published var guestChessClockSeconds = ChessClockPreset.rapid.seconds
+    @Published var activeChessClockSide: TeamSide? = .home
+    @Published var chessClockPreset: ChessClockPreset = .rapid
+    @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
+    @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
@@ -233,6 +270,7 @@ final class ScoreboardStore: ObservableObject {
     private var lastTimerFireDate: Date?
     private var accumulatedGameClockElapsed: TimeInterval = 0
     private var accumulatedShotClockElapsed: TimeInterval = 0
+    private var accumulatedPenaltyElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
     private let persistenceKey = "smartScoreboard.persistedState"
@@ -248,6 +286,14 @@ final class ScoreboardStore: ObservableObject {
         Self.formatGameClock(gameClockSeconds)
     }
 
+    var formattedHomeChessClock: String {
+        Self.formatGameClock(homeChessClockSeconds)
+    }
+
+    var formattedGuestChessClock: String {
+        Self.formatGameClock(guestChessClockSeconds)
+    }
+
     var formattedShotClock: String {
         Self.formatShotClock(milliseconds: shotClockMilliseconds)
     }
@@ -257,7 +303,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var showsGameClock: Bool {
-        selectedSport != .volleyball || isGameClockEnabled
+        switch currentRules.mainClockMode {
+        case .disabled:
+            return false
+        case .countdown, .countUp:
+            return currentRules.sport != .volleyball || isGameClockEnabled
+        }
     }
 
     var displayedHomePlayers: [TrackedPlayer] {
@@ -273,47 +324,74 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var isDisplayShotClockAlertActive: Bool {
-        selectedSport.supportsShotClock && isShotClockRedEnabled && shotClockMilliseconds <= boundedShotClockMilliseconds(shotClockRedThresholdSeconds * 1_000)
+        currentRules.supportsShotClock && isShotClockRedEnabled && shotClockMilliseconds <= boundedShotClockMilliseconds(shotClockRedThresholdSeconds * 1_000)
     }
 
     var supportsShotClock: Bool {
-        selectedSport.supportsShotClock
+        currentRules.supportsShotClock
     }
 
     var supportsPossession: Bool {
-        selectedSport.supportsPossession
+        currentRules.supportsPossession
     }
 
     var supportsFouls: Bool {
-        selectedSport.supportsFouls
+        currentRules.supportsFouls
     }
 
     var supportsCards: Bool {
-        selectedSport.supportsCards
+        currentRules.supportsCards
     }
 
     var supportsTeamFouls: Bool {
-        selectedSport.supportsTeamFouls
+        currentRules.supportsTeamFouls
     }
 
     var supportsPlayerTracking: Bool {
-        selectedSport.supportsPlayerTracking
+        currentRules.supportsPlayerTracking
     }
 
     var showsSubstitutionTracking: Bool {
-        selectedSport.showsSubstitutionTracking || homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
+        currentRules.showsSubstitutionTracking || homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
+    }
+
+    var supportsScore: Bool {
+        currentRules.supportsScore
+    }
+
+    var supportsPeriod: Bool {
+        currentRules.supportsPeriod
+    }
+
+    var supportsHockeyPenalties: Bool {
+        currentRules.supportsHockeyPenalties
+    }
+
+    var usesChessClocks: Bool {
+        currentRules.usesChessClocks
     }
 
     var periodTitle: String {
-        selectedSport.periodTitle
+        currentRules.periodTitle
     }
 
     var periodShortTitle: String {
-        selectedSport.periodShortTitle
+        currentRules.periodShortTitle
     }
 
     var gameClockMode: GameClockMode {
-        selectedSport.clockMode
+        switch currentRules.mainClockMode {
+        case .countdown:
+            return .countdown
+        case .countUp:
+            return .countUp
+        case .disabled:
+            return .countdown
+        }
+    }
+
+    var currentRules: SportRules {
+        selectedSport.rules(customConfig: customSportConfig)
     }
 
     func substitutionsAllowed(for side: TeamSide) -> Int {
@@ -337,17 +415,29 @@ final class ScoreboardStore: ObservableObject {
             gameFileName: nil,
             gameFilePath: nil,
             sport: selectedSport,
+            customSportTitle: selectedSport == .custom ? currentRules.title : nil,
             period: period,
+            showsGameClock: showsGameClock,
             isClockRunning: isClockRunning,
             gameClockSeconds: gameClockSeconds,
             supportsShotClock: supportsShotClock,
             isShotClockRunning: supportsShotClock ? isShotClockRunning : nil,
             shotClockMilliseconds: supportsShotClock ? shotClockMilliseconds : nil,
+            homeChessClockSeconds: usesChessClocks ? homeChessClockSeconds : nil,
+            guestChessClockSeconds: usesChessClocks ? guestChessClockSeconds : nil,
+            activeChessClockSide: usesChessClocks ? activeChessClockSide : nil,
+            hockeyPenaltySummary: supportsHockeyPenalties ? penaltySummaryText : nil,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
             guestScore: guestScore
         )
+    }
+
+    var penaltySummaryText: String {
+        let home = homePenaltyTimers.map { penaltySummaryItem($0) }.joined(separator: " | ")
+        let guest = guestPenaltyTimers.map { penaltySummaryItem($0) }.joined(separator: " | ")
+        return "HOME[\(home)] GUEST[\(guest)]"
     }
 
     nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
@@ -383,6 +473,17 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustScore(isHome: Bool, by delta: Int) {
+        guard supportsScore else {
+            recordLog(
+                kind: .scoreAdjustment,
+                summary: "\(isHome ? TeamSide.home.title : TeamSide.guest.title) score \(delta >= 0 ? "+" : "")\(delta)",
+                outcome: .ignored,
+                teamSide: isHome ? .home : .guest,
+                delta: delta
+            )
+            return
+        }
+
         let previousHomeScore = homeScore
         let previousGuestScore = guestScore
 
@@ -405,6 +506,16 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPeriod(by delta: Int) {
+        guard supportsPeriod else {
+            recordLog(
+                kind: .periodAdjustment,
+                summary: "\(delta >= 0 ? "Next" : "Previous") \(periodTitle)",
+                outcome: .ignored,
+                delta: delta
+            )
+            return
+        }
+
         let previousPeriod = period
         period = max(1, min(9, period + delta))
         recordLog(
@@ -417,7 +528,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPeriod(_ value: Int) {
-        period = max(1, min(9, value))
+        if supportsPeriod {
+            period = max(1, min(9, value))
+        } else {
+            period = 1
+        }
     }
 
     func adjustClock(by delta: Int) {
@@ -532,6 +647,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleClock() {
+        if usesChessClocks {
+            toggleChessClock()
+            return
+        }
+
         let wasRunning = isClockRunning
         isClockRunning ? pauseClock() : startClock()
         recordLog(
@@ -693,7 +813,7 @@ final class ScoreboardStore: ObservableObject {
         pauseShotClock()
         homeScore = 0
         guestScore = 0
-        period = 1
+        period = supportsPeriod ? 1 : period
         possessionDirection = .none
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
@@ -702,11 +822,25 @@ final class ScoreboardStore: ObservableObject {
         guestSubstitutionsUsed = 0
         homeTeamFouls = 0
         guestTeamFouls = 0
+        homeChessClockSeconds = chessClockPreset.seconds
+        guestChessClockSeconds = chessClockPreset.seconds
+        activeChessClockSide = .home
+        homePenaltyTimers = []
+        guestPenaltyTimers = []
         isPlayerOverlayPaused = false
         resetPlayerTrackingForNewGame()
     }
 
     func resetScores() {
+        guard supportsScore else {
+            recordLog(
+                kind: .scoresReset,
+                summary: "Zero both scores",
+                outcome: .ignored
+            )
+            return
+        }
+
         guard !isGameClockInterlockActive else {
             recordLog(
                 kind: .scoresReset,
@@ -726,6 +860,16 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
+        guard !usesChessClocks else {
+            recordLog(
+                kind: .sideSwap,
+                summary: "Swap home and guest sides",
+                outcome: .ignored,
+                notes: "Chess layout does not use side swapping"
+            )
+            return
+        }
+
         areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
@@ -735,7 +879,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
-        isPlayerTrackingEnabled = selectedSport.supportsPlayerTracking ? isEnabled : false
+        isPlayerTrackingEnabled = supportsPlayerTracking ? isEnabled : false
     }
 
     func togglePlayerOverlayPaused() {
@@ -996,8 +1140,271 @@ final class ScoreboardStore: ObservableObject {
         resetTeamFouls(for: .guest)
     }
 
+    func toggleChessClock() {
+        guard usesChessClocks else {
+            recordLog(
+                kind: .chessClockToggle,
+                summary: "Toggle chess clock",
+                outcome: .ignored
+            )
+            return
+        }
+
+        let wasRunning = isClockRunning
+        if isClockRunning {
+            pauseClock()
+        } else {
+            if activeChessClockSide == nil {
+                activeChessClockSide = .home
+            }
+            startClock()
+        }
+
+        recordLog(
+            kind: .chessClockToggle,
+            summary: wasRunning ? "Pause chess clock" : "Start chess clock",
+            outcome: wasRunning == isClockRunning ? .ignored : .applied,
+            teamSide: activeChessClockSide
+        )
+    }
+
+    func switchChessClock() {
+        guard usesChessClocks else {
+            recordLog(
+                kind: .chessClockSwitch,
+                summary: "Switch active chess clock",
+                outcome: .ignored
+            )
+            return
+        }
+
+        let previousSide = activeChessClockSide
+        switch activeChessClockSide {
+        case .home:
+            activeChessClockSide = .guest
+        case .guest:
+            activeChessClockSide = .home
+        case .none:
+            activeChessClockSide = .home
+        }
+
+        recordLog(
+            kind: .chessClockSwitch,
+            summary: "Switch active chess clock",
+            outcome: previousSide == activeChessClockSide ? .ignored : .applied,
+            teamSide: activeChessClockSide
+        )
+    }
+
+    func adjustChessClock(for side: TeamSide, by delta: Int) {
+        guard usesChessClocks else {
+            recordLog(
+                kind: .chessClockAdjustment,
+                summary: "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+                outcome: .ignored,
+                teamSide: side,
+                delta: delta
+            )
+            return
+        }
+
+        let previousValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
+        switch side {
+        case .home:
+            homeChessClockSeconds = boundedGameClockSeconds(homeChessClockSeconds + delta)
+        case .guest:
+            guestChessClockSeconds = boundedGameClockSeconds(guestChessClockSeconds + delta)
+        }
+
+        let updatedValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
+        if updatedValue == 0, activeChessClockSide == side {
+            pauseClock()
+        }
+
+        recordLog(
+            kind: .chessClockAdjustment,
+            summary: "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+            outcome: previousValue == updatedValue ? .ignored : .applied,
+            teamSide: side,
+            delta: delta,
+            value: updatedValue
+        )
+    }
+
+    func resetChessClocks() {
+        guard usesChessClocks else {
+            recordLog(
+                kind: .chessClockReset,
+                summary: "Reset chess clocks",
+                outcome: .ignored
+            )
+            return
+        }
+
+        pauseClock()
+        homeChessClockSeconds = chessClockPreset.seconds
+        guestChessClockSeconds = chessClockPreset.seconds
+        activeChessClockSide = .home
+
+        recordLog(
+            kind: .chessClockReset,
+            summary: "Reset chess clocks",
+            outcome: .applied,
+            notes: chessClockPreset.title
+        )
+    }
+
+    func addPenaltyTimer(for side: TeamSide, seconds: Int) {
+        guard supportsHockeyPenalties else {
+            recordLog(
+                kind: .hockeyPenaltyAdd,
+                summary: "Add \(side.title) penalty timer",
+                outcome: .ignored,
+                teamSide: side,
+                value: seconds
+            )
+            return
+        }
+
+        let timer = HockeyPenaltyTimer(teamSide: side, remainingSeconds: boundedGameClockSeconds(seconds))
+        switch side {
+        case .home:
+            homePenaltyTimers.append(timer)
+        case .guest:
+            guestPenaltyTimers.append(timer)
+        }
+
+        recordLog(
+            kind: .hockeyPenaltyAdd,
+            summary: "Add \(side.title) penalty timer",
+            outcome: .applied,
+            teamSide: side,
+            value: timer.remainingSeconds
+        )
+    }
+
+    func removePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        guard supportsHockeyPenalties else { return }
+        let removed: HockeyPenaltyTimer?
+        switch side {
+        case .home:
+            removed = homePenaltyTimers.first { $0.id == timerID }
+            homePenaltyTimers.removeAll { $0.id == timerID }
+        case .guest:
+            removed = guestPenaltyTimers.first { $0.id == timerID }
+            guestPenaltyTimers.removeAll { $0.id == timerID }
+        }
+        if !homePenaltyTimers.contains(where: \.isRunning) && !guestPenaltyTimers.contains(where: \.isRunning) {
+            updateTimerState()
+        }
+        recordLog(
+            kind: .hockeyPenaltyRemove,
+            summary: "Remove \(side.title) penalty timer",
+            outcome: removed == nil ? .ignored : .applied,
+            teamSide: side,
+            value: removed?.remainingSeconds
+        )
+    }
+
+    func togglePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        guard supportsHockeyPenalties else { return }
+        let previous = penaltyTimer(for: side, timerID: timerID)
+        updatePenaltyTimers(for: side) { timers in
+            guard let index = timers.firstIndex(where: { $0.id == timerID }) else { return }
+            timers[index].isRunning.toggle()
+        }
+        updateTimerState()
+        let updated = penaltyTimer(for: side, timerID: timerID)
+        recordLog(
+            kind: .hockeyPenaltyToggle,
+            summary: "\(side.title) penalty timer \(updated?.isRunning == true ? "start" : "pause")",
+            outcome: previous?.isRunning == updated?.isRunning ? .ignored : .applied,
+            teamSide: side,
+            value: updated?.remainingSeconds
+        )
+    }
+
+    func adjustPenaltyTimer(for side: TeamSide, timerID: UUID, by delta: Int) {
+        guard supportsHockeyPenalties else { return }
+        let previous = penaltyTimer(for: side, timerID: timerID)
+        updatePenaltyTimers(for: side) { timers in
+            guard let index = timers.firstIndex(where: { $0.id == timerID }) else { return }
+            timers[index].remainingSeconds = boundedGameClockSeconds(timers[index].remainingSeconds + delta)
+            if timers[index].remainingSeconds == 0 {
+                timers[index].isRunning = false
+            }
+        }
+        updateTimerState()
+        let updated = penaltyTimer(for: side, timerID: timerID)
+        recordLog(
+            kind: .hockeyPenaltyAdjustment,
+            summary: "\(side.title) penalty timer \(delta >= 0 ? "+" : "")\(delta)s",
+            outcome: previous?.remainingSeconds == updated?.remainingSeconds ? .ignored : .applied,
+            teamSide: side,
+            delta: delta,
+            value: updated?.remainingSeconds
+        )
+    }
+
+    func updatePenaltyTimerPlayerNumber(_ number: String, for side: TeamSide, timerID: UUID) {
+        guard supportsHockeyPenalties else { return }
+        let previous = penaltyTimer(for: side, timerID: timerID)
+        updatePenaltyTimers(for: side) { timers in
+            guard let index = timers.firstIndex(where: { $0.id == timerID }) else { return }
+            timers[index].playerNumber = normalizedPlayerNumber(number)
+        }
+        let updated = penaltyTimer(for: side, timerID: timerID)
+        recordLog(
+            kind: .hockeyPenaltyPlayerEdit,
+            summary: "Edit \(side.title) penalty player",
+            outcome: previous?.playerNumber == updated?.playerNumber ? .ignored : .applied,
+            teamSide: side,
+            notes: penaltySummaryItem(updated)
+        )
+    }
+
+    func updatePenaltyTimerPlayerName(_ name: String, for side: TeamSide, timerID: UUID) {
+        guard supportsHockeyPenalties else { return }
+        let previous = penaltyTimer(for: side, timerID: timerID)
+        updatePenaltyTimers(for: side) { timers in
+            guard let index = timers.firstIndex(where: { $0.id == timerID }) else { return }
+            timers[index].playerName = normalizedPlayerName(name)
+        }
+        let updated = penaltyTimer(for: side, timerID: timerID)
+        recordLog(
+            kind: .hockeyPenaltyPlayerEdit,
+            summary: "Edit \(side.title) penalty player",
+            outcome: previous?.playerName == updated?.playerName ? .ignored : .applied,
+            teamSide: side,
+            notes: penaltySummaryItem(updated)
+        )
+    }
+
+    func assignPenaltyTimerPlayer(_ player: TrackedPlayer, for side: TeamSide, timerID: UUID) {
+        guard supportsHockeyPenalties else { return }
+        let previous = penaltyTimer(for: side, timerID: timerID)
+        updatePenaltyTimers(for: side) { timers in
+            guard let index = timers.firstIndex(where: { $0.id == timerID }) else { return }
+            timers[index].playerNumber = normalizedPlayerNumber(player.number)
+            timers[index].playerName = normalizedPlayerName(player.name)
+        }
+        let updated = penaltyTimer(for: side, timerID: timerID)
+        recordLog(
+            kind: .hockeyPenaltyPlayerEdit,
+            summary: "Assign \(side.title) penalty player",
+            outcome: previous?.playerNumber == updated?.playerNumber && previous?.playerName == updated?.playerName ? .ignored : .applied,
+            teamSide: side,
+            player: player,
+            notes: penaltySummaryItem(updated)
+        )
+    }
+
     func setGameClockEnabled(_ isEnabled: Bool) {
-        isGameClockEnabled = selectedSport == .volleyball ? isEnabled : true
+        if selectedSport == .volleyball || selectedSport == .custom {
+            isGameClockEnabled = isEnabled
+        } else {
+            isGameClockEnabled = true
+        }
 
         if !showsGameClock {
             pauseClock()
@@ -1006,40 +1413,46 @@ final class ScoreboardStore: ObservableObject {
 
     func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
         selectedSport = sport
+        let rules = currentRules
 
         if applyDefaults {
-            defaultClockSeconds = boundedGameClockSeconds(sport.defaultClockSeconds)
+            defaultClockSeconds = boundedGameClockSeconds(rules.defaultClockSeconds)
             gameClockSeconds = defaultClockSeconds
-            isGameClockEnabled = sport == .volleyball ? isGameClockEnabled : true
-            defaultShotClockSeconds = boundedShotClockSeconds(sport.defaultShotClockSeconds)
+            isGameClockEnabled = sport == .volleyball || sport == .custom ? isGameClockEnabled : true
+            defaultShotClockSeconds = boundedShotClockSeconds(rules.defaultShotClockSeconds)
             activeShotClockPresetSeconds = defaultShotClockSeconds
             shotClockMilliseconds = boundedShotClockMilliseconds(defaultShotClockSeconds * 1_000)
-            setPeriod(1)
+            period = rules.supportsPeriod ? 1 : 1
             possessionDirection = .none
             isShotClockRunning = false
-            homeSubstitutionsAllowed = sport.defaultSubstitutionLimit
-            guestSubstitutionsAllowed = sport.defaultSubstitutionLimit
+            homeSubstitutionsAllowed = rules.defaultSubstitutionLimit
+            guestSubstitutionsAllowed = rules.defaultSubstitutionLimit
             homeSubstitutionsUsed = 0
             guestSubstitutionsUsed = 0
             homeTeamFouls = 0
             guestTeamFouls = 0
-            setRosterSizePerTeam(sport.defaultRosterSize)
-            setDisplayLineupSize(sport.defaultDisplayLineupSize)
-            if !sport.supportsPlayerTracking {
+            homeChessClockSeconds = chessClockPreset.seconds
+            guestChessClockSeconds = chessClockPreset.seconds
+            activeChessClockSide = .home
+            homePenaltyTimers = []
+            guestPenaltyTimers = []
+            setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
+            setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
+            if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
             }
         } else {
-            if sport != .volleyball {
+            if sport != .volleyball && sport != .custom {
                 isGameClockEnabled = true
             }
-            if !sport.supportsShotClock {
+            if !rules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
                 shotClockMilliseconds = 0
                 possessionDirection = .none
                 isShotClockRunning = false
             }
-            if !sport.supportsPlayerTracking {
+            if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
             }
         }
@@ -1109,8 +1522,9 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 5,
+            fileVersion: 6,
             sport: selectedSport,
+            customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
@@ -1139,6 +1553,12 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed: guestSubstitutionsUsed,
             homeTeamFouls: homeTeamFouls,
             guestTeamFouls: guestTeamFouls,
+            homeChessClockSeconds: homeChessClockSeconds,
+            guestChessClockSeconds: guestChessClockSeconds,
+            activeChessClockSide: activeChessClockSide,
+            chessClockPreset: chessClockPreset,
+            homePenaltyTimers: homePenaltyTimers,
+            guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
             guestRoster: guestRoster
         )
@@ -1149,6 +1569,7 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             pauseShotClock()
 
+            customSportConfig = snapshot.customSportConfig ?? .default
             setSelectedSport(snapshot.sport ?? .basketball, applyDefaults: false)
             homeTeamName = normalizedTeamName(snapshot.homeTeamName)
             guestTeamName = normalizedTeamName(snapshot.guestTeamName)
@@ -1172,12 +1593,18 @@ final class ScoreboardStore: ObservableObject {
             gameClockRedThresholdSeconds = boundedGameClockSeconds(snapshot.gameClockRedThresholdSeconds ?? 60)
             isShotClockRedEnabled = snapshot.isShotClockRedEnabled ?? false
             shotClockRedThresholdSeconds = boundedShotClockSeconds(snapshot.shotClockRedThresholdSeconds ?? 5)
-            homeSubstitutionsAllowed = max(0, snapshot.homeSubstitutionsAllowed ?? selectedSport.defaultSubstitutionLimit)
-            guestSubstitutionsAllowed = max(0, snapshot.guestSubstitutionsAllowed ?? selectedSport.defaultSubstitutionLimit)
+            homeSubstitutionsAllowed = max(0, snapshot.homeSubstitutionsAllowed ?? currentRules.defaultSubstitutionLimit)
+            guestSubstitutionsAllowed = max(0, snapshot.guestSubstitutionsAllowed ?? currentRules.defaultSubstitutionLimit)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, snapshot.homeSubstitutionsUsed ?? 0))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, snapshot.guestSubstitutionsUsed ?? 0))
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
+            homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? chessClockPreset.seconds)
+            guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? chessClockPreset.seconds)
+            activeChessClockSide = snapshot.activeChessClockSide ?? .home
+            chessClockPreset = snapshot.chessClockPreset ?? .rapid
+            homePenaltyTimers = snapshot.homePenaltyTimers ?? []
+            guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
             if !supportsShotClock {
@@ -1199,9 +1626,13 @@ final class ScoreboardStore: ObservableObject {
         period: Int,
         clockSeconds: Int,
         isGameClockEnabled: Bool = true,
-        shotClockSeconds: Int
+        shotClockSeconds: Int,
+        customSportConfig: CustomSportConfig? = nil
     ) {
         performWithoutAuditLogging {
+            if let customSportConfig {
+                self.customSportConfig = customSportConfig
+            }
             setSelectedSport(sport, applyDefaults: true)
             updateTeamName(homeName, isHome: true)
             updateTeamName(guestName, isHome: false)
@@ -1210,7 +1641,7 @@ final class ScoreboardStore: ObservableObject {
             setPeriod(period)
             defaultClockSeconds = boundedGameClockSeconds(clockSeconds)
             setGameClockEnabled(isGameClockEnabled)
-            defaultShotClockSeconds = sport.supportsShotClock ? boundedShotClockSeconds(shotClockSeconds) : 0
+            defaultShotClockSeconds = currentRules.supportsShotClock ? boundedShotClockSeconds(shotClockSeconds) : 0
             activeShotClockPresetSeconds = defaultShotClockSeconds
             possessionDirection = .none
             areSidesSwapped = false
@@ -1261,6 +1692,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startClock() {
+        if usesChessClocks {
+            guard activeChessClockSide != nil else {
+                activeChessClockSide = .home
+                return
+            }
+            guard (homeChessClockSeconds > 0 || guestChessClockSeconds > 0) else {
+                return
+            }
+            isClockRunning = true
+            updateTimerState()
+            return
+        }
+
         guard showsGameClock else {
             return
         }
@@ -1311,12 +1755,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func updateTimerState() {
-        guard isClockRunning || isShotClockRunning else {
+        let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty else {
             timer?.invalidate()
             timer = nil
             lastTimerFireDate = nil
             accumulatedGameClockElapsed = 0
             accumulatedShotClockElapsed = 0
+            accumulatedPenaltyElapsed = 0
             return
         }
 
@@ -1348,27 +1794,48 @@ final class ScoreboardStore: ObservableObject {
 
             if elapsedWholeSeconds > 0 {
                 accumulatedGameClockElapsed -= TimeInterval(elapsedWholeSeconds)
-                switch gameClockMode {
-                case .countdown:
-                    gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
-
-                    if gameClockSeconds == 0 {
+                if usesChessClocks {
+                    switch activeChessClockSide {
+                    case .home:
+                        homeChessClockSeconds = max(0, homeChessClockSeconds - elapsedWholeSeconds)
+                        if homeChessClockSeconds == 0 {
+                            isClockRunning = false
+                            accumulatedGameClockElapsed = 0
+                            shouldPlayBuzzer = true
+                        }
+                    case .guest:
+                        guestChessClockSeconds = max(0, guestChessClockSeconds - elapsedWholeSeconds)
+                        if guestChessClockSeconds == 0 {
+                            isClockRunning = false
+                            accumulatedGameClockElapsed = 0
+                            shouldPlayBuzzer = true
+                        }
+                    case .none:
                         isClockRunning = false
-                        accumulatedGameClockElapsed = 0
-                        shouldPlayBuzzer = true
-                        recordLog(
-                            kind: .clockExpired,
-                            summary: "Game clock expired",
-                            outcome: .applied,
-                            value: gameClockSeconds
-                        )
                     }
-                case .countUp:
-                    gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
+                } else {
+                    switch gameClockMode {
+                    case .countdown:
+                        gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
 
-                    if gameClockSeconds == Self.maxGameClockSeconds {
-                        isClockRunning = false
-                        accumulatedGameClockElapsed = 0
+                        if gameClockSeconds == 0 {
+                            isClockRunning = false
+                            accumulatedGameClockElapsed = 0
+                            shouldPlayBuzzer = true
+                            recordLog(
+                                kind: .clockExpired,
+                                summary: "Game clock expired",
+                                outcome: .applied,
+                                value: gameClockSeconds
+                            )
+                        }
+                    case .countUp:
+                        gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
+
+                        if gameClockSeconds == Self.maxGameClockSeconds {
+                            isClockRunning = false
+                            accumulatedGameClockElapsed = 0
+                        }
                     }
                 }
             }
@@ -1399,6 +1866,26 @@ final class ScoreboardStore: ObservableObject {
                         outcome: .applied,
                         value: 0
                     )
+                }
+            }
+        }
+
+        let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
+        if hasRunningPenalty {
+            accumulatedPenaltyElapsed += elapsed
+            let elapsedPenaltySeconds = Int(accumulatedPenaltyElapsed)
+            if elapsedPenaltySeconds > 0 {
+                accumulatedPenaltyElapsed -= TimeInterval(elapsedPenaltySeconds)
+                for side in TeamSide.allCases {
+                    updatePenaltyTimers(for: side) { timers in
+                        for index in timers.indices where timers[index].isRunning {
+                            timers[index].remainingSeconds = max(0, timers[index].remainingSeconds - elapsedPenaltySeconds)
+                            if timers[index].remainingSeconds == 0 {
+                                timers[index].isRunning = false
+                                shouldPlayBuzzer = true
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1446,6 +1933,44 @@ final class ScoreboardStore: ObservableObject {
         setupPresets.first {
             $0.name.caseInsensitiveCompare(name) == .orderedSame
         }?.id
+    }
+
+    private func penaltyTimers(for side: TeamSide) -> [HockeyPenaltyTimer] {
+        switch side {
+        case .home:
+            return homePenaltyTimers
+        case .guest:
+            return guestPenaltyTimers
+        }
+    }
+
+    private func updatePenaltyTimers(for side: TeamSide, mutate: (inout [HockeyPenaltyTimer]) -> Void) {
+        switch side {
+        case .home:
+            var timers = homePenaltyTimers
+            mutate(&timers)
+            homePenaltyTimers = timers
+        case .guest:
+            var timers = guestPenaltyTimers
+            mutate(&timers)
+            guestPenaltyTimers = timers
+        }
+    }
+
+    private func penaltyTimer(for side: TeamSide, timerID: UUID) -> HockeyPenaltyTimer? {
+        penaltyTimers(for: side).first { $0.id == timerID }
+    }
+
+    private func penaltySummaryItem(_ timer: HockeyPenaltyTimer?) -> String {
+        guard let timer else {
+            return ""
+        }
+
+        let playerBits = [timer.playerNumber, timer.playerName]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let playerText = playerBits.isEmpty ? "OPEN" : playerBits
+        return "\(playerText) \(Self.formatGameClock(timer.remainingSeconds)) \(timer.isRunning ? "RUN" : "STOP")"
     }
 
     private func playBuzzer() {
@@ -1510,6 +2035,7 @@ final class ScoreboardStore: ObservableObject {
     private func configurePersistence() {
         let persistencePublishers: [AnyPublisher<Void, Never>] = [
             $selectedSport.map { _ in () }.eraseToAnyPublisher(),
+            $customSportConfig.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
@@ -1538,6 +2064,12 @@ final class ScoreboardStore: ObservableObject {
             $guestSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamFouls.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamFouls.map { _ in () }.eraseToAnyPublisher(),
+            $homeChessClockSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $guestChessClockSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $activeChessClockSide.map { _ in () }.eraseToAnyPublisher(),
+            $chessClockPreset.map { _ in () }.eraseToAnyPublisher(),
+            $homePenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
+            $guestPenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
@@ -1565,6 +2097,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         selectedSport = persistedState.selectedSport
+        customSportConfig = persistedState.customSportConfig
         homeTeamName = persistedState.homeTeamName
         guestTeamName = persistedState.guestTeamName
         homeScore = persistedState.homeScore
@@ -1576,9 +2109,9 @@ final class ScoreboardStore: ObservableObject {
         shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
         defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
         activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
-        possessionDirection = persistedState.selectedSport.supportsPossession ? persistedState.possessionDirection : .none
+        possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
         areSidesSwapped = persistedState.areSidesSwapped
-        isPlayerTrackingEnabled = persistedState.selectedSport.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false
+        isPlayerTrackingEnabled = currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false
         isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
         displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
@@ -1593,6 +2126,12 @@ final class ScoreboardStore: ObservableObject {
         guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
         homeTeamFouls = max(0, persistedState.homeTeamFouls)
         guestTeamFouls = max(0, persistedState.guestTeamFouls)
+        homeChessClockSeconds = boundedGameClockSeconds(persistedState.homeChessClockSeconds)
+        guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
+        activeChessClockSide = persistedState.activeChessClockSide
+        chessClockPreset = persistedState.chessClockPreset
+        homePenaltyTimers = persistedState.homePenaltyTimers
+        guestPenaltyTimers = persistedState.guestPenaltyTimers
         homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
         theme = persistedState.theme
@@ -1600,7 +2139,7 @@ final class ScoreboardStore: ObservableObject {
         isSoundEnabled = persistedState.isSoundEnabled
         didCompleteSetup = persistedState.didCompleteSetup
         setupPresets = persistedState.setupPresets
-        if !selectedSport.supportsShotClock {
+        if !currentRules.supportsShotClock {
             defaultShotClockSeconds = 0
             activeShotClockPresetSeconds = 0
             shotClockMilliseconds = 0
@@ -1615,6 +2154,7 @@ final class ScoreboardStore: ObservableObject {
     private func persistState() {
         let persistedState = PersistedState(
             selectedSport: selectedSport,
+            customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
@@ -1643,6 +2183,12 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed: guestSubstitutionsUsed,
             homeTeamFouls: homeTeamFouls,
             guestTeamFouls: guestTeamFouls,
+            homeChessClockSeconds: homeChessClockSeconds,
+            guestChessClockSeconds: guestChessClockSeconds,
+            activeChessClockSide: activeChessClockSide,
+            chessClockPreset: chessClockPreset,
+            homePenaltyTimers: homePenaltyTimers,
+            guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
@@ -1753,6 +2299,7 @@ final class ScoreboardStore: ObservableObject {
 
 private struct PersistedState: Codable {
     var selectedSport: SportType
+    var customSportConfig: CustomSportConfig
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -1781,6 +2328,12 @@ private struct PersistedState: Codable {
     var guestSubstitutionsUsed: Int
     var homeTeamFouls: Int
     var guestTeamFouls: Int
+    var homeChessClockSeconds: Int
+    var guestChessClockSeconds: Int
+    var activeChessClockSide: TeamSide?
+    var chessClockPreset: ChessClockPreset
+    var homePenaltyTimers: [HockeyPenaltyTimer]
+    var guestPenaltyTimers: [HockeyPenaltyTimer]
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
@@ -1792,6 +2345,7 @@ private struct PersistedState: Codable {
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
         case selectedSport
+        case customSportConfig
         case guestTeamName
         case homeScore
         case guestScore
@@ -1820,6 +2374,12 @@ private struct PersistedState: Codable {
         case guestSubstitutionsUsed
         case homeTeamFouls
         case guestTeamFouls
+        case homeChessClockSeconds
+        case guestChessClockSeconds
+        case activeChessClockSide
+        case chessClockPreset
+        case homePenaltyTimers
+        case guestPenaltyTimers
         case homeRoster
         case guestRoster
         case theme
@@ -1831,6 +2391,7 @@ private struct PersistedState: Codable {
 
     init(
         selectedSport: SportType,
+        customSportConfig: CustomSportConfig,
         homeTeamName: String,
         guestTeamName: String,
         homeScore: Int,
@@ -1859,6 +2420,12 @@ private struct PersistedState: Codable {
         guestSubstitutionsUsed: Int,
         homeTeamFouls: Int,
         guestTeamFouls: Int,
+        homeChessClockSeconds: Int,
+        guestChessClockSeconds: Int,
+        activeChessClockSide: TeamSide?,
+        chessClockPreset: ChessClockPreset,
+        homePenaltyTimers: [HockeyPenaltyTimer],
+        guestPenaltyTimers: [HockeyPenaltyTimer],
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
@@ -1868,6 +2435,7 @@ private struct PersistedState: Codable {
         setupPresets: [SetupPreset]
     ) {
         self.selectedSport = selectedSport
+        self.customSportConfig = customSportConfig
         self.homeTeamName = homeTeamName
         self.guestTeamName = guestTeamName
         self.homeScore = homeScore
@@ -1896,6 +2464,12 @@ private struct PersistedState: Codable {
         self.guestSubstitutionsUsed = guestSubstitutionsUsed
         self.homeTeamFouls = homeTeamFouls
         self.guestTeamFouls = guestTeamFouls
+        self.homeChessClockSeconds = homeChessClockSeconds
+        self.guestChessClockSeconds = guestChessClockSeconds
+        self.activeChessClockSide = activeChessClockSide
+        self.chessClockPreset = chessClockPreset
+        self.homePenaltyTimers = homePenaltyTimers
+        self.guestPenaltyTimers = guestPenaltyTimers
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
@@ -1908,6 +2482,7 @@ private struct PersistedState: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selectedSport = try container.decodeIfPresent(SportType.self, forKey: .selectedSport) ?? .basketball
+        customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig) ?? .default
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         homeScore = try container.decode(Int.self, forKey: .homeScore)
@@ -1941,6 +2516,12 @@ private struct PersistedState: Codable {
         guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed) ?? 0
         homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls) ?? 0
         guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls) ?? 0
+        homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds) ?? ChessClockPreset.rapid.seconds
+        guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds) ?? ChessClockPreset.rapid.seconds
+        activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide) ?? .home
+        chessClockPreset = try container.decodeIfPresent(ChessClockPreset.self, forKey: .chessClockPreset) ?? .rapid
+        homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers) ?? []
+        guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers) ?? []
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
@@ -1953,6 +2534,7 @@ private struct PersistedState: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(selectedSport, forKey: .selectedSport)
+        try container.encode(customSportConfig, forKey: .customSportConfig)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
         try container.encode(homeScore, forKey: .homeScore)
@@ -1981,6 +2563,12 @@ private struct PersistedState: Codable {
         try container.encode(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
         try container.encode(homeTeamFouls, forKey: .homeTeamFouls)
         try container.encode(guestTeamFouls, forKey: .guestTeamFouls)
+        try container.encode(homeChessClockSeconds, forKey: .homeChessClockSeconds)
+        try container.encode(guestChessClockSeconds, forKey: .guestChessClockSeconds)
+        try container.encode(activeChessClockSide, forKey: .activeChessClockSide)
+        try container.encode(chessClockPreset, forKey: .chessClockPreset)
+        try container.encode(homePenaltyTimers, forKey: .homePenaltyTimers)
+        try container.encode(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
