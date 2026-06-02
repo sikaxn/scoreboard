@@ -20,12 +20,15 @@ struct DebateSegment: Identifiable, Codable, Equatable, Sendable {
 }
 
 struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
-    let id: String
+    static let customID = "custom-debate"
+
+    var id: String
     var title: String
     var homeSideLabel: String
     var guestSideLabel: String
     var segments: [DebateSegment]
     var prepSecondsPerSide: Int
+    var isPrepTimeEnabled: Bool
     var defaultScoreTrackingEnabled: Bool
     var defaultPlayerTrackingEnabled: Bool
 
@@ -47,6 +50,7 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
             DebateSegment(id: "pf-neg-final-focus", title: "Neg Final Focus", timerMode: .masterClock, durationSeconds: 2 * 60, startingSide: nil, allowsSideSwitching: false, autoPauseAtEnd: true, startsPaused: true)
         ],
         prepSecondsPerSide: 2 * 60,
+        isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
         defaultPlayerTrackingEnabled: false
     )
@@ -66,6 +70,7 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
             DebateSegment(id: "ld-aff-2r", title: "Aff Rebuttal 2", timerMode: .masterClock, durationSeconds: 3 * 60, startingSide: nil, allowsSideSwitching: false, autoPauseAtEnd: true, startsPaused: true)
         ],
         prepSecondsPerSide: 3 * 60,
+        isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
         defaultPlayerTrackingEnabled: false
     )
@@ -90,18 +95,85 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
             DebateSegment(id: "pol-aff-2ar", title: "2AR", timerMode: .masterClock, durationSeconds: 5 * 60, startingSide: nil, allowsSideSwitching: false, autoPauseAtEnd: true, startsPaused: true)
         ],
         prepSecondsPerSide: 5 * 60,
+        isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
         defaultPlayerTrackingEnabled: false
     )
 
-    static let allPresets: [DebatePreset] = [
+    static let customDefault = DebatePreset(
+        id: customID,
+        title: "Custom Debate",
+        homeSideLabel: "Aff",
+        guestSideLabel: "Neg",
+        segments: [
+            DebateSegment(
+                id: "custom-segment-1",
+                title: "Constructive",
+                timerMode: .masterClock,
+                durationSeconds: 4 * 60,
+                startingSide: nil,
+                allowsSideSwitching: false,
+                autoPauseAtEnd: true,
+                startsPaused: true
+            )
+        ],
+        prepSecondsPerSide: 2 * 60,
+        isPrepTimeEnabled: true,
+        defaultScoreTrackingEnabled: false,
+        defaultPlayerTrackingEnabled: false
+    )
+
+    static let builtInPresets: [DebatePreset] = [
         .publicForum,
         .lincolnDouglas,
         .policy
     ]
 
+    static let allPresets: [DebatePreset] = builtInPresets
+    static let selectablePresetIDs: [String] = builtInPresets.map(\.id) + [customID]
+
     static func preset(id: String) -> DebatePreset {
-        allPresets.first(where: { $0.id == id }) ?? .publicForum
+        builtInPresets.first(where: { $0.id == id }) ?? .publicForum
+    }
+}
+
+extension DebatePreset {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case homeSideLabel
+        case guestSideLabel
+        case segments
+        case prepSecondsPerSide
+        case isPrepTimeEnabled
+        case defaultScoreTrackingEnabled
+        case defaultPlayerTrackingEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        homeSideLabel = try container.decode(String.self, forKey: .homeSideLabel)
+        guestSideLabel = try container.decode(String.self, forKey: .guestSideLabel)
+        segments = try container.decode([DebateSegment].self, forKey: .segments)
+        prepSecondsPerSide = try container.decode(Int.self, forKey: .prepSecondsPerSide)
+        isPrepTimeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPrepTimeEnabled) ?? true
+        defaultScoreTrackingEnabled = try container.decode(Bool.self, forKey: .defaultScoreTrackingEnabled)
+        defaultPlayerTrackingEnabled = try container.decode(Bool.self, forKey: .defaultPlayerTrackingEnabled)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(homeSideLabel, forKey: .homeSideLabel)
+        try container.encode(guestSideLabel, forKey: .guestSideLabel)
+        try container.encode(segments, forKey: .segments)
+        try container.encode(prepSecondsPerSide, forKey: .prepSecondsPerSide)
+        try container.encode(isPrepTimeEnabled, forKey: .isPrepTimeEnabled)
+        try container.encode(defaultScoreTrackingEnabled, forKey: .defaultScoreTrackingEnabled)
+        try container.encode(defaultPlayerTrackingEnabled, forKey: .defaultPlayerTrackingEnabled)
     }
 }
 

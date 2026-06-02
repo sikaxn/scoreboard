@@ -29,6 +29,7 @@ struct ScoreboardFaceView: View {
     let debateGuestSideLabel: String?
     let debateSegmentTitle: String?
     let debateActiveTimer: DebateActiveTimer?
+    let showsDebatePrepTime: Bool
     let formattedDebatePrepHomeClock: String?
     let formattedDebatePrepGuestClock: String?
     let formattedShotClock: String
@@ -239,9 +240,10 @@ struct ScoreboardFaceView: View {
                     .foregroundStyle(accent)
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                     .frame(maxWidth: .infinity)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
 
-            if sport == .debate {
+            if sport == .debate && showsDebatePrepTime {
                 debatePrepStrip(
                     side: side,
                     accent: accent,
@@ -300,6 +302,8 @@ struct ScoreboardFaceView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
+        .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsScore)
+        .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsDebatePrepTime)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displayedPlayers)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
     }

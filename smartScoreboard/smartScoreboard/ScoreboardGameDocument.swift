@@ -10,6 +10,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var fileVersion = 7
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
+    var customDebatePreset: DebatePreset?
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -48,6 +49,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var debateCurrentSegmentIndex: Int?
     var debatePrepHomeSeconds: Int?
     var debatePrepGuestSeconds: Int?
+    var isDebatePrepTimeEnabled: Bool?
     var debateActiveTimer: DebateActiveTimer?
     var isDebatePrepClockRunning: Bool?
     var isDebateScoreTrackingEnabled: Bool?
@@ -60,6 +62,7 @@ struct ScoreboardGameSnapshot: Sendable {
     static let empty = ScoreboardGameSnapshot(
         sport: .basketball,
         customSportConfig: .default,
+        customDebatePreset: .customDefault,
         homeTeamName: "",
         guestTeamName: "",
         homeScore: 0,
@@ -98,6 +101,7 @@ struct ScoreboardGameSnapshot: Sendable {
         debateCurrentSegmentIndex: 0,
         debatePrepHomeSeconds: DebatePreset.publicForum.prepSecondsPerSide,
         debatePrepGuestSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+        isDebatePrepTimeEnabled: true,
         debateActiveTimer: .segment,
         isDebatePrepClockRunning: false,
         isDebateScoreTrackingEnabled: false,
@@ -114,6 +118,7 @@ extension ScoreboardGameSnapshot: Codable {
         case fileVersion
         case sport
         case customSportConfig
+        case customDebatePreset
         case homeTeamName
         case guestTeamName
         case homeScore
@@ -152,6 +157,7 @@ extension ScoreboardGameSnapshot: Codable {
         case debateCurrentSegmentIndex
         case debatePrepHomeSeconds
         case debatePrepGuestSeconds
+        case isDebatePrepTimeEnabled
         case debateActiveTimer
         case isDebatePrepClockRunning
         case isDebateScoreTrackingEnabled
@@ -167,6 +173,7 @@ extension ScoreboardGameSnapshot: Codable {
         fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
         sport = try container.decodeIfPresent(SportType.self, forKey: .sport)
         customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig)
+        customDebatePreset = try container.decodeIfPresent(DebatePreset.self, forKey: .customDebatePreset)
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         homeScore = try container.decode(Int.self, forKey: .homeScore)
@@ -205,6 +212,7 @@ extension ScoreboardGameSnapshot: Codable {
         debateCurrentSegmentIndex = try container.decodeIfPresent(Int.self, forKey: .debateCurrentSegmentIndex)
         debatePrepHomeSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepHomeSeconds)
         debatePrepGuestSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepGuestSeconds)
+        isDebatePrepTimeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepTimeEnabled)
         debateActiveTimer = try container.decodeIfPresent(DebateActiveTimer.self, forKey: .debateActiveTimer)
         isDebatePrepClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepClockRunning)
         isDebateScoreTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebateScoreTrackingEnabled)
@@ -220,6 +228,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(fileVersion, forKey: .fileVersion)
         try container.encodeIfPresent(sport, forKey: .sport)
         try container.encodeIfPresent(customSportConfig, forKey: .customSportConfig)
+        try container.encodeIfPresent(customDebatePreset, forKey: .customDebatePreset)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
         try container.encode(homeScore, forKey: .homeScore)
@@ -258,6 +267,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(debateCurrentSegmentIndex, forKey: .debateCurrentSegmentIndex)
         try container.encodeIfPresent(debatePrepHomeSeconds, forKey: .debatePrepHomeSeconds)
         try container.encodeIfPresent(debatePrepGuestSeconds, forKey: .debatePrepGuestSeconds)
+        try container.encodeIfPresent(isDebatePrepTimeEnabled, forKey: .isDebatePrepTimeEnabled)
         try container.encodeIfPresent(debateActiveTimer, forKey: .debateActiveTimer)
         try container.encodeIfPresent(isDebatePrepClockRunning, forKey: .isDebatePrepClockRunning)
         try container.encodeIfPresent(isDebateScoreTrackingEnabled, forKey: .isDebateScoreTrackingEnabled)
