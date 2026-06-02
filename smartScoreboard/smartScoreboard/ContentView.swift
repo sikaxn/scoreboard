@@ -1311,12 +1311,20 @@ struct ContentView: View {
     }
 
     private func trackedControlPane(layout: InterfaceLayout) -> some View {
-        Group {
+        ZStack {
             switch dashboardPage {
             case .main:
                 mainControlPane(layout: layout)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .move(edge: .trailing).combined(with: .opacity)
+                    ))
             case .players:
                 playerTrackingScreen(layout: layout)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: dashboardPage)
@@ -1349,8 +1357,10 @@ struct ContentView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: layout.sectionSpacing) {
                 playerTrackingIntroCard(layout: layout)
+                    .transition(.move(edge: .top).combined(with: .opacity))
 
                 playerTrackingPanel(layout: layout)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .padding(.bottom, layout.sectionSpacing)
         }
@@ -1402,6 +1412,7 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: store.isPlayerOverlayPaused)
     }
 
     private func playerTrackingIntroCard(layout: InterfaceLayout) -> some View {
@@ -1685,14 +1696,17 @@ struct ContentView: View {
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             if store.showsSubstitutionTracking {
                 substitutionControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
             if store.supportsTeamFouls {
                 teamFoulControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
         .controlCardStyle(
@@ -1701,6 +1715,9 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsShotClock)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsSubstitutionTracking)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsTeamFouls)
     }
 
     private func playerTrackingPanel(layout: InterfaceLayout) -> some View {
@@ -1829,6 +1846,7 @@ struct ContentView: View {
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 

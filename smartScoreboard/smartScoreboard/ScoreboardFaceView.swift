@@ -220,6 +220,7 @@ struct ScoreboardFaceView: View {
                     condensed: condensed,
                     ultraCondensed: ultraCondensed
                 )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
             if sport.supportsTeamFouls {
@@ -229,10 +230,12 @@ struct ScoreboardFaceView: View {
                     ultraCondensed: ultraCondensed,
                     condensed: condensed
                 )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
             if sport != .soccer && !displayedPlayers.isEmpty {
                 activeLineupStrip(displayedPlayers, accent: accent, base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 Spacer(minLength: 0)
             }
@@ -244,6 +247,11 @@ struct ScoreboardFaceView: View {
                 .strokeBorder(boardPanelBorderColor)
         )
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displayedPlayers)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
     }
 
     private func activeLineupStrip(
@@ -281,6 +289,13 @@ struct ScoreboardFaceView: View {
                                 .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
                         }
                     }
+                    .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
                 }
             }
         }
@@ -292,6 +307,7 @@ struct ScoreboardFaceView: View {
             RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: players)
     }
 
     private func centerClockPanel(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -328,6 +344,7 @@ struct ScoreboardFaceView: View {
 
                 if shouldShowSoccerCenterPlayers {
                     soccerCenterPlayerStrip(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
             }
@@ -341,6 +358,9 @@ struct ScoreboardFaceView: View {
                 .strokeBorder(boardPanelBorderColor)
         )
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }
 
     private func shotClockBadge(
@@ -483,6 +503,7 @@ struct ScoreboardFaceView: View {
                 ForEach(0..<boundedAllowed, id: \.self) { index in
                     Circle()
                         .fill(index < boundedUsed ? accent : boardBadgeBorderColor.opacity(0.45))
+                        .scaleEffect(index < boundedUsed ? 1.08 : 0.92)
                         .frame(width: dotSize, height: dotSize)
                         .overlay(
                             Circle()
@@ -503,6 +524,7 @@ struct ScoreboardFaceView: View {
             RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
+        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: boundedUsed)
     }
 
     private func teamFoulStrip(
@@ -527,6 +549,7 @@ struct ScoreboardFaceView: View {
                     Text("X")
                         .font(.system(size: ultraCondensed ? 11 : condensed ? 15 : 13, weight: .black, design: .rounded))
                         .foregroundStyle(index < visibleFouls ? accent : boardBadgeBorderColor.opacity(0.45))
+                        .scaleEffect(index < visibleFouls ? 1.08 : 0.96)
                         .shadow(color: index < visibleFouls ? accent.opacity(0.35) : .clear, radius: 4)
                 }
 
@@ -546,6 +569,7 @@ struct ScoreboardFaceView: View {
             RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
+        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: visibleFouls)
     }
 
     private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -575,6 +599,8 @@ struct ScoreboardFaceView: View {
             RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: displayedPlayers(for: .home))
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }
 
     private func soccerPlayerColumn(
@@ -591,23 +617,31 @@ struct ScoreboardFaceView: View {
                 .tracking(ultraCondensed ? 0.8 : 1.2)
                 .foregroundStyle(boardSecondaryTextColor)
 
-                ForEach(players) { player in
-                    HStack(spacing: 6) {
-                        Text("#\(player.number.isEmpty ? "--" : player.number)")
-                            .font(.system(size: ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017, weight: .black, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .foregroundStyle(accent)
-                            .frame(width: ultraCondensed ? 40 : condensed ? 48 : 44, alignment: .leading)
+            ForEach(players) { player in
+                HStack(spacing: 6) {
+                    Text("#\(player.number.isEmpty ? "--" : player.number)")
+                        .font(.system(size: ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017, weight: .black, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .foregroundStyle(accent)
+                        .frame(width: ultraCondensed ? 40 : condensed ? 48 : 44, alignment: .leading)
 
-                        Text(player.name.isEmpty ? "PLAYER" : player.name)
-                            .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
+                    Text(player.name.isEmpty ? "PLAYER" : player.name)
+                        .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
                         .singleLineFitted(minScale: 0.55)
-                        .foregroundStyle(playerCardColor(player.cardStatus))
+                        .foregroundStyle(playerStatusColor(player))
                 }
+                .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
+                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
+                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: players)
     }
 
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
