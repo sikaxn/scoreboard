@@ -1196,10 +1196,17 @@ struct ContentView: View {
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
-        Text(selectedStoredGameFile?.displayName ?? "New Game")
-            .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
-            .singleLineFitted(minScale: 0.6)
-            .foregroundStyle(themePalette.dashboardPrimaryText)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(selectedStoredGameFile?.displayName ?? "New Game")
+                .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
+                .singleLineFitted(minScale: 0.6)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+
+            Text(store.selectedSport.title)
+                .font(layout.headerSubtitleFont.weight(.semibold))
+                .singleLineFitted(minScale: 0.8)
+                .foregroundStyle(themePalette.dashboardMutedText)
+        }
     }
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
