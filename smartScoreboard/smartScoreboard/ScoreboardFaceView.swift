@@ -390,6 +390,7 @@ struct ScoreboardFaceView: View {
                         valueColor: activeChessClockSide == .guest ? palette.guestAccent : boardBadgeValueTextColor
                     )
                 }
+                .id("public-dual-\(debateSegmentTitle ?? "")")
                 .transition(.move(edge: .top).combined(with: .opacity))
             } else if showsGameClock {
                 Text(formattedClock)
@@ -401,6 +402,7 @@ struct ScoreboardFaceView: View {
                     .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                     .frame(maxWidth: .infinity)
+                    .id("public-master-\(debateSegmentTitle ?? "")")
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
@@ -409,6 +411,8 @@ struct ScoreboardFaceView: View {
                    let debateSegmentTitle,
                    !debateSegmentTitle.isEmpty {
                     headerBadge(title: "SEGMENT", value: debateSegmentTitle.uppercased(), condensed: condensed, ultraCondensed: ultraCondensed)
+                        .id("public-segment-\(debateSegmentTitle)")
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 if rules.supportsShotClock {
@@ -453,6 +457,7 @@ struct ScoreboardFaceView: View {
         )
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
+        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }

@@ -31,6 +31,8 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
     var isPrepTimeEnabled: Bool
     var defaultScoreTrackingEnabled: Bool
     var defaultPlayerTrackingEnabled: Bool
+    var defaultPlayerFoulsEnabled: Bool
+    var defaultPlayerCardsEnabled: Bool
 
     static let publicForum = DebatePreset(
         id: "public-forum",
@@ -52,7 +54,9 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
         prepSecondsPerSide: 2 * 60,
         isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
-        defaultPlayerTrackingEnabled: false
+        defaultPlayerTrackingEnabled: false,
+        defaultPlayerFoulsEnabled: false,
+        defaultPlayerCardsEnabled: false
     )
 
     static let lincolnDouglas = DebatePreset(
@@ -72,7 +76,9 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
         prepSecondsPerSide: 3 * 60,
         isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
-        defaultPlayerTrackingEnabled: false
+        defaultPlayerTrackingEnabled: false,
+        defaultPlayerFoulsEnabled: false,
+        defaultPlayerCardsEnabled: false
     )
 
     static let policy = DebatePreset(
@@ -97,7 +103,9 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
         prepSecondsPerSide: 5 * 60,
         isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
-        defaultPlayerTrackingEnabled: false
+        defaultPlayerTrackingEnabled: false,
+        defaultPlayerFoulsEnabled: false,
+        defaultPlayerCardsEnabled: false
     )
 
     static let customDefault = DebatePreset(
@@ -120,7 +128,9 @@ struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
         prepSecondsPerSide: 2 * 60,
         isPrepTimeEnabled: true,
         defaultScoreTrackingEnabled: false,
-        defaultPlayerTrackingEnabled: false
+        defaultPlayerTrackingEnabled: false,
+        defaultPlayerFoulsEnabled: false,
+        defaultPlayerCardsEnabled: false
     )
 
     static let builtInPresets: [DebatePreset] = [
@@ -148,6 +158,8 @@ extension DebatePreset {
         case isPrepTimeEnabled
         case defaultScoreTrackingEnabled
         case defaultPlayerTrackingEnabled
+        case defaultPlayerFoulsEnabled
+        case defaultPlayerCardsEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -161,6 +173,8 @@ extension DebatePreset {
         isPrepTimeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPrepTimeEnabled) ?? true
         defaultScoreTrackingEnabled = try container.decode(Bool.self, forKey: .defaultScoreTrackingEnabled)
         defaultPlayerTrackingEnabled = try container.decode(Bool.self, forKey: .defaultPlayerTrackingEnabled)
+        defaultPlayerFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .defaultPlayerFoulsEnabled) ?? false
+        defaultPlayerCardsEnabled = try container.decodeIfPresent(Bool.self, forKey: .defaultPlayerCardsEnabled) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -174,6 +188,8 @@ extension DebatePreset {
         try container.encode(isPrepTimeEnabled, forKey: .isPrepTimeEnabled)
         try container.encode(defaultScoreTrackingEnabled, forKey: .defaultScoreTrackingEnabled)
         try container.encode(defaultPlayerTrackingEnabled, forKey: .defaultPlayerTrackingEnabled)
+        try container.encode(defaultPlayerFoulsEnabled, forKey: .defaultPlayerFoulsEnabled)
+        try container.encode(defaultPlayerCardsEnabled, forKey: .defaultPlayerCardsEnabled)
     }
 }
 

@@ -54,6 +54,8 @@ struct ScoreboardGameSnapshot: Sendable {
     var isDebatePrepClockRunning: Bool?
     var isDebateScoreTrackingEnabled: Bool?
     var isDebatePlayerTrackingEnabled: Bool?
+    var isDebatePlayerFoulsEnabled: Bool?
+    var isDebatePlayerCardsEnabled: Bool?
     var homePenaltyTimers: [HockeyPenaltyTimer]?
     var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
@@ -106,6 +108,8 @@ struct ScoreboardGameSnapshot: Sendable {
         isDebatePrepClockRunning: false,
         isDebateScoreTrackingEnabled: false,
         isDebatePlayerTrackingEnabled: false,
+        isDebatePlayerFoulsEnabled: false,
+        isDebatePlayerCardsEnabled: false,
         homePenaltyTimers: [],
         guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
@@ -162,6 +166,8 @@ extension ScoreboardGameSnapshot: Codable {
         case isDebatePrepClockRunning
         case isDebateScoreTrackingEnabled
         case isDebatePlayerTrackingEnabled
+        case isDebatePlayerFoulsEnabled
+        case isDebatePlayerCardsEnabled
         case homePenaltyTimers
         case guestPenaltyTimers
         case homeRoster
@@ -217,6 +223,8 @@ extension ScoreboardGameSnapshot: Codable {
         isDebatePrepClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepClockRunning)
         isDebateScoreTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebateScoreTrackingEnabled)
         isDebatePlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerTrackingEnabled)
+        isDebatePlayerFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerFoulsEnabled)
+        isDebatePlayerCardsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerCardsEnabled)
         homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers)
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
@@ -272,6 +280,8 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(isDebatePrepClockRunning, forKey: .isDebatePrepClockRunning)
         try container.encodeIfPresent(isDebateScoreTrackingEnabled, forKey: .isDebateScoreTrackingEnabled)
         try container.encodeIfPresent(isDebatePlayerTrackingEnabled, forKey: .isDebatePlayerTrackingEnabled)
+        try container.encodeIfPresent(isDebatePlayerFoulsEnabled, forKey: .isDebatePlayerFoulsEnabled)
+        try container.encodeIfPresent(isDebatePlayerCardsEnabled, forKey: .isDebatePlayerCardsEnabled)
         try container.encodeIfPresent(homePenaltyTimers, forKey: .homePenaltyTimers)
         try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)

@@ -268,6 +268,8 @@ final class ScoreboardStore: ObservableObject {
     @Published var isDebatePrepClockRunning = false
     @Published var isDebateScoreTrackingEnabled = false
     @Published var isDebatePlayerTrackingEnabled = false
+    @Published var isDebatePlayerFoulsEnabled = false
+    @Published var isDebatePlayerCardsEnabled = false
     @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
@@ -385,11 +387,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var supportsFouls: Bool {
-        currentRules.supportsFouls
+        if isDebateMode {
+            return isDebatePlayerTrackingEnabled && isDebatePlayerFoulsEnabled
+        }
+
+        return currentRules.supportsFouls
     }
 
     var supportsCards: Bool {
-        currentRules.supportsCards
+        if isDebateMode {
+            return isDebatePlayerTrackingEnabled && isDebatePlayerCardsEnabled
+        }
+
+        return currentRules.supportsCards
     }
 
     var supportsTeamFouls: Bool {
@@ -460,7 +470,35 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var currentRules: SportRules {
-        selectedSport.rules(customConfig: customSportConfig)
+        if isDebateMode {
+            return SportRules(
+                sport: .debate,
+                title: "Debate",
+                periodTitle: "Round",
+                periodShortTitle: "R",
+                scoreStepOptions: [],
+                defaultClockSeconds: 7 * 60,
+                defaultShotClockSeconds: 0,
+                defaultRosterSize: isDebatePlayerTrackingEnabled ? max(rosterSizePerTeam, Self.minRosterSize) : 0,
+                defaultDisplayLineupSize: isDebatePlayerTrackingEnabled ? max(1, displayLineupSize) : 0,
+                defaultSubstitutionLimit: 0,
+                mainClockMode: .disabled,
+                supportsScore: isDebateScoreTrackingEnabled,
+                supportsPeriod: false,
+                supportsShotClock: false,
+                supportsPossession: false,
+                supportsFouls: isDebatePlayerTrackingEnabled && isDebatePlayerFoulsEnabled,
+                supportsTeamFouls: false,
+                supportsPlayerTracking: isDebatePlayerTrackingEnabled,
+                usesCenterPlayerStrip: false,
+                supportsCards: isDebatePlayerTrackingEnabled && isDebatePlayerCardsEnabled,
+                showsSubstitutionTracking: false,
+                supportsHockeyPenalties: false,
+                usesChessClocks: currentDebateSegment?.timerMode == .dualClock
+            )
+        }
+
+        return selectedSport.rules(customConfig: customSportConfig)
     }
 
     func substitutionsAllowed(for side: TeamSide) -> Int {
@@ -1010,6 +1048,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
+        if isDebateMode {
+            setDebatePlayerTrackingEnabled(isEnabled)
+            return
+        }
+
         isPlayerTrackingEnabled = supportsPlayerTracking ? isEnabled : false
     }
 
@@ -1279,6 +1322,8 @@ final class ScoreboardStore: ObservableObject {
         isDebatePrepTimeEnabled = preset.isPrepTimeEnabled
         isDebateScoreTrackingEnabled = preset.defaultScoreTrackingEnabled
         isDebatePlayerTrackingEnabled = preset.defaultPlayerTrackingEnabled
+        isDebatePlayerFoulsEnabled = preset.defaultPlayerFoulsEnabled
+        isDebatePlayerCardsEnabled = preset.defaultPlayerCardsEnabled
 
         if resetRound {
             resetDebateRound(logKind: .debatePresetChange, notes: preset.title)
@@ -1325,6 +1370,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepTimeEnabled = resolved.isPrepTimeEnabled
             isDebateScoreTrackingEnabled = resolved.defaultScoreTrackingEnabled
             isDebatePlayerTrackingEnabled = resolved.defaultPlayerTrackingEnabled
+            isDebatePlayerFoulsEnabled = resolved.defaultPlayerFoulsEnabled
+            isDebatePlayerCardsEnabled = resolved.defaultPlayerCardsEnabled
             if resetRound {
                 resetDebateRound(logKind: .debatePresetChange, notes: resolved.title)
             } else {
@@ -1373,6 +1420,20 @@ final class ScoreboardStore: ObservableObject {
         if !isEnabled {
             isPlayerOverlayPaused = false
         }
+    }
+
+    func setDebatePlayerFoulsEnabled(_ isEnabled: Bool) {
+        if !isEnabled {
+            resetAllPlayerFouls()
+        }
+        isDebatePlayerFoulsEnabled = isEnabled
+    }
+
+    func setDebatePlayerCardsEnabled(_ isEnabled: Bool) {
+        if !isEnabled {
+            resetAllPlayerCards()
+        }
+        isDebatePlayerCardsEnabled = isEnabled
     }
 
     func resetDebateRound(logKind: ScoreboardLogOperationKind = .debateRoundReset, notes: String? = nil) {
@@ -1873,11 +1934,14 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning = false
             isDebateScoreTrackingEnabled = false
             isDebatePlayerTrackingEnabled = false
+            isDebatePlayerFoulsEnabled = false
+            isDebatePlayerCardsEnabled = false
             homePenaltyTimers = []
             guestPenaltyTimers = []
             setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
             if sport == .debate {
+                clearSubstitutionTracking()
                 applyDebatePreset(id: DebatePreset.publicForum.id, resetRound: true)
                 setDebatePlayerTrackingEnabled(DebatePreset.publicForum.defaultPlayerTrackingEnabled)
                 isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
@@ -1896,11 +1960,19 @@ final class ScoreboardStore: ObservableObject {
                 isShotClockRunning = false
             }
             if sport == .debate {
+                clearSubstitutionTracking()
                 isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
             } else if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
             }
         }
+    }
+
+    private func clearSubstitutionTracking() {
+        homeSubstitutionsAllowed = 0
+        guestSubstitutionsAllowed = 0
+        homeSubstitutionsUsed = 0
+        guestSubstitutionsUsed = 0
     }
 
     func setSubstitutionsAllowed(for side: TeamSide, to value: Int) {
@@ -2050,6 +2122,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning: isDebatePrepClockRunning,
             isDebateScoreTrackingEnabled: isDebateScoreTrackingEnabled,
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
+            isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
+            isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
@@ -2091,6 +2165,9 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = max(0, snapshot.guestSubstitutionsAllowed ?? currentRules.defaultSubstitutionLimit)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, snapshot.homeSubstitutionsUsed ?? 0))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, snapshot.guestSubstitutionsUsed ?? 0))
+            if isDebateMode {
+                clearSubstitutionTracking()
+            }
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
             let defaultDualClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
@@ -2110,6 +2187,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning = snapshot.isDebatePrepClockRunning ?? false
             isDebateScoreTrackingEnabled = snapshot.isDebateScoreTrackingEnabled ?? debatePreset.defaultScoreTrackingEnabled
             isDebatePlayerTrackingEnabled = snapshot.isDebatePlayerTrackingEnabled ?? debatePreset.defaultPlayerTrackingEnabled
+            isDebatePlayerFoulsEnabled = snapshot.isDebatePlayerFoulsEnabled ?? debatePreset.defaultPlayerFoulsEnabled
+            isDebatePlayerCardsEnabled = snapshot.isDebatePlayerCardsEnabled ?? debatePreset.defaultPlayerCardsEnabled
             homePenaltyTimers = snapshot.homePenaltyTimers ?? []
             guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
@@ -2624,6 +2703,8 @@ final class ScoreboardStore: ObservableObject {
             $isDebatePrepClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isDebateScoreTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isDebatePlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isDebatePlayerFoulsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isDebatePlayerCardsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $homePenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
             $guestPenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
@@ -2700,6 +2781,8 @@ final class ScoreboardStore: ObservableObject {
         isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
         isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
         isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
+        isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
+        isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
         homePenaltyTimers = persistedState.homePenaltyTimers
         guestPenaltyTimers = persistedState.guestPenaltyTimers
         homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
@@ -2780,6 +2863,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning: isDebatePrepClockRunning,
             isDebateScoreTrackingEnabled: isDebateScoreTrackingEnabled,
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
+            isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
+            isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
@@ -2937,6 +3022,8 @@ private struct PersistedState: Codable {
     var isDebatePrepClockRunning: Bool
     var isDebateScoreTrackingEnabled: Bool
     var isDebatePlayerTrackingEnabled: Bool
+    var isDebatePlayerFoulsEnabled: Bool
+    var isDebatePlayerCardsEnabled: Bool
     var homePenaltyTimers: [HockeyPenaltyTimer]
     var guestPenaltyTimers: [HockeyPenaltyTimer]
     var homeRoster: TeamRoster
@@ -2995,6 +3082,8 @@ private struct PersistedState: Codable {
         case isDebatePrepClockRunning
         case isDebateScoreTrackingEnabled
         case isDebatePlayerTrackingEnabled
+        case isDebatePlayerFoulsEnabled
+        case isDebatePlayerCardsEnabled
         case homePenaltyTimers
         case guestPenaltyTimers
         case homeRoster
@@ -3053,6 +3142,8 @@ private struct PersistedState: Codable {
         isDebatePrepClockRunning: Bool,
         isDebateScoreTrackingEnabled: Bool,
         isDebatePlayerTrackingEnabled: Bool,
+        isDebatePlayerFoulsEnabled: Bool,
+        isDebatePlayerCardsEnabled: Bool,
         homePenaltyTimers: [HockeyPenaltyTimer],
         guestPenaltyTimers: [HockeyPenaltyTimer],
         homeRoster: TeamRoster,
@@ -3109,6 +3200,8 @@ private struct PersistedState: Codable {
         self.isDebatePrepClockRunning = isDebatePrepClockRunning
         self.isDebateScoreTrackingEnabled = isDebateScoreTrackingEnabled
         self.isDebatePlayerTrackingEnabled = isDebatePlayerTrackingEnabled
+        self.isDebatePlayerFoulsEnabled = isDebatePlayerFoulsEnabled
+        self.isDebatePlayerCardsEnabled = isDebatePlayerCardsEnabled
         self.homePenaltyTimers = homePenaltyTimers
         self.guestPenaltyTimers = guestPenaltyTimers
         self.homeRoster = homeRoster
@@ -3174,6 +3267,8 @@ private struct PersistedState: Codable {
         isDebatePrepClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepClockRunning) ?? false
         isDebateScoreTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebateScoreTrackingEnabled) ?? preset.defaultScoreTrackingEnabled
         isDebatePlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerTrackingEnabled) ?? preset.defaultPlayerTrackingEnabled
+        isDebatePlayerFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerFoulsEnabled) ?? preset.defaultPlayerFoulsEnabled
+        isDebatePlayerCardsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerCardsEnabled) ?? preset.defaultPlayerCardsEnabled
         homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers) ?? []
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers) ?? []
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
@@ -3233,6 +3328,8 @@ private struct PersistedState: Codable {
         try container.encode(isDebatePrepClockRunning, forKey: .isDebatePrepClockRunning)
         try container.encode(isDebateScoreTrackingEnabled, forKey: .isDebateScoreTrackingEnabled)
         try container.encode(isDebatePlayerTrackingEnabled, forKey: .isDebatePlayerTrackingEnabled)
+        try container.encode(isDebatePlayerFoulsEnabled, forKey: .isDebatePlayerFoulsEnabled)
+        try container.encode(isDebatePlayerCardsEnabled, forKey: .isDebatePlayerCardsEnabled)
         try container.encode(homePenaltyTimers, forKey: .homePenaltyTimers)
         try container.encode(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encode(homeRoster, forKey: .homeRoster)
