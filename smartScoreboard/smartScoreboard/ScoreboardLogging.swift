@@ -38,6 +38,17 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case chessClockSwitch
     case chessClockAdjustment
     case chessClockReset
+    case debatePresetChange
+    case debateSegmentChange
+    case debateSegmentReset
+    case debateRoundReset
+    case debateTimerToggle
+    case debateTimerAdjustment
+    case debateActiveSideSwitch
+    case debateActiveSideSet
+    case debatePrepToggle
+    case debatePrepAdjustment
+    case debatePrepReset
     case hockeyPenaltyAdd
     case hockeyPenaltyRemove
     case hockeyPenaltyToggle
@@ -101,6 +112,28 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Chess Clock Adjust"
         case .chessClockReset:
             return "Chess Clock Reset"
+        case .debatePresetChange:
+            return "Debate Preset"
+        case .debateSegmentChange:
+            return "Debate Segment"
+        case .debateSegmentReset:
+            return "Debate Segment Reset"
+        case .debateRoundReset:
+            return "Debate Round Reset"
+        case .debateTimerToggle:
+            return "Debate Timer Toggle"
+        case .debateTimerAdjustment:
+            return "Debate Timer Adjust"
+        case .debateActiveSideSwitch:
+            return "Debate Side Switch"
+        case .debateActiveSideSet:
+            return "Debate Side Set"
+        case .debatePrepToggle:
+            return "Debate Prep Toggle"
+        case .debatePrepAdjustment:
+            return "Debate Prep Adjust"
+        case .debatePrepReset:
+            return "Debate Prep Reset"
         case .hockeyPenaltyAdd:
             return "Hockey Penalty Add"
         case .hockeyPenaltyRemove:
@@ -177,6 +210,14 @@ struct ScoreboardLogContext: Codable, Sendable {
     var homeChessClockSeconds: Int?
     var guestChessClockSeconds: Int?
     var activeChessClockSide: TeamSide?
+    var debatePresetTitle: String?
+    var debateSegmentTitle: String?
+    var debateTimerMode: DebateTimerMode?
+    var debateHomeSideLabel: String?
+    var debateGuestSideLabel: String?
+    var debateActiveTimer: DebateActiveTimer?
+    var debatePrepHomeSeconds: Int?
+    var debatePrepGuestSeconds: Int?
     var hockeyPenaltySummary: String?
     var homeTeamName: String
     var guestTeamName: String
@@ -198,6 +239,14 @@ struct ScoreboardLogContext: Codable, Sendable {
         case homeChessClockSeconds
         case guestChessClockSeconds
         case activeChessClockSide
+        case debatePresetTitle
+        case debateSegmentTitle
+        case debateTimerMode
+        case debateHomeSideLabel
+        case debateGuestSideLabel
+        case debateActiveTimer
+        case debatePrepHomeSeconds
+        case debatePrepGuestSeconds
         case hockeyPenaltySummary
         case homeTeamName
         case guestTeamName
@@ -220,6 +269,14 @@ struct ScoreboardLogContext: Codable, Sendable {
         homeChessClockSeconds: Int?,
         guestChessClockSeconds: Int?,
         activeChessClockSide: TeamSide?,
+        debatePresetTitle: String?,
+        debateSegmentTitle: String?,
+        debateTimerMode: DebateTimerMode?,
+        debateHomeSideLabel: String?,
+        debateGuestSideLabel: String?,
+        debateActiveTimer: DebateActiveTimer?,
+        debatePrepHomeSeconds: Int?,
+        debatePrepGuestSeconds: Int?,
         hockeyPenaltySummary: String?,
         homeTeamName: String,
         guestTeamName: String,
@@ -240,6 +297,14 @@ struct ScoreboardLogContext: Codable, Sendable {
         self.homeChessClockSeconds = homeChessClockSeconds
         self.guestChessClockSeconds = guestChessClockSeconds
         self.activeChessClockSide = activeChessClockSide
+        self.debatePresetTitle = debatePresetTitle
+        self.debateSegmentTitle = debateSegmentTitle
+        self.debateTimerMode = debateTimerMode
+        self.debateHomeSideLabel = debateHomeSideLabel
+        self.debateGuestSideLabel = debateGuestSideLabel
+        self.debateActiveTimer = debateActiveTimer
+        self.debatePrepHomeSeconds = debatePrepHomeSeconds
+        self.debatePrepGuestSeconds = debatePrepGuestSeconds
         self.hockeyPenaltySummary = hockeyPenaltySummary
         self.homeTeamName = homeTeamName
         self.guestTeamName = guestTeamName
@@ -263,6 +328,14 @@ struct ScoreboardLogContext: Codable, Sendable {
         homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds)
         guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds)
         activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide)
+        debatePresetTitle = try container.decodeIfPresent(String.self, forKey: .debatePresetTitle)
+        debateSegmentTitle = try container.decodeIfPresent(String.self, forKey: .debateSegmentTitle)
+        debateTimerMode = try container.decodeIfPresent(DebateTimerMode.self, forKey: .debateTimerMode)
+        debateHomeSideLabel = try container.decodeIfPresent(String.self, forKey: .debateHomeSideLabel)
+        debateGuestSideLabel = try container.decodeIfPresent(String.self, forKey: .debateGuestSideLabel)
+        debateActiveTimer = try container.decodeIfPresent(DebateActiveTimer.self, forKey: .debateActiveTimer)
+        debatePrepHomeSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepHomeSeconds)
+        debatePrepGuestSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepGuestSeconds)
         hockeyPenaltySummary = try container.decodeIfPresent(String.self, forKey: .hockeyPenaltySummary)
         homeTeamName = try container.decodeIfPresent(String.self, forKey: .homeTeamName) ?? ""
         guestTeamName = try container.decodeIfPresent(String.self, forKey: .guestTeamName) ?? ""

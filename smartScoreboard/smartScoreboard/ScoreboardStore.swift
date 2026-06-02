@@ -256,6 +256,16 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestChessClockSeconds = ChessClockPreset.rapid.seconds
     @Published var activeChessClockSide: TeamSide? = .home
     @Published var chessClockPreset: ChessClockPreset = .rapid
+    @Published var selectedDebatePresetID = DebatePreset.publicForum.id
+    @Published var debateHomeSideLabel = DebatePreset.publicForum.homeSideLabel
+    @Published var debateGuestSideLabel = DebatePreset.publicForum.guestSideLabel
+    @Published var debateCurrentSegmentIndex = 0
+    @Published var debatePrepHomeSeconds = DebatePreset.publicForum.prepSecondsPerSide
+    @Published var debatePrepGuestSeconds = DebatePreset.publicForum.prepSecondsPerSide
+    @Published var debateActiveTimer: DebateActiveTimer = .segment
+    @Published var isDebatePrepClockRunning = false
+    @Published var isDebateScoreTrackingEnabled = false
+    @Published var isDebatePlayerTrackingEnabled = false
     @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
@@ -271,6 +281,7 @@ final class ScoreboardStore: ObservableObject {
     private var accumulatedGameClockElapsed: TimeInterval = 0
     private var accumulatedShotClockElapsed: TimeInterval = 0
     private var accumulatedPenaltyElapsed: TimeInterval = 0
+    private var accumulatedDebatePrepElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
     private let persistenceKey = "smartScoreboard.persistedState"
@@ -298,11 +309,43 @@ final class ScoreboardStore: ObservableObject {
         Self.formatShotClock(milliseconds: shotClockMilliseconds)
     }
 
+    var isDebateMode: Bool {
+        selectedSport == .debate
+    }
+
+    var currentDebatePreset: DebatePreset {
+        DebatePreset.preset(id: selectedDebatePresetID)
+    }
+
+    var currentDebateSegment: DebateSegment? {
+        guard isDebateMode, currentDebatePreset.segments.indices.contains(debateCurrentSegmentIndex) else {
+            return nil
+        }
+
+        return currentDebatePreset.segments[debateCurrentSegmentIndex]
+    }
+
+    var debateSegmentTitle: String {
+        currentDebateSegment?.title ?? "Debate Segment"
+    }
+
+    var formattedDebatePrepHomeClock: String {
+        Self.formatGameClock(debatePrepHomeSeconds)
+    }
+
+    var formattedDebatePrepGuestClock: String {
+        Self.formatGameClock(debatePrepGuestSeconds)
+    }
+
     var isGameClockInterlockActive: Bool {
         showsGameClock && isClockRunning
     }
 
     var showsGameClock: Bool {
+        if isDebateMode {
+            return currentDebateSegment?.timerMode == .masterClock
+        }
+
         switch currentRules.mainClockMode {
         case .disabled:
             return false
@@ -348,7 +391,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var supportsPlayerTracking: Bool {
-        currentRules.supportsPlayerTracking
+        if isDebateMode {
+            return isDebatePlayerTrackingEnabled
+        }
+
+        return currentRules.supportsPlayerTracking
     }
 
     var showsSubstitutionTracking: Bool {
@@ -356,11 +403,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var supportsScore: Bool {
-        currentRules.supportsScore
+        if isDebateMode {
+            return isDebateScoreTrackingEnabled
+        }
+
+        return currentRules.supportsScore
     }
 
     var supportsPeriod: Bool {
-        currentRules.supportsPeriod
+        if isDebateMode {
+            return false
+        }
+
+        return currentRules.supportsPeriod
     }
 
     var supportsHockeyPenalties: Bool {
@@ -368,11 +423,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var usesChessClocks: Bool {
-        currentRules.usesChessClocks
+        if isDebateMode {
+            return currentDebateSegment?.timerMode == .dualClock
+        }
+
+        return currentRules.usesChessClocks
     }
 
     var periodTitle: String {
-        currentRules.periodTitle
+        if isDebateMode {
+            return "Segment"
+        }
+
+        return currentRules.periodTitle
     }
 
     var periodShortTitle: String {
@@ -406,6 +469,19 @@ final class ScoreboardStore: ObservableObject {
         max(0, substitutionsAllowed(for: side) - substitutionsUsed(for: side))
     }
 
+    func sideRoleLabel(for side: TeamSide) -> String {
+        guard isDebateMode else {
+            return side.title
+        }
+
+        switch side {
+        case .home:
+            return debateHomeSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Side A" : debateHomeSideLabel
+        case .guest:
+            return debateGuestSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Side B" : debateGuestSideLabel
+        }
+    }
+
     func teamFouls(for side: TeamSide) -> Int {
         side == .home ? homeTeamFouls : guestTeamFouls
     }
@@ -426,6 +502,14 @@ final class ScoreboardStore: ObservableObject {
             homeChessClockSeconds: usesChessClocks ? homeChessClockSeconds : nil,
             guestChessClockSeconds: usesChessClocks ? guestChessClockSeconds : nil,
             activeChessClockSide: usesChessClocks ? activeChessClockSide : nil,
+            debatePresetTitle: isDebateMode ? currentDebatePreset.title : nil,
+            debateSegmentTitle: isDebateMode ? currentDebateSegment?.title : nil,
+            debateTimerMode: isDebateMode ? currentDebateSegment?.timerMode : nil,
+            debateHomeSideLabel: isDebateMode ? sideRoleLabel(for: .home) : nil,
+            debateGuestSideLabel: isDebateMode ? sideRoleLabel(for: .guest) : nil,
+            debateActiveTimer: isDebateMode ? debateActiveTimer : nil,
+            debatePrepHomeSeconds: isDebateMode ? debatePrepHomeSeconds : nil,
+            debatePrepGuestSeconds: isDebateMode ? debatePrepGuestSeconds : nil,
             hockeyPenaltySummary: supportsHockeyPenalties ? penaltySummaryText : nil,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
@@ -536,6 +620,18 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustClock(by delta: Int) {
+        if isDebateMode {
+            guard currentDebateSegment?.timerMode == .masterClock else {
+                recordLog(
+                    kind: .debateTimerAdjustment,
+                    summary: "Adjust debate timer",
+                    outcome: .ignored,
+                    delta: delta
+                )
+                return
+            }
+        }
+
         guard showsGameClock else {
             recordLog(
                 kind: .clockAdjustment,
@@ -588,6 +684,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetClock(to seconds: Int? = nil) {
+        if isDebateMode {
+            resetDebateCurrentSegment()
+            return
+        }
+
         guard showsGameClock else {
             pauseClock()
             recordLog(
@@ -647,6 +748,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleClock() {
+        if isDebateMode {
+            toggleDebateSegmentClock()
+            return
+        }
+
         if usesChessClocks {
             toggleChessClock()
             return
@@ -658,6 +764,29 @@ final class ScoreboardStore: ObservableObject {
             kind: .clockToggle,
             summary: wasRunning ? "Pause game clock" : "Start game clock",
             outcome: wasRunning == isClockRunning ? .ignored : .applied
+        )
+    }
+
+    func toggleDebateSegmentClock() {
+        guard isDebateMode else { return }
+        guard let segment = currentDebateSegment, segment.timerMode != .none else {
+            recordLog(
+                kind: .debateTimerToggle,
+                summary: "Toggle debate timer",
+                outcome: .ignored,
+                notes: debateSegmentTitle
+            )
+            return
+        }
+        isDebatePrepClockRunning = false
+        debateActiveTimer = .segment
+        let wasRunning = isClockRunning
+        isClockRunning ? pauseClock() : startClock()
+        recordLog(
+            kind: .debateTimerToggle,
+            summary: wasRunning ? "Pause debate timer" : "Start debate timer",
+            outcome: wasRunning == isClockRunning ? .ignored : .applied,
+            notes: segment.title
         )
     }
 
@@ -811,6 +940,7 @@ final class ScoreboardStore: ObservableObject {
     func newGame() {
         pauseClock()
         pauseShotClock()
+        isDebatePrepClockRunning = false
         homeScore = 0
         guestScore = 0
         period = supportsPeriod ? 1 : period
@@ -828,6 +958,11 @@ final class ScoreboardStore: ObservableObject {
         homePenaltyTimers = []
         guestPenaltyTimers = []
         isPlayerOverlayPaused = false
+        if isDebateMode {
+            debatePrepHomeSeconds = currentDebatePreset.prepSecondsPerSide
+            debatePrepGuestSeconds = currentDebatePreset.prepSecondsPerSide
+            configureDebateSegment(index: 0, preserveRunningState: false)
+        }
         resetPlayerTrackingForNewGame()
     }
 
@@ -860,16 +995,6 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
-        guard !usesChessClocks else {
-            recordLog(
-                kind: .sideSwap,
-                summary: "Swap home and guest sides",
-                outcome: .ignored,
-                notes: "Chess layout does not use side swapping"
-            )
-            return
-        }
-
         areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
@@ -1140,11 +1265,206 @@ final class ScoreboardStore: ObservableObject {
         resetTeamFouls(for: .guest)
     }
 
+    func applyDebatePreset(id: String, resetRound: Bool = true) {
+        let preset = DebatePreset.preset(id: id)
+        selectedDebatePresetID = preset.id
+        debateHomeSideLabel = preset.homeSideLabel
+        debateGuestSideLabel = preset.guestSideLabel
+        isDebateScoreTrackingEnabled = preset.defaultScoreTrackingEnabled
+        isDebatePlayerTrackingEnabled = preset.defaultPlayerTrackingEnabled
+
+        if resetRound {
+            resetDebateRound(logKind: .debatePresetChange, notes: preset.title)
+        } else {
+            configureDebateSegment(index: min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0)), preserveRunningState: false)
+            debatePrepHomeSeconds = preset.prepSecondsPerSide
+            debatePrepGuestSeconds = preset.prepSecondsPerSide
+        }
+    }
+
+    func updateDebateSideLabel(_ label: String, for side: TeamSide) {
+        let normalized = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch side {
+        case .home:
+            debateHomeSideLabel = normalized
+        case .guest:
+            debateGuestSideLabel = normalized
+        }
+    }
+
+    func setDebateScoreTrackingEnabled(_ isEnabled: Bool) {
+        isDebateScoreTrackingEnabled = isEnabled
+        if !isEnabled {
+            homeScore = 0
+            guestScore = 0
+        }
+    }
+
+    func setDebatePlayerTrackingEnabled(_ isEnabled: Bool) {
+        isDebatePlayerTrackingEnabled = isEnabled
+        isPlayerTrackingEnabled = isEnabled
+        if !isEnabled {
+            isPlayerOverlayPaused = false
+        }
+    }
+
+    func resetDebateRound(logKind: ScoreboardLogOperationKind = .debateRoundReset, notes: String? = nil) {
+        guard isDebateMode else { return }
+        pauseClock()
+        isDebatePrepClockRunning = false
+        debateActiveTimer = .segment
+        debateCurrentSegmentIndex = 0
+        homeScore = isDebateScoreTrackingEnabled ? homeScore : 0
+        guestScore = isDebateScoreTrackingEnabled ? guestScore : 0
+        debatePrepHomeSeconds = currentDebatePreset.prepSecondsPerSide
+        debatePrepGuestSeconds = currentDebatePreset.prepSecondsPerSide
+        configureDebateSegment(index: 0, preserveRunningState: false)
+        if !isDebateScoreTrackingEnabled {
+            homeScore = 0
+            guestScore = 0
+        }
+        resetPlayerTrackingForNewGame()
+        recordLog(
+            kind: logKind,
+            summary: logKind == .debatePresetChange ? "Apply debate preset" : "Reset debate round",
+            outcome: .applied,
+            notes: notes ?? currentDebatePreset.title
+        )
+    }
+
+    func resetDebateCurrentSegment() {
+        guard isDebateMode else { return }
+        pauseClock()
+        configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: false)
+        recordLog(
+            kind: .debateSegmentReset,
+            summary: "Reset debate segment",
+            outcome: .applied,
+            notes: debateSegmentTitle
+        )
+    }
+
+    func advanceDebateSegment(by delta: Int) {
+        guard isDebateMode else { return }
+        let previousIndex = debateCurrentSegmentIndex
+        let boundedIndex = max(0, min(currentDebatePreset.segments.count - 1, debateCurrentSegmentIndex + delta))
+        guard boundedIndex != previousIndex else {
+            recordLog(
+                kind: .debateSegmentChange,
+                summary: delta >= 0 ? "Next debate segment" : "Previous debate segment",
+                outcome: .ignored,
+                notes: debateSegmentTitle
+            )
+            return
+        }
+
+        debateCurrentSegmentIndex = boundedIndex
+        configureDebateSegment(index: boundedIndex, preserveRunningState: false)
+        recordLog(
+            kind: .debateSegmentChange,
+            summary: delta >= 0 ? "Next debate segment" : "Previous debate segment",
+            outcome: .applied,
+            notes: debateSegmentTitle
+        )
+    }
+
+    func toggleDebatePrepClock(for side: TeamSide) {
+        guard isDebateMode else { return }
+        let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
+        if debateActiveTimer != target {
+            pauseClock()
+            debateActiveTimer = target
+            isDebatePrepClockRunning = false
+        }
+        let currentSeconds = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
+        guard currentSeconds > 0 else {
+            recordLog(
+                kind: .debatePrepToggle,
+                summary: "\(sideRoleLabel(for: side)) prep clock toggle",
+                outcome: .ignored,
+                teamSide: side
+            )
+            return
+        }
+        isDebatePrepClockRunning.toggle()
+        updateTimerState()
+        recordLog(
+            kind: .debatePrepToggle,
+            summary: "\(sideRoleLabel(for: side)) prep clock \(isDebatePrepClockRunning ? "start" : "pause")",
+            outcome: .applied,
+            teamSide: side,
+            value: currentSeconds
+        )
+    }
+
+    func returnToDebateSegmentTimer(resume: Bool = false) {
+        guard isDebateMode else { return }
+
+        let wasOnPrepTimer = debateActiveTimer != .segment
+        debateActiveTimer = .segment
+        isDebatePrepClockRunning = false
+
+        if resume, currentDebateSegment?.timerMode != DebateTimerMode.none {
+            startClock()
+        } else {
+            pauseClock()
+        }
+
+        recordLog(
+            kind: .debateTimerToggle,
+            summary: resume ? "Return to segment timer and resume" : "Return to segment timer",
+            outcome: wasOnPrepTimer ? .applied : .ignored,
+            notes: debateSegmentTitle
+        )
+    }
+
+    func resetDebatePrepClock(for side: TeamSide) {
+        guard isDebateMode else { return }
+        let value = currentDebatePreset.prepSecondsPerSide
+        switch side {
+        case .home:
+            debatePrepHomeSeconds = value
+        case .guest:
+            debatePrepGuestSeconds = value
+        }
+        if debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
+            isDebatePrepClockRunning = false
+            updateTimerState()
+        }
+        recordLog(
+            kind: .debatePrepReset,
+            summary: "Reset \(sideRoleLabel(for: side)) prep clock",
+            outcome: .applied,
+            teamSide: side,
+            value: value
+        )
+    }
+
+    func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
+        guard isDebateMode else { return }
+        let previousValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
+        switch side {
+        case .home:
+            debatePrepHomeSeconds = boundedGameClockSeconds(debatePrepHomeSeconds + delta)
+        case .guest:
+            debatePrepGuestSeconds = boundedGameClockSeconds(debatePrepGuestSeconds + delta)
+        }
+        let updatedValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
+        recordLog(
+            kind: .debatePrepAdjustment,
+            summary: "\(sideRoleLabel(for: side)) prep \(delta >= 0 ? "+" : "")\(delta)s",
+            outcome: previousValue == updatedValue ? .ignored : .applied,
+            teamSide: side,
+            delta: delta,
+            value: updatedValue
+        )
+    }
+
     func toggleChessClock() {
         guard usesChessClocks else {
             recordLog(
-                kind: .chessClockToggle,
-                summary: "Toggle chess clock",
+                kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
+                summary: isDebateMode ? "Toggle debate timer" : "Toggle chess clock",
                 outcome: .ignored
             )
             return
@@ -1161,18 +1481,19 @@ final class ScoreboardStore: ObservableObject {
         }
 
         recordLog(
-            kind: .chessClockToggle,
-            summary: wasRunning ? "Pause chess clock" : "Start chess clock",
+            kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
+            summary: isDebateMode ? (wasRunning ? "Pause debate timer" : "Start debate timer") : (wasRunning ? "Pause chess clock" : "Start chess clock"),
             outcome: wasRunning == isClockRunning ? .ignored : .applied,
-            teamSide: activeChessClockSide
+            teamSide: activeChessClockSide,
+            notes: isDebateMode ? debateSegmentTitle : nil
         )
     }
 
     func switchChessClock() {
         guard usesChessClocks else {
             recordLog(
-                kind: .chessClockSwitch,
-                summary: "Switch active chess clock",
+                kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
+                summary: isDebateMode ? "Switch debate active side" : "Switch active chess clock",
                 outcome: .ignored
             )
             return
@@ -1189,18 +1510,41 @@ final class ScoreboardStore: ObservableObject {
         }
 
         recordLog(
-            kind: .chessClockSwitch,
-            summary: "Switch active chess clock",
+            kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
+            summary: isDebateMode ? "Switch debate active side" : "Switch active chess clock",
             outcome: previousSide == activeChessClockSide ? .ignored : .applied,
-            teamSide: activeChessClockSide
+            teamSide: activeChessClockSide,
+            notes: isDebateMode ? debateSegmentTitle : nil
+        )
+    }
+
+    func setActiveChessClockSide(_ side: TeamSide) {
+        guard usesChessClocks else {
+            recordLog(
+                kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
+                summary: isDebateMode ? "Set debate active side to \(sideRoleLabel(for: side))" : "Set active chess clock to \(side.title)",
+                outcome: .ignored,
+                teamSide: side
+            )
+            return
+        }
+
+        let previousSide = activeChessClockSide
+        activeChessClockSide = side
+        recordLog(
+            kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
+            summary: isDebateMode ? "Set debate active side to \(sideRoleLabel(for: side))" : "Set active chess clock to \(side.title)",
+            outcome: previousSide == side ? .ignored : .applied,
+            teamSide: side,
+            notes: isDebateMode ? debateSegmentTitle : nil
         )
     }
 
     func adjustChessClock(for side: TeamSide, by delta: Int) {
         guard usesChessClocks else {
             recordLog(
-                kind: .chessClockAdjustment,
-                summary: "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+                kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
+                summary: isDebateMode ? "\(sideRoleLabel(for: side)) debate clock \(delta >= 0 ? "+" : "")\(delta)s" : "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
                 outcome: .ignored,
                 teamSide: side,
                 delta: delta
@@ -1222,39 +1566,47 @@ final class ScoreboardStore: ObservableObject {
         }
 
         recordLog(
-            kind: .chessClockAdjustment,
-            summary: "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+            kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
+            summary: isDebateMode ? "\(sideRoleLabel(for: side)) debate clock \(delta >= 0 ? "+" : "")\(delta)s" : "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
             outcome: previousValue == updatedValue ? .ignored : .applied,
             teamSide: side,
             delta: delta,
-            value: updatedValue
+            value: updatedValue,
+            notes: isDebateMode ? debateSegmentTitle : nil
         )
     }
 
     func resetChessClocks() {
         guard usesChessClocks else {
             recordLog(
-                kind: .chessClockReset,
-                summary: "Reset chess clocks",
+                kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
+                summary: isDebateMode ? "Reset debate timer" : "Reset chess clocks",
                 outcome: .ignored
             )
             return
         }
 
         pauseClock()
-        homeChessClockSeconds = chessClockPreset.seconds
-        guestChessClockSeconds = chessClockPreset.seconds
+        let resetSeconds = boundedGameClockSeconds(defaultClockSeconds)
+        homeChessClockSeconds = resetSeconds
+        guestChessClockSeconds = usesChessClocks && selectedSport == .chess && defaultClockSeconds == 0
+            ? chessClockPreset.seconds
+            : resetSeconds
         activeChessClockSide = .home
 
         recordLog(
-            kind: .chessClockReset,
-            summary: "Reset chess clocks",
+            kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
+            summary: isDebateMode ? "Reset debate timer" : "Reset chess clocks",
             outcome: .applied,
-            notes: chessClockPreset.title
+            notes: isDebateMode ? debateSegmentTitle : (selectedSport == .chess ? chessClockPreset.title : selectedSport.title)
         )
     }
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int) {
+        addPenaltyTimer(for: side, seconds: seconds, player: nil, startsRunning: false)
+    }
+
+    func addPenaltyTimer(for side: TeamSide, seconds: Int, player: TrackedPlayer?, startsRunning: Bool) {
         guard supportsHockeyPenalties else {
             recordLog(
                 kind: .hockeyPenaltyAdd,
@@ -1266,20 +1618,29 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        let timer = HockeyPenaltyTimer(teamSide: side, remainingSeconds: boundedGameClockSeconds(seconds))
+        let timer = HockeyPenaltyTimer(
+            teamSide: side,
+            playerNumber: player.map { normalizedPlayerNumber($0.number) } ?? "",
+            playerName: player.map { normalizedPlayerName($0.name) } ?? "",
+            remainingSeconds: boundedGameClockSeconds(seconds),
+            isRunning: startsRunning
+        )
         switch side {
         case .home:
             homePenaltyTimers.append(timer)
         case .guest:
             guestPenaltyTimers.append(timer)
         }
+        updateTimerState()
 
         recordLog(
             kind: .hockeyPenaltyAdd,
             summary: "Add \(side.title) penalty timer",
             outcome: .applied,
             teamSide: side,
-            value: timer.remainingSeconds
+            player: player,
+            value: timer.remainingSeconds,
+            notes: penaltySummaryItem(timer)
         )
     }
 
@@ -1431,14 +1792,28 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed = 0
             homeTeamFouls = 0
             guestTeamFouls = 0
-            homeChessClockSeconds = chessClockPreset.seconds
-            guestChessClockSeconds = chessClockPreset.seconds
+            homeChessClockSeconds = boundedGameClockSeconds(rules.defaultClockSeconds)
+            guestChessClockSeconds = boundedGameClockSeconds(rules.defaultClockSeconds)
             activeChessClockSide = .home
+            selectedDebatePresetID = DebatePreset.publicForum.id
+            debateHomeSideLabel = DebatePreset.publicForum.homeSideLabel
+            debateGuestSideLabel = DebatePreset.publicForum.guestSideLabel
+            debateCurrentSegmentIndex = 0
+            debatePrepHomeSeconds = DebatePreset.publicForum.prepSecondsPerSide
+            debatePrepGuestSeconds = DebatePreset.publicForum.prepSecondsPerSide
+            debateActiveTimer = .segment
+            isDebatePrepClockRunning = false
+            isDebateScoreTrackingEnabled = false
+            isDebatePlayerTrackingEnabled = false
             homePenaltyTimers = []
             guestPenaltyTimers = []
             setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
-            if !rules.supportsPlayerTracking {
+            if sport == .debate {
+                applyDebatePreset(id: DebatePreset.publicForum.id, resetRound: true)
+                setDebatePlayerTrackingEnabled(DebatePreset.publicForum.defaultPlayerTrackingEnabled)
+                isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
+            } else if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
             }
         } else {
@@ -1452,7 +1827,9 @@ final class ScoreboardStore: ObservableObject {
                 possessionDirection = .none
                 isShotClockRunning = false
             }
-            if !rules.supportsPlayerTracking {
+            if sport == .debate {
+                isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
+            } else if !rules.supportsPlayerTracking {
                 isPlayerTrackingEnabled = false
             }
         }
@@ -1520,9 +1897,45 @@ final class ScoreboardStore: ObservableObject {
         )
     }
 
+    private func configureDebateSegment(index: Int, preserveRunningState: Bool) {
+        guard isDebateMode else { return }
+        guard currentDebatePreset.segments.indices.contains(index) else { return }
+
+        let segment = currentDebatePreset.segments[index]
+        debateCurrentSegmentIndex = index
+        debateActiveTimer = .segment
+        isDebatePrepClockRunning = false
+
+        switch segment.timerMode {
+        case .masterClock:
+            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            gameClockSeconds = defaultClockSeconds
+            activeChessClockSide = nil
+        case .dualClock:
+            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            homeChessClockSeconds = defaultClockSeconds
+            guestChessClockSeconds = defaultClockSeconds
+            activeChessClockSide = segment.startingSide ?? .home
+        case .none:
+            defaultClockSeconds = 0
+            gameClockSeconds = 0
+            activeChessClockSide = nil
+        }
+
+        if preserveRunningState {
+            return
+        }
+
+        if segment.startsPaused || segment.timerMode == .none {
+            pauseClock()
+        } else {
+            startClock()
+        }
+    }
+
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 6,
+            fileVersion: 7,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
@@ -1557,6 +1970,16 @@ final class ScoreboardStore: ObservableObject {
             guestChessClockSeconds: guestChessClockSeconds,
             activeChessClockSide: activeChessClockSide,
             chessClockPreset: chessClockPreset,
+            selectedDebatePresetID: selectedDebatePresetID,
+            debateHomeSideLabel: debateHomeSideLabel,
+            debateGuestSideLabel: debateGuestSideLabel,
+            debateCurrentSegmentIndex: debateCurrentSegmentIndex,
+            debatePrepHomeSeconds: debatePrepHomeSeconds,
+            debatePrepGuestSeconds: debatePrepGuestSeconds,
+            debateActiveTimer: debateActiveTimer,
+            isDebatePrepClockRunning: isDebatePrepClockRunning,
+            isDebateScoreTrackingEnabled: isDebateScoreTrackingEnabled,
+            isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
@@ -1584,7 +2007,7 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
             possessionDirection = supportsPossession ? snapshot.possessionDirection : .none
             areSidesSwapped = snapshot.areSidesSwapped
-            isPlayerTrackingEnabled = supportsPlayerTracking ? (snapshot.isPlayerTrackingEnabled ?? false) : false
+            isPlayerTrackingEnabled = currentRules.supportsPlayerTracking ? (snapshot.isPlayerTrackingEnabled ?? false) : false
             isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
             rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
             displayLineupSize = max(1, min(rosterSizePerTeam, snapshot.displayLineupSize ?? Self.defaultDisplayLineupSize))
@@ -1599,14 +2022,37 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, snapshot.guestSubstitutionsUsed ?? 0))
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
-            homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? chessClockPreset.seconds)
-            guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? chessClockPreset.seconds)
+            let defaultDualClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
+            homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+            guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
             activeChessClockSide = snapshot.activeChessClockSide ?? .home
             chessClockPreset = snapshot.chessClockPreset ?? .rapid
+            selectedDebatePresetID = snapshot.selectedDebatePresetID ?? DebatePreset.publicForum.id
+            debateHomeSideLabel = snapshot.debateHomeSideLabel ?? DebatePreset.preset(id: selectedDebatePresetID).homeSideLabel
+            debateGuestSideLabel = snapshot.debateGuestSideLabel ?? DebatePreset.preset(id: selectedDebatePresetID).guestSideLabel
+            debateCurrentSegmentIndex = max(0, snapshot.debateCurrentSegmentIndex ?? 0)
+            debatePrepHomeSeconds = boundedGameClockSeconds(snapshot.debatePrepHomeSeconds ?? DebatePreset.preset(id: selectedDebatePresetID).prepSecondsPerSide)
+            debatePrepGuestSeconds = boundedGameClockSeconds(snapshot.debatePrepGuestSeconds ?? DebatePreset.preset(id: selectedDebatePresetID).prepSecondsPerSide)
+            debateActiveTimer = snapshot.debateActiveTimer ?? .segment
+            isDebatePrepClockRunning = snapshot.isDebatePrepClockRunning ?? false
+            isDebateScoreTrackingEnabled = snapshot.isDebateScoreTrackingEnabled ?? DebatePreset.preset(id: selectedDebatePresetID).defaultScoreTrackingEnabled
+            isDebatePlayerTrackingEnabled = snapshot.isDebatePlayerTrackingEnabled ?? DebatePreset.preset(id: selectedDebatePresetID).defaultPlayerTrackingEnabled
             homePenaltyTimers = snapshot.homePenaltyTimers ?? []
             guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            if isDebateMode {
+                let preset = DebatePreset.preset(id: selectedDebatePresetID)
+                debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
+                configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
+                if let restoredActiveSide = snapshot.activeChessClockSide, currentDebateSegment?.timerMode == .dualClock {
+                    activeChessClockSide = restoredActiveSide
+                }
+                if let restoredTimerMode = snapshot.debateActiveTimer {
+                    debateActiveTimer = restoredTimerMode
+                }
+                isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled && (snapshot.isPlayerTrackingEnabled ?? true)
+            }
             if !supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
@@ -1756,13 +2202,14 @@ final class ScoreboardStore: ObservableObject {
 
     private func updateTimerState() {
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
-        guard isClockRunning || isShotClockRunning || hasRunningPenalty else {
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
             timer?.invalidate()
             timer = nil
             lastTimerFireDate = nil
             accumulatedGameClockElapsed = 0
             accumulatedShotClockElapsed = 0
             accumulatedPenaltyElapsed = 0
+            accumulatedDebatePrepElapsed = 0
             return
         }
 
@@ -1886,6 +2333,30 @@ final class ScoreboardStore: ObservableObject {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if isDebatePrepClockRunning {
+            accumulatedDebatePrepElapsed += elapsed
+            let elapsedPrepSeconds = Int(accumulatedDebatePrepElapsed)
+            if elapsedPrepSeconds > 0 {
+                accumulatedDebatePrepElapsed -= TimeInterval(elapsedPrepSeconds)
+                switch debateActiveTimer {
+                case .prepHome:
+                    debatePrepHomeSeconds = max(0, debatePrepHomeSeconds - elapsedPrepSeconds)
+                    if debatePrepHomeSeconds == 0 {
+                        isDebatePrepClockRunning = false
+                        shouldPlayBuzzer = true
+                    }
+                case .prepGuest:
+                    debatePrepGuestSeconds = max(0, debatePrepGuestSeconds - elapsedPrepSeconds)
+                    if debatePrepGuestSeconds == 0 {
+                        isDebatePrepClockRunning = false
+                        shouldPlayBuzzer = true
+                    }
+                case .segment:
+                    isDebatePrepClockRunning = false
                 }
             }
         }
@@ -2068,6 +2539,16 @@ final class ScoreboardStore: ObservableObject {
             $guestChessClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $activeChessClockSide.map { _ in () }.eraseToAnyPublisher(),
             $chessClockPreset.map { _ in () }.eraseToAnyPublisher(),
+            $selectedDebatePresetID.map { _ in () }.eraseToAnyPublisher(),
+            $debateHomeSideLabel.map { _ in () }.eraseToAnyPublisher(),
+            $debateGuestSideLabel.map { _ in () }.eraseToAnyPublisher(),
+            $debateCurrentSegmentIndex.map { _ in () }.eraseToAnyPublisher(),
+            $debatePrepHomeSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $debatePrepGuestSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $debateActiveTimer.map { _ in () }.eraseToAnyPublisher(),
+            $isDebatePrepClockRunning.map { _ in () }.eraseToAnyPublisher(),
+            $isDebateScoreTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isDebatePlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $homePenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
             $guestPenaltyTimers.map { _ in () }.eraseToAnyPublisher(),
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
@@ -2111,7 +2592,9 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
         possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
         areSidesSwapped = persistedState.areSidesSwapped
-        isPlayerTrackingEnabled = currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false
+        isPlayerTrackingEnabled = selectedSport == .debate
+            ? persistedState.isDebatePlayerTrackingEnabled
+            : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
         isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
         displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
@@ -2130,6 +2613,16 @@ final class ScoreboardStore: ObservableObject {
         guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
         activeChessClockSide = persistedState.activeChessClockSide
         chessClockPreset = persistedState.chessClockPreset
+        selectedDebatePresetID = persistedState.selectedDebatePresetID
+        debateHomeSideLabel = persistedState.debateHomeSideLabel
+        debateGuestSideLabel = persistedState.debateGuestSideLabel
+        debateCurrentSegmentIndex = persistedState.debateCurrentSegmentIndex
+        debatePrepHomeSeconds = boundedGameClockSeconds(persistedState.debatePrepHomeSeconds)
+        debatePrepGuestSeconds = boundedGameClockSeconds(persistedState.debatePrepGuestSeconds)
+        debateActiveTimer = persistedState.debateActiveTimer
+        isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
+        isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
+        isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
         homePenaltyTimers = persistedState.homePenaltyTimers
         guestPenaltyTimers = persistedState.guestPenaltyTimers
         homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
@@ -2145,7 +2638,18 @@ final class ScoreboardStore: ObservableObject {
             shotClockMilliseconds = 0
         }
         if selectedSport != .volleyball {
-            isGameClockEnabled = true
+            isGameClockEnabled = selectedSport == .custom ? isGameClockEnabled : true
+        }
+        if isDebateMode {
+            let preset = DebatePreset.preset(id: selectedDebatePresetID)
+            debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
+            configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
+            if debateActiveTimer != .segment {
+                pauseClock()
+            }
+            if !isDebatePlayerTrackingEnabled {
+                isPlayerTrackingEnabled = false
+            }
         }
         isClockRunning = false
         isShotClockRunning = false
@@ -2187,6 +2691,16 @@ final class ScoreboardStore: ObservableObject {
             guestChessClockSeconds: guestChessClockSeconds,
             activeChessClockSide: activeChessClockSide,
             chessClockPreset: chessClockPreset,
+            selectedDebatePresetID: selectedDebatePresetID,
+            debateHomeSideLabel: debateHomeSideLabel,
+            debateGuestSideLabel: debateGuestSideLabel,
+            debateCurrentSegmentIndex: debateCurrentSegmentIndex,
+            debatePrepHomeSeconds: debatePrepHomeSeconds,
+            debatePrepGuestSeconds: debatePrepGuestSeconds,
+            debateActiveTimer: debateActiveTimer,
+            isDebatePrepClockRunning: isDebatePrepClockRunning,
+            isDebateScoreTrackingEnabled: isDebateScoreTrackingEnabled,
+            isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
@@ -2332,6 +2846,16 @@ private struct PersistedState: Codable {
     var guestChessClockSeconds: Int
     var activeChessClockSide: TeamSide?
     var chessClockPreset: ChessClockPreset
+    var selectedDebatePresetID: String
+    var debateHomeSideLabel: String
+    var debateGuestSideLabel: String
+    var debateCurrentSegmentIndex: Int
+    var debatePrepHomeSeconds: Int
+    var debatePrepGuestSeconds: Int
+    var debateActiveTimer: DebateActiveTimer
+    var isDebatePrepClockRunning: Bool
+    var isDebateScoreTrackingEnabled: Bool
+    var isDebatePlayerTrackingEnabled: Bool
     var homePenaltyTimers: [HockeyPenaltyTimer]
     var guestPenaltyTimers: [HockeyPenaltyTimer]
     var homeRoster: TeamRoster
@@ -2378,6 +2902,16 @@ private struct PersistedState: Codable {
         case guestChessClockSeconds
         case activeChessClockSide
         case chessClockPreset
+        case selectedDebatePresetID
+        case debateHomeSideLabel
+        case debateGuestSideLabel
+        case debateCurrentSegmentIndex
+        case debatePrepHomeSeconds
+        case debatePrepGuestSeconds
+        case debateActiveTimer
+        case isDebatePrepClockRunning
+        case isDebateScoreTrackingEnabled
+        case isDebatePlayerTrackingEnabled
         case homePenaltyTimers
         case guestPenaltyTimers
         case homeRoster
@@ -2424,6 +2958,16 @@ private struct PersistedState: Codable {
         guestChessClockSeconds: Int,
         activeChessClockSide: TeamSide?,
         chessClockPreset: ChessClockPreset,
+        selectedDebatePresetID: String,
+        debateHomeSideLabel: String,
+        debateGuestSideLabel: String,
+        debateCurrentSegmentIndex: Int,
+        debatePrepHomeSeconds: Int,
+        debatePrepGuestSeconds: Int,
+        debateActiveTimer: DebateActiveTimer,
+        isDebatePrepClockRunning: Bool,
+        isDebateScoreTrackingEnabled: Bool,
+        isDebatePlayerTrackingEnabled: Bool,
         homePenaltyTimers: [HockeyPenaltyTimer],
         guestPenaltyTimers: [HockeyPenaltyTimer],
         homeRoster: TeamRoster,
@@ -2468,6 +3012,16 @@ private struct PersistedState: Codable {
         self.guestChessClockSeconds = guestChessClockSeconds
         self.activeChessClockSide = activeChessClockSide
         self.chessClockPreset = chessClockPreset
+        self.selectedDebatePresetID = selectedDebatePresetID
+        self.debateHomeSideLabel = debateHomeSideLabel
+        self.debateGuestSideLabel = debateGuestSideLabel
+        self.debateCurrentSegmentIndex = debateCurrentSegmentIndex
+        self.debatePrepHomeSeconds = debatePrepHomeSeconds
+        self.debatePrepGuestSeconds = debatePrepGuestSeconds
+        self.debateActiveTimer = debateActiveTimer
+        self.isDebatePrepClockRunning = isDebatePrepClockRunning
+        self.isDebateScoreTrackingEnabled = isDebateScoreTrackingEnabled
+        self.isDebatePlayerTrackingEnabled = isDebatePlayerTrackingEnabled
         self.homePenaltyTimers = homePenaltyTimers
         self.guestPenaltyTimers = guestPenaltyTimers
         self.homeRoster = homeRoster
@@ -2520,6 +3074,17 @@ private struct PersistedState: Codable {
         guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds) ?? ChessClockPreset.rapid.seconds
         activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide) ?? .home
         chessClockPreset = try container.decodeIfPresent(ChessClockPreset.self, forKey: .chessClockPreset) ?? .rapid
+        selectedDebatePresetID = try container.decodeIfPresent(String.self, forKey: .selectedDebatePresetID) ?? DebatePreset.publicForum.id
+        let preset = DebatePreset.preset(id: selectedDebatePresetID)
+        debateHomeSideLabel = try container.decodeIfPresent(String.self, forKey: .debateHomeSideLabel) ?? preset.homeSideLabel
+        debateGuestSideLabel = try container.decodeIfPresent(String.self, forKey: .debateGuestSideLabel) ?? preset.guestSideLabel
+        debateCurrentSegmentIndex = try container.decodeIfPresent(Int.self, forKey: .debateCurrentSegmentIndex) ?? 0
+        debatePrepHomeSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepHomeSeconds) ?? preset.prepSecondsPerSide
+        debatePrepGuestSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepGuestSeconds) ?? preset.prepSecondsPerSide
+        debateActiveTimer = try container.decodeIfPresent(DebateActiveTimer.self, forKey: .debateActiveTimer) ?? .segment
+        isDebatePrepClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepClockRunning) ?? false
+        isDebateScoreTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebateScoreTrackingEnabled) ?? preset.defaultScoreTrackingEnabled
+        isDebatePlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerTrackingEnabled) ?? preset.defaultPlayerTrackingEnabled
         homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers) ?? []
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers) ?? []
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
@@ -2567,6 +3132,16 @@ private struct PersistedState: Codable {
         try container.encode(guestChessClockSeconds, forKey: .guestChessClockSeconds)
         try container.encode(activeChessClockSide, forKey: .activeChessClockSide)
         try container.encode(chessClockPreset, forKey: .chessClockPreset)
+        try container.encode(selectedDebatePresetID, forKey: .selectedDebatePresetID)
+        try container.encode(debateHomeSideLabel, forKey: .debateHomeSideLabel)
+        try container.encode(debateGuestSideLabel, forKey: .debateGuestSideLabel)
+        try container.encode(debateCurrentSegmentIndex, forKey: .debateCurrentSegmentIndex)
+        try container.encode(debatePrepHomeSeconds, forKey: .debatePrepHomeSeconds)
+        try container.encode(debatePrepGuestSeconds, forKey: .debatePrepGuestSeconds)
+        try container.encode(debateActiveTimer, forKey: .debateActiveTimer)
+        try container.encode(isDebatePrepClockRunning, forKey: .isDebatePrepClockRunning)
+        try container.encode(isDebateScoreTrackingEnabled, forKey: .isDebateScoreTrackingEnabled)
+        try container.encode(isDebatePlayerTrackingEnabled, forKey: .isDebatePlayerTrackingEnabled)
         try container.encode(homePenaltyTimers, forKey: .homePenaltyTimers)
         try container.encode(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encode(homeRoster, forKey: .homeRoster)

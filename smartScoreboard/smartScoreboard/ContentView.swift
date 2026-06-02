@@ -24,6 +24,11 @@ struct ContentView: View {
     @State private var setupGuestClockSeconds = ScoreboardStore.shared.guestChessClockSeconds
     @State private var setupChessPreset = ScoreboardStore.shared.chessClockPreset
     @State private var setupCustomSportConfig = ScoreboardStore.shared.customSportConfig
+    @State private var setupDebatePresetID = ScoreboardStore.shared.selectedDebatePresetID
+    @State private var setupDebateHomeSideLabel = ScoreboardStore.shared.debateHomeSideLabel
+    @State private var setupDebateGuestSideLabel = ScoreboardStore.shared.debateGuestSideLabel
+    @State private var setupDebateScoreTrackingEnabled = ScoreboardStore.shared.isDebateScoreTrackingEnabled
+    @State private var setupDebatePlayerTrackingEnabled = ScoreboardStore.shared.isDebatePlayerTrackingEnabled
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
@@ -43,12 +48,15 @@ struct ContentView: View {
     @State private var dashboardPage: DashboardPage = .main
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingLogDeletion: StoredLogSession?
+    @State private var pendingPenaltySelection: PendingPenaltySelection?
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
     private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
+    private var setupDebatePreset: DebatePreset { DebatePreset.preset(id: setupDebatePresetID) }
+    private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
     private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
@@ -81,6 +89,16 @@ struct ContentView: View {
         .onReceive(store.$chessClockPreset) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homePenaltyTimers) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestPenaltyTimers) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$selectedDebatePresetID) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debateHomeSideLabel) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debateGuestSideLabel) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debateCurrentSegmentIndex) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debatePrepHomeSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debatePrepGuestSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$debateActiveTimer) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isDebatePrepClockRunning) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isDebateScoreTrackingEnabled) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$isDebatePlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$activeShotClockPresetSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$possessionDirection) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$areSidesSwapped) { _ in autosaveSelectedGameFile() }
@@ -103,12 +121,8 @@ struct ContentView: View {
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
     }
 
-    private var lifecycleConfiguredRootView: some View {
+    private var basicSetupDraftConfiguredRootView: some View {
         synchronizedRootView
-        .onAppear(perform: handleRootAppear)
-        .onChange(of: scenePhase) { _, newPhase in
-            handleScenePhaseChange(newPhase)
-        }
         .onChange(of: homeTeamDraft) { _, _ in commitSetupEdits() }
         .onChange(of: guestTeamDraft) { _, _ in commitSetupEdits() }
         .onChange(of: setupSport) { _, newValue in
@@ -124,12 +138,60 @@ struct ContentView: View {
             setupGuestClockSeconds = setupChessPreset.seconds
             commitSetupEdits()
         }
+    }
+
+    private var setupDraftConfiguredRootView: some View {
+        basicSetupDraftConfiguredRootView
+        .onChange(of: setupDebatePresetID) { _, _ in
+            let preset = setupDebatePreset
+            setupDebateHomeSideLabel = preset.homeSideLabel
+            setupDebateGuestSideLabel = preset.guestSideLabel
+            setupDebateScoreTrackingEnabled = preset.defaultScoreTrackingEnabled
+            setupDebatePlayerTrackingEnabled = preset.defaultPlayerTrackingEnabled
+            if let firstSegment = preset.segments.first {
+                setupClockSeconds = firstSegment.durationSeconds
+                setupGuestClockSeconds = firstSegment.durationSeconds
+            }
+            commitSetupEdits()
+        }
+        .onChange(of: setupDebateHomeSideLabel) { _, _ in commitSetupEdits() }
+        .onChange(of: setupDebateGuestSideLabel) { _, _ in commitSetupEdits() }
+        .onChange(of: setupDebateScoreTrackingEnabled) { _, _ in commitSetupEdits() }
+        .onChange(of: setupDebatePlayerTrackingEnabled) { _, _ in commitSetupEdits() }
         .onChange(of: setupCustomSportConfig) { _, _ in commitSetupEdits() }
         .onChange(of: selectedStoredGameFileID) { _, _ in
             syncCurrentLogGameFile()
         }
         .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
             handlePlayerTrackingEnabledChange(isEnabled)
+        }
+        .onChange(of: setupSport) { _, _ in
+            let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+            guard selectedSettingsPane == .players, !supportsPlayers else {
+                return
+            }
+            selectedSettingsPane = .game
+        }
+        .onChange(of: setupCustomSportConfig) { _, _ in
+            let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+            guard selectedSettingsPane == .players, !supportsPlayers else {
+                return
+            }
+            selectedSettingsPane = .game
+        }
+        .onChange(of: setupDebatePlayerTrackingEnabled) { _, isEnabled in
+            guard selectedSettingsPane == .players, !isEnabled else {
+                return
+            }
+            selectedSettingsPane = .game
+        }
+    }
+
+    private var lifecycleConfiguredRootView: some View {
+        setupDraftConfiguredRootView
+        .onAppear(perform: handleRootAppear)
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
         }
     }
 
@@ -191,6 +253,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
             refreshStoredLogSessions()
+        }
+        .sheet(item: $pendingPenaltySelection) { selection in
+            penaltyPlayerSelectionSheet(selection)
         }
         #if os(macOS)
         .background(ControlBoardWindowConfigurator())
@@ -291,7 +356,9 @@ struct ContentView: View {
     }
 
     private func settingsSidebarButton(_ pane: SettingsPane) -> some View {
-        Button {
+        let isEnabled = isSettingsPaneEnabled(pane)
+        return Button {
+            guard isEnabled else { return }
             selectedSettingsPane = pane
         } label: {
             HStack(spacing: 12) {
@@ -312,6 +379,8 @@ struct ContentView: View {
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
         }
+        .opacity(isEnabled ? 1 : 0.38)
+        .disabled(!isEnabled)
         .buttonStyle(.plain)
     }
 
@@ -338,6 +407,15 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(settingsPalette.detailBackground)
+    }
+
+    private func isSettingsPaneEnabled(_ pane: SettingsPane) -> Bool {
+        switch pane {
+        case .players:
+            return setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+        default:
+            return true
+        }
     }
 
     @ViewBuilder
@@ -389,20 +467,65 @@ struct ContentView: View {
                     settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
                 }
 
-                if setupSport == .chess {
+                if setupSport == .debate {
                     settingsDivider()
-                    settingsSegmentRow(
+                    settingsPickerRow(
                         title: "Preset",
-                        options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
-                        selection: Binding(
-                            get: { setupChessPreset.seconds },
-                            set: { value in
-                                if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
-                                    setupChessPreset = preset
-                                }
+                        selection: $setupDebatePresetID,
+                        options: DebatePreset.allPresets.map(\.id)
+                    ) { presetID in
+                        DebatePreset.preset(id: presetID).title
+                    }
+                    settingsDivider()
+                    settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)
+                    settingsDivider()
+                    settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
+                    settingsDivider()
+                    settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
+                    settingsDivider()
+                    settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Prep Time", value: formatClock(setupDebatePreset.prepSecondsPerSide))
+                    settingsDivider()
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Segments")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        ForEach(Array(setupDebatePreset.segments.enumerated()), id: \.element.id) { index, segment in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text("\(index + 1). \(segment.title)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(settingsPalette.primaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text(segment.timerMode == .masterClock ? "Master" : segment.timerMode == .dualClock ? "Dual" : "None")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(settingsPalette.secondaryText)
+
+                                Text(formatClock(segment.durationSeconds))
+                                    .font(.subheadline.weight(.black))
+                                    .monospacedDigit()
+                                    .foregroundStyle(settingsPalette.secondaryText)
                             }
+                        }
+                    }
+                } else if setupRules.usesChessClocks {
+                    if setupSport == .chess {
+                        settingsDivider()
+                        settingsSegmentRow(
+                            title: "Preset",
+                            options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                            selection: Binding(
+                                get: { setupChessPreset.seconds },
+                                set: { value in
+                                    if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                                        setupChessPreset = preset
+                                    }
+                                }
+                            )
                         )
-                    )
+                    }
                     settingsDivider()
                     settingsStepperValueRow(
                         title: "Home Clock",
@@ -459,24 +582,38 @@ struct ContentView: View {
                         set: { setupCustomSportConfig.title = $0 }
                     ))
                     settingsDivider()
-                    settingsTextEntryRow(title: "Period Label", text: Binding(
-                        get: { setupCustomSportConfig.periodTitle },
-                        set: { setupCustomSportConfig.periodTitle = $0 }
+                    settingsToggleRow(title: "Period Tracking", isOn: Binding(
+                        get: { setupCustomSportConfig.isPeriodEnabled },
+                        set: { setupCustomSportConfig.isPeriodEnabled = $0 }
                     ))
+                    if setupCustomSportConfig.isPeriodEnabled {
+                        settingsDivider()
+                        settingsTextEntryRow(title: "Period Label", text: Binding(
+                            get: { setupCustomSportConfig.periodTitle },
+                            set: { setupCustomSportConfig.periodTitle = $0 }
+                        ))
+                        settingsDivider()
+                        settingsTextEntryRow(title: "Short Label", text: Binding(
+                            get: { setupCustomSportConfig.periodShortTitle },
+                            set: { setupCustomSportConfig.periodShortTitle = $0 }
+                        ))
+                    }
                     settingsDivider()
-                    settingsTextEntryRow(title: "Short Label", text: Binding(
-                        get: { setupCustomSportConfig.periodShortTitle },
-                        set: { setupCustomSportConfig.periodShortTitle = $0 }
+                    settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
+                        get: { setupCustomSportConfig.usesChessClocks },
+                        set: { setupCustomSportConfig.usesChessClocks = $0 }
                     ))
-                    settingsDivider()
-                    settingsPickerRow(
-                        title: "Clock Mode",
-                        selection: Binding(
-                            get: { setupCustomSportConfig.mainClockMode },
-                            set: { setupCustomSportConfig.mainClockMode = $0 }
-                        ),
-                        options: MainClockMode.allCases
-                    ) { $0.title }
+                    if !setupCustomSportConfig.usesChessClocks {
+                        settingsDivider()
+                        settingsPickerRow(
+                            title: "Clock Mode",
+                            selection: Binding(
+                                get: { setupCustomSportConfig.mainClockMode },
+                                set: { setupCustomSportConfig.mainClockMode = $0 }
+                            ),
+                            options: MainClockMode.allCases
+                        ) { $0.title }
+                    }
                     settingsDivider()
                     settingsPickerRow(
                         title: "Score Buttons",
@@ -497,17 +634,17 @@ struct ContentView: View {
                             get: { setupCustomSportConfig.usesCenterPlayerStrip },
                             set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
                         ))
+                        settingsDivider()
+                        settingsToggleRow(title: "Player Fouls", isOn: Binding(
+                            get: { setupCustomSportConfig.isPlayerFoulsEnabled },
+                            set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
+                        ))
+                        settingsDivider()
+                        settingsToggleRow(title: "Player Cards", isOn: Binding(
+                            get: { setupCustomSportConfig.isPlayerCardsEnabled },
+                            set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
+                        ))
                     }
-                    settingsDivider()
-                    settingsToggleRow(title: "Player Fouls", isOn: Binding(
-                        get: { setupCustomSportConfig.isPlayerFoulsEnabled },
-                        set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
-                    ))
-                    settingsDivider()
-                    settingsToggleRow(title: "Player Cards", isOn: Binding(
-                        get: { setupCustomSportConfig.isPlayerCardsEnabled },
-                        set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
-                    ))
                     settingsDivider()
                     settingsToggleRow(title: "Possession", isOn: Binding(
                         get: { setupCustomSportConfig.isPossessionEnabled },
@@ -549,7 +686,7 @@ struct ContentView: View {
                 }
             }
 
-            if setupRules.showsSubstitutionTracking {
+            if setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
                 settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
                 settingsStepperValueRow(
                     title: "Home Allowed",
@@ -615,11 +752,11 @@ struct ContentView: View {
             }
 
             if store.supportsPlayerTracking {
-                settingsSection(title: "Home Roster", footer: "Edit player number, display name, and active lineup status for the home team.") {
+                settingsSection(title: "\(store.sideRoleLabel(for: .home)) Roster", footer: "Edit player number, display name, and active lineup status for the first side.") {
                     settingsRosterEditor(side: .home, layout: layout)
                 }
 
-                settingsSection(title: "Guest Roster", footer: "Edit player number, display name, and active lineup status for the guest team.") {
+                settingsSection(title: "\(store.sideRoleLabel(for: .guest)) Roster", footer: "Edit player number, display name, and active lineup status for the second side.") {
                     settingsRosterEditor(side: .guest, layout: layout)
                 }
             } else {
@@ -715,8 +852,8 @@ struct ContentView: View {
                     settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
                 }
                 settingsDivider()
-                settingsSummaryValueRow(title: setupSport == .chess ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
-                if setupSport == .chess {
+                settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
+                if setupRules.usesChessClocks {
                     settingsDivider()
                     settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
                 }
@@ -1702,14 +1839,6 @@ struct ContentView: View {
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
-        if store.isPlayerTrackingEnabled {
-            return AnyView(trackedControlPane(layout: layout))
-        }
-
-        return AnyView(mainControlPane(layout: layout))
-    }
-
-    private func trackedControlPane(layout: InterfaceLayout) -> some View {
         ZStack {
             switch dashboardPage {
             case .main:
@@ -1719,11 +1848,16 @@ struct ContentView: View {
                         removal: .move(edge: .trailing).combined(with: .opacity)
                     ))
             case .players:
-                playerTrackingScreen(layout: layout)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
+                if store.isPlayerTrackingEnabled {
+                    playerTrackingScreen(layout: layout)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
+                } else {
+                    mainControlPane(layout: layout)
+                        .transition(.opacity)
+                }
             case .preview:
                 previewDashboardScreen(layout: layout)
                     .transition(.asymmetric(
@@ -1915,32 +2049,71 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private func topControlRow(layout: InterfaceLayout) -> some View {
         let leftIsHome = !store.areSidesSwapped
+        let leftTitle = store.sideRoleLabel(for: leftIsHome ? .home : .guest)
+        let rightTitle = store.sideRoleLabel(for: leftIsHome ? .guest : .home)
+
+        if usesDedicatedDualClockLayout {
+            if layout.topControlUsesVerticalFlow {
+                return AnyView(VStack(spacing: layout.sectionSpacing) {
+                    teamControls(
+                        title: leftTitle,
+                        isHome: leftIsHome,
+                        tint: leftIsHome ? homeTint : guestTint,
+                        layout: layout
+                    )
+
+                    teamControls(
+                        title: rightTitle,
+                        isHome: !leftIsHome,
+                        tint: leftIsHome ? guestTint : homeTint,
+                        layout: layout
+                    )
+                })
+            } else {
+                return AnyView(HStack(spacing: 16) {
+                    teamControls(
+                        title: leftTitle,
+                        isHome: leftIsHome,
+                        tint: leftIsHome ? homeTint : guestTint,
+                        layout: layout
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    teamControls(
+                        title: rightTitle,
+                        isHome: !leftIsHome,
+                        tint: leftIsHome ? guestTint : homeTint,
+                        layout: layout
+                    )
+                    .frame(maxWidth: .infinity)
+                })
+            }
+        }
 
         if layout.topControlUsesVerticalFlow {
-            VStack(spacing: layout.sectionSpacing) {
+            return AnyView(VStack(spacing: layout.sectionSpacing) {
                 centeredStatusWidget(layout: layout)
 
                 teamControls(
-                    title: leftIsHome ? "Home" : "Guest",
+                    title: leftTitle,
                     isHome: leftIsHome,
                     tint: leftIsHome ? homeTint : guestTint,
                     layout: layout
                 )
 
                 teamControls(
-                    title: leftIsHome ? "Guest" : "Home",
+                    title: rightTitle,
                     isHome: !leftIsHome,
                     tint: leftIsHome ? guestTint : homeTint,
                     layout: layout
                 )
-            }
+            })
         } else {
-            HStack(spacing: 16) {
+            return AnyView(HStack(spacing: 16) {
                 teamControls(
-                    title: leftIsHome ? "Home" : "Guest",
+                    title: leftTitle,
                     isHome: leftIsHome,
                     tint: leftIsHome ? homeTint : guestTint,
                     layout: layout
@@ -1948,22 +2121,26 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
 
                 centeredStatusWidget(layout: layout)
-                    .frame(maxWidth: layout.centerStatusWidth)
+                .frame(maxWidth: layout.centerStatusWidth)
 
                 teamControls(
-                    title: leftIsHome ? "Guest" : "Home",
+                    title: rightTitle,
                     isHome: !leftIsHome,
                     tint: leftIsHome ? guestTint : homeTint,
                     layout: layout
                 )
                 .frame(maxWidth: .infinity)
-            }
+            })
         }
     }
 
     private func centeredStatusWidget(layout: InterfaceLayout) -> some View {
-        if store.usesChessClocks {
+        if usesDedicatedDualClockLayout {
             return AnyView(chessStatusWidget(layout: layout))
+        }
+
+        if store.isDebateMode {
+            return AnyView(debateStatusWidget(layout: layout))
         }
 
         let leftName = store.areSidesSwapped ? store.guestTeamName : store.homeTeamName
@@ -2009,7 +2186,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            if store.showsGameClock {
+            if store.usesChessClocks {
+                compactDualClockRow(layout: layout)
+            } else if store.showsGameClock {
                 Text(store.formattedClock)
                     .font(.system(size: layout.centerScoreSize + 6, weight: .black, design: .rounded))
                     .monospacedDigit()
@@ -2028,7 +2207,9 @@ struct ContentView: View {
                 if store.supportsShotClock {
                     gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, layout: layout)
                 }
-                gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                if store.supportsPeriod {
+                    gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                }
             }
 
             if store.isPlayerTrackingEnabled {
@@ -2054,10 +2235,67 @@ struct ContentView: View {
         ))
     }
 
+    private func compactDualClockRow(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 10) {
+            compactDualClockBadge(
+                title: displayTeamName(store.homeTeamName),
+                value: store.formattedHomeChessClock,
+                tint: homeTint,
+                isActive: store.activeChessClockSide == .home,
+                layout: layout
+            )
+
+            compactDualClockBadge(
+                title: displayTeamName(store.guestTeamName),
+                value: store.formattedGuestChessClock,
+                tint: guestTint,
+                isActive: store.activeChessClockSide == .guest,
+                layout: layout
+            )
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func compactDualClockBadge(
+        title: String,
+        value: String,
+        tint: Color,
+        isActive: Bool,
+        layout: InterfaceLayout
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .singleLineFitted(minScale: 0.55)
+                .foregroundStyle(themePalette.dashboardSubtleText)
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(isActive ? tint : themePalette.dashboardMutedText.opacity(0.35))
+                    .frame(width: 10, height: 10)
+
+                Text(value)
+                    .font(.system(size: layout.centerMetricValueSize + 2, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.55)
+                    .foregroundStyle(tint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(themePalette.dashboardCardBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
+        )
+    }
+
     private func chessStatusWidget(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Chess Clocks")
+                Text("\(store.selectedSport.title) Clocks")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
@@ -2167,7 +2405,7 @@ struct ContentView: View {
         tint: Color,
         layout: InterfaceLayout
     ) -> some View {
-        if store.usesChessClocks {
+        if usesDedicatedDualClockLayout {
             return AnyView(chessTeamControls(side: isHome ? .home : .guest, tint: tint, layout: layout))
         }
 
@@ -2177,11 +2415,29 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            buttonGrid(
-                columns: max(1, min(2, store.currentRules.scoreStepOptions.count + 1)),
-                buttons: scoreButtons(forHomeTeam: isHome, tint: tint),
-                dense: layout.denseControls
-            )
+            if store.isDebateMode, store.currentDebateSegment?.timerMode == .dualClock {
+                smallActionButton(
+                    "Turn Here",
+                    tint: store.activeChessClockSide == (isHome ? .home : .guest) ? tint.opacity(0.78) : tint,
+                    foreground: .white,
+                    verticalPadding: layout.advancedButtonVerticalPadding
+                ) {
+                    store.setActiveChessClockSide(isHome ? .home : .guest)
+                }
+            }
+
+            if store.supportsScore {
+                buttonGrid(
+                    columns: max(1, min(2, scoreButtons(forHomeTeam: isHome, tint: tint).count)),
+                    buttons: scoreButtons(forHomeTeam: isHome, tint: tint),
+                    dense: layout.denseControls
+                )
+            }
+
+            if store.isDebateMode {
+                debatePrepInlinePanel(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
 
             if store.supportsShotClock {
                 buttonGrid(
@@ -2233,6 +2489,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsSubstitutionTracking)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsTeamFouls)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.debateActiveTimer)
         )
     }
 
@@ -2253,6 +2510,15 @@ struct ContentView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(store.activeChessClockSide == side ? tint : themePalette.dashboardMutedText)
 
+            smallActionButton(
+                "Turn Here",
+                tint: store.activeChessClockSide == side ? tint.opacity(0.78) : tint,
+                foreground: .white,
+                verticalPadding: layout.advancedButtonVerticalPadding
+            ) {
+                store.setActiveChessClockSide(side)
+            }
+
             buttonGrid(
                 columns: 2,
                 buttons: [
@@ -2261,7 +2527,14 @@ struct ContentView: View {
                     },
                     ActionDescriptor(title: "+1 Min", tint: tint, foreground: .white) {
                         store.adjustChessClock(for: side, by: 60)
-                    },
+                    }
+                ],
+                dense: layout.denseControls
+            )
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
                     ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustChessClock(for: side, by: -1)
                     },
@@ -2370,7 +2643,7 @@ struct ContentView: View {
     private func playerTeamPanel(side: TeamSide, layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("\(side.title) Roster")
+                Text("\(store.sideRoleLabel(for: side)) Roster")
                     .font(.headline.weight(.bold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
@@ -2412,7 +2685,7 @@ struct ContentView: View {
 
     private func teamToolbarButtons(for side: TeamSide) -> [ActionDescriptor] {
         var buttons: [ActionDescriptor] = []
-        let sideTitle = side.title
+        let sideTitle = store.sideRoleLabel(for: side)
 
         if store.supportsFouls {
             buttons.append(
@@ -2522,6 +2795,10 @@ struct ContentView: View {
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
+        if store.isDebateMode {
+            return AnyView(debateGameControls(layout: layout))
+        }
+
         if store.usesChessClocks {
             return AnyView(chessGameControls(layout: layout))
         }
@@ -2576,8 +2853,8 @@ struct ContentView: View {
             }
 
             buttonGrid(
-                columns: 3,
-                buttons: [
+                columns: store.supportsPeriod ? 3 : 1,
+                buttons: store.supportsPeriod ? [
                     ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white) {
                         pendingGameConfirmation = .previousPeriod
                     },
@@ -2586,6 +2863,10 @@ struct ContentView: View {
                     },
                     ActionDescriptor(title: "Next \(store.periodTitle)", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                         store.adjustPeriod(by: 1)
+                    }
+                ] : [
+                    ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.swapSides()
                     }
                 ],
                 dense: layout.denseControls,
@@ -2622,11 +2903,11 @@ struct ContentView: View {
     private func chessGameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Chess Controls")
+                Text("\(store.selectedSport.title) Controls")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
                 Spacer(minLength: 0)
-                Text(store.chessClockPreset.title)
+                Text(store.selectedSport == .chess ? store.chessClockPreset.title : "Dual Clock")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
@@ -2641,11 +2922,20 @@ struct ContentView: View {
                 store.toggleChessClock()
             }
 
+            actionButton(
+                "Switch Turn",
+                tint: themePalette.dashboardWarningButton,
+                foreground: themePalette.dashboardWarningButtonText,
+                verticalPadding: layout.denseControls ? 14 : 18
+            ) {
+                store.switchChessClock()
+            }
+
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Switch Turn", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                        store.switchChessClock()
+                    ActionDescriptor(title: "Swap Side", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.swapSides()
                     },
                     ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: .white) {
                         store.resetChessClocks()
@@ -2653,12 +2943,345 @@ struct ContentView: View {
                 ],
                 dense: layout.denseControls
             )
+
+            if store.currentRules.supportsPeriod || store.currentRules.supportsScore {
+                buttonGrid(
+                    columns: 3,
+                    buttons: [
+                        ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white) {
+                            pendingGameConfirmation = .previousPeriod
+                        },
+                        ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                            store.swapSides()
+                        },
+                        ActionDescriptor(title: "Next \(store.periodTitle)", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                            store.adjustPeriod(by: 1)
+                        }
+                    ],
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+
+                buttonGrid(
+                    columns: 1,
+                    buttons: [
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                            pendingGameConfirmation = .zeroScores
+                        }
+                    ],
+                    style: .compact,
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+            }
         }
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
             borderColor: themePalette.dashboardCardBorder,
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
+        )
+    }
+
+    private func debateStatusWidget(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(store.currentDebatePreset.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                    Text(store.debateSegmentTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(themePalette.dashboardMutedText)
+                }
+
+                Spacer(minLength: 0)
+
+                Text(store.debateActiveTimer == .segment ? (store.isClockRunning ? "Running" : "Paused") : "Prep")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(store.isClockRunning || store.isDebatePrepClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+            }
+
+            if store.currentDebateSegment?.timerMode == .dualClock {
+                compactDualClockRow(layout: layout)
+            } else if store.showsGameClock {
+                Text(store.formattedClock)
+                    .font(.system(size: layout.centerScoreSize + 10, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.4)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .contentTransition(.numericText())
+            } else {
+                Text("No Active Segment Clock")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            HStack(spacing: 10) {
+                compactDualClockBadge(
+                    title: "\(store.sideRoleLabel(for: .home)) Prep",
+                    value: store.formattedDebatePrepHomeClock,
+                    tint: homeTint,
+                    isActive: store.debateActiveTimer == .prepHome,
+                    layout: layout
+                )
+
+                compactDualClockBadge(
+                    title: "\(store.sideRoleLabel(for: .guest)) Prep",
+                    value: store.formattedDebatePrepGuestClock,
+                    tint: guestTint,
+                    isActive: store.debateActiveTimer == .prepGuest,
+                    layout: layout
+                )
+            }
+
+            if store.supportsScore {
+                HStack(spacing: 12) {
+                    gameStateScoreColumn(
+                        title: store.sideRoleLabel(for: .home),
+                        score: store.homeScore,
+                        tint: homeTint,
+                        layout: layout
+                    )
+
+                    Text("-")
+                        .font(.system(size: layout.centerScoreSize - 10, weight: .black, design: .rounded))
+                        .foregroundStyle(themePalette.dashboardMutedText)
+
+                    gameStateScoreColumn(
+                        title: store.sideRoleLabel(for: .guest),
+                        score: store.guestScore,
+                        tint: guestTint,
+                        layout: layout
+                    )
+                }
+            }
+
+            if store.isPlayerTrackingEnabled {
+                Button {
+                    dashboardPage = .players
+                } label: {
+                    Label("Open Players", systemImage: "person.3")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(themePalette.dashboardNeutralButton, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
+    }
+
+    private func debateGameControls(layout: InterfaceLayout) -> some View {
+        let segment = store.currentDebateSegment
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(store.currentDebatePreset.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                    Text(store.debateSegmentTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(themePalette.dashboardMutedText)
+                }
+
+                Spacer(minLength: 0)
+
+                Text("Segment \(store.debateCurrentSegmentIndex + 1)/\(store.currentDebatePreset.segments.count)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            actionButton(
+                store.debateActiveTimer == .segment
+                    ? (store.isClockRunning ? "Pause Segment Timer" : "Start Segment Timer")
+                    : "Return to Segment Timer",
+                tint: themePalette.dashboardSuccessButton,
+                foreground: themePalette.dashboardSuccessButtonText,
+                titleFont: .title3.weight(.black),
+                verticalPadding: layout.denseControls ? 16 : 20
+            ) {
+                if store.debateActiveTimer == .segment {
+                    store.toggleClock()
+                } else {
+                    store.returnToDebateSegmentTimer()
+                }
+            }
+
+            if store.debateActiveTimer == .segment, segment?.timerMode != DebateTimerMode.none {
+                buttonGrid(
+                    columns: 4,
+                    buttons: debateSegmentJogButtons(tint: segment?.timerMode == .dualClock ? debateActiveSideTint : themePalette.dashboardNeutralButton),
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+            }
+
+            if segment?.timerMode == .dualClock && segment?.allowsSideSwitching == true {
+                actionButton(
+                    "Switch Active Side",
+                    tint: themePalette.dashboardWarningButton,
+                    foreground: themePalette.dashboardWarningButtonText,
+                    verticalPadding: layout.denseControls ? 14 : 18
+                ) {
+                    store.switchChessClock()
+                }
+            }
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Previous Segment", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.advanceDebateSegment(by: -1)
+                    },
+                    ActionDescriptor(title: "Next Segment", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                        store.advanceDebateSegment(by: 1)
+                    }
+                ],
+                dense: layout.denseControls
+            )
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: .white) {
+                        store.resetDebateCurrentSegment()
+                    },
+                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: .white) {
+                        store.resetDebateRound()
+                    }
+                ],
+                dense: layout.denseControls
+            )
+
+            if store.supportsScore {
+                buttonGrid(
+                    columns: 1,
+                    buttons: [
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white) {
+                            pendingGameConfirmation = .zeroScores
+                        }
+                    ],
+                    style: .compact,
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
+    }
+
+    private var debateActiveSideTint: Color {
+        switch store.activeChessClockSide {
+        case .home:
+            return homeTint
+        case .guest:
+            return guestTint
+        case .none:
+            return themePalette.dashboardNeutralButton
+        }
+    }
+
+    private func debateSegmentJogButtons(tint: Color) -> [ActionDescriptor] {
+        [
+            ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                adjustDebateSegmentTimer(by: -60)
+            },
+            ActionDescriptor(title: "+1 Min", tint: tint, foreground: .white) {
+                adjustDebateSegmentTimer(by: 60)
+            },
+            ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                adjustDebateSegmentTimer(by: -1)
+            },
+            ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: .white) {
+                adjustDebateSegmentTimer(by: 1)
+            }
+        ]
+    }
+
+    private func adjustDebateSegmentTimer(by delta: Int) {
+        guard store.debateActiveTimer == .segment else {
+            return
+        }
+
+        switch store.currentDebateSegment?.timerMode {
+        case .some(.masterClock):
+            store.adjustClock(by: delta)
+        case .some(.dualClock):
+            if let side = store.activeChessClockSide {
+                store.adjustChessClock(for: side, by: delta)
+            }
+        case .some(.none), nil:
+            break
+        }
+    }
+
+    private func debatePrepInlinePanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        let isHome = side == .home
+        let isActive = store.debateActiveTimer == (isHome ? .prepHome : .prepGuest)
+        let value = isHome ? store.formattedDebatePrepHomeClock : store.formattedDebatePrepGuestClock
+        let prepFontSize = store.supportsScore ? layout.centerMetricValueSize + 8 : layout.centerScoreSize - 4
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Prep")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text(value)
+                    .font(.system(size: prepFontSize, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tint)
+            }
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(
+                        title: isActive && store.isDebatePrepClockRunning ? "Pause Prep" : "Use Prep",
+                        tint: isActive ? tint.opacity(0.82) : tint,
+                        foreground: .white
+                    ) {
+                        store.toggleDebatePrepClock(for: side)
+                    },
+                    ActionDescriptor(title: "Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.resetDebatePrepClock(for: side)
+                    },
+                    ActionDescriptor(title: "-15s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustDebatePrepClock(for: side, by: -15)
+                    },
+                    ActionDescriptor(title: "+15s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustDebatePrepClock(for: side, by: 15)
+                    },
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.7))
         )
     }
 
@@ -2770,12 +3393,25 @@ struct ContentView: View {
             return [("15:00", 15 * 60), ("20:00", 20 * 60), ("25:00", 25 * 60)]
         case .chess:
             return ChessClockPreset.allCases.map { ($0.title, $0.seconds) }
+        case .debate:
+            return [("5:00", 5 * 60), ("7:00", 7 * 60), ("8:00", 8 * 60), ("10:00", 10 * 60)]
         case .custom:
             return [("5:00", 5 * 60), ("10:00", 10 * 60), ("15:00", 15 * 60)]
         }
     }
 
     private func scoreButtons(forHomeTeam isHome: Bool, tint: Color) -> [ActionDescriptor] {
+        if store.isDebateMode {
+            return [
+                ActionDescriptor(title: "-1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                    store.adjustScore(isHome: isHome, by: -1)
+                },
+                ActionDescriptor(title: "+1", tint: tint, foreground: .white) {
+                    store.adjustScore(isHome: isHome, by: 1)
+                }
+            ]
+        }
+
         let sportButtons = store.currentRules.scoreStepOptions.map { value in
             ActionDescriptor(title: "+\(value)", tint: tint, foreground: .white) {
                 store.adjustScore(isHome: isHome, by: value)
@@ -2827,9 +3463,9 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { store.addPenaltyTimer(for: side, seconds: 120) },
-                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { store.addPenaltyTimer(for: side, seconds: 240) },
-                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { store.addPenaltyTimer(for: side, seconds: 300) }
+                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 120) },
+                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 240) },
+                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 300) }
                 ],
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -2846,36 +3482,6 @@ struct ContentView: View {
                             .font(.system(size: layout.centerMetricValueSize - 4, weight: .black, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(tint)
-                    }
-                    HStack(spacing: 8) {
-                        Menu {
-                            ForEach(store.trackedPlayers(for: side)) { player in
-                                Button("#\(player.number) \(player.name.isEmpty ? "PLAYER" : player.name)") {
-                                    store.assignPenaltyTimerPlayer(player, for: side, timerID: timer.id)
-                                }
-                            }
-                        } label: {
-                            Label("Assign Player", systemImage: "person.crop.circle.badge.plus")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, layout.advancedButtonVerticalPadding)
-                                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-
-                        TextField("No.", text: Binding(
-                            get: { timer.playerNumber },
-                            set: { store.updatePenaltyTimerPlayerNumber($0, for: side, timerID: timer.id) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-
-                        TextField("Name", text: Binding(
-                            get: { timer.playerName },
-                            set: { store.updatePenaltyTimerPlayerName($0, for: side, timerID: timer.id) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
                     }
                     buttonGrid(
                         columns: 4,
@@ -2899,6 +3505,40 @@ struct ContentView: View {
                 }
                 .padding(10)
                 .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+    }
+
+    private func penaltyPlayerSelectionSheet(_ selection: PendingPenaltySelection) -> some View {
+        NavigationStack {
+            List(store.trackedPlayers(for: selection.side)) { player in
+                Button {
+                    store.addPenaltyTimer(for: selection.side, seconds: selection.seconds, player: player, startsRunning: true)
+                    pendingPenaltySelection = nil
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("#\(player.number.isEmpty ? "--" : player.number)")
+                            .font(.headline.weight(.black))
+                            .foregroundStyle(selection.side == .home ? homeTint : guestTint)
+                            .frame(width: 54, alignment: .leading)
+
+                        Text(player.name.isEmpty ? "PLAYER" : player.name)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle("Select \(selection.side.title) Player")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        pendingPenaltySelection = nil
+                    }
+                }
             }
         }
     }
@@ -3054,9 +3694,9 @@ struct ContentView: View {
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
-            homeChessClockSeconds: setupSport == .chess ? setupClockSeconds : nil,
-            guestChessClockSeconds: setupSport == .chess ? setupGuestClockSeconds : nil,
-            activeChessClockSide: setupSport == .chess ? .home : nil,
+            homeChessClockSeconds: setupRules.usesChessClocks ? setupClockSeconds : nil,
+            guestChessClockSeconds: setupRules.usesChessClocks ? setupGuestClockSeconds : nil,
+            activeChessClockSide: setupRules.usesChessClocks ? .home : nil,
             chessClockPreset: setupSport == .chess ? setupChessPreset : nil,
             homePenaltyTimers: [],
             guestPenaltyTimers: [],
@@ -3347,6 +3987,11 @@ struct ContentView: View {
         setupGuestClockSeconds = store.guestChessClockSeconds
         setupChessPreset = store.chessClockPreset
         setupCustomSportConfig = store.customSportConfig
+        setupDebatePresetID = store.selectedDebatePresetID
+        setupDebateHomeSideLabel = store.debateHomeSideLabel
+        setupDebateGuestSideLabel = store.debateGuestSideLabel
+        setupDebateScoreTrackingEnabled = store.isDebateScoreTrackingEnabled
+        setupDebatePlayerTrackingEnabled = store.isDebatePlayerTrackingEnabled
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
     }
 
@@ -3357,13 +4002,25 @@ struct ContentView: View {
     private func logEntryContextLine(_ entry: ScoreboardLogEntry) -> String {
         var segments: [String] = []
         segments.append(entry.context.customSportTitle ?? entry.context.sport.title)
-        if entry.context.sport != .chess {
+        if let debatePresetTitle = entry.context.debatePresetTitle {
+            segments.append(debatePresetTitle)
+        }
+        if let debateSegmentTitle = entry.context.debateSegmentTitle {
+            segments.append(debateSegmentTitle)
+        }
+        if entry.context.homeChessClockSeconds == nil && entry.context.guestChessClockSeconds == nil {
             segments.append("\(entry.context.sport.periodTitle) \(entry.context.period)")
         }
-        if entry.context.sport == .chess {
+        if entry.context.homeChessClockSeconds != nil || entry.context.guestChessClockSeconds != nil {
             let home = entry.context.homeChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
             let guest = entry.context.guestChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
-            segments.append("Chess \(home) / \(guest) • \(entry.context.activeChessClockSide?.title ?? "None")")
+            let activeSide = entry.context.activeChessClockSide.map { side in
+                if side == .home {
+                    return entry.context.debateHomeSideLabel ?? side.title
+                }
+                return entry.context.debateGuestSideLabel ?? side.title
+            } ?? "None"
+            segments.append("Dual Clock \(home) / \(guest) • \(activeSide)")
         } else if entry.context.showsGameClock {
             segments.append("Clock \(entry.context.isClockRunning ? "Running" : "Stopped") \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
         } else {
@@ -3395,7 +4052,11 @@ struct ContentView: View {
         var segments: [String] = []
 
         if let side = entry.operation.teamSide {
-            segments.append(side.title)
+            if entry.context.sport == .debate {
+                segments.append(side == .home ? (entry.context.debateHomeSideLabel ?? side.title) : (entry.context.debateGuestSideLabel ?? side.title))
+            } else {
+                segments.append(side.title)
+            }
         }
 
         if let number = entry.operation.playerNumber, !number.isEmpty {
@@ -3449,13 +4110,22 @@ struct ContentView: View {
         store.setSelectedSport(sport, applyDefaults: previousSport != sport)
         setupPeriod = 1
         setupClockSeconds = setupRules.defaultClockSeconds
-        setupGuestClockSeconds = sport == .chess ? setupChessPreset.seconds : setupGuestClockSeconds
+        setupGuestClockSeconds = setupRules.usesChessClocks ? setupRules.defaultClockSeconds : setupGuestClockSeconds
         if sport != .volleyball && sport != .custom {
             setupUsesGameClock = true
         }
-        if sport == .chess {
-            setupClockSeconds = setupChessPreset.seconds
-            setupGuestClockSeconds = setupChessPreset.seconds
+        if setupRules.usesChessClocks {
+            if sport == .chess {
+                setupClockSeconds = setupChessPreset.seconds
+                setupGuestClockSeconds = setupChessPreset.seconds
+            } else if sport == .debate {
+                let firstSegment = setupDebatePreset.segments.first
+                setupClockSeconds = firstSegment?.durationSeconds ?? 0
+                setupGuestClockSeconds = firstSegment?.durationSeconds ?? 0
+            } else {
+                setupClockSeconds = setupRules.defaultClockSeconds
+                setupGuestClockSeconds = setupRules.defaultClockSeconds
+            }
         }
         setupShotClockSeconds = setupRules.defaultShotClockSeconds
         commitSetupEdits()
@@ -3583,7 +4253,7 @@ struct ContentView: View {
         let currentSnapshot = store.currentGameSnapshot()
 
         return ScoreboardGameSnapshot(
-            fileVersion: 6,
+            fileVersion: 7,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? setupCustomSportConfig : nil,
             homeTeamName: homeTeamDraft,
@@ -3599,7 +4269,7 @@ struct ContentView: View {
             activeShotClockPresetSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
             possessionDirection: setupRules.supportsPossession ? .none : .none,
             areSidesSwapped: currentSnapshot.areSidesSwapped,
-            isPlayerTrackingEnabled: currentSnapshot.isPlayerTrackingEnabled,
+            isPlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
             rosterSizePerTeam: currentSnapshot.rosterSizePerTeam,
             displayLineupSize: currentSnapshot.displayLineupSize,
@@ -3614,10 +4284,20 @@ struct ContentView: View {
             guestSubstitutionsUsed: currentSnapshot.guestSubstitutionsUsed,
             homeTeamFouls: currentSnapshot.homeTeamFouls,
             guestTeamFouls: currentSnapshot.guestTeamFouls,
-            homeChessClockSeconds: setupSport == .chess ? setupClockSeconds : currentSnapshot.homeChessClockSeconds,
-            guestChessClockSeconds: setupSport == .chess ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds,
-            activeChessClockSide: setupSport == .chess ? .home : currentSnapshot.activeChessClockSide,
+            homeChessClockSeconds: setupRules.usesChessClocks ? setupClockSeconds : currentSnapshot.homeChessClockSeconds,
+            guestChessClockSeconds: setupRules.usesChessClocks ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds,
+            activeChessClockSide: setupRules.usesChessClocks ? .home : currentSnapshot.activeChessClockSide,
             chessClockPreset: setupSport == .chess ? setupChessPreset : currentSnapshot.chessClockPreset,
+            selectedDebatePresetID: setupSport == .debate ? setupDebatePresetID : currentSnapshot.selectedDebatePresetID,
+            debateHomeSideLabel: setupSport == .debate ? setupDebateHomeSideLabel : currentSnapshot.debateHomeSideLabel,
+            debateGuestSideLabel: setupSport == .debate ? setupDebateGuestSideLabel : currentSnapshot.debateGuestSideLabel,
+            debateCurrentSegmentIndex: setupSport == .debate ? 0 : currentSnapshot.debateCurrentSegmentIndex,
+            debatePrepHomeSeconds: setupSport == .debate ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepHomeSeconds,
+            debatePrepGuestSeconds: setupSport == .debate ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepGuestSeconds,
+            debateActiveTimer: setupSport == .debate ? .segment : currentSnapshot.debateActiveTimer,
+            isDebatePrepClockRunning: setupSport == .debate ? false : currentSnapshot.isDebatePrepClockRunning,
+            isDebateScoreTrackingEnabled: setupSport == .debate ? setupDebateScoreTrackingEnabled : currentSnapshot.isDebateScoreTrackingEnabled,
+            isDebatePlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isDebatePlayerTrackingEnabled,
             homePenaltyTimers: currentSnapshot.homePenaltyTimers,
             guestPenaltyTimers: currentSnapshot.guestPenaltyTimers,
             homeRoster: currentSnapshot.homeRoster,
@@ -3650,7 +4330,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 6,
+                    fileVersion: 7,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     homeTeamName: preset.homeTeamName,
@@ -3681,10 +4361,20 @@ struct ContentView: View {
                     guestSubstitutionsUsed: 0,
                     homeTeamFouls: 0,
                     guestTeamFouls: 0,
-                    homeChessClockSeconds: preset.sport == .chess ? preset.clockSeconds : nil,
-                    guestChessClockSeconds: preset.sport == .chess ? preset.clockSeconds : nil,
-                    activeChessClockSide: preset.sport == .chess ? .home : nil,
+                    homeChessClockSeconds: preset.sport.rules(customConfig: preset.customSportConfig).usesChessClocks ? preset.clockSeconds : nil,
+                    guestChessClockSeconds: preset.sport.rules(customConfig: preset.customSportConfig).usesChessClocks ? preset.clockSeconds : nil,
+                    activeChessClockSide: preset.sport.rules(customConfig: preset.customSportConfig).usesChessClocks ? .home : nil,
                     chessClockPreset: preset.sport == .chess ? .rapid : nil,
+                    selectedDebatePresetID: preset.sport == .debate ? DebatePreset.publicForum.id : nil,
+                    debateHomeSideLabel: preset.sport == .debate ? DebatePreset.publicForum.homeSideLabel : nil,
+                    debateGuestSideLabel: preset.sport == .debate ? DebatePreset.publicForum.guestSideLabel : nil,
+                    debateCurrentSegmentIndex: preset.sport == .debate ? 0 : nil,
+                    debatePrepHomeSeconds: preset.sport == .debate ? DebatePreset.publicForum.prepSecondsPerSide : nil,
+                    debatePrepGuestSeconds: preset.sport == .debate ? DebatePreset.publicForum.prepSecondsPerSide : nil,
+                    debateActiveTimer: preset.sport == .debate ? .segment : nil,
+                    isDebatePrepClockRunning: preset.sport == .debate ? false : nil,
+                    isDebateScoreTrackingEnabled: preset.sport == .debate ? false : nil,
+                    isDebatePlayerTrackingEnabled: preset.sport == .debate ? false : nil,
                     homePenaltyTimers: [],
                     guestPenaltyTimers: [],
                     homeRoster: store.homeRoster,
@@ -3787,6 +4477,7 @@ struct ContentView: View {
             backgroundStyle: currentPreviewBoardBackgroundStyle,
             sport: store.selectedSport,
             rules: store.currentRules,
+            showsScore: store.supportsScore,
             homeTeamName: store.homeTeamName,
             guestTeamName: store.guestTeamName,
             homeScore: store.homeScore,
@@ -3794,9 +4485,16 @@ struct ContentView: View {
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
+            showsDualClocks: store.usesChessClocks,
             formattedHomeChessClock: store.formattedHomeChessClock,
             formattedGuestChessClock: store.formattedGuestChessClock,
             activeChessClockSide: store.activeChessClockSide,
+            debateHomeSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .home) : nil,
+            debateGuestSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .guest) : nil,
+            debateSegmentTitle: store.isDebateMode ? store.debateSegmentTitle : nil,
+            debateActiveTimer: store.isDebateMode ? store.debateActiveTimer : nil,
+            formattedDebatePrepHomeClock: store.isDebateMode ? store.formattedDebatePrepHomeClock : nil,
+            formattedDebatePrepGuestClock: store.isDebateMode ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
             areSidesSwapped: store.areSidesSwapped,
@@ -3896,6 +4594,12 @@ private struct ActionDescriptor {
     let action: () -> Void
 }
 
+private struct PendingPenaltySelection: Identifiable {
+    let id = UUID()
+    let side: TeamSide
+    let seconds: Int
+}
+
 private struct StoredGameFile: Identifiable {
     let url: URL
     let modifiedAt: Date
@@ -3919,20 +4623,25 @@ private struct StoredGameFile: Identifiable {
 
         let sport = snapshot.sport ?? .basketball
         let rules = sport.rules(customConfig: snapshot.customSportConfig)
-        let periodLine = "\(rules.periodShortTitle)\(snapshot.period)"
         let clockLine = formatGameClock(snapshot.defaultClockSeconds)
 
-        if sport == .chess {
+        if rules.usesChessClocks {
             let homeClock = formatGameClock(snapshot.homeChessClockSeconds ?? ChessClockPreset.rapid.seconds)
             let guestClock = formatGameClock(snapshot.guestChessClockSeconds ?? ChessClockPreset.rapid.seconds)
             return "\(rules.title) • \(homeClock) / \(guestClock)"
         }
 
         if rules.supportsShotClock {
-            return "\(rules.title) • \(periodLine) • \(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+            let periodSegment = rules.supportsPeriod ? "\(rules.periodShortTitle)\(snapshot.period) • " : ""
+            return "\(rules.title) • \(periodSegment)\(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
         }
 
-        return "\(rules.title) • \(periodLine) • \(clockLine)"
+        if rules.supportsPeriod {
+            let periodLine = "\(rules.periodShortTitle)\(snapshot.period)"
+            return "\(rules.title) • \(periodLine) • \(clockLine)"
+        }
+
+        return "\(rules.title) • \(clockLine)"
     }
     var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
 

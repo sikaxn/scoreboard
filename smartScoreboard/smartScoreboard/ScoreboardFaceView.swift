@@ -13,6 +13,7 @@ struct ScoreboardFaceView: View {
     let backgroundStyle: BackgroundStyle
     let sport: SportType
     let rules: SportRules
+    let showsScore: Bool
     let homeTeamName: String
     let guestTeamName: String
     let homeScore: Int
@@ -20,9 +21,16 @@ struct ScoreboardFaceView: View {
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
+    let showsDualClocks: Bool
     let formattedHomeChessClock: String
     let formattedGuestChessClock: String
     let activeChessClockSide: TeamSide?
+    let debateHomeSideLabel: String?
+    let debateGuestSideLabel: String?
+    let debateSegmentTitle: String?
+    let debateActiveTimer: DebateActiveTimer?
+    let formattedDebatePrepHomeClock: String?
+    let formattedDebatePrepGuestClock: String?
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
     let areSidesSwapped: Bool
@@ -56,6 +64,7 @@ struct ScoreboardFaceView: View {
     private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
     private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
     private var displayAlertColor: Color { .red }
+    private var usesDedicatedDualClockLayout: Bool { sport == .chess }
     private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 || rules.showsSubstitutionTracking }
     private var shouldShowSoccerCenterPlayers: Bool { rules.usesCenterPlayerStrip && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
 
@@ -78,11 +87,12 @@ struct ScoreboardFaceView: View {
                 scoreboardBackground(leftAccent: leftTeam.accent, rightAccent: rightTeam.accent)
 
                 Group {
-                    if rules.usesChessClocks {
+                    if usesDedicatedDualClockLayout {
                         chessBoard(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
                     } else {
                         HStack(spacing: columnSpacing) {
                             teamPanel(
+                                side: leftTeam.side,
                                 role: leftTeam.role,
                                 title: leftTeam.title,
                                 placeholder: leftTeam.role,
@@ -104,6 +114,7 @@ struct ScoreboardFaceView: View {
                                 .frame(maxHeight: .infinity)
 
                             teamPanel(
+                                side: rightTeam.side,
                                 role: rightTeam.role,
                                 title: rightTeam.title,
                                 placeholder: rightTeam.role,
@@ -184,6 +195,7 @@ struct ScoreboardFaceView: View {
     }
 
     private func teamPanel(
+        side: TeamSide,
         role: String,
         title: String,
         placeholder: String,
@@ -218,7 +230,7 @@ struct ScoreboardFaceView: View {
 
             Spacer(minLength: 0)
 
-            if rules.supportsScore {
+            if showsScore {
                 Text("\(score)")
                     .font(.system(size: ultraCondensed ? base * 0.22 : condensed ? base * 0.34 : base * 0.28, weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.32)
@@ -227,6 +239,16 @@ struct ScoreboardFaceView: View {
                     .foregroundStyle(accent)
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                     .frame(maxWidth: .infinity)
+            }
+
+            if sport == .debate {
+                debatePrepStrip(
+                    side: side,
+                    accent: accent,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
             if shouldShowSubstitutionTracking, substitutionsAllowed > 0 {
@@ -342,7 +364,30 @@ struct ScoreboardFaceView: View {
         VStack(spacing: ultraCondensed ? max(10, base * 0.018) : condensed ? max(18, base * 0.026) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
-            if showsGameClock {
+            if showsDualClocks {
+                HStack(spacing: ultraCondensed ? 8 : condensed ? 12 : 14) {
+                    headerBadge(
+                        title: (sport == .debate ? sideRoleLabel(for: .home) : resolvedTitle(homeTeamName, placeholder: "HOME")).uppercased(),
+                        value: formattedHomeChessClock,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed,
+                        valueFontSize: ultraCondensed ? base * 0.065 : condensed ? base * 0.085 : base * 0.078,
+                        valueMinScale: 0.42,
+                        valueColor: activeChessClockSide == .home ? palette.homeAccent : boardBadgeValueTextColor
+                    )
+
+                    headerBadge(
+                        title: (sport == .debate ? sideRoleLabel(for: .guest) : resolvedTitle(guestTeamName, placeholder: "GUEST")).uppercased(),
+                        value: formattedGuestChessClock,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed,
+                        valueFontSize: ultraCondensed ? base * 0.065 : condensed ? base * 0.085 : base * 0.078,
+                        valueMinScale: 0.42,
+                        valueColor: activeChessClockSide == .guest ? palette.guestAccent : boardBadgeValueTextColor
+                    )
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            } else if showsGameClock {
                 Text(formattedClock)
                     .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
                     .monospacedDigit()
@@ -356,6 +401,12 @@ struct ScoreboardFaceView: View {
             }
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
+                if sport == .debate,
+                   let debateSegmentTitle,
+                   !debateSegmentTitle.isEmpty {
+                    headerBadge(title: "SEGMENT", value: debateSegmentTitle.uppercased(), condensed: condensed, ultraCondensed: ultraCondensed)
+                }
+
                 if rules.supportsShotClock {
                     shotClockBadge(
                         value: formattedShotClock,
@@ -369,7 +420,10 @@ struct ScoreboardFaceView: View {
                 }
 
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                    if showsGameClock {
+                    if showsDualClocks {
+                        headerBadge(title: "TURN", value: activeChessClockSide.map { sideRoleLabel(for: $0).uppercased() } ?? "NONE", condensed: condensed, ultraCondensed: ultraCondensed)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    } else if showsGameClock {
                         headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -453,22 +507,24 @@ struct ScoreboardFaceView: View {
     }
 
     private func chessBoard(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        HStack(spacing: ultraCondensed ? 12 : 18) {
+        let leftSide: TeamSide = areSidesSwapped ? .guest : .home
+        let rightSide: TeamSide = areSidesSwapped ? .home : .guest
+        return HStack(spacing: ultraCondensed ? 12 : 18) {
             chessClockCard(
-                title: resolvedTitle(homeTeamName, placeholder: "HOME"),
-                clock: formattedHomeChessClock,
-                isActive: activeChessClockSide == .home,
-                accent: palette.homeAccent,
+                title: resolvedTitle(leftSide == .home ? homeTeamName : guestTeamName, placeholder: leftSide.title.uppercased()),
+                clock: leftSide == .home ? formattedHomeChessClock : formattedGuestChessClock,
+                isActive: activeChessClockSide == leftSide,
+                accent: leftSide == .home ? palette.homeAccent : palette.guestAccent,
                 base: base,
                 condensed: condensed,
                 ultraCondensed: ultraCondensed
             )
 
             chessClockCard(
-                title: resolvedTitle(guestTeamName, placeholder: "GUEST"),
-                clock: formattedGuestChessClock,
-                isActive: activeChessClockSide == .guest,
-                accent: palette.guestAccent,
+                title: resolvedTitle(rightSide == .home ? homeTeamName : guestTeamName, placeholder: rightSide.title.uppercased()),
+                clock: rightSide == .home ? formattedHomeChessClock : formattedGuestChessClock,
+                isActive: activeChessClockSide == rightSide,
+                accent: rightSide == .home ? palette.homeAccent : palette.guestAccent,
                 base: base,
                 condensed: condensed,
                 ultraCondensed: ultraCondensed
@@ -709,7 +765,7 @@ struct ScoreboardFaceView: View {
     private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
         HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
             soccerPlayerColumn(
-                title: "HOME PLAYERS",
+                title: "\(sideRoleLabel(for: .home).uppercased()) PLAYERS",
                 players: displayedPlayers(for: .home),
                 accent: palette.homeAccent,
                 base: base,
@@ -718,7 +774,7 @@ struct ScoreboardFaceView: View {
             )
 
             soccerPlayerColumn(
-                title: "GUEST PLAYERS",
+                title: "\(sideRoleLabel(for: .guest).uppercased()) PLAYERS",
                 players: displayedPlayers(for: .guest),
                 accent: palette.guestAccent,
                 base: base,
@@ -862,6 +918,49 @@ struct ScoreboardFaceView: View {
         side == .home ? homeTeamFouls : guestTeamFouls
     }
 
+    private func debatePrepStrip(side: TeamSide, accent: Color, condensed: Bool, ultraCondensed: Bool) -> some View {
+        let value: String
+        let isActive: Bool
+        let valueFontSize: CGFloat
+
+        switch side {
+        case .home:
+            value = formattedDebatePrepHomeClock ?? "--:--"
+            isActive = debateActiveTimer == .prepHome
+        case .guest:
+            value = formattedDebatePrepGuestClock ?? "--:--"
+            isActive = debateActiveTimer == .prepGuest
+        }
+
+        if showsScore {
+            valueFontSize = ultraCondensed ? 22 : condensed ? 30 : 26
+        } else {
+            valueFontSize = ultraCondensed ? 34 : condensed ? 48 : 40
+        }
+
+        return HStack(spacing: ultraCondensed ? 8 : 10) {
+            Text("PREP")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            Spacer(minLength: 0)
+
+            Text(value)
+                .font(.system(size: valueFontSize, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: showsScore ? 0.72 : 0.82)
+                .foregroundStyle(isActive ? accent : boardBadgeValueTextColor)
+        }
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
     private func penaltyTimers(for side: TeamSide) -> [HockeyPenaltyTimer] {
         side == .home ? homePenaltyTimers : guestPenaltyTimers
     }
@@ -871,7 +970,7 @@ struct ScoreboardFaceView: View {
         case .home:
             return SidePanelData(
                 side: .home,
-                role: "HOME",
+                role: sideRoleLabel(for: .home).uppercased(),
                 title: homeTeamName,
                 score: homeScore,
                 accent: palette.homeAccent
@@ -879,7 +978,7 @@ struct ScoreboardFaceView: View {
         case .guest:
             return SidePanelData(
                 side: .guest,
-                role: "GUEST",
+                role: sideRoleLabel(for: .guest).uppercased(),
                 title: guestTeamName,
                 score: guestScore,
                 accent: palette.guestAccent
@@ -892,6 +991,19 @@ struct ScoreboardFaceView: View {
                 score: 0,
                 accent: palette.boardPrimaryText
             )
+        }
+    }
+
+    private func sideRoleLabel(for side: TeamSide) -> String {
+        guard sport == .debate else {
+            return side.title
+        }
+
+        switch side {
+        case .home:
+            return resolvedTitle(debateHomeSideLabel ?? "", placeholder: "Side A")
+        case .guest:
+            return resolvedTitle(debateGuestSideLabel ?? "", placeholder: "Side B")
         }
     }
 }

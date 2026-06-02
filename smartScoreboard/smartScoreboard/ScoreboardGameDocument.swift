@@ -7,7 +7,7 @@ extension UTType {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 6
+    var fileVersion = 7
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var homeTeamName: String
@@ -42,6 +42,16 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestChessClockSeconds: Int?
     var activeChessClockSide: TeamSide?
     var chessClockPreset: ChessClockPreset?
+    var selectedDebatePresetID: String?
+    var debateHomeSideLabel: String?
+    var debateGuestSideLabel: String?
+    var debateCurrentSegmentIndex: Int?
+    var debatePrepHomeSeconds: Int?
+    var debatePrepGuestSeconds: Int?
+    var debateActiveTimer: DebateActiveTimer?
+    var isDebatePrepClockRunning: Bool?
+    var isDebateScoreTrackingEnabled: Bool?
+    var isDebatePlayerTrackingEnabled: Bool?
     var homePenaltyTimers: [HockeyPenaltyTimer]?
     var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
@@ -82,6 +92,16 @@ struct ScoreboardGameSnapshot: Sendable {
         guestChessClockSeconds: ChessClockPreset.rapid.seconds,
         activeChessClockSide: .home,
         chessClockPreset: .rapid,
+        selectedDebatePresetID: DebatePreset.publicForum.id,
+        debateHomeSideLabel: DebatePreset.publicForum.homeSideLabel,
+        debateGuestSideLabel: DebatePreset.publicForum.guestSideLabel,
+        debateCurrentSegmentIndex: 0,
+        debatePrepHomeSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+        debatePrepGuestSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+        debateActiveTimer: .segment,
+        isDebatePrepClockRunning: false,
+        isDebateScoreTrackingEnabled: false,
+        isDebatePlayerTrackingEnabled: false,
         homePenaltyTimers: [],
         guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
@@ -126,6 +146,16 @@ extension ScoreboardGameSnapshot: Codable {
         case guestChessClockSeconds
         case activeChessClockSide
         case chessClockPreset
+        case selectedDebatePresetID
+        case debateHomeSideLabel
+        case debateGuestSideLabel
+        case debateCurrentSegmentIndex
+        case debatePrepHomeSeconds
+        case debatePrepGuestSeconds
+        case debateActiveTimer
+        case isDebatePrepClockRunning
+        case isDebateScoreTrackingEnabled
+        case isDebatePlayerTrackingEnabled
         case homePenaltyTimers
         case guestPenaltyTimers
         case homeRoster
@@ -169,6 +199,16 @@ extension ScoreboardGameSnapshot: Codable {
         guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds)
         activeChessClockSide = try container.decodeIfPresent(TeamSide.self, forKey: .activeChessClockSide)
         chessClockPreset = try container.decodeIfPresent(ChessClockPreset.self, forKey: .chessClockPreset)
+        selectedDebatePresetID = try container.decodeIfPresent(String.self, forKey: .selectedDebatePresetID)
+        debateHomeSideLabel = try container.decodeIfPresent(String.self, forKey: .debateHomeSideLabel)
+        debateGuestSideLabel = try container.decodeIfPresent(String.self, forKey: .debateGuestSideLabel)
+        debateCurrentSegmentIndex = try container.decodeIfPresent(Int.self, forKey: .debateCurrentSegmentIndex)
+        debatePrepHomeSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepHomeSeconds)
+        debatePrepGuestSeconds = try container.decodeIfPresent(Int.self, forKey: .debatePrepGuestSeconds)
+        debateActiveTimer = try container.decodeIfPresent(DebateActiveTimer.self, forKey: .debateActiveTimer)
+        isDebatePrepClockRunning = try container.decodeIfPresent(Bool.self, forKey: .isDebatePrepClockRunning)
+        isDebateScoreTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebateScoreTrackingEnabled)
+        isDebatePlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isDebatePlayerTrackingEnabled)
         homePenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .homePenaltyTimers)
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
@@ -212,6 +252,16 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestChessClockSeconds, forKey: .guestChessClockSeconds)
         try container.encodeIfPresent(activeChessClockSide, forKey: .activeChessClockSide)
         try container.encodeIfPresent(chessClockPreset, forKey: .chessClockPreset)
+        try container.encodeIfPresent(selectedDebatePresetID, forKey: .selectedDebatePresetID)
+        try container.encodeIfPresent(debateHomeSideLabel, forKey: .debateHomeSideLabel)
+        try container.encodeIfPresent(debateGuestSideLabel, forKey: .debateGuestSideLabel)
+        try container.encodeIfPresent(debateCurrentSegmentIndex, forKey: .debateCurrentSegmentIndex)
+        try container.encodeIfPresent(debatePrepHomeSeconds, forKey: .debatePrepHomeSeconds)
+        try container.encodeIfPresent(debatePrepGuestSeconds, forKey: .debatePrepGuestSeconds)
+        try container.encodeIfPresent(debateActiveTimer, forKey: .debateActiveTimer)
+        try container.encodeIfPresent(isDebatePrepClockRunning, forKey: .isDebatePrepClockRunning)
+        try container.encodeIfPresent(isDebateScoreTrackingEnabled, forKey: .isDebateScoreTrackingEnabled)
+        try container.encodeIfPresent(isDebatePlayerTrackingEnabled, forKey: .isDebatePlayerTrackingEnabled)
         try container.encodeIfPresent(homePenaltyTimers, forKey: .homePenaltyTimers)
         try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
