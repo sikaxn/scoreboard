@@ -11,6 +11,7 @@ struct ScoreboardFaceView: View {
 
     let theme: ScoreboardTheme
     let backgroundStyle: BackgroundStyle
+    let sport: SportType
     let homeTeamName: String
     let guestTeamName: String
     let homeScore: Int
@@ -26,6 +27,12 @@ struct ScoreboardFaceView: View {
     let playerFoulHighlightColor: PlayerFoulHighlightColor
     let isDisplayGameClockAlertActive: Bool
     let isDisplayShotClockAlertActive: Bool
+    let homeSubstitutionsAllowed: Int
+    let guestSubstitutionsAllowed: Int
+    let homeSubstitutionsUsed: Int
+    let guestSubstitutionsUsed: Int
+    let homeTeamFouls: Int
+    let guestTeamFouls: Int
     let homePlayers: [TrackedPlayer]
     let guestPlayers: [TrackedPlayer]
     let compact: Bool
@@ -42,6 +49,8 @@ struct ScoreboardFaceView: View {
     private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
     private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
     private var displayAlertColor: Color { .red }
+    private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 || sport.showsSubstitutionTracking }
+    private var shouldShowSoccerCenterPlayers: Bool { sport == .soccer && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -68,6 +77,9 @@ struct ScoreboardFaceView: View {
                         placeholder: leftTeam.role,
                         score: leftTeam.score,
                         accent: leftTeam.accent,
+                        substitutionsUsed: substitutionsUsed(for: leftTeam.side),
+                        substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
+                        teamFouls: teamFouls(for: leftTeam.side),
                         displayedPlayers: displayedPlayers(for: leftTeam.side),
                         base: base,
                         condensed: condensed,
@@ -85,6 +97,9 @@ struct ScoreboardFaceView: View {
                         placeholder: rightTeam.role,
                         score: rightTeam.score,
                         accent: rightTeam.accent,
+                        substitutionsUsed: substitutionsUsed(for: rightTeam.side),
+                        substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
+                        teamFouls: teamFouls(for: rightTeam.side),
                         displayedPlayers: displayedPlayers(for: rightTeam.side),
                         base: base,
                         condensed: condensed,
@@ -159,6 +174,9 @@ struct ScoreboardFaceView: View {
         placeholder: String,
         score: Int,
         accent: Color,
+        substitutionsUsed: Int,
+        substitutionsAllowed: Int,
+        teamFouls: Int,
         displayedPlayers: [TrackedPlayer],
         base: CGFloat,
         condensed: Bool,
@@ -193,7 +211,27 @@ struct ScoreboardFaceView: View {
                 .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                 .frame(maxWidth: .infinity)
 
-            if !displayedPlayers.isEmpty {
+            if shouldShowSubstitutionTracking, substitutionsAllowed > 0 {
+                substitutionLightStrip(
+                    used: substitutionsUsed,
+                    allowed: substitutionsAllowed,
+                    accent: accent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
+            }
+
+            if sport.supportsTeamFouls {
+                teamFoulStrip(
+                    fouls: teamFouls,
+                    accent: accent,
+                    ultraCondensed: ultraCondensed,
+                    condensed: condensed
+                )
+            }
+
+            if sport != .soccer && !displayedPlayers.isEmpty {
                 activeLineupStrip(displayedPlayers, accent: accent, base: base, condensed: condensed, ultraCondensed: ultraCondensed)
             } else {
                 Spacer(minLength: 0)
@@ -232,14 +270,16 @@ struct ScoreboardFaceView: View {
                         Text(player.name.isEmpty ? "PLAYER" : player.name)
                             .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
                             .singleLineFitted(minScale: 0.55)
-                            .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
+                            .foregroundStyle(playerStatusColor(player))
 
                         Spacer(minLength: 0)
 
-                        Text(foulDisplayText(for: player.foulCount))
-                            .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
-                            .monospaced()
-                            .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
+                        if sport.supportsFouls {
+                            Text(foulDisplayText(for: player.foulCount))
+                                .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
+                                .monospaced()
+                                .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
+                        }
                     }
                 }
             }
@@ -269,20 +309,27 @@ struct ScoreboardFaceView: View {
                 .frame(maxWidth: .infinity)
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                shotClockBadge(
-                    value: formattedShotClock,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed,
-                    base: base,
-                    valueFontSize: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19,
-                    valueMinScale: 0.24,
-                    valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
-                )
+                if sport.supportsShotClock {
+                    shotClockBadge(
+                        value: formattedShotClock,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed,
+                        base: base,
+                        valueFontSize: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19,
+                        valueMinScale: 0.24,
+                        valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
+                    )
+                }
 
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
                     headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
-                    headerBadge(title: "PERIOD", value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                    headerBadge(title: sport.periodTitle.uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
                 }
+
+                if shouldShowSoccerCenterPlayers {
+                    soccerCenterPlayerStrip(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                }
+
             }
 
             Spacer(minLength: 0)
@@ -414,12 +461,165 @@ struct ScoreboardFaceView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func substitutionLightStrip(
+        used: Int,
+        allowed: Int,
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        let boundedAllowed = max(0, min(allowed, 12))
+        let boundedUsed = max(0, min(used, boundedAllowed))
+        let dotSize = ultraCondensed ? max(8, base * 0.015) : condensed ? max(10, base * 0.018) : max(12, base * 0.02)
+
+        return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
+            Text("SWAPS")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            HStack(spacing: ultraCondensed ? 5 : 7) {
+                ForEach(0..<boundedAllowed, id: \.self) { index in
+                    Circle()
+                        .fill(index < boundedUsed ? accent : boardBadgeBorderColor.opacity(0.45))
+                        .frame(width: dotSize, height: dotSize)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(index < boundedUsed ? accent.opacity(0.35) : boardBadgeBorderColor, lineWidth: 1)
+                        )
+                        .shadow(
+                            color: index < boundedUsed ? accent.opacity(0.45) : .clear,
+                            radius: ultraCondensed ? 4 : 6
+                        )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
+    private func teamFoulStrip(
+        fouls: Int,
+        accent: Color,
+        ultraCondensed: Bool,
+        condensed: Bool
+    ) -> some View {
+        let visibleLimit = 8
+        let boundedFouls = max(0, fouls)
+        let visibleFouls = min(boundedFouls, visibleLimit)
+        let overflow = max(0, boundedFouls - visibleLimit)
+
+        return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
+            Text("FOULS")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            HStack(spacing: ultraCondensed ? 5 : 7) {
+                ForEach(0..<visibleLimit, id: \.self) { index in
+                    Text("X")
+                        .font(.system(size: ultraCondensed ? 11 : condensed ? 15 : 13, weight: .black, design: .rounded))
+                        .foregroundStyle(index < visibleFouls ? accent : boardBadgeBorderColor.opacity(0.45))
+                        .shadow(color: index < visibleFouls ? accent.opacity(0.35) : .clear, radius: 4)
+                }
+
+                if overflow > 0 {
+                    Text("+\(overflow)")
+                        .font(.system(size: ultraCondensed ? 10 : condensed ? 13 : 12, weight: .black, design: .rounded))
+                        .foregroundStyle(boardBadgeValueTextColor)
+                        .padding(.leading, 4)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
+    private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
+        HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
+            soccerPlayerColumn(
+                title: "HOME PLAYERS",
+                players: displayedPlayers(for: .home),
+                accent: palette.homeAccent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed
+            )
+
+            soccerPlayerColumn(
+                title: "GUEST PLAYERS",
+                players: displayedPlayers(for: .guest),
+                accent: palette.guestAccent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed
+            )
+        }
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+    }
+
+    private func soccerPlayerColumn(
+        title: String,
+        players: [TrackedPlayer],
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: ultraCondensed ? 4 : 6) {
+            Text(title)
+                .font(.system(size: ultraCondensed ? 9 : condensed ? 12 : 11, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.2)
+                .foregroundStyle(boardSecondaryTextColor)
+
+                ForEach(players) { player in
+                    HStack(spacing: 6) {
+                        Text("#\(player.number.isEmpty ? "--" : player.number)")
+                            .font(.system(size: ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017, weight: .black, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .foregroundStyle(accent)
+                            .frame(width: ultraCondensed ? 40 : condensed ? 48 : 44, alignment: .leading)
+
+                        Text(player.name.isEmpty ? "PLAYER" : player.name)
+                            .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
+                        .singleLineFitted(minScale: 0.55)
+                        .foregroundStyle(playerCardColor(player.cardStatus))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? placeholder : trimmed
     }
 
     private var centerPossessionIndicator: (systemName: String, color: Color)? {
+        guard sport.supportsPossession else {
+            return nil
+        }
+
         switch possessionDirection {
         case .home:
             return (areSidesSwapped ? "arrow.left.circle.fill" : "arrow.right.circle.fill", palette.homeAccent)
@@ -454,9 +654,44 @@ struct ScoreboardFaceView: View {
         }
     }
 
+    private func playerCardColor(_ status: PlayerCardStatus) -> Color {
+        switch status {
+        case .none:
+            return boardPrimaryTextColor
+        case .yellow:
+            return .yellow
+        case .red:
+            return .red
+        }
+    }
+
+    private func playerStatusColor(_ player: TrackedPlayer) -> Color {
+        if sport.supportsCards, player.cardStatus != .none {
+            return playerCardColor(player.cardStatus)
+        }
+
+        if sport.supportsFouls, player.foulCount > 0 {
+            return foulHighlightColor
+        }
+
+        return boardPrimaryTextColor
+    }
+
     private func foulDisplayText(for foulCount: Int) -> String {
         let count = max(0, foulCount)
         return count == 0 ? "-" : String(repeating: "X", count: count)
+    }
+
+    private func substitutionsAllowed(for side: TeamSide) -> Int {
+        side == .home ? homeSubstitutionsAllowed : guestSubstitutionsAllowed
+    }
+
+    private func substitutionsUsed(for side: TeamSide) -> Int {
+        side == .home ? homeSubstitutionsUsed : guestSubstitutionsUsed
+    }
+
+    private func teamFouls(for side: TeamSide) -> Int {
+        side == .home ? homeTeamFouls : guestTeamFouls
     }
 
     private func sidePanelData(for side: PossessionDirection) -> SidePanelData {

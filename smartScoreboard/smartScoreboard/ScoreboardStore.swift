@@ -53,11 +53,31 @@ enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum PlayerCardStatus: String, Codable, CaseIterable, Identifiable {
+    case none
+    case yellow
+    case red
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none:
+            return "None"
+        case .yellow:
+            return "Yellow"
+        case .red:
+            return "Red"
+        }
+    }
+}
+
 struct TrackedPlayer: Identifiable, Codable, Equatable {
     let id: UUID
     var number: String
     var name: String
     var foulCount: Int
+    var cardStatus: PlayerCardStatus
     var isInActiveLineup: Bool
 
     init(
@@ -65,13 +85,34 @@ struct TrackedPlayer: Identifiable, Codable, Equatable {
         number: String,
         name: String = "",
         foulCount: Int = 0,
+        cardStatus: PlayerCardStatus = .none,
         isInActiveLineup: Bool = false
     ) {
         self.id = id
         self.number = number
         self.name = name
         self.foulCount = foulCount
+        self.cardStatus = cardStatus
         self.isInActiveLineup = isInActiveLineup
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case number
+        case name
+        case foulCount
+        case cardStatus
+        case isInActiveLineup
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        number = try container.decode(String.self, forKey: .number)
+        name = try container.decode(String.self, forKey: .name)
+        foulCount = try container.decodeIfPresent(Int.self, forKey: .foulCount) ?? 0
+        cardStatus = try container.decodeIfPresent(PlayerCardStatus.self, forKey: .cardStatus) ?? .none
+        isInActiveLineup = try container.decodeIfPresent(Bool.self, forKey: .isInActiveLineup) ?? false
     }
 }
 
@@ -82,6 +123,7 @@ struct TeamRoster: Codable, Equatable {
 struct SetupPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
+    var sport: SportType
     var homeTeamName: String
     var guestTeamName: String
     var period: Int
@@ -92,6 +134,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         name: String,
+        sport: SportType = .basketball,
         homeTeamName: String,
         guestTeamName: String,
         period: Int,
@@ -101,6 +144,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.name = name
+        self.sport = sport
         self.homeTeamName = homeTeamName
         self.guestTeamName = guestTeamName
         self.period = period
@@ -112,6 +156,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id
         case name
+        case sport
         case homeTeamName
         case guestTeamName
         case period
@@ -124,6 +169,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
+        sport = try container.decodeIfPresent(SportType.self, forKey: .sport) ?? .basketball
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         period = try container.decode(Int.self, forKey: .period)
@@ -144,6 +190,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let maxRosterSize = 15
     nonisolated static let defaultDisplayLineupSize = 5
 
+    @Published var selectedSport: SportType = .basketball
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
     @Published var homeScore = 0
@@ -167,6 +214,12 @@ final class ScoreboardStore: ObservableObject {
     @Published var shotClockRedThresholdSeconds = 5
     @Published var homeRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
     @Published var guestRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: defaultRosterSize))
+    @Published var homeSubstitutionsAllowed = 0
+    @Published var guestSubstitutionsAllowed = 0
+    @Published var homeSubstitutionsUsed = 0
+    @Published var guestSubstitutionsUsed = 0
+    @Published var homeTeamFouls = 0
+    @Published var guestTeamFouls = 0
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
@@ -209,11 +262,67 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var isDisplayGameClockAlertActive: Bool {
-        isGameClockRedEnabled && gameClockSeconds <= boundedGameClockSeconds(gameClockRedThresholdSeconds)
+        gameClockMode == .countdown && isGameClockRedEnabled && gameClockSeconds <= boundedGameClockSeconds(gameClockRedThresholdSeconds)
     }
 
     var isDisplayShotClockAlertActive: Bool {
-        isShotClockRedEnabled && shotClockMilliseconds <= boundedShotClockMilliseconds(shotClockRedThresholdSeconds * 1_000)
+        selectedSport.supportsShotClock && isShotClockRedEnabled && shotClockMilliseconds <= boundedShotClockMilliseconds(shotClockRedThresholdSeconds * 1_000)
+    }
+
+    var supportsShotClock: Bool {
+        selectedSport.supportsShotClock
+    }
+
+    var supportsPossession: Bool {
+        selectedSport.supportsPossession
+    }
+
+    var supportsFouls: Bool {
+        selectedSport.supportsFouls
+    }
+
+    var supportsCards: Bool {
+        selectedSport.supportsCards
+    }
+
+    var supportsTeamFouls: Bool {
+        selectedSport.supportsTeamFouls
+    }
+
+    var supportsPlayerTracking: Bool {
+        selectedSport.supportsPlayerTracking
+    }
+
+    var showsSubstitutionTracking: Bool {
+        selectedSport.showsSubstitutionTracking || homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
+    }
+
+    var periodTitle: String {
+        selectedSport.periodTitle
+    }
+
+    var periodShortTitle: String {
+        selectedSport.periodShortTitle
+    }
+
+    var gameClockMode: GameClockMode {
+        selectedSport.clockMode
+    }
+
+    func substitutionsAllowed(for side: TeamSide) -> Int {
+        side == .home ? homeSubstitutionsAllowed : guestSubstitutionsAllowed
+    }
+
+    func substitutionsUsed(for side: TeamSide) -> Int {
+        side == .home ? homeSubstitutionsUsed : guestSubstitutionsUsed
+    }
+
+    func substitutionsRemaining(for side: TeamSide) -> Int {
+        max(0, substitutionsAllowed(for: side) - substitutionsUsed(for: side))
+    }
+
+    func teamFouls(for side: TeamSide) -> Int {
+        side == .home ? homeTeamFouls : guestTeamFouls
     }
 
     nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
@@ -266,12 +375,16 @@ final class ScoreboardStore: ObservableObject {
 
     func adjustClock(by delta: Int) {
         gameClockSeconds = boundedGameClockSeconds(gameClockSeconds + delta)
-        if gameClockSeconds == 0 {
+        if gameClockMode == .countdown && gameClockSeconds == 0 {
             pauseClock()
         }
     }
 
     func adjustShotClock(by delta: Int) {
+        guard supportsShotClock else {
+            return
+        }
+
         shotClockMilliseconds = boundedShotClockMilliseconds(shotClockMilliseconds + (delta * 1_000))
         if shotClockMilliseconds == 0 {
             pauseShotClock()
@@ -288,6 +401,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetShotClock(to seconds: Int? = nil) {
+        guard supportsShotClock else {
+            shotClockMilliseconds = 0
+            activeShotClockPresetSeconds = 0
+            possessionDirection = .none
+            pauseShotClock()
+            return
+        }
+
         pauseShotClock()
         let targetSeconds = boundedShotClockSeconds(seconds ?? defaultShotClockSeconds)
         activeShotClockPresetSeconds = targetSeconds
@@ -315,10 +436,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleShotClock() {
+        guard supportsShotClock else {
+            return
+        }
+
         isShotClockRunning ? pauseShotClock() : startShotClock()
     }
 
     func setPossessionDirection(_ direction: PossessionDirection, autoStartShotClock: Bool = false) {
+        guard supportsPossession else {
+            possessionDirection = .none
+            return
+        }
+
         possessionDirection = direction
 
         if direction == .none {
@@ -334,6 +464,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
+        guard supportsShotClock else {
+            return
+        }
+
         let targetDirection: PossessionDirection = isHome ? .home : .guest
         let targetSeconds = boundedShotClockSeconds(seconds)
         let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
@@ -351,6 +485,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetActiveShotClock() {
+        guard supportsShotClock else {
+            return
+        }
+
         let targetSeconds = boundedShotClockSeconds(activeShotClockPresetSeconds)
         let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
 
@@ -370,6 +508,10 @@ final class ScoreboardStore: ObservableObject {
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        homeSubstitutionsUsed = 0
+        guestSubstitutionsUsed = 0
+        homeTeamFouls = 0
+        guestTeamFouls = 0
         isPlayerOverlayPaused = false
         resetPlayerTrackingForNewGame()
     }
@@ -388,7 +530,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
-        isPlayerTrackingEnabled = isEnabled
+        isPlayerTrackingEnabled = selectedSport.supportsPlayerTracking ? isEnabled : false
     }
 
     func togglePlayerOverlayPaused() {
@@ -434,6 +576,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustFoulCount(for side: TeamSide, playerID: UUID, by delta: Int) {
+        guard supportsFouls else {
+            return
+        }
+
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -444,6 +590,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide, playerID: UUID) {
+        guard supportsFouls else {
+            return
+        }
+
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -454,6 +604,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide) {
+        guard supportsFouls else {
+            return
+        }
+
         updateRoster(for: side) { roster in
             for index in roster.players.indices {
                 roster.players[index].foulCount = 0
@@ -464,6 +618,127 @@ final class ScoreboardStore: ObservableObject {
     func resetAllPlayerFouls() {
         resetFouls(for: .home)
         resetFouls(for: .guest)
+    }
+
+    func setCardStatus(_ status: PlayerCardStatus, for side: TeamSide, playerID: UUID) {
+        guard supportsCards else {
+            return
+        }
+
+        updateRoster(for: side) { roster in
+            guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
+                return
+            }
+
+            roster.players[index].cardStatus = status
+        }
+    }
+
+    func resetCards(for side: TeamSide) {
+        guard supportsCards else {
+            return
+        }
+
+        updateRoster(for: side) { roster in
+            for index in roster.players.indices {
+                roster.players[index].cardStatus = .none
+            }
+        }
+    }
+
+    func resetAllPlayerCards() {
+        resetCards(for: .home)
+        resetCards(for: .guest)
+    }
+
+    func adjustTeamFouls(for side: TeamSide, by delta: Int) {
+        guard supportsTeamFouls else {
+            return
+        }
+
+        switch side {
+        case .home:
+            homeTeamFouls = max(0, homeTeamFouls + delta)
+        case .guest:
+            guestTeamFouls = max(0, guestTeamFouls + delta)
+        }
+    }
+
+    func resetTeamFouls(for side: TeamSide) {
+        guard supportsTeamFouls else {
+            return
+        }
+
+        switch side {
+        case .home:
+            homeTeamFouls = 0
+        case .guest:
+            guestTeamFouls = 0
+        }
+    }
+
+    func resetAllTeamFouls() {
+        resetTeamFouls(for: .home)
+        resetTeamFouls(for: .guest)
+    }
+
+    func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
+        selectedSport = sport
+
+        if applyDefaults {
+            defaultClockSeconds = boundedGameClockSeconds(sport.defaultClockSeconds)
+            gameClockSeconds = defaultClockSeconds
+            defaultShotClockSeconds = boundedShotClockSeconds(sport.defaultShotClockSeconds)
+            activeShotClockPresetSeconds = defaultShotClockSeconds
+            shotClockMilliseconds = boundedShotClockMilliseconds(defaultShotClockSeconds * 1_000)
+            setPeriod(1)
+            possessionDirection = .none
+            isShotClockRunning = false
+            homeSubstitutionsAllowed = sport.defaultSubstitutionLimit
+            guestSubstitutionsAllowed = sport.defaultSubstitutionLimit
+            homeSubstitutionsUsed = 0
+            guestSubstitutionsUsed = 0
+            homeTeamFouls = 0
+            guestTeamFouls = 0
+            setRosterSizePerTeam(sport.defaultRosterSize)
+            setDisplayLineupSize(sport.defaultDisplayLineupSize)
+            if !sport.supportsPlayerTracking {
+                isPlayerTrackingEnabled = false
+            }
+        } else {
+            if !sport.supportsShotClock {
+                defaultShotClockSeconds = 0
+                activeShotClockPresetSeconds = 0
+                shotClockMilliseconds = 0
+                possessionDirection = .none
+                isShotClockRunning = false
+            }
+            if !sport.supportsPlayerTracking {
+                isPlayerTrackingEnabled = false
+            }
+        }
+    }
+
+    func setSubstitutionsAllowed(for side: TeamSide, to value: Int) {
+        let boundedValue = max(0, min(99, value))
+
+        switch side {
+        case .home:
+            homeSubstitutionsAllowed = boundedValue
+            homeSubstitutionsUsed = min(homeSubstitutionsUsed, boundedValue)
+        case .guest:
+            guestSubstitutionsAllowed = boundedValue
+            guestSubstitutionsUsed = min(guestSubstitutionsUsed, boundedValue)
+        }
+    }
+
+    func adjustSubstitutionsUsed(for side: TeamSide, by delta: Int) {
+        switch side {
+        case .home:
+            homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, homeSubstitutionsUsed + delta))
+        case .guest:
+            guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, guestSubstitutionsUsed + delta))
+        }
     }
 
     func setPlayerActiveLineup(_ isActive: Bool, for side: TeamSide, playerID: UUID) {
@@ -489,7 +764,8 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 3,
+            fileVersion: 4,
+            sport: selectedSport,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
@@ -511,6 +787,12 @@ final class ScoreboardStore: ObservableObject {
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
             isShotClockRedEnabled: isShotClockRedEnabled,
             shotClockRedThresholdSeconds: shotClockRedThresholdSeconds,
+            homeSubstitutionsAllowed: homeSubstitutionsAllowed,
+            guestSubstitutionsAllowed: guestSubstitutionsAllowed,
+            homeSubstitutionsUsed: homeSubstitutionsUsed,
+            guestSubstitutionsUsed: guestSubstitutionsUsed,
+            homeTeamFouls: homeTeamFouls,
+            guestTeamFouls: guestTeamFouls,
             homeRoster: homeRoster,
             guestRoster: guestRoster
         )
@@ -520,6 +802,7 @@ final class ScoreboardStore: ObservableObject {
         pauseClock()
         pauseShotClock()
 
+        setSelectedSport(snapshot.sport ?? .basketball, applyDefaults: false)
         homeTeamName = normalizedTeamName(snapshot.homeTeamName)
         guestTeamName = normalizedTeamName(snapshot.guestTeamName)
         homeScore = max(0, snapshot.homeScore)
@@ -530,9 +813,9 @@ final class ScoreboardStore: ObservableObject {
         shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
         defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
         activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
-        possessionDirection = snapshot.possessionDirection
+        possessionDirection = supportsPossession ? snapshot.possessionDirection : .none
         areSidesSwapped = snapshot.areSidesSwapped
-        isPlayerTrackingEnabled = snapshot.isPlayerTrackingEnabled ?? false
+        isPlayerTrackingEnabled = supportsPlayerTracking ? (snapshot.isPlayerTrackingEnabled ?? false) : false
         isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
         displayLineupSize = max(1, min(rosterSizePerTeam, snapshot.displayLineupSize ?? Self.defaultDisplayLineupSize))
@@ -541,25 +824,38 @@ final class ScoreboardStore: ObservableObject {
         gameClockRedThresholdSeconds = boundedGameClockSeconds(snapshot.gameClockRedThresholdSeconds ?? 60)
         isShotClockRedEnabled = snapshot.isShotClockRedEnabled ?? false
         shotClockRedThresholdSeconds = boundedShotClockSeconds(snapshot.shotClockRedThresholdSeconds ?? 5)
+        homeSubstitutionsAllowed = max(0, snapshot.homeSubstitutionsAllowed ?? selectedSport.defaultSubstitutionLimit)
+        guestSubstitutionsAllowed = max(0, snapshot.guestSubstitutionsAllowed ?? selectedSport.defaultSubstitutionLimit)
+        homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, snapshot.homeSubstitutionsUsed ?? 0))
+        guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, snapshot.guestSubstitutionsUsed ?? 0))
+        homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
+        guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
         homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+        if !supportsShotClock {
+            defaultShotClockSeconds = 0
+            activeShotClockPresetSeconds = 0
+            shotClockMilliseconds = 0
+        }
         didCompleteSetup = true
     }
 
     func applySetup(
+        sport: SportType,
         homeName: String,
         guestName: String,
         period: Int,
         clockSeconds: Int,
         shotClockSeconds: Int
     ) {
+        setSelectedSport(sport, applyDefaults: true)
         updateTeamName(homeName, isHome: true)
         updateTeamName(guestName, isHome: false)
         homeScore = 0
         guestScore = 0
         setPeriod(period)
         defaultClockSeconds = boundedGameClockSeconds(clockSeconds)
-        defaultShotClockSeconds = boundedShotClockSeconds(shotClockSeconds)
+        defaultShotClockSeconds = sport.supportsShotClock ? boundedShotClockSeconds(shotClockSeconds) : 0
         activeShotClockPresetSeconds = defaultShotClockSeconds
         possessionDirection = .none
         areSidesSwapped = false
@@ -572,6 +868,7 @@ final class ScoreboardStore: ObservableObject {
 
     func savePreset(
         named name: String,
+        sport: SportType,
         homeName: String,
         guestName: String,
         period: Int,
@@ -587,6 +884,7 @@ final class ScoreboardStore: ObservableObject {
         let preset = SetupPreset(
             id: existingPresetID(named: resolvedName) ?? UUID(),
             name: resolvedName,
+            sport: sport,
             homeTeamName: normalizedTeamName(homeName),
             guestTeamName: normalizedTeamName(guestName),
             period: max(1, min(9, period)),
@@ -607,12 +905,18 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startClock() {
-        if gameClockSeconds == 0 {
+        if gameClockMode == .countdown && gameClockSeconds == 0 {
             gameClockSeconds = defaultClockSeconds
         }
 
-        guard gameClockSeconds > 0 else {
-            return
+        if gameClockMode == .countdown {
+            guard gameClockSeconds > 0 else {
+                return
+            }
+        } else {
+            guard gameClockSeconds < Self.maxGameClockSeconds else {
+                return
+            }
         }
 
         isClockRunning = true
@@ -625,6 +929,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startShotClock() {
+        guard supportsShotClock else {
+            return
+        }
+
         if shotClockMilliseconds == 0 {
             shotClockMilliseconds = defaultShotClockSeconds * 1_000
         }
@@ -680,17 +988,34 @@ final class ScoreboardStore: ObservableObject {
 
             if elapsedWholeSeconds > 0 {
                 accumulatedGameClockElapsed -= TimeInterval(elapsedWholeSeconds)
-                gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
+                switch gameClockMode {
+                case .countdown:
+                    gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
 
-                if gameClockSeconds == 0 {
-                    isClockRunning = false
-                    accumulatedGameClockElapsed = 0
-                    shouldPlayBuzzer = true
+                    if gameClockSeconds == 0 {
+                        isClockRunning = false
+                        accumulatedGameClockElapsed = 0
+                        shouldPlayBuzzer = true
+                    }
+                case .countUp:
+                    gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
+
+                    if gameClockSeconds == Self.maxGameClockSeconds {
+                        isClockRunning = false
+                        accumulatedGameClockElapsed = 0
+                    }
                 }
             }
         }
 
         if isShotClockRunning {
+            guard supportsShotClock else {
+                isShotClockRunning = false
+                accumulatedShotClockElapsed = 0
+                updateTimerState()
+                return
+            }
+
             accumulatedShotClockElapsed += elapsed
             let elapsedMilliseconds = Int(accumulatedShotClockElapsed * 1_000)
 
@@ -761,6 +1086,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func configurePersistence() {
         let persistencePublishers: [AnyPublisher<Void, Never>] = [
+            $selectedSport.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
@@ -782,6 +1108,12 @@ final class ScoreboardStore: ObservableObject {
             $gameClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRedEnabled.map { _ in () }.eraseToAnyPublisher(),
             $shotClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $homeSubstitutionsAllowed.map { _ in () }.eraseToAnyPublisher(),
+            $guestSubstitutionsAllowed.map { _ in () }.eraseToAnyPublisher(),
+            $homeSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
+            $guestSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
+            $homeTeamFouls.map { _ in () }.eraseToAnyPublisher(),
+            $guestTeamFouls.map { _ in () }.eraseToAnyPublisher(),
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
@@ -808,6 +1140,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        selectedSport = persistedState.selectedSport
         homeTeamName = persistedState.homeTeamName
         guestTeamName = persistedState.guestTeamName
         homeScore = persistedState.homeScore
@@ -818,9 +1151,9 @@ final class ScoreboardStore: ObservableObject {
         shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
         defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
         activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
-        possessionDirection = persistedState.possessionDirection
+        possessionDirection = persistedState.selectedSport.supportsPossession ? persistedState.possessionDirection : .none
         areSidesSwapped = persistedState.areSidesSwapped
-        isPlayerTrackingEnabled = persistedState.isPlayerTrackingEnabled
+        isPlayerTrackingEnabled = persistedState.selectedSport.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false
         isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
         rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
         displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
@@ -829,6 +1162,12 @@ final class ScoreboardStore: ObservableObject {
         gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
         isShotClockRedEnabled = persistedState.isShotClockRedEnabled
         shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
+        homeSubstitutionsAllowed = max(0, persistedState.homeSubstitutionsAllowed)
+        guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
+        homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
+        guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+        homeTeamFouls = max(0, persistedState.homeTeamFouls)
+        guestTeamFouls = max(0, persistedState.guestTeamFouls)
         homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
         theme = persistedState.theme
@@ -836,12 +1175,18 @@ final class ScoreboardStore: ObservableObject {
         isSoundEnabled = persistedState.isSoundEnabled
         didCompleteSetup = persistedState.didCompleteSetup
         setupPresets = persistedState.setupPresets
+        if !selectedSport.supportsShotClock {
+            defaultShotClockSeconds = 0
+            activeShotClockPresetSeconds = 0
+            shotClockMilliseconds = 0
+        }
         isClockRunning = false
         isShotClockRunning = false
     }
 
     private func persistState() {
         let persistedState = PersistedState(
+            selectedSport: selectedSport,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
             homeScore: homeScore,
@@ -863,6 +1208,12 @@ final class ScoreboardStore: ObservableObject {
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
             isShotClockRedEnabled: isShotClockRedEnabled,
             shotClockRedThresholdSeconds: shotClockRedThresholdSeconds,
+            homeSubstitutionsAllowed: homeSubstitutionsAllowed,
+            guestSubstitutionsAllowed: guestSubstitutionsAllowed,
+            homeSubstitutionsUsed: homeSubstitutionsUsed,
+            guestSubstitutionsUsed: guestSubstitutionsUsed,
+            homeTeamFouls: homeTeamFouls,
+            guestTeamFouls: guestTeamFouls,
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
@@ -892,6 +1243,7 @@ final class ScoreboardStore: ObservableObject {
         updateRoster(for: side) { roster in
             for index in roster.players.indices {
                 roster.players[index].foulCount = 0
+                roster.players[index].cardStatus = .none
                 roster.players[index].isInActiveLineup = index < activeLineupCountLimit
             }
         }
@@ -971,6 +1323,7 @@ final class ScoreboardStore: ObservableObject {
 }
 
 private struct PersistedState: Codable {
+    var selectedSport: SportType
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -992,6 +1345,12 @@ private struct PersistedState: Codable {
     var gameClockRedThresholdSeconds: Int
     var isShotClockRedEnabled: Bool
     var shotClockRedThresholdSeconds: Int
+    var homeSubstitutionsAllowed: Int
+    var guestSubstitutionsAllowed: Int
+    var homeSubstitutionsUsed: Int
+    var guestSubstitutionsUsed: Int
+    var homeTeamFouls: Int
+    var guestTeamFouls: Int
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
@@ -1002,6 +1361,7 @@ private struct PersistedState: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
+        case selectedSport
         case guestTeamName
         case homeScore
         case guestScore
@@ -1023,6 +1383,12 @@ private struct PersistedState: Codable {
         case gameClockRedThresholdSeconds
         case isShotClockRedEnabled
         case shotClockRedThresholdSeconds
+        case homeSubstitutionsAllowed
+        case guestSubstitutionsAllowed
+        case homeSubstitutionsUsed
+        case guestSubstitutionsUsed
+        case homeTeamFouls
+        case guestTeamFouls
         case homeRoster
         case guestRoster
         case theme
@@ -1033,6 +1399,7 @@ private struct PersistedState: Codable {
     }
 
     init(
+        selectedSport: SportType,
         homeTeamName: String,
         guestTeamName: String,
         homeScore: Int,
@@ -1054,6 +1421,12 @@ private struct PersistedState: Codable {
         gameClockRedThresholdSeconds: Int,
         isShotClockRedEnabled: Bool,
         shotClockRedThresholdSeconds: Int,
+        homeSubstitutionsAllowed: Int,
+        guestSubstitutionsAllowed: Int,
+        homeSubstitutionsUsed: Int,
+        guestSubstitutionsUsed: Int,
+        homeTeamFouls: Int,
+        guestTeamFouls: Int,
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
@@ -1062,6 +1435,7 @@ private struct PersistedState: Codable {
         didCompleteSetup: Bool,
         setupPresets: [SetupPreset]
     ) {
+        self.selectedSport = selectedSport
         self.homeTeamName = homeTeamName
         self.guestTeamName = guestTeamName
         self.homeScore = homeScore
@@ -1083,6 +1457,12 @@ private struct PersistedState: Codable {
         self.gameClockRedThresholdSeconds = gameClockRedThresholdSeconds
         self.isShotClockRedEnabled = isShotClockRedEnabled
         self.shotClockRedThresholdSeconds = shotClockRedThresholdSeconds
+        self.homeSubstitutionsAllowed = homeSubstitutionsAllowed
+        self.guestSubstitutionsAllowed = guestSubstitutionsAllowed
+        self.homeSubstitutionsUsed = homeSubstitutionsUsed
+        self.guestSubstitutionsUsed = guestSubstitutionsUsed
+        self.homeTeamFouls = homeTeamFouls
+        self.guestTeamFouls = guestTeamFouls
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
@@ -1094,6 +1474,7 @@ private struct PersistedState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedSport = try container.decodeIfPresent(SportType.self, forKey: .selectedSport) ?? .basketball
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         homeScore = try container.decode(Int.self, forKey: .homeScore)
@@ -1120,6 +1501,12 @@ private struct PersistedState: Codable {
         gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds) ?? 60
         isShotClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockRedEnabled) ?? false
         shotClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .shotClockRedThresholdSeconds) ?? 5
+        homeSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsAllowed) ?? selectedSport.defaultSubstitutionLimit
+        guestSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsAllowed) ?? selectedSport.defaultSubstitutionLimit
+        homeSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsUsed) ?? 0
+        guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed) ?? 0
+        homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls) ?? 0
+        guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls) ?? 0
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
@@ -1131,6 +1518,7 @@ private struct PersistedState: Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(selectedSport, forKey: .selectedSport)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
         try container.encode(homeScore, forKey: .homeScore)
@@ -1152,6 +1540,12 @@ private struct PersistedState: Codable {
         try container.encode(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
         try container.encode(isShotClockRedEnabled, forKey: .isShotClockRedEnabled)
         try container.encode(shotClockRedThresholdSeconds, forKey: .shotClockRedThresholdSeconds)
+        try container.encode(homeSubstitutionsAllowed, forKey: .homeSubstitutionsAllowed)
+        try container.encode(guestSubstitutionsAllowed, forKey: .guestSubstitutionsAllowed)
+        try container.encode(homeSubstitutionsUsed, forKey: .homeSubstitutionsUsed)
+        try container.encode(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
+        try container.encode(homeTeamFouls, forKey: .homeTeamFouls)
+        try container.encode(guestTeamFouls, forKey: .guestTeamFouls)
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)

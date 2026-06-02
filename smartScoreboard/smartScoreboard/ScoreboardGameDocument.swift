@@ -7,7 +7,8 @@ extension UTType {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 3
+    var fileVersion = 4
+    var sport: SportType?
     var homeTeamName: String
     var guestTeamName: String
     var homeScore: Int
@@ -29,10 +30,17 @@ struct ScoreboardGameSnapshot: Sendable {
     var gameClockRedThresholdSeconds: Int?
     var isShotClockRedEnabled: Bool?
     var shotClockRedThresholdSeconds: Int?
+    var homeSubstitutionsAllowed: Int?
+    var guestSubstitutionsAllowed: Int?
+    var homeSubstitutionsUsed: Int?
+    var guestSubstitutionsUsed: Int?
+    var homeTeamFouls: Int?
+    var guestTeamFouls: Int?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
 
     static let empty = ScoreboardGameSnapshot(
+        sport: .basketball,
         homeTeamName: "",
         guestTeamName: "",
         homeScore: 0,
@@ -54,6 +62,12 @@ struct ScoreboardGameSnapshot: Sendable {
         gameClockRedThresholdSeconds: 60,
         isShotClockRedEnabled: false,
         shotClockRedThresholdSeconds: 5,
+        homeSubstitutionsAllowed: 0,
+        guestSubstitutionsAllowed: 0,
+        homeSubstitutionsUsed: 0,
+        guestSubstitutionsUsed: 0,
+        homeTeamFouls: 0,
+        guestTeamFouls: 0,
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
         guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
     )
@@ -62,6 +76,7 @@ struct ScoreboardGameSnapshot: Sendable {
 extension ScoreboardGameSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
         case fileVersion
+        case sport
         case homeTeamName
         case guestTeamName
         case homeScore
@@ -83,6 +98,12 @@ extension ScoreboardGameSnapshot: Codable {
         case gameClockRedThresholdSeconds
         case isShotClockRedEnabled
         case shotClockRedThresholdSeconds
+        case homeSubstitutionsAllowed
+        case guestSubstitutionsAllowed
+        case homeSubstitutionsUsed
+        case guestSubstitutionsUsed
+        case homeTeamFouls
+        case guestTeamFouls
         case homeRoster
         case guestRoster
     }
@@ -90,6 +111,7 @@ extension ScoreboardGameSnapshot: Codable {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
+        sport = try container.decodeIfPresent(SportType.self, forKey: .sport)
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
         homeScore = try container.decode(Int.self, forKey: .homeScore)
@@ -111,6 +133,12 @@ extension ScoreboardGameSnapshot: Codable {
         gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds)
         isShotClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockRedEnabled)
         shotClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .shotClockRedThresholdSeconds)
+        homeSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsAllowed)
+        guestSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsAllowed)
+        homeSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsUsed)
+        guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed)
+        homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls)
+        guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
     }
@@ -118,6 +146,7 @@ extension ScoreboardGameSnapshot: Codable {
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(fileVersion, forKey: .fileVersion)
+        try container.encodeIfPresent(sport, forKey: .sport)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
         try container.encode(homeScore, forKey: .homeScore)
@@ -139,6 +168,12 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
         try container.encodeIfPresent(isShotClockRedEnabled, forKey: .isShotClockRedEnabled)
         try container.encodeIfPresent(shotClockRedThresholdSeconds, forKey: .shotClockRedThresholdSeconds)
+        try container.encodeIfPresent(homeSubstitutionsAllowed, forKey: .homeSubstitutionsAllowed)
+        try container.encodeIfPresent(guestSubstitutionsAllowed, forKey: .guestSubstitutionsAllowed)
+        try container.encodeIfPresent(homeSubstitutionsUsed, forKey: .homeSubstitutionsUsed)
+        try container.encodeIfPresent(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
+        try container.encodeIfPresent(homeTeamFouls, forKey: .homeTeamFouls)
+        try container.encodeIfPresent(guestTeamFouls, forKey: .guestTeamFouls)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
     }

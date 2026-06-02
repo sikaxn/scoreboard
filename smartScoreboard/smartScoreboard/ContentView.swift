@@ -16,6 +16,7 @@ struct ContentView: View {
 
     @State private var homeTeamDraft = ScoreboardStore.shared.homeTeamName
     @State private var guestTeamDraft = ScoreboardStore.shared.guestTeamName
+    @State private var setupSport = ScoreboardStore.shared.selectedSport
     @State private var setupPeriod = ScoreboardStore.shared.period
     @State private var setupClockSeconds = ScoreboardStore.shared.defaultClockSeconds
     @State private var setupShotClockSeconds = ScoreboardStore.shared.defaultShotClockSeconds
@@ -69,6 +70,7 @@ struct ContentView: View {
         .onReceive(store.$homeScore) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestScore) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$period) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$selectedSport) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$gameClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$shotClockMilliseconds) { _ in autosaveSelectedGameFile() }
@@ -85,6 +87,12 @@ struct ContentView: View {
         .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isShotClockRedEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$shotClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeTeamFouls) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
         .onAppear {
@@ -100,6 +108,9 @@ struct ContentView: View {
         }
         .onChange(of: homeTeamDraft) { _, _ in commitSetupEdits() }
         .onChange(of: guestTeamDraft) { _, _ in commitSetupEdits() }
+        .onChange(of: setupSport) { _, newValue in
+            applySetupSportDraft(newValue)
+        }
         .onChange(of: setupPeriod) { _, _ in commitSetupEdits() }
         .onChange(of: setupClockSeconds) { _, _ in commitSetupEdits() }
         .onChange(of: setupShotClockSeconds) { _, _ in commitSetupEdits() }
@@ -304,8 +315,16 @@ struct ContentView: View {
             }
 
             settingsSection(title: "Game") {
+                settingsPickerRow(
+                    title: "Sport",
+                    selection: $setupSport,
+                    options: SportType.allCases
+                ) { option in
+                    option.title
+                }
+                settingsDivider()
                 settingsStepperValueRow(
-                    title: "Starting Period",
+                    title: "Starting \(setupSport.periodTitle)",
                     value: "\(setupPeriod)",
                     decrement: { setupPeriod = max(1, setupPeriod - 1) },
                     increment: { setupPeriod = min(9, setupPeriod + 1) }
@@ -320,28 +339,43 @@ struct ContentView: View {
                 settingsDivider()
                 settingsSegmentRow(
                     title: "Clock Preset",
-                    options: [
-                        ("8:00", 8 * 60),
-                        ("10:00", 10 * 60),
-                        ("12:00", 12 * 60)
-                    ],
+                    options: clockPresetOptions(for: setupSport),
                     selection: $setupClockSeconds
+                )
+
+                if setupSport.supportsShotClock {
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Shot Clock",
+                        value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                        decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                        increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+                    )
+                    settingsDivider()
+                    settingsSegmentRow(
+                        title: "Shot Preset",
+                        options: [
+                            ("24", 24),
+                            ("14", 14)
+                        ],
+                        selection: $setupShotClockSeconds
+                    )
+                }
+            }
+
+            settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
+                settingsStepperValueRow(
+                    title: "Home Allowed",
+                    value: "\(store.homeSubstitutionsAllowed)",
+                    decrement: { store.setSubstitutionsAllowed(for: .home, to: store.homeSubstitutionsAllowed - 1) },
+                    increment: { store.setSubstitutionsAllowed(for: .home, to: store.homeSubstitutionsAllowed + 1) }
                 )
                 settingsDivider()
                 settingsStepperValueRow(
-                    title: "Shot Clock",
-                    value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                    decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-                    increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-                )
-                settingsDivider()
-                settingsSegmentRow(
-                    title: "Shot Preset",
-                    options: [
-                        ("24", 24),
-                        ("14", 14)
-                    ],
-                    selection: $setupShotClockSeconds
+                    title: "Guest Allowed",
+                    value: "\(store.guestSubstitutionsAllowed)",
+                    decrement: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed - 1) },
+                    increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
                 )
             }
         }
@@ -392,12 +426,18 @@ struct ContentView: View {
                 )
             }
 
-            settingsSection(title: "Home Roster", footer: "Edit player number, display name, and active lineup status for the home team.") {
-                settingsRosterEditor(side: .home, layout: layout)
-            }
+            if store.selectedSport.supportsPlayerTracking {
+                settingsSection(title: "Home Roster", footer: "Edit player number, display name, and active lineup status for the home team.") {
+                    settingsRosterEditor(side: .home, layout: layout)
+                }
 
-            settingsSection(title: "Guest Roster", footer: "Edit player number, display name, and active lineup status for the guest team.") {
-                settingsRosterEditor(side: .guest, layout: layout)
+                settingsSection(title: "Guest Roster", footer: "Edit player number, display name, and active lineup status for the guest team.") {
+                    settingsRosterEditor(side: .guest, layout: layout)
+                }
+            } else {
+                settingsSection(title: "Tracking Unavailable", footer: "The current sport uses score, clock, and substitution controls only.") {
+                    settingsSummaryValueRow(title: "Sport", value: store.selectedSport.title)
+                }
             }
         }
     }
@@ -413,16 +453,18 @@ struct ContentView: View {
                 )
             }
 
-            settingsSection(title: "Foul Highlight") {
-                settingsPickerRow(
-                    title: "Foul Highlight Color",
-                    selection: Binding(
-                        get: { store.playerFoulHighlightColor },
-                        set: { store.playerFoulHighlightColor = $0 }
-                    ),
-                    options: PlayerFoulHighlightColor.allCases
-                ) { option in
-                    option.title
+            if store.supportsFouls {
+                settingsSection(title: "Foul Highlight") {
+                    settingsPickerRow(
+                        title: "Foul Highlight Color",
+                        selection: Binding(
+                            get: { store.playerFoulHighlightColor },
+                            set: { store.playerFoulHighlightColor = $0 }
+                        ),
+                        options: PlayerFoulHighlightColor.allCases
+                    ) { option in
+                        option.title
+                    }
                 }
             }
 
@@ -438,18 +480,21 @@ struct ContentView: View {
                     decrement: { store.gameClockRedThresholdSeconds = max(0, store.gameClockRedThresholdSeconds - 5) },
                     increment: { store.gameClockRedThresholdSeconds = min(ScoreboardStore.maxGameClockSeconds, store.gameClockRedThresholdSeconds + 5) }
                 )
-                settingsDivider()
-                settingsToggleRow(title: "Turn Shot Clock Red", isOn: Binding(
-                    get: { store.isShotClockRedEnabled },
-                    set: { store.isShotClockRedEnabled = $0 }
-                ))
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Shot Clock Red At",
-                    value: "\(store.shotClockRedThresholdSeconds)s",
-                    decrement: { store.shotClockRedThresholdSeconds = max(0, store.shotClockRedThresholdSeconds - 1) },
-                    increment: { store.shotClockRedThresholdSeconds = min(ScoreboardStore.maxShotClockSeconds, store.shotClockRedThresholdSeconds + 1) }
-                )
+
+                if store.supportsShotClock {
+                    settingsDivider()
+                    settingsToggleRow(title: "Turn Shot Clock Red", isOn: Binding(
+                        get: { store.isShotClockRedEnabled },
+                        set: { store.isShotClockRedEnabled = $0 }
+                    ))
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Shot Clock Red At",
+                        value: "\(store.shotClockRedThresholdSeconds)s",
+                        decrement: { store.shotClockRedThresholdSeconds = max(0, store.shotClockRedThresholdSeconds - 1) },
+                        increment: { store.shotClockRedThresholdSeconds = min(ScoreboardStore.maxShotClockSeconds, store.shotClockRedThresholdSeconds + 1) }
+                    )
+                }
             }
         }
     }
@@ -476,15 +521,23 @@ struct ContentView: View {
                 settingsDivider()
                 settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
                 settingsDivider()
-                settingsSummaryValueRow(title: "Period", value: "\(setupPeriod)")
+                settingsSummaryValueRow(title: "Sport", value: setupSport.title)
+                settingsDivider()
+                settingsSummaryValueRow(title: setupSport.periodTitle, value: "\(setupPeriod)")
                 settingsDivider()
                 settingsSummaryValueRow(title: "Opening Clock", value: formatClock(setupClockSeconds))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
+                if setupSport.supportsShotClock {
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
+                }
                 settingsDivider()
                 settingsSummaryValueRow(title: "Player Tracking", value: store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")
                 settingsDivider()
                 settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
+                settingsDivider()
+                settingsSummaryValueRow(title: "Home Subs", value: "\(store.homeSubstitutionsUsed)/\(store.homeSubstitutionsAllowed)")
+                settingsDivider()
+                settingsSummaryValueRow(title: "Guest Subs", value: "\(store.guestSubstitutionsUsed)/\(store.guestSubstitutionsAllowed)")
             }
         }
     }
@@ -709,12 +762,21 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                Text("F \(player.foulCount)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(settingsPalette.secondaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(settingsPalette.fieldBackground, in: Capsule())
+                if store.supportsCards {
+                    Text(player.cardStatus.title.uppercased())
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(cardStatusColor(player.cardStatus))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(settingsPalette.fieldBackground, in: Capsule())
+                } else if store.supportsFouls {
+                    Text("F \(player.foulCount)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(settingsPalette.fieldBackground, in: Capsule())
+                }
             }
 
             HStack(spacing: 12) {
@@ -756,6 +818,29 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
             }
             .toggleStyle(.switch)
+
+            if store.supportsCards {
+                HStack(spacing: 10) {
+                    smallSettingsActionButton("Clear", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                        store.setCardStatus(.none, for: side, playerID: player.id)
+                    }
+                    smallSettingsActionButton("Yellow", tint: .yellow.opacity(0.85), foreground: .black) {
+                        store.setCardStatus(.yellow, for: side, playerID: player.id)
+                    }
+                    smallSettingsActionButton("Red", tint: .red.opacity(0.9), foreground: .white) {
+                        store.setCardStatus(.red, for: side, playerID: player.id)
+                    }
+                }
+            } else if store.supportsFouls {
+                HStack(spacing: 10) {
+                    smallSettingsActionButton("F -", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                        store.adjustFoulCount(for: side, playerID: player.id, by: -1)
+                    }
+                    smallSettingsActionButton("F +", tint: side == .home ? homeTint : guestTint, foreground: .white) {
+                        store.adjustFoulCount(for: side, playerID: player.id, by: 1)
+                    }
+                }
+            }
         }
         .padding(.vertical, 12)
     }
@@ -820,6 +905,23 @@ struct ContentView: View {
                 .multilineTextAlignment(.trailing)
         }
         .padding(.vertical, 10)
+    }
+
+    private func smallSettingsActionButton(
+        _ title: String,
+        tint: Color,
+        foreground: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(tint, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func settingsGameFileRow(_ gameFile: StoredGameFile) -> some View {
@@ -1165,6 +1267,7 @@ struct ContentView: View {
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardMutedText)
+                    .opacity(store.supportsPossession ? 1 : 0)
             }
 
             Text(store.formattedShotClock)
@@ -1245,14 +1348,7 @@ struct ContentView: View {
     private func playerTrackingScreen(layout: InterfaceLayout) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: layout.sectionSpacing) {
-                pageIntroCard(
-                    title: "Player Tracking",
-                    caption: "Roster, foul, and active-lineup controls.",
-                    actionTitle: "Back to Game",
-                    actionSystemImage: "chevron.left",
-                    action: { dashboardPage = .main },
-                    layout: layout
-                )
+                playerTrackingIntroCard(layout: layout)
 
                 playerTrackingPanel(layout: layout)
             }
@@ -1308,9 +1404,59 @@ struct ContentView: View {
         )
     }
 
+    private func playerTrackingIntroCard(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Player Tracking")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Text("Roster, cards, fouls, and active-lineup controls.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    dashboardPage = .main
+                } label: {
+                    Label("Back to Game", systemImage: "chevron.left")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(themePalette.dashboardNeutralButton, in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    store.togglePlayerOverlayPaused()
+                } label: {
+                    Label(store.isPlayerOverlayPaused ? "Resume Overlay" : "Pause Overlay", systemImage: store.isPlayerOverlayPaused ? "play.fill" : "pause.fill")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background((store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, layout.controlCardPadding)
+        .padding(.vertical, layout.controlCardPadding)
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder)
+        )
+    }
+
     @ViewBuilder
     private func bottomControlRow(layout: InterfaceLayout) -> some View {
-        if layout.controlBottomUsesVerticalFlow {
+        if !store.supportsShotClock {
+            gameControls(layout: layout)
+        } else if layout.controlBottomUsesVerticalFlow {
             VStack(spacing: layout.sectionSpacing) {
                 gameControls(layout: layout)
                 shotClockWidget(layout: layout)
@@ -1421,8 +1567,10 @@ struct ContentView: View {
                 spacing: 10
             ) {
                 gameMetricCard(title: "Time", value: store.formattedClock, monospaced: true, layout: layout)
-                gameMetricCard(title: "24s", value: store.formattedShotClock, monospaced: true, layout: layout)
-                gameMetricCard(title: "Period", value: "\(store.period)", layout: layout)
+                if store.supportsShotClock {
+                    gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, layout: layout)
+                }
+                gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
             }
 
             if store.isPlayerTrackingEnabled {
@@ -1510,37 +1658,42 @@ struct ContentView: View {
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
-                columns: layout.teamButtonColumns,
-                buttons: [
-                    ActionDescriptor(title: "+1", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 1) },
-                    ActionDescriptor(title: "+2", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 2) },
-                    ActionDescriptor(title: "+3", tint: tint, foreground: .white) { store.adjustScore(isHome: isHome, by: 3) },
-                    ActionDescriptor(title: "-1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) { store.adjustScore(isHome: isHome, by: -1) }
-                ],
+                columns: max(1, min(2, store.selectedSport.scoreStepOptions.count + 1)),
+                buttons: scoreButtons(forHomeTeam: isHome, tint: tint),
                 dense: layout.denseControls
             )
 
-            buttonGrid(
-                columns: 2,
-                buttons: [
-                    ActionDescriptor(
-                        title: "Shot 24",
-                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
-                        foreground: .white
-                    ) {
-                        store.assignShotClock(to: 24, forHomeTeam: isHome)
-                    },
-                    ActionDescriptor(
-                        title: "Shot 14",
-                        tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
-                        foreground: .white
-                    ) {
-                        store.assignShotClock(to: 14, forHomeTeam: isHome)
-                    }
-                ],
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
+            if store.supportsShotClock {
+                buttonGrid(
+                    columns: 2,
+                    buttons: [
+                        ActionDescriptor(
+                            title: "Shot 24",
+                            tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
+                            foreground: .white
+                        ) {
+                            store.assignShotClock(to: 24, forHomeTeam: isHome)
+                        },
+                        ActionDescriptor(
+                            title: "Shot 14",
+                            tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
+                            foreground: .white
+                        ) {
+                            store.assignShotClock(to: 14, forHomeTeam: isHome)
+                        }
+                    ],
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+            }
+
+            if store.showsSubstitutionTracking {
+                substitutionControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+            }
+
+            if store.supportsTeamFouls {
+                teamFoulControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+            }
         }
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
@@ -1553,39 +1706,22 @@ struct ContentView: View {
     private func playerTrackingPanel(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Player Tracking")
+                Text("Quick Actions")
                     .font(.title3.weight(.bold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
                 Spacer(minLength: 0)
 
-                Text(store.isPlayerOverlayPaused ? "Overlay Paused" : "Overlay Live")
+                Text(resetSummaryText)
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(store.isPlayerOverlayPaused ? themePalette.dashboardWarningButtonText : themePalette.dashboardStatusLive)
+                    .foregroundStyle(themePalette.dashboardMutedText)
             }
 
             buttonGrid(
-                columns: layout.playerActionButtonColumns,
-                buttons: [
-                    ActionDescriptor(
-                        title: store.isPlayerOverlayPaused ? "Resume Overlay" : "Pause Overlay",
-                        tint: store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-                        foreground: store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText
-                    ) {
-                        store.togglePlayerOverlayPaused()
-                    },
-                    ActionDescriptor(title: "Reset Home Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.resetFouls(for: .home)
-                    },
-                    ActionDescriptor(title: "Reset Guest Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.resetFouls(for: .guest)
-                    },
-                    ActionDescriptor(title: "Reset All Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                        store.resetAllPlayerFouls()
-                    }
-                ],
+                columns: min(layout.playerActionButtonColumns, 3),
+                buttons: quickResetButtons(),
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
@@ -1610,6 +1746,50 @@ struct ContentView: View {
         )
     }
 
+    private func quickResetButtons() -> [ActionDescriptor] {
+        var buttons: [ActionDescriptor] = []
+
+        if store.supportsFouls {
+            buttons.append(
+                ActionDescriptor(title: "Reset All Player Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                    store.resetAllPlayerFouls()
+                }
+            )
+        }
+
+        if store.supportsTeamFouls {
+            buttons.append(
+                ActionDescriptor(title: "Reset All Team Fouls", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                    store.resetAllTeamFouls()
+                }
+            )
+        }
+
+        if store.supportsCards {
+            buttons.append(
+                ActionDescriptor(title: "Reset All Cards", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                    store.resetAllPlayerCards()
+                }
+            )
+        }
+
+        if buttons.isEmpty {
+            buttons.append(
+                ActionDescriptor(title: "No Reset Actions", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: false) {}
+            )
+        }
+
+        return buttons
+    }
+
+    private var resetSummaryText: String {
+        var parts: [String] = []
+        if store.supportsFouls { parts.append("Player Fouls") }
+        if store.supportsTeamFouls { parts.append("Team Fouls") }
+        if store.supportsCards { parts.append("Cards") }
+        return parts.isEmpty ? "No reset actions" : parts.joined(separator: " • ")
+    }
+
     private func playerTeamPanel(side: TeamSide, layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -1626,6 +1806,8 @@ struct ContentView: View {
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
 
+            playerTeamToolbar(side: side, layout: layout)
+
             VStack(spacing: 10) {
                 ForEach(store.trackedPlayers(for: side)) { player in
                     playerControlRow(player, side: side, layout: layout)
@@ -1634,6 +1816,51 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 2)
+    }
+
+    @ViewBuilder
+    private func playerTeamToolbar(side: TeamSide, layout: InterfaceLayout) -> some View {
+        let buttons = teamToolbarButtons(for: side)
+
+        if !buttons.isEmpty {
+            buttonGrid(
+                columns: min(max(1, buttons.count), 3),
+                buttons: buttons,
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+    }
+
+    private func teamToolbarButtons(for side: TeamSide) -> [ActionDescriptor] {
+        var buttons: [ActionDescriptor] = []
+        let sideTitle = side.title
+
+        if store.supportsFouls {
+            buttons.append(
+                ActionDescriptor(title: "Reset \(sideTitle) Player Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                    store.resetFouls(for: side)
+                }
+            )
+        }
+
+        if store.supportsTeamFouls {
+            buttons.append(
+                ActionDescriptor(title: "Reset \(sideTitle) Team Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                    store.resetTeamFouls(for: side)
+                }
+            )
+        }
+
+        if store.supportsCards {
+            buttons.append(
+                ActionDescriptor(title: "Reset \(sideTitle) Cards", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                    store.resetCards(for: side)
+                }
+            )
+        }
+
+        return buttons
     }
 
     private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
@@ -1651,22 +1878,46 @@ struct ContentView: View {
 
             Spacer(minLength: 0)
 
-            Text("F \(player.foulCount)")
-                .font(.subheadline.weight(.black))
-                .foregroundStyle(themePalette.dashboardPrimaryText)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
+            if store.supportsCards {
+                Text(player.cardStatus.title.uppercased())
+                    .font(.subheadline.weight(.black))
+                    .foregroundStyle(cardStatusColor(player.cardStatus))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
 
-            smallActionButton("-", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
-                store.adjustFoulCount(for: side, playerID: player.id, by: -1)
-            }
-            .frame(width: 40)
+                smallActionButton("Clr", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.setCardStatus(.none, for: side, playerID: player.id)
+                }
+                .frame(width: 46)
 
-            smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
-                store.adjustFoulCount(for: side, playerID: player.id, by: 1)
+                smallActionButton("Y", tint: .yellow.opacity(0.88), foreground: .black, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.setCardStatus(.yellow, for: side, playerID: player.id)
+                }
+                .frame(width: 40)
+
+                smallActionButton("R", tint: .red.opacity(0.9), foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.setCardStatus(.red, for: side, playerID: player.id)
+                }
+                .frame(width: 40)
+            } else if store.supportsFouls {
+                Text("F \(player.foulCount)")
+                    .font(.subheadline.weight(.black))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
+
+                smallActionButton("-", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.adjustFoulCount(for: side, playerID: player.id, by: -1)
+                }
+                .frame(width: 40)
+
+                smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.adjustFoulCount(for: side, playerID: player.id, by: 1)
+                }
+                .frame(width: 40)
             }
-            .frame(width: 40)
 
             smallActionButton(
                 player.isInActiveLineup ? "Bench" : "Show",
@@ -1730,7 +1981,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
                     },
-                    ActionDescriptor(title: "Next Period", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                    ActionDescriptor(title: "Next \(store.periodTitle)", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                         store.adjustPeriod(by: 1)
                     }
                 ],
@@ -1741,8 +1992,8 @@ struct ContentView: View {
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Reset 12:00", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetClock(to: 12 * 60)
+                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
+                        store.resetClock(to: store.defaultClockSeconds)
                     },
                     ActionDescriptor(title: "Zero Scores", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
                         store.resetScores()
@@ -1857,13 +2108,101 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private func clockPresetOptions(for sport: SportType) -> [(String, Int)] {
+        switch sport {
+        case .basketball:
+            return [("8:00", 8 * 60), ("10:00", 10 * 60), ("12:00", 12 * 60)]
+        case .volleyball:
+            return [("00:00", 0), ("15:00", 15 * 60), ("25:00", 25 * 60)]
+        case .soccer:
+            return [("40:00", 40 * 60), ("45:00", 45 * 60), ("50:00", 50 * 60)]
+        }
+    }
+
+    private func scoreButtons(forHomeTeam isHome: Bool, tint: Color) -> [ActionDescriptor] {
+        let sportButtons = store.selectedSport.scoreStepOptions.map { value in
+            ActionDescriptor(title: "+\(value)", tint: tint, foreground: .white) {
+                store.adjustScore(isHome: isHome, by: value)
+            }
+        }
+
+        return sportButtons + [
+            ActionDescriptor(title: "-1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.adjustScore(isHome: isHome, by: -1)
+            }
+        ]
+    }
+
+    private func substitutionControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Subs \(store.substitutionsUsed(for: side))/\(store.substitutionsAllowed(for: side)) Used • \(store.substitutionsRemaining(for: side)) Left")
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Swap -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustSubstitutionsUsed(for: side, by: -1)
+                    },
+                    ActionDescriptor(
+                        title: "Swap +",
+                        tint: tint,
+                        foreground: .white,
+                        isEnabled: store.substitutionsUsed(for: side) < store.substitutionsAllowed(for: side)
+                    ) {
+                        store.adjustSubstitutionsUsed(for: side, by: 1)
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+    }
+
+    private func teamFoulControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Team Fouls \(store.teamFouls(for: side))")
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Foul -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustTeamFouls(for: side, by: -1)
+                    },
+                    ActionDescriptor(title: "Foul +", tint: tint, foreground: .white) {
+                        store.adjustTeamFouls(for: side, by: 1)
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+    }
+
     private func formatClock(_ seconds: Int) -> String {
         ScoreboardStore.formatGameClock(seconds)
+    }
+
+    private func cardStatusColor(_ status: PlayerCardStatus) -> Color {
+        switch status {
+        case .none:
+            return settingsPalette.secondaryText
+        case .yellow:
+            return .yellow
+        case .red:
+            return .red
+        }
     }
 
     private func resetSetupDraftsToDefaults() {
         homeTeamDraft = ""
         guestTeamDraft = ""
+        setupSport = .basketball
         setupPeriod = 1
         setupClockSeconds = 12 * 60
         setupShotClockSeconds = 24
@@ -1892,7 +2231,8 @@ struct ContentView: View {
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 3,
+            fileVersion: 4,
+            sport: setupSport,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: 0,
@@ -1914,6 +2254,12 @@ struct ContentView: View {
             gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
             isShotClockRedEnabled: store.isShotClockRedEnabled,
             shotClockRedThresholdSeconds: store.shotClockRedThresholdSeconds,
+            homeSubstitutionsAllowed: store.homeSubstitutionsAllowed,
+            guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
+            homeSubstitutionsUsed: store.homeSubstitutionsUsed,
+            guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+            homeTeamFouls: store.homeTeamFouls,
+            guestTeamFouls: store.guestTeamFouls,
             homeRoster: store.homeRoster,
             guestRoster: store.guestRoster
         )
@@ -2069,8 +2415,9 @@ struct ContentView: View {
     private func loadSetupDraftsFromStore() {
         homeTeamDraft = store.homeTeamName
         guestTeamDraft = store.guestTeamName
+        setupSport = store.selectedSport
         setupPeriod = store.period
-        setupClockSeconds = store.gameClockSeconds
+        setupClockSeconds = store.defaultClockSeconds
         setupShotClockSeconds = store.activeShotClockPresetSeconds
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
     }
@@ -2085,6 +2432,15 @@ struct ContentView: View {
         }
 
         return storedGameFiles.first { $0.id == selectedStoredGameFileID }
+    }
+
+    private func applySetupSportDraft(_ sport: SportType) {
+        let previousSport = store.selectedSport
+        store.setSelectedSport(sport, applyDefaults: previousSport != sport)
+        setupPeriod = 1
+        setupClockSeconds = sport.defaultClockSeconds
+        setupShotClockSeconds = sport.defaultShotClockSeconds
+        commitSetupEdits()
     }
 
     private func storedGameFilesDirectory() throws -> URL {
@@ -2209,7 +2565,8 @@ struct ContentView: View {
         let currentSnapshot = store.currentGameSnapshot()
 
         return ScoreboardGameSnapshot(
-            fileVersion: 3,
+            fileVersion: 4,
+            sport: setupSport,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
             homeScore: currentSnapshot.homeScore,
@@ -2217,10 +2574,10 @@ struct ContentView: View {
             period: setupPeriod,
             gameClockSeconds: setupClockSeconds,
             defaultClockSeconds: setupClockSeconds,
-            shotClockMilliseconds: setupShotClockSeconds * 1_000,
-            defaultShotClockSeconds: setupShotClockSeconds,
-            activeShotClockPresetSeconds: setupShotClockSeconds,
-            possessionDirection: .none,
+            shotClockMilliseconds: setupSport.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
+            defaultShotClockSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
+            activeShotClockPresetSeconds: setupSport.supportsShotClock ? setupShotClockSeconds : 0,
+            possessionDirection: setupSport.supportsPossession ? .none : .none,
             areSidesSwapped: currentSnapshot.areSidesSwapped,
             isPlayerTrackingEnabled: currentSnapshot.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
@@ -2231,6 +2588,12 @@ struct ContentView: View {
             gameClockRedThresholdSeconds: currentSnapshot.gameClockRedThresholdSeconds,
             isShotClockRedEnabled: currentSnapshot.isShotClockRedEnabled,
             shotClockRedThresholdSeconds: currentSnapshot.shotClockRedThresholdSeconds,
+            homeSubstitutionsAllowed: currentSnapshot.homeSubstitutionsAllowed,
+            guestSubstitutionsAllowed: currentSnapshot.guestSubstitutionsAllowed,
+            homeSubstitutionsUsed: currentSnapshot.homeSubstitutionsUsed,
+            guestSubstitutionsUsed: currentSnapshot.guestSubstitutionsUsed,
+            homeTeamFouls: currentSnapshot.homeTeamFouls,
+            guestTeamFouls: currentSnapshot.guestTeamFouls,
             homeRoster: currentSnapshot.homeRoster,
             guestRoster: currentSnapshot.guestRoster
         )
@@ -2261,7 +2624,8 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 3,
+                    fileVersion: 4,
+                    sport: preset.sport,
                     homeTeamName: preset.homeTeamName,
                     guestTeamName: preset.guestTeamName,
                     homeScore: 0,
@@ -2283,6 +2647,12 @@ struct ContentView: View {
                     gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
                     isShotClockRedEnabled: store.isShotClockRedEnabled,
                     shotClockRedThresholdSeconds: store.shotClockRedThresholdSeconds,
+                    homeSubstitutionsAllowed: preset.sport.defaultSubstitutionLimit,
+                    guestSubstitutionsAllowed: preset.sport.defaultSubstitutionLimit,
+                    homeSubstitutionsUsed: 0,
+                    guestSubstitutionsUsed: 0,
+                    homeTeamFouls: 0,
+                    guestTeamFouls: 0,
                     homeRoster: store.homeRoster,
                     guestRoster: store.guestRoster
                 )
@@ -2437,7 +2807,15 @@ private struct StoredGameFile: Identifiable {
             return "Preview unavailable"
         }
 
-        return "P\(snapshot.period) • \(formatGameClock(snapshot.defaultClockSeconds)) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+        let sport = snapshot.sport ?? .basketball
+        let periodLine = "\(sport.periodShortTitle)\(snapshot.period)"
+        let clockLine = formatGameClock(snapshot.defaultClockSeconds)
+
+        if sport.supportsShotClock {
+            return "\(sport.title) • \(periodLine) • \(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+        }
+
+        return "\(sport.title) • \(periodLine) • \(clockLine)"
     }
     var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
 
@@ -2528,11 +2906,20 @@ private struct InterfaceLayout {
     var isCompactWidth: Bool { width < 840 }
     var isShortHeight: Bool { height < 760 }
     var isPortraitish: Bool { height > width * 1.05 }
+    var isTabletSized: Bool { width >= 768 && width <= 1366 && height >= 700 }
     var denseControls: Bool { isShortHeight || isPortraitish || width < 980 }
 
-    var outerPadding: CGFloat { isCompactWidth ? 16 : 24 }
+    var outerPadding: CGFloat {
+        if isCompactWidth { return 16 }
+        if isTabletSized { return 14 }
+        return 24
+    }
     var cardPadding: CGFloat { isCompactWidth ? 18 : 28 }
-    var sectionSpacing: CGFloat { isCompactWidth ? 14 : 18 }
+    var sectionSpacing: CGFloat {
+        if isCompactWidth { return 14 }
+        if isTabletSized { return 12 }
+        return 18
+    }
     var cardCornerRadius: CGFloat { isCompactWidth ? 26 : 34 }
     var contentMaxWidth: CGFloat { min(max(width - (outerPadding * 2), 0), 1480) }
 
@@ -2546,14 +2933,14 @@ private struct InterfaceLayout {
     var headerSubtitleFont: Font { denseControls ? .caption : .subheadline }
     var headerBadgeFont: Font { denseControls ? .caption.weight(.semibold) : .subheadline.weight(.semibold) }
     var headerTitleSpacing: CGFloat { denseControls ? 4 : 5 }
-    var headerBlockSpacing: CGFloat { denseControls ? 8 : 12 }
-    var headerInlineSpacing: CGFloat { denseControls ? 12 : 14 }
-    var headerHorizontalPadding: CGFloat { denseControls ? 14 : 18 }
-    var headerVerticalPadding: CGFloat { denseControls ? 10 : 12 }
-    var headerBadgeHorizontalPadding: CGFloat { denseControls ? 10 : 12 }
-    var headerBadgeVerticalPadding: CGFloat { denseControls ? 6 : 8 }
-    var headerActionVerticalPadding: CGFloat { denseControls ? 8 : 10 }
-    var controlCardPadding: CGFloat { denseControls ? 14 : 18 }
+    var headerBlockSpacing: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 12 }
+    var headerInlineSpacing: CGFloat { denseControls ? 12 : isTabletSized ? 10 : 14 }
+    var headerHorizontalPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
+    var headerVerticalPadding: CGFloat { denseControls ? 10 : isTabletSized ? 8 : 12 }
+    var headerBadgeHorizontalPadding: CGFloat { denseControls ? 10 : isTabletSized ? 9 : 12 }
+    var headerBadgeVerticalPadding: CGFloat { denseControls ? 6 : isTabletSized ? 5 : 8 }
+    var headerActionVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 10 }
+    var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
 
     var setupUsesVerticalFlow: Bool { width < 1260 || height < 860 }
@@ -2565,6 +2952,7 @@ private struct InterfaceLayout {
 
     var dashboardHeaderHeight: CGFloat {
         if isPortraitish { return 118 }
+        if isTabletSized { return denseControls || headerUsesVerticalFlow ? 84 : 68 }
         return denseControls || headerUsesVerticalFlow ? 96 : 76
     }
 
@@ -2591,9 +2979,9 @@ private struct InterfaceLayout {
         if topControlUsesVerticalFlow {
             return min(max(totalHeight * 0.58, 360), totalHeight - 140)
         }
-        return min(max(totalHeight * 0.48, 280), 360)
+        return min(max(totalHeight * (isTabletSized ? 0.45 : 0.48), isTabletSized ? 250 : 280), isTabletSized ? 330 : 360)
     }
-    var advancedButtonVerticalPadding: CGFloat { denseControls ? 8 : 11 }
+    var advancedButtonVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 11 }
     var shotClockButtonColumns: Int {
         if width < 520 { return 2 }
         if width < 900 { return 3 }

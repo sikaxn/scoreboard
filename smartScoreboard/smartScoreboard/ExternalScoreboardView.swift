@@ -22,6 +22,7 @@ struct ExternalScoreboardView: View {
                 ScoreboardFaceView(
                     theme: store.theme,
                     backgroundStyle: boardBackgroundStyle,
+                    sport: store.selectedSport,
                     homeTeamName: store.homeTeamName,
                     guestTeamName: store.guestTeamName,
                     homeScore: store.homeScore,
@@ -37,6 +38,12 @@ struct ExternalScoreboardView: View {
                     playerFoulHighlightColor: store.playerFoulHighlightColor,
                     isDisplayGameClockAlertActive: store.isDisplayGameClockAlertActive,
                     isDisplayShotClockAlertActive: store.isDisplayShotClockAlertActive,
+                    homeSubstitutionsAllowed: store.homeSubstitutionsAllowed,
+                    guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
+                    homeSubstitutionsUsed: store.homeSubstitutionsUsed,
+                    guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+                    homeTeamFouls: store.homeTeamFouls,
+                    guestTeamFouls: store.guestTeamFouls,
                     homePlayers: store.displayedHomePlayers,
                     guestPlayers: store.displayedGuestPlayers,
                     compact: usesCompactBoard
