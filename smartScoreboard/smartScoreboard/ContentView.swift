@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var exportFilename = "Scoreboard Game.scoreboardgame"
     @State private var fileOperationErrorMessage: String?
     @State private var dashboardPage: DashboardPage = .main
+    @State private var pendingGameConfirmation: GameConfirmationAction?
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
@@ -141,6 +142,16 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(fileOperationErrorMessage ?? "")
+        }
+        .alert(item: $pendingGameConfirmation) { action in
+            Alert(
+                title: Text(action.title(periodTitle: store.periodTitle, resetClockTitle: formatClock(store.defaultClockSeconds))),
+                message: Text(action.message(periodTitle: store.periodTitle)),
+                primaryButton: .destructive(Text(action.confirmButtonTitle(periodTitle: store.periodTitle))) {
+                    performConfirmedGameAction(action)
+                },
+                secondaryButton: .cancel()
+            )
         }
         #if os(macOS)
         .background(ControlBoardWindowConfigurator())
@@ -1210,13 +1221,27 @@ struct ContentView: View {
     }
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
-        Label(displayStatusTitle, systemImage: displayStatusSystemImage)
-            .font(layout.headerBadgeFont)
-            .lineLimit(1)
-            .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
-            .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-            .padding(.vertical, layout.headerBadgeVerticalPadding)
-            .background(themePalette.dashboardCardBackground, in: Capsule())
+        HStack(spacing: 10) {
+            Label(displayStatusTitle, systemImage: displayStatusSystemImage)
+                .font(layout.headerBadgeFont)
+                .lineLimit(1)
+                .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .padding(.vertical, layout.headerBadgeVerticalPadding)
+                .background(themePalette.dashboardCardBackground, in: Capsule())
+
+            Button {
+                dashboardPage = .preview
+            } label: {
+                Label("Show Preview", systemImage: "display")
+                    .font(layout.headerBadgeFont)
+                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                    .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                    .padding(.vertical, layout.headerBadgeVerticalPadding)
+                    .background(themePalette.dashboardNeutralButton, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
@@ -1332,6 +1357,12 @@ struct ContentView: View {
                         insertion: .move(edge: .trailing).combined(with: .opacity),
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
+            case .preview:
+                previewDashboardScreen(layout: layout)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: dashboardPage)
@@ -1368,6 +1399,33 @@ struct ContentView: View {
 
                 playerTrackingPanel(layout: layout)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            .padding(.bottom, layout.sectionSpacing)
+        }
+    }
+
+    private func previewDashboardScreen(layout: InterfaceLayout) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: layout.sectionSpacing) {
+                pageIntroCard(
+                    title: "Display Preview",
+                    caption: "Preview the external scoreboard without requiring an attached display. This preview may not match the connected external display exactly.",
+                    actionTitle: "Back to Game",
+                    actionSystemImage: "chevron.left",
+                    action: { dashboardPage = .main },
+                    layout: layout
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+
+                previewPanel(
+                    title: "External Scoreboard",
+                    caption: currentPreviewModeTitle,
+                    layout: layout
+                ) {
+                    currentPreviewBoard(layout: layout)
+                }
+                .frame(minHeight: max(320, layout.size.height * 0.58))
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .padding(.bottom, layout.sectionSpacing)
         }
@@ -1580,11 +1638,19 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
 
+            Text(store.formattedClock)
+                .font(.system(size: layout.centerScoreSize + 6, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.4)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.formattedClock)
+
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
                 spacing: 10
             ) {
-                gameMetricCard(title: "Time", value: store.formattedClock, monospaced: true, layout: layout)
                 if store.supportsShotClock {
                     gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, layout: layout)
                 }
@@ -2000,8 +2066,8 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Prev Period", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustPeriod(by: -1)
+                    ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white) {
+                        pendingGameConfirmation = .previousPeriod
                     },
                     ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
@@ -2017,11 +2083,11 @@ struct ContentView: View {
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetClock(to: store.defaultClockSeconds)
+                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                        pendingGameConfirmation = .resetClock
                     },
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !store.isGameClockInterlockActive) {
-                        store.resetScores()
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !store.isGameClockInterlockActive) {
+                        pendingGameConfirmation = .zeroScores
                     }
                 ],
                 style: .compact,
@@ -2772,6 +2838,64 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
+    private func currentPreviewBoard(layout: InterfaceLayout) -> some View {
+        ScoreboardFaceView(
+            theme: store.theme,
+            backgroundStyle: currentPreviewBoardBackgroundStyle,
+            sport: store.selectedSport,
+            homeTeamName: store.homeTeamName,
+            guestTeamName: store.guestTeamName,
+            homeScore: store.homeScore,
+            guestScore: store.guestScore,
+            period: store.period,
+            formattedClock: store.formattedClock,
+            formattedShotClock: store.formattedShotClock,
+            possessionDirection: store.possessionDirection,
+            areSidesSwapped: store.areSidesSwapped,
+            isClockRunning: store.isClockRunning,
+            isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: store.isPlayerOverlayPaused,
+            playerFoulHighlightColor: store.playerFoulHighlightColor,
+            isDisplayGameClockAlertActive: store.isDisplayGameClockAlertActive,
+            isDisplayShotClockAlertActive: store.isDisplayShotClockAlertActive,
+            homeSubstitutionsAllowed: store.homeSubstitutionsAllowed,
+            guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
+            homeSubstitutionsUsed: store.homeSubstitutionsUsed,
+            guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+            homeTeamFouls: store.homeTeamFouls,
+            guestTeamFouls: store.guestTeamFouls,
+            homePlayers: store.displayedHomePlayers,
+            guestPlayers: store.displayedGuestPlayers,
+            compact: layout.previewUsesCompactBoard
+        )
+    }
+
+    private var currentPreviewModeTitle: String {
+        switch store.externalDisplayBackgroundMode {
+        case .blurred:
+            return "Blurred Background"
+        case .clear:
+            return "Clear Background"
+        case .clearUnderBoard:
+            return "Transparent Board"
+        case .none:
+            return "No Background"
+        }
+    }
+
+    private var currentPreviewBoardBackgroundStyle: ScoreboardFaceView.BackgroundStyle {
+        switch store.externalDisplayBackgroundMode {
+        case .blurred:
+            return .blurred
+        case .clear:
+            return .clear
+        case .clearUnderBoard:
+            return .transparent
+        case .none:
+            return .clear
+        }
+    }
+
     private var setupDescription: String {
         #if os(macOS)
         "Set the teams and opening game state, then move into the control board. The public scoreboard opens as a separate SwiftUI window for presentation."
@@ -2800,6 +2924,17 @@ struct ContentView: View {
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = phase == .active
         #endif
+    }
+
+    private func performConfirmedGameAction(_ action: GameConfirmationAction) {
+        switch action {
+        case .previousPeriod:
+            store.adjustPeriod(by: -1)
+        case .resetClock:
+            store.resetClock(to: store.defaultClockSeconds)
+        case .zeroScores:
+            store.resetScores()
+        }
     }
 }
 
@@ -2920,6 +3055,48 @@ private enum ButtonStyleVariant: Equatable {
 private enum DashboardPage: Hashable {
     case main
     case players
+    case preview
+}
+
+private enum GameConfirmationAction: String, Identifiable {
+    case previousPeriod
+    case resetClock
+    case zeroScores
+
+    var id: String { rawValue }
+
+    func title(periodTitle: String, resetClockTitle: String) -> String {
+        switch self {
+        case .previousPeriod:
+            return "Confirm Previous \(periodTitle)"
+        case .resetClock:
+            return "Confirm Clock Reset"
+        case .zeroScores:
+            return "Confirm Zero Scores"
+        }
+    }
+
+    func message(periodTitle: String) -> String {
+        switch self {
+        case .previousPeriod:
+            return "Move back one \(periodTitle.lowercased())?"
+        case .resetClock:
+            return "Reset the game clock to its configured starting time?"
+        case .zeroScores:
+            return "Set both team scores back to zero?"
+        }
+    }
+
+    func confirmButtonTitle(periodTitle: String) -> String {
+        switch self {
+        case .previousPeriod:
+            return "Previous \(periodTitle)"
+        case .resetClock:
+            return "Reset Clock"
+        case .zeroScores:
+            return "Zero Scores"
+        }
+    }
 }
 
 private struct InterfaceLayout {
