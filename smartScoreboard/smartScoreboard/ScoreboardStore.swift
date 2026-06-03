@@ -322,6 +322,10 @@ final class ScoreboardStore: ObservableObject {
     @Published var isShotClockRunning = false
     @Published var didCompleteSetup = false
     @Published var setupPresets: [SetupPreset] = []
+    @Published var isWebAPIEnabled = false
+    @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
+    @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
+    @Published private(set) var webAPILocalAddresses: [String] = []
 
     private var timer: Timer?
     private var lastTimerFireDate: Date?
@@ -334,10 +338,14 @@ final class ScoreboardStore: ObservableObject {
     private let persistenceKey = "smartScoreboard.persistedState"
     private let buzzerPlayer = BuzzerPlayer()
     private let logManager = ScoreboardLogManager.shared
+    private let webAPIService = ScoreboardWebAPIService()
+    private var isWebAPIAppLifecycleActive = true
 
     private init() {
         loadPersistedState()
         configurePersistence()
+        configureWebAPIService()
+        refreshWebAPIState()
     }
 
     var formattedClock: String {
@@ -2989,6 +2997,96 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    func setWebAPIEnabled(_ isEnabled: Bool) {
+        isWebAPIEnabled = isEnabled
+    }
+
+    func setWebAPIUpdateMode(_ mode: ScoreboardWebAPIUpdateMode) {
+        webAPIUpdateMode = mode
+    }
+
+    func refreshWebAPILocalAddresses() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+    }
+
+    func resumeWebAPIForAppLifecycle() {
+        #if os(iOS)
+        isWebAPIAppLifecycleActive = true
+        guard isWebAPIEnabled else {
+            return
+        }
+        startWebAPIService()
+        #endif
+    }
+
+    func suspendWebAPIForAppLifecycle() {
+        #if os(iOS)
+        guard isWebAPIAppLifecycleActive else {
+            return
+        }
+        isWebAPIAppLifecycleActive = false
+        guard isWebAPIEnabled else {
+            return
+        }
+        webAPIService.stop(notify: false)
+        webAPIStatus = .suspended
+        #endif
+    }
+
+    private func configureWebAPIService() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+
+        $webAPIUpdateMode
+            .removeDuplicates()
+            .sink { [weak self] mode in
+                self?.webAPIService.setUpdateMode(mode)
+            }
+            .store(in: &cancellables)
+
+        $isWebAPIEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                if isEnabled {
+                    if self.isWebAPIAppLifecycleActive {
+                        self.startWebAPIService()
+                    } else {
+                        self.webAPIStatus = .suspended
+                    }
+                } else {
+                    self.stopWebAPIService()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func startWebAPIService() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        webAPIStatus = .starting
+        webAPIService.start(initialState: encodedWebAPIState(), updateMode: webAPIUpdateMode) { [weak self] status in
+            Task { @MainActor in
+                guard let self else { return }
+                self.webAPIStatus = status
+                self.webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+            }
+        }
+    }
+
+    private func stopWebAPIService() {
+        webAPIService.stop()
+        webAPIStatus = .off
+    }
+
+    private func refreshWebAPIState() {
+        webAPIService.updateState(encodedWebAPIState())
+    }
+
+    private func encodedWebAPIState() -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(currentWebAPIState())) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
     private func configurePersistence() {
         let persistencePublishers: [AnyPublisher<Void, Never>] = [
             $selectedSport.map { _ in () }.eraseToAnyPublisher(),
@@ -3050,12 +3148,15 @@ final class ScoreboardStore: ObservableObject {
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
-            $setupPresets.map { _ in () }.eraseToAnyPublisher()
+            $setupPresets.map { _ in () }.eraseToAnyPublisher(),
+            $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher()
         ]
 
         Publishers.MergeMany(persistencePublishers)
             .sink { [weak self] _ in
                 self?.persistState()
+                self?.refreshWebAPIState()
             }
             .store(in: &cancellables)
     }
@@ -3128,6 +3229,8 @@ final class ScoreboardStore: ObservableObject {
         soundAssignments = normalizedSoundAssignments(persistedState.soundAssignments)
         didCompleteSetup = persistedState.didCompleteSetup
         setupPresets = persistedState.setupPresets
+        isWebAPIEnabled = persistedState.isWebAPIEnabled
+        webAPIUpdateMode = persistedState.webAPIUpdateMode
         if !currentRules.supportsShotClock {
             defaultShotClockSeconds = 0
             activeShotClockPresetSeconds = 0
@@ -3210,7 +3313,9 @@ final class ScoreboardStore: ObservableObject {
             isSoundEnabled: isSoundEnabled,
             soundAssignments: soundAssignments,
             didCompleteSetup: didCompleteSetup,
-            setupPresets: setupPresets
+            setupPresets: setupPresets,
+            isWebAPIEnabled: isWebAPIEnabled,
+            webAPIUpdateMode: webAPIUpdateMode
         )
 
         guard let data = try? JSONEncoder().encode(persistedState) else {
@@ -3380,6 +3485,8 @@ private struct PersistedState: Codable {
     var soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect]
     var didCompleteSetup: Bool
     var setupPresets: [SetupPreset]
+    var isWebAPIEnabled: Bool
+    var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
@@ -3441,6 +3548,8 @@ private struct PersistedState: Codable {
         case soundAssignments
         case didCompleteSetup
         case setupPresets
+        case isWebAPIEnabled
+        case webAPIUpdateMode
     }
 
     init(
@@ -3501,7 +3610,9 @@ private struct PersistedState: Codable {
         isSoundEnabled: Bool,
         soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect],
         didCompleteSetup: Bool,
-        setupPresets: [SetupPreset]
+        setupPresets: [SetupPreset],
+        isWebAPIEnabled: Bool,
+        webAPIUpdateMode: ScoreboardWebAPIUpdateMode
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
@@ -3561,6 +3672,8 @@ private struct PersistedState: Codable {
         self.soundAssignments = soundAssignments
         self.didCompleteSetup = didCompleteSetup
         self.setupPresets = setupPresets
+        self.isWebAPIEnabled = isWebAPIEnabled
+        self.webAPIUpdateMode = webAPIUpdateMode
     }
 
     init(from decoder: Decoder) throws {
@@ -3629,6 +3742,8 @@ private struct PersistedState: Codable {
         soundAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) ?? ScoreboardStore.defaultSoundAssignments
         didCompleteSetup = try container.decode(Bool.self, forKey: .didCompleteSetup)
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
+        isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
+        webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
     }
 
     func encode(to encoder: Encoder) throws {
@@ -3691,6 +3806,8 @@ private struct PersistedState: Codable {
         try container.encode(soundAssignments, forKey: .soundAssignments)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
         try container.encode(setupPresets, forKey: .setupPresets)
+        try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
+        try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
     }
 }
 

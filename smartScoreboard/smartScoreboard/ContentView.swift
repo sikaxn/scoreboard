@@ -26,6 +26,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openURL) private var openURL
 
     @State private var homeTeamDraft = ""
     @State private var guestTeamDraft = ""
@@ -49,6 +50,7 @@ struct ContentView: View {
     @State private var setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
     @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
     @State private var setupCustomDebatePreset = DebatePreset.customDefault
+    @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .webAPI
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
@@ -539,6 +541,8 @@ struct ContentView: View {
             settingsFilesPane(layout: layout)
         case .logs:
             settingsLogsPane(layout: layout)
+        case .integration:
+            settingsIntegrationPane()
         case .about:
             settingsAboutPane()
         }
@@ -1366,6 +1370,280 @@ struct ContentView: View {
         }
     }
 
+    private func settingsIntegrationPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsIntegrationConfigurationSection()
+
+            switch selectedIntegrationDetail {
+            case .webAPI:
+                settingsWebAPIPane()
+            case .bitfocusCompanion:
+                settingsBitfocusCompanionPane()
+            }
+        }
+    }
+
+    #if os(iOS)
+    private func settingsIPadLifecycleSection() -> some View {
+        settingsSection(title: "iPad App Lifecycle") {
+            Text("If you close Scoreboard or switch to another app, iPadOS may pause local web connections even if you did not force quit. Keep Scoreboard open during production use. When you return to the app, the Web API restarts automatically if it is still enabled.")
+                .font(.body)
+                .foregroundStyle(settingsPalette.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+        }
+    }
+    #endif
+
+    private func settingsWebAPIPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            #if os(iOS)
+            settingsIPadLifecycleSection()
+            #endif
+
+            settingsSection(title: "Web API", footer: "Publishes live scoreboard state over HTTP 5516 and WebSocket 5517 for trusted local production tools.") {
+                settingsToggleRow(title: "Enable HTTP 5516 and WebSocket 5517", isOn: Binding(
+                    get: { store.isWebAPIEnabled },
+                    set: { store.setWebAPIEnabled($0) }
+                ))
+                settingsDivider()
+                settingsWebAPIUpdateModeRow()
+                settingsDivider()
+                settingsSummaryValueRow(title: "Status", value: localizedWebAPIStatusTitle(store.webAPIStatus))
+                settingsDivider()
+                Text(localizedWebAPIStatusDetail(store.webAPIStatus))
+                    .font(.subheadline)
+                    .foregroundStyle(store.webAPIStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                settingsDivider()
+                settingsWebAPIIntegrationURLRow()
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Demo and Docs",
+                    buttonTitle: "Open",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: store.isWebAPIEnabled
+                ) {
+                    openWebAPIDemo()
+                }
+            }
+
+            if store.webAPIStatus == .permissionDenied {
+                settingsSection(title: "Local Network Permission", footer: localNetworkPermissionFooter) {
+                    settingsButtonRow(
+                        title: "System Settings",
+                        buttonTitle: "Open",
+                        tint: settingsPalette.accent,
+                        foreground: settingsPalette.accentText
+                    ) {
+                        openLocalNetworkSettings()
+                    }
+                }
+            }
+
+            settingsSection(title: "Security") {
+                Text("This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func settingsIntegrationConfigurationSection() -> some View {
+        settingsSection(
+            title: "Configure Integration",
+            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API and Bitfocus Companion are separate integrations and can run at the same time when enabled."
+        ) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                ForEach(IntegrationSettingsDetail.allCases) { detail in
+                    settingsIntegrationConfigurationButton(detail)
+                }
+            }
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func settingsIntegrationConfigurationButton(_ detail: IntegrationSettingsDetail) -> some View {
+        let isSelected = selectedIntegrationDetail == detail
+
+        return Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                selectedIntegrationDetail = detail
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: detail.systemImage)
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.accent)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            (isSelected ? settingsPalette.accent.opacity(0.18) : settingsPalette.fieldBackground),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+
+                    Spacer(minLength: 0)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.headline.weight(.black))
+                            .foregroundStyle(settingsPalette.accentText)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+
+                localizedAppText(detail.title)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.primaryText)
+                    .singleLineFitted(minScale: 0.72)
+
+                localizedAppText(detail.subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isSelected ? settingsPalette.accentText.opacity(0.82) : settingsPalette.secondaryText)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 136, alignment: .topLeading)
+            .background(
+                isSelected ? settingsPalette.accent : settingsPalette.fieldBackground,
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(isSelected ? settingsPalette.accentText.opacity(0.32) : settingsPalette.cardBorder, lineWidth: isSelected ? 1.4 : 1)
+            )
+            .shadow(color: isSelected ? settingsPalette.accent.opacity(0.22) : .clear, radius: 14, y: 8)
+            .scaleEffect(isSelected ? 1.015 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isSelected)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsBitfocusCompanionPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Bitfocus Companion") {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "square.grid.3x3")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 28)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Planned: scoreboard events can trigger commands in Bitfocus Companion.")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+                        Text("This placeholder reserves the integration section while event triggers, command mapping, and connection settings are designed. It can run alongside Web API when implemented.")
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    private func settingsWebAPIUpdateModeRow() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 16) {
+                localizedAppText("Update Mode")
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                Picker("Update Mode", selection: Binding(
+                    get: { store.webAPIUpdateMode },
+                    set: { store.setWebAPIUpdateMode($0) }
+                )) {
+                    ForEach(ScoreboardWebAPIUpdateMode.allCases) { mode in
+                        localizedAppText(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+            }
+
+            localizedAppText(store.webAPIUpdateMode.detail)
+                .font(.subheadline)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func localizedWebAPIStatusTitle(_ status: ScoreboardWebAPIStatus) -> String {
+        localizedAppString(status.title)
+    }
+
+    private func localizedWebAPIStatusDetail(_ status: ScoreboardWebAPIStatus) -> String {
+        switch status {
+        case .running(let httpPort, let webSocketPort, let clientCount):
+            return localizedAppFormat("HTTP %@, WebSocket %@, %@ connected WS clients.", "\(httpPort)", "\(webSocketPort)", "\(clientCount)")
+        case .portUnavailable(let message), .failed(let message):
+            return localizedAppString(message)
+        case .off, .starting, .suspended, .permissionDenied:
+            return localizedAppString(status.detail)
+        }
+    }
+
+    private func settingsWebAPIIntegrationURLRow() -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            localizedAppText("Integration URL")
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            Text(webAPIIntegrationURL)
+                .font(.footnote.monospaced())
+                .foregroundStyle(settingsPalette.secondaryText)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var webAPIIntegrationURL: String {
+        if let address = store.webAPILocalAddresses.first {
+            return "http://\(address):\(ScoreboardWebAPIService.httpPort)/"
+        }
+        return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/"
+    }
+
+    private var localNetworkPermissionFooter: String {
+        #if os(iOS)
+        return "Open Settings and enable Local Network for Scoreboard."
+        #elseif os(macOS)
+        return "Open System Settings, then enable Scoreboard under Privacy & Security > Local Network."
+        #else
+        return "Enable local network access for Scoreboard in system settings."
+        #endif
+    }
+
+    private func openWebAPIDemo() {
+        guard let url = URL(string: "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/") else {
+            return
+        }
+        openURL(url)
+    }
+
+    private func openLocalNetworkSettings() {
+        #if os(iOS)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
+        }
+        #elseif os(macOS)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
+            NSWorkspace.shared.open(url)
+        }
+        #endif
+    }
+
     private func settingsAboutPane() -> some View {
         VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Application") {
@@ -1407,6 +1685,22 @@ struct ContentView: View {
                 Text("Distributed without warranty.")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+
+            settingsSection(title: "Third-Party Licenses") {
+                Text("The Web API demo pages use bundled first-party HTML, CSS, and JavaScript only. No third-party web libraries are included for these integrations.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+
+            settingsSection(title: "Trademarks") {
+                Text("Bitfocus Companion is a trademark of its respective owner. SmartScoreboard is not affiliated with or endorsed by Bitfocus.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
             }
@@ -4879,11 +5173,19 @@ struct ContentView: View {
         isInitialSetupStateLoaded = true
         refreshStoredLogSessions()
         syncCurrentLogGameFile()
+        store.refreshWebAPILocalAddresses()
         updateIdleTimer(for: scenePhase)
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         updateIdleTimer(for: newPhase)
+
+        if newPhase == .active {
+            store.resumeWebAPIForAppLifecycle()
+            store.refreshWebAPILocalAddresses()
+        } else {
+            store.suspendWebAPIForAppLifecycle()
+        }
 
         if newPhase != .active {
             autosaveSelectedGameFile(refreshSelection: true)
@@ -6738,6 +7040,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case theme
     case files
     case logs
+    case integration
     case about
 
     var id: String { rawValue }
@@ -6758,6 +7061,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Library"
         case .logs:
             return "Logs"
+        case .integration:
+            return "Integration"
         case .about:
             return "About"
         }
@@ -6779,6 +7084,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Manage local game files for both reusable setups and live games."
         case .logs:
             return "Review per-run audit sessions with export and delete tools."
+        case .integration:
+            return "Connect Scoreboard to broadcast tools, overlays, and automation systems."
         case .about:
             return "View app information, icon, version, and license details."
         }
@@ -6800,6 +7107,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "books.vertical"
         case .logs:
             return "list.bullet.rectangle.portrait"
+        case .integration:
+            return "network"
         case .about:
             return "info.circle"
         }
@@ -6807,6 +7116,40 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
     var usesFileManagerLayout: Bool {
         self == .files || self == .logs
+    }
+}
+
+private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
+    case webAPI
+    case bitfocusCompanion
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .webAPI:
+            return "Web API"
+        case .bitfocusCompanion:
+            return "Bitfocus Companion"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .webAPI:
+            return "Read scoreboard state with HTTP and WebSocket."
+        case .bitfocusCompanion:
+            return "Trigger Companion commands from scoreboard events."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .webAPI:
+            return "network"
+        case .bitfocusCompanion:
+            return "square.grid.3x3"
+        }
     }
 }
 

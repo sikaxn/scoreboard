@@ -3132,6 +3132,426 @@
         }
       }
     },
+    "Bitfocus Companion": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitfocus Companion"
+          }
+        }
+      }
+    },
+    "Bitfocus Companion is a trademark of its respective owner. SmartScoreboard is not affiliated with or endorsed by Bitfocus.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitfocus Companion 是其所有者的商标。SmartScoreboard 与 Bitfocus 没有关联，也未获得其认可。"
+          }
+        }
+      }
+    },
+    "Coalesces fast changes and sends at most 10 updates per second.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并快速变化，每秒最多发送 10 次更新。"
+          }
+        }
+      }
+    },
+    "Connect Scoreboard to broadcast tools, overlays, and automation systems.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Scoreboard 连接到播出工具、叠加画面和自动化系统。"
+          }
+        }
+      }
+    },
+    "Configure Integration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置集成"
+          }
+        }
+      }
+    },
+    "Demo and Docs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示和文档"
+          }
+        }
+      }
+    },
+    "Enable HTTP 5516 and WebSocket 5517": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 HTTP 5516 和 WebSocket 5517"
+          }
+        }
+      }
+    },
+    "Fixed Interval": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定间隔"
+          }
+        }
+      }
+    },
+    "HTTP %@, WebSocket %@, %@ connected WS clients.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP %1$@，WebSocket %2$@，已连接 %3$@ 个 WS 客户端。"
+          }
+        }
+      }
+    },
+    "If you close Scoreboard or switch to another app, iPadOS may pause local web connections even if you did not force quit. Keep Scoreboard open during production use. When you return to the app, the Web API restarts automatically if it is still enabled.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果关闭 Scoreboard 或切换到其他 App，即使没有强制退出，iPadOS 也可能暂停本地网页连接。制作现场请保持 Scoreboard 打开。返回 App 后，如果 Web API 仍处于启用状态，它会自动重新启动。"
+          }
+        }
+      }
+    },
+    "Integration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集成"
+          }
+        }
+      }
+    },
+    "Integration URL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集成地址"
+          }
+        }
+      }
+    },
+    "iPad App Lifecycle": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPad App 生命周期"
+          }
+        }
+      }
+    },
+    "Local Network Denied": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地网络已拒绝"
+          }
+        }
+      }
+    },
+    "Local Network Permission": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地网络权限"
+          }
+        }
+      }
+    },
+    "Local network access is blocked for Scoreboard.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scoreboard 的本地网络访问已被阻止。"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "Open Settings and enable Local Network for Scoreboard.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“设置”，为 Scoreboard 启用“本地网络”。"
+          }
+        }
+      }
+    },
+    "Open System Settings, then enable Scoreboard under Privacy & Security > Local Network.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“系统设置”，然后在“隐私与安全性 > 本地网络”中启用 Scoreboard。"
+          }
+        }
+      }
+    },
+    "Paused in Background": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台已暂停"
+          }
+        }
+      }
+    },
+    "Planned: scoreboard events can trigger commands in Bitfocus Companion.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计划功能：记分牌事件可触发 Bitfocus Companion 中的命令。"
+          }
+        }
+      }
+    },
+    "Port Unavailable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口不可用"
+          }
+        }
+      }
+    },
+    "Publishes live scoreboard state over HTTP 5516 and WebSocket 5517 for trusted local production tools.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 HTTP 5516 和 WebSocket 5517 向可信的本地制作工具发布实时记分牌状态。"
+          }
+        }
+      }
+    },
+    "Read scoreboard state with HTTP and WebSocket.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 HTTP 和 WebSocket 读取记分牌状态。"
+          }
+        }
+      }
+    },
+    "Real-Time Push": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时推送"
+          }
+        }
+      }
+    },
+    "Security": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全"
+          }
+        }
+      }
+    },
+    "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API and Bitfocus Companion are separate integrations and can run at the same time when enabled.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图标只会切换显示的设置，不会关闭其他集成。Web API 和 Bitfocus Companion 是彼此独立的集成，启用后可以同时运行。"
+          }
+        }
+      }
+    },
+    "Sends every state change immediately. This is lower latency but more resource intensive.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即发送每一次状态变化。延迟更低，但资源占用更高。"
+          }
+        }
+      }
+    },
+    "Starting": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动"
+          }
+        }
+      }
+    },
+    "Starting HTTP and WebSocket listeners.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动 HTTP 和 WebSocket 监听。"
+          }
+        }
+      }
+    },
+    "Status": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        }
+      }
+    },
+    "System Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统设置"
+          }
+        }
+      }
+    },
+    "The Web API demo pages use bundled first-party HTML, CSS, and JavaScript only. No third-party web libraries are included for these integrations.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web API 演示页面仅使用随附的第一方 HTML、CSS 和 JavaScript。这些集成不包含任何第三方网页库。"
+          }
+        }
+      }
+    },
+    "Third-Party Licenses": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第三方许可证"
+          }
+        }
+      }
+    },
+    "This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 API 只向可信的本地网络发布记分牌状态。已连接设备可以读取实时比赛数据，但服务会拒绝比分、计时、名单、文件和设置更改。"
+          }
+        }
+      }
+    },
+    "This placeholder reserves the integration section while event triggers, command mapping, and connection settings are designed. It can run alongside Web API when implemented.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此占位内容会保留集成区域，事件触发器、命令映射和连接设置将在后续设计。实现后，它可以与 Web API 同时运行。"
+          }
+        }
+      }
+    },
+    "Trademarks": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "商标"
+          }
+        }
+      }
+    },
+    "Trigger Companion commands from scoreboard events.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由记分牌事件触发 Companion 命令。"
+          }
+        }
+      }
+    },
+    "Update Mode": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新模式"
+          }
+        }
+      }
+    },
+    "Web API": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web API"
+          }
+        }
+      }
+    },
+    "Web API is disabled.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web API 已停用。"
+          }
+        }
+      }
+    },
+    "iPadOS paused the Web API while Scoreboard is not active. It will restart when you return to the app.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scoreboard 不在活跃状态时，iPadOS 已暂停 Web API。返回 App 后它会重新启动。"
+          }
+        }
+      }
+    },
     "JSON": {
       "comment": "A button that exports a log as a comma-separated values (CSV) file.",
       "isCommentAutoGenerated": true,
