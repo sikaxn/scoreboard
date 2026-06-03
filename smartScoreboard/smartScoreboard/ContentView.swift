@@ -1178,9 +1178,9 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Live Board", value: store.isSoundEnabled ? "Sound On" : "Sound Off")
             }
 
-            settingsSection(title: "Timer Sounds", footer: "Assign one available sound to each timer type for the current sport.") {
+            settingsSection(title: "Event Sounds", footer: "Assign one available sound to each supported event for the current sport.") {
                 if events.isEmpty {
-                    settingsSummaryValueRow(title: "Current Sport", value: "No expiring timer sound")
+                    settingsSummaryValueRow(title: "Current Sport", value: "No configurable sound events")
                 } else {
                     ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
                         settingsSoundAssignmentRow(event)
@@ -1240,19 +1240,19 @@ struct ContentView: View {
                 Button {
                     store.playTestSound(event)
                 } label: {
-                    Label("Test", systemImage: "play.fill")
+                    Label(store.isTestingSoundEffect(selectedEffect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(selectedEffect) ? "stop.fill" : "play.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(store.isSoundEnabled ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .foregroundStyle(store.canTestSoundEffect(selectedEffect) ? settingsPalette.accentText : settingsPalette.secondaryText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background(
-                            store.isSoundEnabled ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            store.canTestSoundEffect(selectedEffect) ? settingsPalette.accent : settingsPalette.fieldBackground,
                             in: Capsule()
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!store.isSoundEnabled)
-                .opacity(store.isSoundEnabled ? 1 : 0.42)
+                .disabled(!store.canTestSoundEffect(selectedEffect))
+                .opacity(store.canTestSoundEffect(selectedEffect) ? 1 : 0.42)
             }
 
             Text(selectedEffect.subtitle)
@@ -1280,19 +1280,19 @@ struct ContentView: View {
             Button {
                 store.playTestEffect(effect)
             } label: {
-                Label("Test", systemImage: "play.fill")
+                Label(store.isTestingSoundEffect(effect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(effect) ? "stop.fill" : "play.fill")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(store.isSoundEnabled ? settingsPalette.accentText : settingsPalette.secondaryText)
+                    .foregroundStyle(store.canTestSoundEffect(effect) ? settingsPalette.accentText : settingsPalette.secondaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(
-                        store.isSoundEnabled ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        store.canTestSoundEffect(effect) ? settingsPalette.accent : settingsPalette.fieldBackground,
                         in: Capsule()
                     )
             }
             .buttonStyle(.plain)
-            .disabled(!store.isSoundEnabled)
-            .opacity(store.isSoundEnabled ? 1 : 0.42)
+            .disabled(!store.canTestSoundEffect(effect))
+            .opacity(store.canTestSoundEffect(effect) ? 1 : 0.42)
         }
         .padding(.vertical, 12)
     }

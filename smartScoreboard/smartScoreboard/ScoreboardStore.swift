@@ -225,7 +225,28 @@ final class ScoreboardStore: ObservableObject {
         .chessClockExpired: .softChime,
         .debateSegmentExpired: .debateBell,
         .debatePrepExpired: .debateDoubleBell,
-        .hockeyPenaltyExpired: .penaltyChirp
+        .hockeyPenaltyExpired: .penaltyChirp,
+        .gameClockStarted: .none,
+        .gameClockPaused: .none,
+        .shotClockStarted: .none,
+        .shotClockPaused: .none,
+        .shotClockReset: .none,
+        .yellowCardAssigned: .none,
+        .redCardAssigned: .none,
+        .substitutionUsed: .none,
+        .teamFoulApplied: .none,
+        .playerFoulApplied: .none,
+        .sideSwitched: .none,
+        .playerShown: .none,
+        .playerBenched: .none,
+        .scoreChanged: .none,
+        .periodChanged: .none,
+        .possessionChanged: .none,
+        .hockeyPenaltyAdded: .none,
+        .hockeyPenaltyStarted: .none,
+        .hockeyPenaltyPaused: .none,
+        .playerOverlayShown: .none,
+        .playerOverlayPaused: .none
     ]
 
     @Published var selectedSport: SportType = .simple
@@ -284,6 +305,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
     @Published var soundAssignments = ScoreboardStore.defaultSoundAssignments
+    @Published var playingTestSoundEffect: ScoreboardSoundEffect?
     @Published var isClockRunning = false
     @Published var isShotClockRunning = false
     @Published var didCompleteSetup = false
@@ -524,28 +546,108 @@ final class ScoreboardStore: ObservableObject {
         if isDebateMode {
             if let timerMode = currentDebateSegment?.timerMode, timerMode != .none {
                 events.append(.debateSegmentExpired)
+                events.append(.gameClockStarted)
+                events.append(.gameClockPaused)
+                if timerMode == .dualClock {
+                    events.append(.sideSwitched)
+                }
             }
             if isDebatePrepTimeEnabled {
                 events.append(.debatePrepExpired)
+                events.append(.gameClockStarted)
+                events.append(.gameClockPaused)
             }
-            return events
+            events.append(.periodChanged)
+            if supportsScore {
+                events.append(.scoreChanged)
+            }
+            if supportsPlayerTracking {
+                events.append(.playerShown)
+                events.append(.playerBenched)
+                events.append(.playerOverlayShown)
+                events.append(.playerOverlayPaused)
+            }
+            if supportsFouls {
+                events.append(.playerFoulApplied)
+            }
+            if supportsCards {
+                events.append(.yellowCardAssigned)
+                events.append(.redCardAssigned)
+            }
+            return uniqueSoundEvents(events)
         }
 
         if usesChessClocks {
             events.append(.chessClockExpired)
+            events.append(.gameClockStarted)
+            events.append(.gameClockPaused)
+            events.append(.sideSwitched)
         } else if currentRules.mainClockMode == .countdown {
             events.append(.gameClockExpired)
+            events.append(.gameClockStarted)
+            events.append(.gameClockPaused)
+        } else if currentRules.mainClockMode == .countUp {
+            events.append(.gameClockStarted)
+            events.append(.gameClockPaused)
         }
 
         if supportsShotClock {
             events.append(.shotClockExpired)
+            events.append(.shotClockStarted)
+            events.append(.shotClockPaused)
+            events.append(.shotClockReset)
+        }
+
+        if supportsScore {
+            events.append(.scoreChanged)
+        }
+
+        if supportsPeriod {
+            events.append(.periodChanged)
+        }
+
+        if supportsPossession {
+            events.append(.possessionChanged)
+        }
+
+        if currentRules.showsSubstitutionTracking || showsSubstitutionTracking {
+            events.append(.substitutionUsed)
+        }
+
+        if supportsTeamFouls {
+            events.append(.teamFoulApplied)
+        }
+
+        if supportsPlayerTracking {
+            events.append(.playerShown)
+            events.append(.playerBenched)
+            events.append(.playerOverlayShown)
+            events.append(.playerOverlayPaused)
+        }
+
+        if supportsFouls {
+            events.append(.playerFoulApplied)
+        }
+
+        if supportsCards {
+            events.append(.yellowCardAssigned)
+            events.append(.redCardAssigned)
         }
 
         if supportsHockeyPenalties {
             events.append(.hockeyPenaltyExpired)
+            events.append(.hockeyPenaltyAdded)
+            events.append(.hockeyPenaltyStarted)
+            events.append(.hockeyPenaltyPaused)
         }
 
-        return events
+        events.append(.sideSwitched)
+        return uniqueSoundEvents(events)
+    }
+
+    private func uniqueSoundEvents(_ events: [ScoreboardSoundEvent]) -> [ScoreboardSoundEvent] {
+        var seen = Set<ScoreboardSoundEvent>()
+        return events.filter { seen.insert($0).inserted }
     }
 
     func substitutionsAllowed(for side: TeamSide) -> Int {
@@ -678,6 +780,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: updatedScore
         )
+        if updatedScore != previousScore {
+            playSound(.scoreChanged)
+        }
     }
 
     func adjustPeriod(by delta: Int) {
@@ -700,6 +805,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: period
         )
+        if period != previousPeriod {
+            playSound(.periodChanged)
+        }
     }
 
     func setPeriod(_ value: Int) {
@@ -836,6 +944,9 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             value: targetSeconds
         )
+        if !isAuditLoggingSuspended {
+            playSound(.shotClockReset)
+        }
     }
 
     func toggleClock() {
@@ -856,6 +967,9 @@ final class ScoreboardStore: ObservableObject {
             summary: wasRunning ? "Pause game clock" : "Start game clock",
             outcome: wasRunning == isClockRunning ? .ignored : .applied
         )
+        if wasRunning != isClockRunning {
+            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+        }
     }
 
     func toggleDebateSegmentClock() {
@@ -879,13 +993,16 @@ final class ScoreboardStore: ObservableObject {
             outcome: wasRunning == isClockRunning ? .ignored : .applied,
             notes: segment.title
         )
+        if wasRunning != isClockRunning {
+            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+        }
     }
 
     func setSoundEnabled(_ isEnabled: Bool) {
         isSoundEnabled = isEnabled
 
         if !isSoundEnabled {
-            buzzerPlayer.stop()
+            stopTestSound()
         }
     }
 
@@ -894,7 +1011,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func selectedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
-        soundAssignments[event] ?? Self.defaultSoundAssignments[event] ?? .classicBuzzer
+        soundAssignments[event] ?? Self.defaultSoundAssignments[event] ?? .none
     }
 
     func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent) {
@@ -902,15 +1019,46 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func playTestSound(_ event: ScoreboardSoundEvent) {
-        playSound(event)
+        toggleTestSound(selectedSoundEffect(for: event))
     }
 
     func playTestEffect(_ effect: ScoreboardSoundEffect) {
-        guard isSoundEnabled else {
+        toggleTestSound(effect)
+    }
+
+    func toggleTestSound(_ effect: ScoreboardSoundEffect) {
+        guard isSoundEnabled, effect != .none else {
             return
         }
 
-        buzzerPlayer.play(effect)
+        if playingTestSoundEffect == effect {
+            stopTestSound()
+            return
+        }
+
+        stopTestSound()
+        playingTestSoundEffect = effect
+        buzzerPlayer.play(effect) { [weak self] finishedEffect in
+            Task { @MainActor in
+                guard self?.playingTestSoundEffect == finishedEffect else {
+                    return
+                }
+                self?.playingTestSoundEffect = nil
+            }
+        }
+    }
+
+    func stopTestSound() {
+        playingTestSoundEffect = nil
+        buzzerPlayer.stop()
+    }
+
+    func canTestSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
+        isSoundEnabled && effect != .none
+    }
+
+    func isTestingSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
+        playingTestSoundEffect == effect
     }
 
     func toggleShotClock() {
@@ -930,6 +1078,9 @@ final class ScoreboardStore: ObservableObject {
             summary: wasRunning ? "Pause shot clock" : "Start shot clock",
             outcome: wasRunning == isShotClockRunning ? .ignored : .applied
         )
+        if wasRunning != isShotClockRunning {
+            playSound(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+        }
     }
 
     func setPossessionDirection(_ direction: PossessionDirection, autoStartShotClock: Bool = false) {
@@ -956,6 +1107,9 @@ final class ScoreboardStore: ObservableObject {
                 summary: "Set possession OFF",
                 outcome: previousDirection == direction ? .ignored : .applied
             )
+            if previousDirection != direction {
+                playSound(.possessionChanged)
+            }
             return
         }
 
@@ -965,6 +1119,9 @@ final class ScoreboardStore: ObservableObject {
                 summary: "Set possession \(direction.displayName)",
                 outcome: previousDirection == direction ? .ignored : .applied
             )
+            if previousDirection != direction {
+                playSound(.possessionChanged)
+            }
             return
         }
 
@@ -975,6 +1132,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: "Shot clock auto-started"
         )
+        playSound(.possessionChanged)
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
@@ -995,6 +1153,7 @@ final class ScoreboardStore: ObservableObject {
         let isSameSelection = possessionDirection == targetDirection && activeShotClockPresetSeconds == targetSeconds
 
         if isSameSelection {
+            let wasRunning = isShotClockRunning
             isShotClockRunning ? pauseShotClock() : startShotClock()
             recordLog(
                 kind: .shotClockAssignment,
@@ -1003,6 +1162,9 @@ final class ScoreboardStore: ObservableObject {
                 teamSide: isHome ? .home : .guest,
                 value: seconds
             )
+            if wasRunning != isShotClockRunning {
+                playSound(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+            }
             return
         }
 
@@ -1017,6 +1179,7 @@ final class ScoreboardStore: ObservableObject {
             teamSide: isHome ? .home : .guest,
             value: targetSeconds
         )
+        playSound(.shotClockStarted)
     }
 
     func resetActiveShotClock() {
@@ -1044,6 +1207,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             value: targetSeconds
         )
+        playSound(.shotClockReset)
     }
 
     func newGame() {
@@ -1110,6 +1274,7 @@ final class ScoreboardStore: ObservableObject {
             summary: "Swap home and guest sides",
             outcome: .applied
         )
+        playSound(.sideSwitched)
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
@@ -1128,6 +1293,7 @@ final class ScoreboardStore: ObservableObject {
             summary: isPlayerOverlayPaused ? "Pause public player overlay" : "Resume public player overlay",
             outcome: .applied
         )
+        playSound(isPlayerOverlayPaused ? .playerOverlayPaused : .playerOverlayShown)
     }
 
     func setRosterSizePerTeam(_ size: Int) {
@@ -1198,6 +1364,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: updatedPlayer?.foulCount
         )
+        if delta > 0, playerSummary?.foulCount != updatedPlayer?.foulCount {
+            playSound(.playerFoulApplied)
+        }
     }
 
     func resetFouls(for side: TeamSide, playerID: UUID) {
@@ -1287,6 +1456,16 @@ final class ScoreboardStore: ObservableObject {
             player: updatedPlayer ?? previousPlayer,
             value: cardLogValue(for: status)
         )
+        if previousPlayer?.cardStatus != updatedPlayer?.cardStatus {
+            switch status {
+            case .yellow:
+                playSound(.yellowCardAssigned)
+            case .red:
+                playSound(.redCardAssigned)
+            case .none:
+                break
+            }
+        }
     }
 
     func resetCards(for side: TeamSide) {
@@ -1346,6 +1525,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: teamFouls(for: side)
         )
+        if delta > 0, teamFouls(for: side) != previousValue {
+            playSound(.teamFoulApplied)
+        }
     }
 
     func resetTeamFouls(for side: TeamSide) {
@@ -1559,6 +1741,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: debateSegmentTitle
         )
+        playSound(.periodChanged)
     }
 
     func toggleDebatePrepClock(for side: TeamSide) {
@@ -1588,6 +1771,7 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             value: currentSeconds
         )
+        playSound(isDebatePrepClockRunning ? .gameClockStarted : .gameClockPaused)
     }
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
@@ -1609,6 +1793,9 @@ final class ScoreboardStore: ObservableObject {
             outcome: wasOnPrepTimer ? .applied : .ignored,
             notes: debateSegmentTitle
         )
+        if wasOnPrepTimer {
+            playSound(resume ? .gameClockStarted : .gameClockPaused)
+        }
     }
 
     func resetDebatePrepClock(for side: TeamSide) {
@@ -1680,6 +1867,9 @@ final class ScoreboardStore: ObservableObject {
             teamSide: activeChessClockSide,
             notes: isDebateMode ? debateSegmentTitle : nil
         )
+        if wasRunning != isClockRunning {
+            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+        }
     }
 
     func switchChessClock() {
@@ -1709,6 +1899,9 @@ final class ScoreboardStore: ObservableObject {
             teamSide: activeChessClockSide,
             notes: isDebateMode ? debateSegmentTitle : nil
         )
+        if previousSide != activeChessClockSide {
+            playSound(.sideSwitched)
+        }
     }
 
     func setActiveChessClockSide(_ side: TeamSide) {
@@ -1731,6 +1924,9 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             notes: isDebateMode ? debateSegmentTitle : nil
         )
+        if previousSide != side {
+            playSound(.sideSwitched)
+        }
     }
 
     func adjustChessClock(for side: TeamSide, by delta: Int) {
@@ -1835,6 +2031,7 @@ final class ScoreboardStore: ObservableObject {
             value: timer.remainingSeconds,
             notes: penaltySummaryItem(timer)
         )
+        playSound(.hockeyPenaltyAdded)
     }
 
     func removePenaltyTimer(for side: TeamSide, timerID: UUID) {
@@ -1876,6 +2073,9 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             value: updated?.remainingSeconds
         )
+        if previous?.isRunning != updated?.isRunning {
+            playSound(updated?.isRunning == true ? .hockeyPenaltyStarted : .hockeyPenaltyPaused)
+        }
     }
 
     func adjustPenaltyTimer(for side: TeamSide, timerID: UUID, by delta: Int) {
@@ -2084,6 +2284,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: substitutionsUsed(for: side)
         )
+        if delta > 0, substitutionsUsed(for: side) != previousValue {
+            playSound(.substitutionUsed)
+        }
     }
 
     func setPlayerActiveLineup(_ isActive: Bool, for side: TeamSide, playerID: UUID) {
@@ -2115,6 +2318,9 @@ final class ScoreboardStore: ObservableObject {
             player: updatedPlayer ?? previousPlayer,
             notes: updatedPlayer?.isInActiveLineup == true ? "Active lineup" : "Bench"
         )
+        if previousPlayer?.isInActiveLineup != updatedPlayer?.isInActiveLineup {
+            playSound(updatedPlayer?.isInActiveLineup == true ? .playerShown : .playerBenched)
+        }
     }
 
     private func configureDebateSegment(index: Int, preserveRunningState: Bool) {
@@ -2690,6 +2896,9 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        if playingTestSoundEffect != nil {
+            stopTestSound()
+        }
         buzzerPlayer.play(resolvedSoundEffect(for: event))
     }
 

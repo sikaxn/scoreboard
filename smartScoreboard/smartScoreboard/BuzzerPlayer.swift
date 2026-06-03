@@ -9,6 +9,27 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case debateSegmentExpired
     case debatePrepExpired
     case hockeyPenaltyExpired
+    case gameClockStarted
+    case gameClockPaused
+    case shotClockStarted
+    case shotClockPaused
+    case shotClockReset
+    case yellowCardAssigned
+    case redCardAssigned
+    case substitutionUsed
+    case teamFoulApplied
+    case playerFoulApplied
+    case sideSwitched
+    case playerShown
+    case playerBenched
+    case scoreChanged
+    case periodChanged
+    case possessionChanged
+    case hockeyPenaltyAdded
+    case hockeyPenaltyStarted
+    case hockeyPenaltyPaused
+    case playerOverlayShown
+    case playerOverlayPaused
 
     var id: String { rawValue }
 
@@ -28,6 +49,48 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Prep Time"
         case .hockeyPenaltyExpired:
             return "Penalty Timer"
+        case .gameClockStarted:
+            return "Clock Start"
+        case .gameClockPaused:
+            return "Clock Pause"
+        case .shotClockStarted:
+            return "Shot Timer Start"
+        case .shotClockPaused:
+            return "Shot Timer Pause"
+        case .shotClockReset:
+            return "Shot Timer Reset"
+        case .yellowCardAssigned:
+            return "Yellow Card"
+        case .redCardAssigned:
+            return "Red Card"
+        case .substitutionUsed:
+            return "Substitution Used"
+        case .teamFoulApplied:
+            return "Team Foul"
+        case .playerFoulApplied:
+            return "Player Foul"
+        case .sideSwitched:
+            return "Switch Side"
+        case .playerShown:
+            return "Player Shown"
+        case .playerBenched:
+            return "Player Benched"
+        case .scoreChanged:
+            return "Score Change"
+        case .periodChanged:
+            return "Period Change"
+        case .possessionChanged:
+            return "Possession Change"
+        case .hockeyPenaltyAdded:
+            return "Penalty Added"
+        case .hockeyPenaltyStarted:
+            return "Penalty Start"
+        case .hockeyPenaltyPaused:
+            return "Penalty Pause"
+        case .playerOverlayShown:
+            return "Player Overlay Shown"
+        case .playerOverlayPaused:
+            return "Player Overlay Paused"
         }
     }
 
@@ -47,6 +110,48 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Per-side prep timer"
         case .hockeyPenaltyExpired:
             return "Penalty timer release"
+        case .gameClockStarted:
+            return "Main, chess, or debate clock starts"
+        case .gameClockPaused:
+            return "Main, chess, or debate clock stops"
+        case .shotClockStarted:
+            return "Shot timer starts"
+        case .shotClockPaused:
+            return "Shot timer stops"
+        case .shotClockReset:
+            return "Shot timer is reset"
+        case .yellowCardAssigned:
+            return "A yellow card is assigned"
+        case .redCardAssigned:
+            return "A red card is assigned"
+        case .substitutionUsed:
+            return "A substitution count is used"
+        case .teamFoulApplied:
+            return "A team foul is added"
+        case .playerFoulApplied:
+            return "A player foul is added"
+        case .sideSwitched:
+            return "Active or displayed side changes"
+        case .playerShown:
+            return "A player is shown in the lineup"
+        case .playerBenched:
+            return "A player is moved to the bench"
+        case .scoreChanged:
+            return "A team score changes"
+        case .periodChanged:
+            return "The period, set, half, or segment changes"
+        case .possessionChanged:
+            return "Possession is assigned or cleared"
+        case .hockeyPenaltyAdded:
+            return "A hockey penalty timer is added"
+        case .hockeyPenaltyStarted:
+            return "A hockey penalty timer starts"
+        case .hockeyPenaltyPaused:
+            return "A hockey penalty timer stops"
+        case .playerOverlayShown:
+            return "Public player overlay resumes"
+        case .playerOverlayPaused:
+            return "Public player overlay pauses"
         }
     }
 
@@ -66,11 +171,54 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "hourglass"
         case .hockeyPenaltyExpired:
             return "figure.hockey"
+        case .gameClockStarted:
+            return "play.circle"
+        case .gameClockPaused:
+            return "pause.circle"
+        case .shotClockStarted:
+            return "play.circle"
+        case .shotClockPaused:
+            return "pause.circle"
+        case .shotClockReset:
+            return "arrow.clockwise.circle"
+        case .yellowCardAssigned:
+            return "rectangle.fill"
+        case .redCardAssigned:
+            return "rectangle.fill"
+        case .substitutionUsed:
+            return "arrow.triangle.2.circlepath"
+        case .teamFoulApplied:
+            return "flag"
+        case .playerFoulApplied:
+            return "person.crop.circle.badge.exclamationmark"
+        case .sideSwitched:
+            return "arrow.left.arrow.right"
+        case .playerShown:
+            return "person.fill.checkmark"
+        case .playerBenched:
+            return "person.fill.xmark"
+        case .scoreChanged:
+            return "plus.forwardslash.minus"
+        case .periodChanged:
+            return "number.circle"
+        case .possessionChanged:
+            return "arrowshape.turn.up.left"
+        case .hockeyPenaltyAdded:
+            return "plus.circle"
+        case .hockeyPenaltyStarted:
+            return "play.circle"
+        case .hockeyPenaltyPaused:
+            return "pause.circle"
+        case .playerOverlayShown:
+            return "person.3.sequence"
+        case .playerOverlayPaused:
+            return "person.3.sequence.fill"
         }
     }
 }
 
 enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case none
     case classicBuzzer
     case arenaHorn
     case whistle
@@ -80,11 +228,21 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
     case debateDoubleBell
     case shotClockBeep
     case penaltyChirp
+    case shortBeep
+    case doubleBeep
+    case lowThump
+    case brightDing
+    case softClick
+    case alarmPulse
+    case risingTone
+    case descendingTone
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .none:
+            return "None"
         case .classicBuzzer:
             return "Classic Buzzer"
         case .arenaHorn:
@@ -103,11 +261,29 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
             return "Shot Beep"
         case .penaltyChirp:
             return "Penalty Chirp"
+        case .shortBeep:
+            return "Short Beep"
+        case .doubleBeep:
+            return "Double Beep"
+        case .lowThump:
+            return "Low Thump"
+        case .brightDing:
+            return "Bright Ding"
+        case .softClick:
+            return "Soft Click"
+        case .alarmPulse:
+            return "Alarm Pulse"
+        case .risingTone:
+            return "Rising Tone"
+        case .descendingTone:
+            return "Descending Tone"
         }
     }
 
     var subtitle: String {
         switch self {
+        case .none:
+            return "No sound"
         case .classicBuzzer:
             return "Long traditional scoreboard tone"
         case .arenaHorn:
@@ -126,22 +302,52 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
             return "Fast high double beep"
         case .penaltyChirp:
             return "Short penalty alert"
+        case .shortBeep:
+            return "Clean single control beep"
+        case .doubleBeep:
+            return "Two quick confirmation beeps"
+        case .lowThump:
+            return "Low percussive action hit"
+        case .brightDing:
+            return "Clear bright confirmation chime"
+        case .softClick:
+            return "Quiet UI click"
+        case .alarmPulse:
+            return "Urgent pulsing alert"
+        case .risingTone:
+            return "Ascending action tone"
+        case .descendingTone:
+            return "Descending stop tone"
         }
     }
 }
 
-final class BuzzerPlayer {
+final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
     private var audioPlayers: [ScoreboardSoundEffect: AVAudioPlayer] = [:]
+    private var activeEffect: ScoreboardSoundEffect?
+    private var playbackFinished: ((ScoreboardSoundEffect) -> Void)?
 
-    func play(_ effect: ScoreboardSoundEffect = .classicBuzzer) {
+    func play(
+        _ effect: ScoreboardSoundEffect = .classicBuzzer,
+        onFinished: ((ScoreboardSoundEffect) -> Void)? = nil
+    ) {
+        guard effect != .none else {
+            return
+        }
+
+        stop()
         activatePlaybackSessionIfNeeded()
         guard let audioPlayer = player(for: effect) else {
             return
         }
 
+        activeEffect = effect
+        playbackFinished = onFinished
         audioPlayer.stop()
         audioPlayer.currentTime = 0
-        audioPlayer.play()
+        if !audioPlayer.play() {
+            finishActivePlayback()
+        }
     }
 
     func stop() {
@@ -149,7 +355,17 @@ final class BuzzerPlayer {
             audioPlayer.stop()
             audioPlayer.currentTime = 0
         }
+        activeEffect = nil
+        playbackFinished = nil
         deactivatePlaybackSessionIfNeeded()
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finishActivePlayback()
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        finishActivePlayback()
     }
 
     private func player(for effect: ScoreboardSoundEffect) -> AVAudioPlayer? {
@@ -162,13 +378,28 @@ final class BuzzerPlayer {
         }
 
         audioPlayer.volume = 1
+        audioPlayer.delegate = self
         audioPlayer.prepareToPlay()
         audioPlayers[effect] = audioPlayer
         return audioPlayer
     }
 
+    private func finishActivePlayback() {
+        guard let activeEffect else {
+            return
+        }
+
+        let callback = playbackFinished
+        self.activeEffect = nil
+        playbackFinished = nil
+        deactivatePlaybackSessionIfNeeded()
+        callback?(activeEffect)
+    }
+
     private static func waveformData(for effect: ScoreboardSoundEffect) -> Data {
         switch effect {
+        case .none:
+            return sequenceWaveformData([])
         case .classicBuzzer:
             return classicBuzzerWaveformData()
         case .arenaHorn:
@@ -214,6 +445,42 @@ final class BuzzerPlayer {
                 AudioSegment(duration: 0.14, startFrequency: 900, endFrequency: 1_240, amplitude: 0.25, waveform: .square, attack: 0.004, release: 0.025, tremoloRate: nil),
                 .silence(duration: 0.06),
                 AudioSegment(duration: 0.44, startFrequency: 520, endFrequency: 760, amplitude: 0.28, waveform: .triangle, attack: 0.008, release: 0.08, tremoloRate: 9)
+            ])
+        case .shortBeep:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.18, startFrequency: 880, endFrequency: 880, amplitude: 0.22, waveform: .sine, attack: 0.004, release: 0.035, tremoloRate: nil)
+            ])
+        case .doubleBeep:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.12, startFrequency: 980, endFrequency: 980, amplitude: 0.22, waveform: .sine, attack: 0.004, release: 0.025, tremoloRate: nil),
+                .silence(duration: 0.08),
+                AudioSegment(duration: 0.12, startFrequency: 980, endFrequency: 980, amplitude: 0.22, waveform: .sine, attack: 0.004, release: 0.025, tremoloRate: nil)
+            ])
+        case .lowThump:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.16, startFrequency: 108, endFrequency: 72, amplitude: 0.32, waveform: .triangle, attack: 0.002, release: 0.12, tremoloRate: nil)
+            ])
+        case .brightDing:
+            return bellWaveformData(strikes: [BellStrike(offset: 0, frequency: 1_080, amplitude: 0.22, decay: 4.2)], duration: 0.92)
+        case .softClick:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.045, startFrequency: 1_420, endFrequency: 980, amplitude: 0.16, waveform: .triangle, attack: 0.001, release: 0.032, tremoloRate: nil)
+            ])
+        case .alarmPulse:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.22, startFrequency: 740, endFrequency: 740, amplitude: 0.26, waveform: .square, attack: 0.004, release: 0.04, tremoloRate: nil),
+                .silence(duration: 0.08),
+                AudioSegment(duration: 0.22, startFrequency: 740, endFrequency: 740, amplitude: 0.26, waveform: .square, attack: 0.004, release: 0.04, tremoloRate: nil),
+                .silence(duration: 0.08),
+                AudioSegment(duration: 0.28, startFrequency: 740, endFrequency: 580, amplitude: 0.24, waveform: .square, attack: 0.004, release: 0.08, tremoloRate: nil)
+            ])
+        case .risingTone:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.52, startFrequency: 520, endFrequency: 1_040, amplitude: 0.22, waveform: .sine, attack: 0.006, release: 0.06, tremoloRate: nil)
+            ])
+        case .descendingTone:
+            return sequenceWaveformData([
+                AudioSegment(duration: 0.52, startFrequency: 1_040, endFrequency: 520, amplitude: 0.22, waveform: .sine, attack: 0.006, release: 0.06, tremoloRate: nil)
             ])
         }
     }
