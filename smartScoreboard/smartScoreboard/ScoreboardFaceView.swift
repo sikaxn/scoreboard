@@ -66,7 +66,7 @@ struct ScoreboardFaceView: View {
     private var boardBadgeValueTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardBadgeValueText }
     private var displayAlertColor: Color { .red }
     private var usesDedicatedDualClockLayout: Bool { sport == .chess }
-    private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 || rules.showsSubstitutionTracking }
+    private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 }
     private var shouldShowSoccerCenterPlayers: Bool { rules.usesCenterPlayerStrip && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
 
     var body: some View {

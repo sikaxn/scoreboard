@@ -94,13 +94,7 @@ struct ContentView: View {
         setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : DebatePreset.preset(id: setupDebatePresetID)
     }
     private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
-    private var isResetInterlockActive: Bool {
-        store.isClockRunning ||
-            store.isShotClockRunning ||
-            store.isDebatePrepClockRunning ||
-            store.homePenaltyTimers.contains(where: \.isRunning) ||
-            store.guestPenaltyTimers.contains(where: \.isRunning)
-    }
+    private var isResetInterlockActive: Bool { store.isResetInterlockActive }
     private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
@@ -519,307 +513,97 @@ struct ContentView: View {
                 settingsTextEntryRow(title: "Guest Team", text: $guestTeamDraft, teamSide: false)
             }
 
-            settingsSection(title: "Game") {
-                if setupRules.supportsPeriod {
-                    settingsStepperValueRow(
-                        title: "Starting \(setupRules.periodTitle)",
-                        value: "\(setupPeriod)",
-                        decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                        increment: { setupPeriod = min(9, setupPeriod + 1) }
-                    )
-                }
-
-                if setupSport == .volleyball {
-                    settingsDivider()
-                    settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
-                }
-
-                if setupSport == .debate {
-                    settingsDivider()
-                    settingsPickerRow(
-                        title: "Preset",
-                        selection: $setupDebatePresetID,
-                        options: DebatePreset.selectablePresetIDs
-                    ) { presetID in
-                        presetID == DebatePreset.customID ? "Custom Debate" : DebatePreset.preset(id: presetID).title
-                    }
-                    if setupDebatePresetID == DebatePreset.customID {
-                        settingsDivider()
-                        settingsTextEntryRow(
-                            title: "Format Title",
-                            text: Binding(
-                                get: { setupCustomDebatePreset.title },
-                                set: { setupCustomDebatePreset.title = $0 }
-                            )
+            if setupSport == .custom {
+                customSportSettingsSections()
+            } else if setupSport == .debate {
+                debateSettingsSections()
+            } else {
+                settingsSection(title: "Game") {
+                    if setupRules.supportsPeriod {
+                        settingsStepperValueRow(
+                            title: "Starting \(setupRules.periodTitle)",
+                            value: "\(setupPeriod)",
+                            decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                            increment: { setupPeriod = min(9, setupPeriod + 1) }
                         )
                     }
-                    settingsDivider()
-                    settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)
-                    settingsDivider()
-                    settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
-                    settingsDivider()
-                    settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
-                    settingsDivider()
-                    settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
-                    settingsDivider()
-                    if setupDebatePlayerTrackingEnabled {
-                        settingsToggleRow(title: "Player Fouls", isOn: $setupDebatePlayerFoulsEnabled)
+
+                    if setupSport == .volleyball {
                         settingsDivider()
-                        settingsToggleRow(title: "Player Cards", isOn: $setupDebatePlayerCardsEnabled)
-                        settingsDivider()
+                        settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
                     }
-                    settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled)
-                    if setupDebatePrepTimeEnabled {
-                        settingsDivider()
-                        if setupDebatePresetID == DebatePreset.customID {
-                            settingsStepperValueRow(
-                                title: "Prep Time",
-                                value: formatClock(setupCustomDebatePreset.prepSecondsPerSide),
-                                decrement: {
-                                    setupCustomDebatePreset.prepSecondsPerSide = max(0, setupCustomDebatePreset.prepSecondsPerSide - 15)
-                                },
-                                increment: {
-                                    setupCustomDebatePreset.prepSecondsPerSide = min(ScoreboardStore.maxGameClockSeconds, setupCustomDebatePreset.prepSecondsPerSide + 15)
-                                }
-                            )
-                        } else {
-                            settingsSummaryValueRow(title: "Prep Time", value: formatClock(setupDebatePreset.prepSecondsPerSide))
-                        }
-                    }
-                    settingsDivider()
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("Segments")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(settingsPalette.primaryText)
-
-                            Spacer(minLength: 0)
-
-                            if setupDebatePresetID == DebatePreset.customID {
-                                Button("Add Segment") {
-                                    addCustomDebateSegment()
-                                }
-                                .buttonStyle(.plain)
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(settingsPalette.accent)
-                            }
-                        }
-
-                        if setupDebatePresetID == DebatePreset.customID {
-                            ForEach(Array(setupCustomDebatePreset.segments.indices), id: \.self) { index in
-                                if index > 0 {
-                                    settingsDivider()
-                                }
-                                customDebateSegmentEditor(segment: setupCustomDebatePreset.segments[index], index: index)
-                            }
-                        } else {
-                            ForEach(Array(setupDebatePreset.segments.enumerated()), id: \.element.id) { index, segment in
-                                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                    Text("\(index + 1). \(segment.title)")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(settingsPalette.primaryText)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    Text(segment.timerMode == .masterClock ? "Master" : segment.timerMode == .dualClock ? "Dual" : "None")
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(settingsPalette.secondaryText)
-
-                                    Text(formatClock(segment.durationSeconds))
-                                        .font(.subheadline.weight(.black))
-                                        .monospacedDigit()
-                                        .foregroundStyle(settingsPalette.secondaryText)
-                                }
-                            }
-                        }
-                    }
-                } else if setupRules.usesChessClocks {
-                    if setupSport == .chess {
-                        settingsDivider()
-                        settingsSegmentRow(
-                            title: "Preset",
-                            options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
-                            selection: Binding(
-                                get: { setupChessPreset.seconds },
-                                set: { value in
-                                    if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
-                                        setupChessPreset = preset
+                    if setupRules.usesChessClocks {
+                        if setupSport == .chess {
+                            settingsDivider()
+                            settingsSegmentRow(
+                                title: "Preset",
+                                options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                                selection: Binding(
+                                    get: { setupChessPreset.seconds },
+                                    set: { value in
+                                        if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                                            setupChessPreset = preset
+                                        }
                                     }
-                                }
+                                )
                             )
+                        }
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Home Clock",
+                            value: formatClock(setupClockSeconds),
+                            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
                         )
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Guest Clock",
+                            value: formatClock(setupGuestClockSeconds),
+                            decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                            increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+                        )
+                    } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Opening Clock",
+                            value: formatClock(setupClockSeconds),
+                            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+                        )
+                        settingsDivider()
+                        if setupSport == .simple {
+                            settingsPresetButtonGrid(
+                                title: "Clock Preset",
+                                options: clockPresetOptions(for: setupSport),
+                                selection: $setupClockSeconds
+                            )
+                        } else {
+                            settingsSegmentRow(
+                                title: "Clock Preset",
+                                options: clockPresetOptions(for: setupSport),
+                                selection: $setupClockSeconds
+                            )
+                        }
                     }
-                    settingsDivider()
-                    settingsStepperValueRow(
-                        title: "Home Clock",
-                        value: formatClock(setupClockSeconds),
-                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                    )
-                    settingsDivider()
-                    settingsStepperValueRow(
-                        title: "Guest Clock",
-                        value: formatClock(setupGuestClockSeconds),
-                        decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
-                        increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
-                    )
-                } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
-                    settingsDivider()
-                    settingsStepperValueRow(
-                        title: "Opening Clock",
-                        value: formatClock(setupClockSeconds),
-                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                    )
-                    settingsDivider()
-                    if setupSport == .simple {
-                        settingsPresetButtonGrid(
-                            title: "Clock Preset",
-                            options: clockPresetOptions(for: setupSport),
-                            selection: $setupClockSeconds
+
+                    if setupRules.supportsShotClock {
+                        settingsDivider()
+                        settingsStepperValueRow(
+                            title: "Shot Clock",
+                            value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                            decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                            increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
                         )
-                    } else {
+                        settingsDivider()
                         settingsSegmentRow(
-                            title: "Clock Preset",
-                            options: clockPresetOptions(for: setupSport),
-                            selection: $setupClockSeconds
+                            title: "Shot Preset",
+                            options: [
+                                ("24", 24),
+                                ("14", 14)
+                            ],
+                            selection: $setupShotClockSeconds
                         )
                     }
-                }
-
-                if setupRules.supportsShotClock {
-                    settingsDivider()
-                    settingsStepperValueRow(
-                        title: "Shot Clock",
-                        value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                        decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-                        increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-                    )
-                    settingsDivider()
-                    settingsSegmentRow(
-                        title: "Shot Preset",
-                        options: [
-                            ("24", 24),
-                            ("14", 14)
-                        ],
-                        selection: $setupShotClockSeconds
-                    )
-                }
-
-                if setupSport == .custom {
-                    settingsDivider()
-                    settingsTextEntryRow(title: "Custom Title", text: Binding(
-                        get: { setupCustomSportConfig.title },
-                        set: { setupCustomSportConfig.title = $0 }
-                    ))
-                    settingsDivider()
-                    settingsToggleRow(title: "Period Tracking", isOn: Binding(
-                        get: { setupCustomSportConfig.isPeriodEnabled },
-                        set: { setupCustomSportConfig.isPeriodEnabled = $0 }
-                    ))
-                    if setupCustomSportConfig.isPeriodEnabled {
-                        settingsDivider()
-                        settingsTextEntryRow(title: "Period Label", text: Binding(
-                            get: { setupCustomSportConfig.periodTitle },
-                            set: { setupCustomSportConfig.periodTitle = $0 }
-                        ))
-                        settingsDivider()
-                        settingsTextEntryRow(title: "Short Label", text: Binding(
-                            get: { setupCustomSportConfig.periodShortTitle },
-                            set: { setupCustomSportConfig.periodShortTitle = $0 }
-                        ))
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
-                        get: { setupCustomSportConfig.usesChessClocks },
-                        set: { setupCustomSportConfig.usesChessClocks = $0 }
-                    ))
-                    if !setupCustomSportConfig.usesChessClocks {
-                        settingsDivider()
-                        settingsPickerRow(
-                            title: "Clock Mode",
-                            selection: Binding(
-                                get: { setupCustomSportConfig.mainClockMode },
-                                set: { setupCustomSportConfig.mainClockMode = $0 }
-                            ),
-                            options: MainClockMode.allCases
-                        ) { $0.title }
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Score Tracking", isOn: Binding(
-                        get: { setupCustomSportConfig.isScoreEnabled },
-                        set: { setupCustomSportConfig.isScoreEnabled = $0 }
-                    ))
-                    if setupCustomSportConfig.isScoreEnabled {
-                        settingsDivider()
-                        settingsPickerRow(
-                            title: "Score Buttons",
-                            selection: Binding(
-                                get: { setupCustomSportConfig.scoreStepPreset },
-                                set: { setupCustomSportConfig.scoreStepPreset = $0 }
-                            ),
-                            options: CustomScoreStepPreset.allCases
-                        ) { $0.title }
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Player Tracking", isOn: Binding(
-                        get: { setupCustomSportConfig.isPlayerTrackingEnabled },
-                        set: { setupCustomSportConfig.isPlayerTrackingEnabled = $0 }
-                    ))
-                    if setupCustomSportConfig.isPlayerTrackingEnabled {
-                        settingsDivider()
-                        settingsToggleRow(title: "Soccer Style Player Display", isOn: Binding(
-                            get: { setupCustomSportConfig.usesCenterPlayerStrip },
-                            set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
-                        ))
-                        settingsDivider()
-                        settingsToggleRow(title: "Player Fouls", isOn: Binding(
-                            get: { setupCustomSportConfig.isPlayerFoulsEnabled },
-                            set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
-                        ))
-                        settingsDivider()
-                        settingsToggleRow(title: "Player Cards", isOn: Binding(
-                            get: { setupCustomSportConfig.isPlayerCardsEnabled },
-                            set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
-                        ))
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Possession", isOn: Binding(
-                        get: { setupCustomSportConfig.isPossessionEnabled },
-                        set: { setupCustomSportConfig.isPossessionEnabled = $0 }
-                    ))
-                    settingsDivider()
-                    settingsToggleRow(title: "Shot Clock", isOn: Binding(
-                        get: { setupCustomSportConfig.isShotClockEnabled },
-                        set: { setupCustomSportConfig.isShotClockEnabled = $0 }
-                    ))
-                    if setupCustomSportConfig.isShotClockEnabled {
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Shot Default",
-                            value: "\(setupCustomSportConfig.defaultShotClockSeconds)s",
-                            decrement: { setupCustomSportConfig.defaultShotClockSeconds = max(0, setupCustomSportConfig.defaultShotClockSeconds - 1) },
-                            increment: { setupCustomSportConfig.defaultShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupCustomSportConfig.defaultShotClockSeconds + 1) }
-                        )
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Substitutions", isOn: Binding(
-                        get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
-                        set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
-                    ))
-                    if setupCustomSportConfig.isSubstitutionTrackingEnabled {
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Default Subs",
-                            value: "\(setupCustomSportConfig.defaultSubstitutionLimit)",
-                            decrement: { setupCustomSportConfig.defaultSubstitutionLimit = max(0, setupCustomSportConfig.defaultSubstitutionLimit - 1) },
-                            increment: { setupCustomSportConfig.defaultSubstitutionLimit = min(99, setupCustomSportConfig.defaultSubstitutionLimit + 1) }
-                        )
-                    }
-                    settingsDivider()
-                    settingsToggleRow(title: "Team Fouls", isOn: Binding(
-                        get: { setupCustomSportConfig.isTeamFoulsEnabled },
-                        set: { setupCustomSportConfig.isTeamFoulsEnabled = $0 }
-                    ))
                 }
             }
 
@@ -839,6 +623,289 @@ struct ContentView: View {
                     increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
                 )
             }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func customSportSettingsSections() -> some View {
+        settingsSection(title: "General", footer: "Core custom sport identity and scoring behavior.") {
+            settingsTextEntryRow(title: "Custom Title", text: Binding(
+                get: { setupCustomSportConfig.title },
+                set: { setupCustomSportConfig.title = $0 }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Score Tracking", isOn: Binding(
+                get: { setupCustomSportConfig.isScoreEnabled },
+                set: { setupCustomSportConfig.isScoreEnabled = $0 }
+            ))
+            if setupCustomSportConfig.isScoreEnabled {
+                settingsDivider()
+                settingsPickerRow(
+                    title: "Score Buttons",
+                    selection: Binding(
+                        get: { setupCustomSportConfig.scoreStepPreset },
+                        set: { setupCustomSportConfig.scoreStepPreset = $0 }
+                    ),
+                    options: CustomScoreStepPreset.allCases
+                ) { $0.title }
+            }
+        }
+
+        settingsSection(title: "Clock", footer: "Choose between a shared game clock and chess-style side clocks.") {
+            settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
+                get: { setupCustomSportConfig.usesChessClocks },
+                set: { setupCustomSportConfig.usesChessClocks = $0 }
+            ))
+            if setupCustomSportConfig.usesChessClocks {
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Home Clock",
+                    value: formatClock(setupClockSeconds),
+                    decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                    increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+                )
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Guest Clock",
+                    value: formatClock(setupGuestClockSeconds),
+                    decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                    increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+                )
+            } else {
+                settingsDivider()
+                settingsPickerRow(
+                    title: "Clock Mode",
+                    selection: Binding(
+                        get: { setupCustomSportConfig.mainClockMode },
+                        set: { setupCustomSportConfig.mainClockMode = $0 }
+                    ),
+                    options: MainClockMode.allCases
+                ) { $0.title }
+                if setupCustomSportConfig.mainClockMode != .disabled {
+                    settingsDivider()
+                    settingsStepperValueRow(
+                        title: "Opening Clock",
+                        value: formatClock(setupClockSeconds),
+                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+                    )
+                    settingsDivider()
+                    settingsSegmentRow(
+                        title: "Clock Preset",
+                        options: clockPresetOptions(for: .custom),
+                        selection: $setupClockSeconds
+                    )
+                }
+            }
+        }
+
+        settingsSection(title: "Period", footer: "Enable period tracking and define the labels shown on the board.") {
+            settingsToggleRow(title: "Period Tracking", isOn: Binding(
+                get: { setupCustomSportConfig.isPeriodEnabled },
+                set: { setupCustomSportConfig.isPeriodEnabled = $0 }
+            ))
+            if setupCustomSportConfig.isPeriodEnabled {
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Starting Period",
+                    value: "\(setupPeriod)",
+                    decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                    increment: { setupPeriod = min(9, setupPeriod + 1) }
+                )
+                settingsDivider()
+                settingsTextEntryRow(title: "Period Label", text: Binding(
+                    get: { setupCustomSportConfig.periodTitle },
+                    set: { setupCustomSportConfig.periodTitle = $0 }
+                ))
+                settingsDivider()
+                settingsTextEntryRow(title: "Short Label", text: Binding(
+                    get: { setupCustomSportConfig.periodShortTitle },
+                    set: { setupCustomSportConfig.periodShortTitle = $0 }
+                ))
+            }
+        }
+
+        settingsSection(title: "Shot Clock", footer: "Enable a separate shot timer and configure how it resets.") {
+            settingsToggleRow(title: "Shot Clock", isOn: Binding(
+                get: { setupCustomSportConfig.isShotClockEnabled },
+                set: {
+                    setupCustomSportConfig.isShotClockEnabled = $0
+                    if !$0 {
+                        setupCustomSportConfig.isPossessionEnabled = false
+                    }
+                }
+            ))
+            if setupCustomSportConfig.isShotClockEnabled {
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Shot Default",
+                    value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                    decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                    increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+                )
+                settingsDivider()
+                settingsSegmentRow(
+                    title: "Shot Preset",
+                    options: [
+                        ("24", 24),
+                        ("14", 14)
+                    ],
+                    selection: $setupShotClockSeconds
+                )
+            }
+        }
+
+        settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the shot clock." : "Enable Shot Clock first to use the possession arrow.") {
+            settingsToggleRow(title: "Possession Arrow", isOn: Binding(
+                get: { setupCustomSportConfig.isPossessionEnabled },
+                set: { setupCustomSportConfig.isPossessionEnabled = $0 }
+            ))
+            .disabled(!setupCustomSportConfig.isShotClockEnabled)
+            .opacity(setupCustomSportConfig.isShotClockEnabled ? 1 : 0.42)
+        }
+
+        settingsSection(title: "Player", footer: "Enable player tracking, lineup style, and player-specific state.") {
+            settingsToggleRow(title: "Player Tracking", isOn: Binding(
+                get: { setupCustomSportConfig.isPlayerTrackingEnabled },
+                set: { setupCustomSportConfig.isPlayerTrackingEnabled = $0 }
+            ))
+            if setupCustomSportConfig.isPlayerTrackingEnabled {
+                settingsDivider()
+                settingsToggleRow(title: "Soccer Style Player Display", isOn: Binding(
+                    get: { setupCustomSportConfig.usesCenterPlayerStrip },
+                    set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
+                ))
+                settingsDivider()
+                settingsToggleRow(title: "Player Fouls", isOn: Binding(
+                    get: { setupCustomSportConfig.isPlayerFoulsEnabled },
+                    set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
+                ))
+                settingsDivider()
+                settingsToggleRow(title: "Player Cards", isOn: Binding(
+                    get: { setupCustomSportConfig.isPlayerCardsEnabled },
+                    set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
+                ))
+            }
+        }
+
+        settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
+            settingsToggleRow(title: "Substitutions", isOn: Binding(
+                get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
+                set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Team Fouls", isOn: Binding(
+                get: { setupCustomSportConfig.isTeamFoulsEnabled },
+                set: { setupCustomSportConfig.isTeamFoulsEnabled = $0 }
+            ))
+        }
+    }
+
+    @ViewBuilder
+    private func debateSettingsSections() -> some View {
+        settingsSection(title: "General", footer: "Choose the debate format, round title, side labels, and whether score is tracked.") {
+            settingsPickerRow(
+                title: "Preset",
+                selection: $setupDebatePresetID,
+                options: DebatePreset.selectablePresetIDs
+            ) { presetID in
+                presetID == DebatePreset.customID ? "Custom Debate" : DebatePreset.preset(id: presetID).title
+            }
+            if setupDebatePresetID == DebatePreset.customID {
+                settingsDivider()
+                settingsTextEntryRow(
+                    title: "Format Title",
+                    text: Binding(
+                        get: { setupCustomDebatePreset.title },
+                        set: { setupCustomDebatePreset.title = $0 }
+                    )
+                )
+            }
+            settingsDivider()
+            settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)
+            settingsDivider()
+            settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
+            settingsDivider()
+            settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
+        }
+
+        settingsSection(title: "Player", footer: "Enable player tracking and choose whether debate players carry fouls or cards.") {
+            settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
+            if setupDebatePlayerTrackingEnabled {
+                settingsDivider()
+                settingsToggleRow(title: "Player Fouls", isOn: $setupDebatePlayerFoulsEnabled)
+                settingsDivider()
+                settingsToggleRow(title: "Player Cards", isOn: $setupDebatePlayerCardsEnabled)
+            }
+        }
+
+        settingsSection(title: "Prep", footer: setupDebatePrepTimeEnabled ? "Prep time is tracked per side and shown on the live board and display." : "Turn prep time on to expose per-side prep clocks.") {
+            settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled)
+            if setupDebatePrepTimeEnabled {
+                settingsDivider()
+                if setupDebatePresetID == DebatePreset.customID {
+                    settingsStepperValueRow(
+                        title: "Prep Time",
+                        value: formatClock(setupCustomDebatePreset.prepSecondsPerSide),
+                        decrement: {
+                            setupCustomDebatePreset.prepSecondsPerSide = max(0, setupCustomDebatePreset.prepSecondsPerSide - 15)
+                        },
+                        increment: {
+                            setupCustomDebatePreset.prepSecondsPerSide = min(ScoreboardStore.maxGameClockSeconds, setupCustomDebatePreset.prepSecondsPerSide + 15)
+                        }
+                    )
+                } else {
+                    settingsSummaryValueRow(title: "Prep Time", value: formatClock(setupDebatePreset.prepSecondsPerSide))
+                }
+            }
+        }
+
+        settingsSection(title: "Segments", footer: "Segments define the main debate timer flow. Built-in presets are read-only; custom debate lets you add and edit segments.") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Round Segments")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Spacer(minLength: 0)
+
+                    if setupDebatePresetID == DebatePreset.customID {
+                        Button("Add Segment") {
+                            addCustomDebateSegment()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(settingsPalette.accent)
+                    }
+                }
+
+                if setupDebatePresetID == DebatePreset.customID {
+                    ForEach(Array(setupCustomDebatePreset.segments.indices), id: \.self) { index in
+                        if index > 0 {
+                            settingsDivider()
+                        }
+                        customDebateSegmentEditor(segment: setupCustomDebatePreset.segments[index], index: index)
+                    }
+                } else {
+                    ForEach(Array(setupDebatePreset.segments.enumerated()), id: \.element.id) { index, segment in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("\(index + 1). \(segment.title)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(settingsPalette.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Text(segment.timerMode == .masterClock ? "Master" : segment.timerMode == .dualClock ? "Dual" : "None")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(settingsPalette.secondaryText)
+
+                            Text(formatClock(segment.durationSeconds))
+                                .font(.subheadline.weight(.black))
+                                .monospacedDigit()
+                                .foregroundStyle(settingsPalette.secondaryText)
+                        }
+                    }
+                }
             }
         }
     }
@@ -2303,7 +2370,7 @@ struct ContentView: View {
             buttonGrid(
                 columns: max(1, layout.shotClockButtonColumns - 2),
                 buttons: [
-                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         pendingGameConfirmation = .resetShotClock
                     },
                     ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
@@ -5618,6 +5685,8 @@ private enum GameConfirmationAction: Identifiable {
     var isResetInterlocked: Bool {
         switch self {
         case .previousPeriod:
+            return false
+        case .resetShotClock:
             return false
         default:
             return true

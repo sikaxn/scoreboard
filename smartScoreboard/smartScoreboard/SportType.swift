@@ -341,7 +341,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 supportsPlayerTracking: true,
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
-                showsSubstitutionTracking: false,
+                showsSubstitutionTracking: true,
                 supportsHockeyPenalties: false,
                 usesChessClocks: false
             )
@@ -487,12 +487,12 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultShotClockSeconds: config.isShotClockEnabled ? config.defaultShotClockSeconds : 0,
                 defaultRosterSize: config.defaultRosterSize,
                 defaultDisplayLineupSize: config.defaultDisplayLineupSize,
-                defaultSubstitutionLimit: config.isSubstitutionTrackingEnabled ? config.defaultSubstitutionLimit : 0,
+                defaultSubstitutionLimit: 0,
                 mainClockMode: config.usesChessClocks ? .disabled : config.mainClockMode,
                 supportsScore: config.isScoreEnabled,
                 supportsPeriod: config.isPeriodEnabled,
                 supportsShotClock: config.isShotClockEnabled,
-                supportsPossession: config.isPossessionEnabled,
+                supportsPossession: config.isShotClockEnabled && config.isPossessionEnabled,
                 supportsFouls: config.isPlayerFoulsEnabled,
                 supportsTeamFouls: config.isTeamFoulsEnabled,
                 supportsPlayerTracking: config.isPlayerTrackingEnabled,

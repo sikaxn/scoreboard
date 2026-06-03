@@ -349,6 +349,14 @@ final class ScoreboardStore: ObservableObject {
         showsGameClock && isClockRunning
     }
 
+    var isResetInterlockActive: Bool {
+        isClockRunning ||
+            isShotClockRunning ||
+            isDebatePrepClockRunning ||
+            homePenaltyTimers.contains(where: \.isRunning) ||
+            guestPenaltyTimers.contains(where: \.isRunning)
+    }
+
     var showsGameClock: Bool {
         if isDebateMode {
             return currentDebateSegment?.timerMode == .masterClock
@@ -415,7 +423,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var showsSubstitutionTracking: Bool {
-        currentRules.showsSubstitutionTracking || homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
+        homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
     }
 
     var supportsScore: Bool {
@@ -966,9 +974,11 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        let targetSeconds = boundedShotClockSeconds(activeShotClockPresetSeconds)
+        let resolvedTargetSeconds = activeShotClockPresetSeconds > 0 ? activeShotClockPresetSeconds : defaultShotClockSeconds
+        let targetSeconds = boundedShotClockSeconds(resolvedTargetSeconds)
         let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
 
+        activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
         possessionDirection = .none
 
