@@ -2370,8 +2370,16 @@ struct ContentView: View {
             buttonGrid(
                 columns: max(1, layout.shotClockButtonColumns - 2),
                 buttons: [
-                    ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        pendingGameConfirmation = .resetShotClock
+                    ActionDescriptor(
+                        title: store.isShotClockRunning ? "Shot Pause" : "Shot Reset",
+                        tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardNeutralButton,
+                        foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardNeutralButtonText
+                    ) {
+                        if store.isShotClockRunning {
+                            store.toggleShotClock()
+                        } else {
+                            store.resetActiveShotClock()
+                        }
                     },
                     ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustShotClock(by: -1)

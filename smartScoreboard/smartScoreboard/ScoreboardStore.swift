@@ -978,11 +978,11 @@ final class ScoreboardStore: ObservableObject {
         let targetSeconds = boundedShotClockSeconds(resolvedTargetSeconds)
         let targetMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
 
+        isShotClockRunning = false
+        accumulatedShotClockElapsed = 0
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
-        possessionDirection = .none
-
-        pauseShotClock()
+        updateTimerState()
         recordLog(
             kind: .shotClockReset,
             summary: "Reset active shot clock",
