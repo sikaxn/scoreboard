@@ -219,6 +219,14 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
     nonisolated static let defaultDisplayLineupSize = 5
+    nonisolated static let defaultSoundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect] = [
+        .gameClockExpired: .classicBuzzer,
+        .shotClockExpired: .shotClockBeep,
+        .chessClockExpired: .softChime,
+        .debateSegmentExpired: .debateBell,
+        .debatePrepExpired: .debateDoubleBell,
+        .hockeyPenaltyExpired: .penaltyChirp
+    ]
 
     @Published var selectedSport: SportType = .simple
     @Published var customSportConfig: CustomSportConfig = .default
@@ -275,6 +283,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var isSoundEnabled = true
+    @Published var soundAssignments = ScoreboardStore.defaultSoundAssignments
     @Published var isClockRunning = false
     @Published var isShotClockRunning = false
     @Published var didCompleteSetup = false
@@ -509,8 +518,8 @@ final class ScoreboardStore: ObservableObject {
         return selectedSport.rules(customConfig: customSportConfig)
     }
 
-    var soundTestEventsForCurrentSport: [ScoreboardSoundEvent] {
-        var events: [ScoreboardSoundEvent] = [.general]
+    var assignableSoundEventsForCurrentSport: [ScoreboardSoundEvent] {
+        var events: [ScoreboardSoundEvent] = []
 
         if isDebateMode {
             if let timerMode = currentDebateSegment?.timerMode, timerMode != .none {
@@ -524,7 +533,7 @@ final class ScoreboardStore: ObservableObject {
 
         if usesChessClocks {
             events.append(.chessClockExpired)
-        } else if currentRules.mainClockMode != .disabled {
+        } else if currentRules.mainClockMode == .countdown {
             events.append(.gameClockExpired)
         }
 
@@ -884,8 +893,24 @@ final class ScoreboardStore: ObservableObject {
         setSoundEnabled(!isSoundEnabled)
     }
 
+    func selectedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
+        soundAssignments[event] ?? Self.defaultSoundAssignments[event] ?? .classicBuzzer
+    }
+
+    func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent) {
+        soundAssignments[event] = effect
+    }
+
     func playTestSound(_ event: ScoreboardSoundEvent) {
         playSound(event)
+    }
+
+    func playTestEffect(_ effect: ScoreboardSoundEffect) {
+        guard isSoundEnabled else {
+            return
+        }
+
+        buzzerPlayer.play(effect)
     }
 
     func toggleShotClock() {
@@ -2669,43 +2694,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
-        switch event {
-        case .general:
-            return .classicBuzzer
-        case .gameClockExpired:
-            return resolvedGameClockSoundEffect()
-        case .shotClockExpired:
-            return .shotClockBeep
-        case .chessClockExpired:
-            return .softChime
-        case .debateSegmentExpired:
-            return .debateBell
-        case .debatePrepExpired:
-            return .debateDoubleBell
-        case .hockeyPenaltyExpired:
-            return .penaltyChirp
-        }
-    }
-
-    private func resolvedGameClockSoundEffect() -> ScoreboardSoundEffect {
-        if usesChessClocks {
-            return .softChime
-        }
-
-        switch selectedSport {
-        case .simple, .custom:
-            return .classicBuzzer
-        case .basketball:
-            return .arenaHorn
-        case .volleyball, .soccer:
-            return .whistle
-        case .hockey:
-            return .hockeySiren
-        case .chess:
-            return .softChime
-        case .debate:
-            return .debateBell
-        }
+        selectedSoundEffect(for: event)
     }
 
     private func highestPrioritySoundEvent(from events: [ScoreboardSoundEvent]) -> ScoreboardSoundEvent? {
@@ -2830,6 +2819,7 @@ final class ScoreboardStore: ObservableObject {
             $theme.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $soundAssignments.map { _ in () }.eraseToAnyPublisher(),
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
@@ -2908,6 +2898,7 @@ final class ScoreboardStore: ObservableObject {
         theme = persistedState.theme
         externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
         isSoundEnabled = persistedState.isSoundEnabled
+        soundAssignments = normalizedSoundAssignments(persistedState.soundAssignments)
         didCompleteSetup = persistedState.didCompleteSetup
         setupPresets = persistedState.setupPresets
         if !currentRules.supportsShotClock {
@@ -2990,6 +2981,7 @@ final class ScoreboardStore: ObservableObject {
             theme: theme,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
             isSoundEnabled: isSoundEnabled,
+            soundAssignments: soundAssignments,
             didCompleteSetup: didCompleteSetup,
             setupPresets: setupPresets
         )
@@ -2999,6 +2991,15 @@ final class ScoreboardStore: ObservableObject {
         }
 
         UserDefaults.standard.set(data, forKey: persistenceKey)
+    }
+
+    private func normalizedSoundAssignments(_ assignments: [ScoreboardSoundEvent: ScoreboardSoundEffect]) -> [ScoreboardSoundEvent: ScoreboardSoundEffect] {
+        var resolved = Self.defaultSoundAssignments
+        for (event, effect) in assignments {
+            guard event != .general else { continue }
+            resolved[event] = effect
+        }
+        return resolved
     }
 
     private var activeLineupCountLimit: Int {
@@ -3149,6 +3150,7 @@ private struct PersistedState: Codable {
     var theme: ScoreboardTheme
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
     var isSoundEnabled: Bool
+    var soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect]
     var didCompleteSetup: Bool
     var setupPresets: [SetupPreset]
 
@@ -3209,6 +3211,7 @@ private struct PersistedState: Codable {
         case theme
         case externalDisplayBackgroundMode
         case isSoundEnabled
+        case soundAssignments
         case didCompleteSetup
         case setupPresets
     }
@@ -3269,6 +3272,7 @@ private struct PersistedState: Codable {
         theme: ScoreboardTheme,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
         isSoundEnabled: Bool,
+        soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect],
         didCompleteSetup: Bool,
         setupPresets: [SetupPreset]
     ) {
@@ -3327,6 +3331,7 @@ private struct PersistedState: Codable {
         self.theme = theme
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
         self.isSoundEnabled = isSoundEnabled
+        self.soundAssignments = soundAssignments
         self.didCompleteSetup = didCompleteSetup
         self.setupPresets = setupPresets
     }
@@ -3394,6 +3399,7 @@ private struct PersistedState: Codable {
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
+        soundAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) ?? ScoreboardStore.defaultSoundAssignments
         didCompleteSetup = try container.decode(Bool.self, forKey: .didCompleteSetup)
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
     }
@@ -3455,6 +3461,7 @@ private struct PersistedState: Codable {
         try container.encode(theme, forKey: .theme)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
+        try container.encode(soundAssignments, forKey: .soundAssignments)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
         try container.encode(setupPresets, forKey: .setupPresets)
     }

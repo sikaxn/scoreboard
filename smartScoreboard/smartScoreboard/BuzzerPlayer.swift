@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-enum ScoreboardSoundEvent: String, CaseIterable, Identifiable {
+enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case general
     case gameClockExpired
     case shotClockExpired
@@ -70,7 +70,7 @@ enum ScoreboardSoundEvent: String, CaseIterable, Identifiable {
     }
 }
 
-enum ScoreboardSoundEffect: Hashable {
+enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case classicBuzzer
     case arenaHorn
     case whistle
@@ -80,6 +80,54 @@ enum ScoreboardSoundEffect: Hashable {
     case debateDoubleBell
     case shotClockBeep
     case penaltyChirp
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .classicBuzzer:
+            return "Classic Buzzer"
+        case .arenaHorn:
+            return "Arena Horn"
+        case .whistle:
+            return "Whistle"
+        case .hockeySiren:
+            return "Hockey Siren"
+        case .softChime:
+            return "Soft Chime"
+        case .debateBell:
+            return "Debate Bell"
+        case .debateDoubleBell:
+            return "Double Bell"
+        case .shotClockBeep:
+            return "Shot Beep"
+        case .penaltyChirp:
+            return "Penalty Chirp"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .classicBuzzer:
+            return "Long traditional scoreboard tone"
+        case .arenaHorn:
+            return "Deep arena-style horn"
+        case .whistle:
+            return "Sharp referee whistle"
+        case .hockeySiren:
+            return "Rising rink siren"
+        case .softChime:
+            return "Short gentle clock chime"
+        case .debateBell:
+            return "Single speech timer bell"
+        case .debateDoubleBell:
+            return "Two prep-time bells"
+        case .shotClockBeep:
+            return "Fast high double beep"
+        case .penaltyChirp:
+            return "Short penalty alert"
+        }
+    }
 }
 
 final class BuzzerPlayer {

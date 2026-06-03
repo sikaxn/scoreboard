@@ -1166,7 +1166,9 @@ struct ContentView: View {
     }
 
     private func settingsSoundPane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        let events = store.assignableSoundEventsForCurrentSport
+
+        return VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Global Sound", footer: "Sound is global app state and is not saved in game files.") {
                 settingsToggleRow(title: "Sound", isOn: Binding(
                     get: { store.isSoundEnabled },
@@ -1176,11 +1178,25 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Live Board", value: store.isSoundEnabled ? "Sound On" : "Sound Off")
             }
 
-            settingsSection(title: "Test Sounds", footer: "Available tests follow the current sport and timer types.") {
-                ForEach(Array(store.soundTestEventsForCurrentSport.enumerated()), id: \.element.id) { index, event in
-                    settingsSoundTestRow(event)
+            settingsSection(title: "Timer Sounds", footer: "Assign one available sound to each timer type for the current sport.") {
+                if events.isEmpty {
+                    settingsSummaryValueRow(title: "Current Sport", value: "No expiring timer sound")
+                } else {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        settingsSoundAssignmentRow(event)
 
-                    if index < store.soundTestEventsForCurrentSport.count - 1 {
+                        if index < events.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+            }
+
+            settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
+                ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
+                    settingsSoundLibraryRow(effect)
+
+                    if index < ScoreboardSoundEffect.allCases.count - 1 {
                         settingsDivider()
                     }
                 }
@@ -1188,10 +1204,10 @@ struct ContentView: View {
         }
     }
 
-    private func settingsSoundTestRow(_ event: ScoreboardSoundEvent) -> some View {
-        Button {
-            store.playTestSound(event)
-        } label: {
+    private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent) -> some View {
+        let selectedEffect = store.selectedSoundEffect(for: event)
+
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
                 Image(systemName: event.systemImage)
                     .font(.headline.weight(.semibold))
@@ -1210,6 +1226,60 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
+                Picker("Sound", selection: Binding(
+                    get: { store.selectedSoundEffect(for: event) },
+                    set: { store.setSoundEffect($0, for: event) }
+                )) {
+                    ForEach(ScoreboardSoundEffect.allCases) { effect in
+                        Text(effect.title).tag(effect)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 210)
+
+                Button {
+                    store.playTestSound(event)
+                } label: {
+                    Label("Test", systemImage: "play.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(store.isSoundEnabled ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(
+                            store.isSoundEnabled ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!store.isSoundEnabled)
+                .opacity(store.isSoundEnabled ? 1 : 0.42)
+            }
+
+            Text(selectedEffect.subtitle)
+                .font(.footnote)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func settingsSoundLibraryRow(_ effect: ScoreboardSoundEffect) -> some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(effect.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(effect.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                store.playTestEffect(effect)
+            } label: {
                 Label("Test", systemImage: "play.fill")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(store.isSoundEnabled ? settingsPalette.accentText : settingsPalette.secondaryText)
@@ -1220,12 +1290,11 @@ struct ContentView: View {
                         in: Capsule()
                     )
             }
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!store.isSoundEnabled)
+            .opacity(store.isSoundEnabled ? 1 : 0.42)
         }
-        .buttonStyle(.plain)
-        .disabled(!store.isSoundEnabled)
-        .opacity(store.isSoundEnabled ? 1 : 0.42)
+        .padding(.vertical, 12)
     }
 
     private func settingsFilesPane() -> some View {
