@@ -1307,6 +1307,21 @@ struct ContentView: View {
                     systemImage: "hand.raised",
                     urlString: "https://studenttechsupport.com/privacy"
                 )
+                settingsDivider()
+                settingsLinkRow(
+                    title: "Bug Reports",
+                    subtitle: "Open a GitHub issue",
+                    systemImage: "exclamationmark.bubble",
+                    urlString: "https://github.com/sikaxn/scoreboard/issues/new"
+                )
+            }
+
+            settingsSection(title: "Bug Reports") {
+                Text("To report a bug, open a GitHub issue in the scoreboard repository and include the sport, device, OS version, and steps to reproduce.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
             }
 
             settingsSection(title: "Privacy") {
@@ -3057,6 +3072,8 @@ struct ContentView: View {
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.4)
                 .foregroundStyle(tint)
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.82), value: score)
         }
         .frame(maxWidth: .infinity)
     }

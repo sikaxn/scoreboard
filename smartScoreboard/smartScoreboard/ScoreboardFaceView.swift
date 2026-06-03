@@ -327,12 +327,15 @@ struct ScoreboardFaceView: View {
                         Text("#\(player.number.isEmpty ? "--" : player.number)")
                             .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.027 : base * 0.024, weight: .black, design: .rounded))
                             .foregroundStyle(accent)
-                            .frame(width: ultraCondensed ? 34 : 44, alignment: .leading)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: ultraCondensed ? 48 : 60, alignment: .leading)
 
                         Text(player.name.isEmpty ? "PLAYER" : player.name)
                             .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
                             .singleLineFitted(minScale: 0.55)
                             .foregroundStyle(playerStatusColor(player))
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         Spacer(minLength: 0)
 
@@ -821,14 +824,15 @@ struct ScoreboardFaceView: View {
                     Text("#\(player.number.isEmpty ? "--" : player.number)")
                         .font(.system(size: ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017, weight: .black, design: .rounded))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.85)
                         .foregroundStyle(accent)
-                        .frame(width: ultraCondensed ? 40 : condensed ? 48 : 44, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: ultraCondensed ? 50 : condensed ? 58 : 54, alignment: .leading)
 
                     Text(player.name.isEmpty ? "PLAYER" : player.name)
                         .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
                         .singleLineFitted(minScale: 0.55)
                         .foregroundStyle(playerStatusColor(player))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
