@@ -41,21 +41,21 @@ struct ContentView: View {
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
+    @State private var renameGameFileNameDraft = ""
+    @State private var selectedGameFileIDs: Set<String> = []
+    @State private var isSelectingGameFiles = false
     @State private var storedLogSessions: [StoredLogSession] = []
     @State private var selectedStoredLogSessionID: String?
+    @State private var selectedLogSessionIDs: Set<String> = []
+    @State private var isSelectingLogSessions = false
     @State private var showsGameImporter = false
-    @State private var showsGameExporter = false
-    @State private var showsLogExporter = false
-    @State private var exportDocument = ScoreboardGameDocument(snapshot: .empty)
-    @State private var exportFilename = "Scoreboard Game.scoreboardgame"
-    @State private var logExportDocument = ScoreboardLogExportDocument()
-    @State private var logExportFilename = "Scoreboard Log.json"
-    @State private var logExportContentType: UTType = .scoreboardLogSession
+    @State private var exportSharePayload: ExportSharePayload?
     @State private var fileOperationError: FileOperationAlert?
     @State private var dashboardPage: DashboardPage = .main
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingLogDeletion: StoredLogSession?
     @State private var pendingPenaltySelection: PendingPenaltySelection?
+    @State private var logPlaybackOrder: LogPlaybackOrder = .topToBottom
     @State private var isLoadingSetupDrafts = false
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
@@ -113,6 +113,12 @@ struct ContentView: View {
     private var isResetInterlockActive: Bool { store.isResetInterlockActive }
     private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
     private let logManager = ScoreboardLogManager.shared
+    #if os(iOS)
+    private var iOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json, .data] }
+    #endif
+    #if os(macOS)
+    private var macOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json] }
+    #endif
 
     var body: some View {
         alertConfiguredRootView
@@ -238,6 +244,7 @@ struct ContentView: View {
         .onChange(of: setupCustomSportConfig) { _, _ in handleSetupDraftChanged() }
         .onChange(of: selectedStoredGameFileID) { _, _ in
             syncCurrentLogGameFile()
+            renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
         }
         .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
             handlePlayerTrackingEnabledChange(isEnabled)
@@ -272,32 +279,24 @@ struct ContentView: View {
         }
     }
 
+    #if os(iOS)
     private var filePresentationConfiguredRootView: some View {
         lifecycleConfiguredRootView
         .fileImporter(
             isPresented: $showsGameImporter,
-            allowedContentTypes: [.scoreboardGame],
+            allowedContentTypes: iOSGameImportContentTypes,
             allowsMultipleSelection: false
         ) { result in
             importGameIntoLibrary(result)
         }
-        .fileExporter(
-            isPresented: $showsGameExporter,
-            document: exportDocument,
-            contentType: .scoreboardGame,
-            defaultFilename: exportFilename
-        ) { result in
-            handleGameExport(result)
-        }
-        .fileExporter(
-            isPresented: $showsLogExporter,
-            document: logExportDocument,
-            contentType: logExportContentType,
-            defaultFilename: logExportFilename
-        ) { result in
-            handleLogExport(result)
-        }
+        .scoreboardShareExporter(payload: $exportSharePayload)
     }
+    #else
+    private var filePresentationConfiguredRootView: some View {
+        lifecycleConfiguredRootView
+            .scoreboardShareExporter(payload: $exportSharePayload)
+    }
+    #endif
 
     private var alertConfiguredRootView: some View {
         filePresentationConfiguredRootView
@@ -462,28 +461,43 @@ struct ContentView: View {
     }
 
     private func settingsDetailPane(layout: InterfaceLayout) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(selectedSettingsPane.title)
-                            .font(.system(size: 30, weight: .black, design: .rounded))
-                            .foregroundStyle(settingsPalette.primaryText)
-
-                        Text(selectedSettingsPane.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(settingsPalette.secondaryText)
-                    }
-
-                    Spacer(minLength: 0)
+        Group {
+            if selectedSettingsPane.usesFileManagerLayout {
+                VStack(alignment: .leading, spacing: 24) {
+                    settingsPaneHeader
+                    settingsPaneContent(layout: layout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-
-                settingsPaneContent(layout: layout)
+                .padding(28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        settingsPaneHeader
+                        settingsPaneContent(layout: layout)
+                    }
+                    .padding(28)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
             }
-            .padding(28)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(settingsPalette.detailBackground)
+    }
+
+    private var settingsPaneHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(selectedSettingsPane.title)
+                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(selectedSettingsPane.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+        }
     }
 
     private func isSettingsPaneEnabled(_ pane: SettingsPane) -> Bool {
@@ -509,9 +523,9 @@ struct ContentView: View {
         case .theme:
             settingsThemePane()
         case .files:
-            settingsFilesPane()
+            settingsFilesPane(layout: layout)
         case .logs:
-            settingsLogsPane()
+            settingsLogsPane(layout: layout)
         case .about:
             settingsAboutPane()
         }
@@ -1201,6 +1215,12 @@ struct ContentView: View {
                     }
                 }
             }
+
+            settingsSection(title: "Reset", footer: "Restores Sound On and every event assignment to the default sound setup across all sports and modes.") {
+                settingsButtonRow(title: "Sound Defaults", buttonTitle: "Reset", tint: themePalette.destructiveTint, foreground: .white) {
+                    requestGameConfirmation(.resetSoundSettings)
+                }
+            }
         }
     }
 
@@ -1297,84 +1317,39 @@ struct ContentView: View {
         .padding(.vertical, 12)
     }
 
-    private func settingsFilesPane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Game Files", footer: "Use game files for both reusable setups and live games. Save the current setup as a new file, then load, import, export, or delete from the same library.") {
-                settingsTextEntryRow(title: "New Game File", text: $gameFileNameDraft, placeholder: "Weekend League")
-                settingsDivider()
-                settingsButtonRow(title: "Save Current Setup", buttonTitle: "Save as New File", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                    createStoredGameFromDraft()
-                }
-
-                settingsDivider()
-                settingsLibraryToolbar
-                settingsDivider()
-                settingsGameFileList
+    private func settingsFilesPane(layout: InterfaceLayout) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            settingsFileManagerPanel(title: "Game Files") {
+                settingsGameFileManagerToolbar
+            } content: {
+                settingsGameFileManagerList
             }
+            .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
 
-            settingsSection(title: "Current Game") {
-                settingsSummaryValueRow(title: "Working File", value: selectedStoredGameFile?.displayName ?? "Auto-created")
-                settingsDivider()
-                settingsSummaryValueRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Sport", value: setupSport.title)
-                if setupRules.supportsPeriod {
-                    settingsDivider()
-                    settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
-                }
-                settingsDivider()
-                settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
-                if setupRules.usesChessClocks {
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
-                }
-                if setupRules.supportsShotClock {
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
-                }
-                settingsDivider()
-                settingsSummaryValueRow(title: "Player Tracking", value: store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")
-                settingsDivider()
-                settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
-                settingsDivider()
-                settingsSummaryValueRow(title: "Home Subs", value: "\(store.homeSubstitutionsUsed)/\(store.homeSubstitutionsAllowed)")
-                settingsDivider()
-                settingsSummaryValueRow(title: "Guest Subs", value: "\(store.guestSubstitutionsUsed)/\(store.guestSubstitutionsAllowed)")
+            settingsFileManagerPanel(title: "Details") {
+                settingsSelectedGameFileToolbar
+            } content: {
+                settingsGameFileDetailPane
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    private func settingsLogsPane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Log Sessions", footer: "Each app launch writes to its own audit session. Export or delete the selected session below.") {
-                settingsLogToolbar
-                settingsDivider()
-                settingsLogSessionList
+    private func settingsLogsPane(layout: InterfaceLayout) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            settingsFileManagerPanel(title: "Sessions") {
+                settingsLogSessionManagerToolbar
+            } content: {
+                settingsLogSessionManagerList
             }
+            .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
 
-            settingsSection(title: "Playback") {
-                if let selectedStoredLogSession {
-                    settingsSummaryValueRow(title: "Session Start", value: selectedStoredLogSession.startedAt.formatted(date: .abbreviated, time: .shortened))
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Last Update", value: selectedStoredLogSession.lastUpdatedAt.formatted(date: .abbreviated, time: .shortened))
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Event Count", value: "\(selectedStoredLogSession.eventCount)")
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Sports", value: selectedStoredLogSession.sportsLine)
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Game Files", value: selectedStoredLogSession.gameFilesLine)
-                    settingsDivider()
-                    settingsLogPlaybackList(selectedStoredLogSession)
-                } else {
-                    Text("Select a log session to inspect exported actions and captured game context.")
-                        .font(.subheadline)
-                        .foregroundStyle(settingsPalette.secondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 12)
-                }
+            settingsFileManagerPanel(title: "Playback") {
+                settingsLogPlaybackToolbar
+            } content: {
+                settingsLogPlaybackDetailPane
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -1502,116 +1477,647 @@ struct ContentView: View {
         }
     }
 
-    private var settingsLibraryToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                settingsIconButton("Import", systemImage: "square.and.arrow.down.on.square", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                    showsGameImporter = true
+    private func settingsFileManagerPanel<Toolbar: View, Content: View>(
+        title: String,
+        @ViewBuilder toolbar: () -> Toolbar,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .textCase(.uppercase)
+
+                Spacer(minLength: 0)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    toolbar()
+                }
+                .frame(maxWidth: 220, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            settingsDivider()
+
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(settingsPalette.cardBorder)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func settingsToolbarIconButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color? = nil,
+        foreground: Color? = nil,
+        isEnabled: Bool = true,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(isEnabled ? (foreground ?? settingsPalette.primaryText) : settingsPalette.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(tint ?? settingsPalette.fieldBackground, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.42)
+        .accessibilityLabel(title)
+        .help(title)
+    }
+
+    private func settingsToolbarIconMenu<Content: View>(
+        _ title: String,
+        systemImage: String,
+        isEnabled: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Menu {
+            content()
+        } label: {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(isEnabled ? settingsPalette.primaryText : settingsPalette.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(settingsPalette.fieldBackground, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.42)
+        .accessibilityLabel(title)
+        .help(title)
+    }
+
+    private var settingsGameFileManagerToolbar: some View {
+        HStack(spacing: 8) {
+            settingsToolbarIconButton("Duplicate Current Setup", systemImage: "doc.on.doc", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                createStoredGameFromDraft()
+            }
+
+            settingsToolbarIconButton("Import", systemImage: "square.and.arrow.down") {
+                beginGameImport()
+            }
+
+            settingsToolbarIconButton(isSelectingGameFiles ? "Done" : "Select", systemImage: isSelectingGameFiles ? "checkmark.circle.fill" : "checkmark.circle") {
+                toggleGameFileSelectionMode()
+            }
+
+            if isSelectingGameFiles {
+                settingsToolbarIconButton("Select All", systemImage: "checkmark.circle.fill", isEnabled: !storedGameFiles.isEmpty) {
+                    selectedGameFileIDs = Set(storedGameFiles.map(\.id))
                 }
 
-                settingsIconButton(
-                    "Export",
-                    systemImage: "square.and.arrow.up",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText,
-                    isEnabled: selectedStoredGameFile != nil
-                ) {
-                    exportSelectedStoredGame()
-                }
-
-                settingsIconButton(
-                    "Delete",
+                settingsToolbarIconButton(
+                    "Delete Selected",
                     systemImage: "trash",
                     tint: themePalette.destructiveTint,
                     foreground: .white,
-                    isEnabled: selectedStoredGameFile != nil
+                    isEnabled: !selectedGameFileIDs.isEmpty,
+                    role: .destructive
                 ) {
-                    deleteSelectedStoredGame()
+                    deleteSelectedStoredGames()
                 }
             }
-            .padding(.vertical, 4)
         }
     }
 
-    private var settingsGameFileList: some View {
+    private var settingsSelectedGameFileToolbar: some View {
+        HStack(spacing: 8) {
+            settingsToolbarIconButton("Open", systemImage: "folder", isEnabled: selectedStoredGameFile != nil) {
+                openSelectedStoredGame()
+            }
+
+            settingsToolbarIconButton("Rename", systemImage: "checkmark", tint: settingsPalette.accent, foreground: settingsPalette.accentText, isEnabled: canRenameSelectedGameFile) {
+                renameSelectedStoredGame()
+            }
+
+            #if os(macOS)
+            settingsToolbarIconMenu("Export", systemImage: "square.and.arrow.up", isEnabled: selectedStoredGameFile != nil) {
+                Button {
+                    exportSelectedStoredGame(destination: .file)
+                } label: {
+                    Label("Save to File", systemImage: "folder")
+                }
+
+                Button {
+                    exportSelectedStoredGame(destination: .share)
+                } label: {
+                    Label("System Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            #else
+            settingsToolbarIconButton("Export", systemImage: "square.and.arrow.up", isEnabled: selectedStoredGameFile != nil) {
+                exportSelectedStoredGame(destination: .share)
+            }
+            #endif
+
+            settingsToolbarIconButton(
+                "Delete",
+                systemImage: "trash",
+                tint: themePalette.destructiveTint,
+                foreground: .white,
+                isEnabled: selectedStoredGameFile != nil,
+                role: .destructive
+            ) {
+                deleteSelectedStoredGame()
+            }
+        }
+    }
+
+    private var settingsGameFileManagerList: some View {
         Group {
             if storedGameFiles.isEmpty {
-                Text("No local game files yet. Create one from the current draft or import an existing file.")
-                    .font(.subheadline)
-                    .foregroundStyle(settingsPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 12)
+                settingsEmptyFileManagerMessage("No local game files yet. Create one from the current setup or import an existing file.")
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(storedGameFiles.enumerated()), id: \.element.id) { index, gameFile in
-                        settingsGameFileRow(gameFile)
+                List {
+                    ForEach(storedGameFiles) { gameFile in
+                        settingsGameFileManagerRow(gameFile)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(gameFileRowBackground(gameFile))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteStoredGame(gameFile)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button {
+                                    loadStoredGameFile(gameFile)
+                                } label: {
+                                    Label("Open", systemImage: "folder")
+                                }
 
-                        if index < storedGameFiles.count - 1 {
-                            settingsDivider()
-                        }
+                                Button {
+                                    selectedStoredGameFileID = gameFile.id
+                                    renameGameFileNameDraft = gameFile.displayName
+                                } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
+
+                                #if os(macOS)
+                                Menu {
+                                    Button {
+                                        selectedStoredGameFileID = gameFile.id
+                                        exportSelectedStoredGame(destination: .file)
+                                    } label: {
+                                        Label("Save to File", systemImage: "folder")
+                                    }
+
+                                    Button {
+                                        selectedStoredGameFileID = gameFile.id
+                                        exportSelectedStoredGame(destination: .share)
+                                    } label: {
+                                        Label("System Share", systemImage: "square.and.arrow.up")
+                                    }
+                                } label: {
+                                    Label("Export", systemImage: "square.and.arrow.up")
+                                }
+                                #else
+                                Button {
+                                    selectedStoredGameFileID = gameFile.id
+                                    exportSelectedStoredGame(destination: .share)
+                                } label: {
+                                    Label("Export", systemImage: "square.and.arrow.up")
+                                }
+                                #endif
+
+                                Button(role: .destructive) {
+                                    deleteStoredGame(gameFile)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+            }
+        }
+        .frame(minHeight: 360)
+    }
+
+    private func settingsGameFileManagerRow(_ gameFile: StoredGameFile) -> some View {
+        Button {
+            handleGameFileRowTap(gameFile)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: gameFileLeadingSystemImage(gameFile))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(gameFileLeadingTint(gameFile))
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(gameFile.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                        .lineLimit(1)
+
+                    Text(gameFile.matchupLine)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(1)
+
+                    Text(gameFile.detailLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText.opacity(0.82))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if !isSelectingGameFiles, selectedStoredGameFileID == gameFile.id {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var settingsGameFileDetailPane: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if let selectedStoredGameFile {
+                    settingsGameFileRenameRow
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "File", value: selectedStoredGameFile.url.lastPathComponent)
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Modified", value: selectedStoredGameFile.modifiedAt.formatted(date: .abbreviated, time: .shortened))
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "Matchup", value: selectedStoredGameFile.matchupLine)
+                    settingsDivider()
+                    settingsSummaryValueRow(title: "State", value: selectedStoredGameFile.stateLine)
+                    settingsDivider()
+                }
+
+                settingsCurrentGameSummaryRows
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var settingsCurrentGameSummaryRows: some View {
+        VStack(spacing: 0) {
+            settingsSummaryValueRow(title: "Working File", value: selectedStoredGameFile?.displayName ?? "Auto-created")
+            settingsDivider()
+            settingsSummaryValueRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
+            settingsDivider()
+            settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
+            settingsDivider()
+            settingsSummaryValueRow(title: "Sport", value: setupSport.title)
+            if setupRules.supportsPeriod {
+                settingsDivider()
+                settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
+            }
+            settingsDivider()
+            settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
+            if setupRules.usesChessClocks {
+                settingsDivider()
+                settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
+            }
+            if setupRules.supportsShotClock {
+                settingsDivider()
+                settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
+            }
+            settingsDivider()
+            settingsSummaryValueRow(title: "Player Tracking", value: store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")
+            settingsDivider()
+            settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
+        }
+    }
+
+    private var settingsLogSessionManagerToolbar: some View {
+        HStack(spacing: 8) {
+            settingsToolbarIconButton(isSelectingLogSessions ? "Done" : "Select", systemImage: isSelectingLogSessions ? "checkmark.circle.fill" : "checkmark.circle") {
+                toggleLogSessionSelectionMode()
+            }
+
+            if isSelectingLogSessions {
+                settingsToolbarIconButton("Select All", systemImage: "checkmark.circle.fill", isEnabled: !storedLogSessions.isEmpty) {
+                    selectedLogSessionIDs = Set(storedLogSessions.map(\.id))
+                }
+
+                settingsToolbarIconButton(
+                    "Delete Selected",
+                    systemImage: "trash",
+                    tint: themePalette.destructiveTint,
+                    foreground: .white,
+                    isEnabled: !selectedLogSessionIDs.isEmpty,
+                    role: .destructive
+                ) {
+                    deleteSelectedLogSessions()
                 }
             }
         }
     }
 
-    private var settingsLogToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                settingsIconButton(
-                    "Export JSON",
-                    systemImage: "doc.badge.arrow.up",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText,
-                    isEnabled: selectedStoredLogSession != nil
-                ) {
-                    prepareLogExport(as: .scoreboardLogSession)
+    private var settingsLogPlaybackToolbar: some View {
+        HStack(spacing: 8) {
+            settingsToolbarIconMenu("Export", systemImage: "square.and.arrow.up", isEnabled: selectedStoredLogSession != nil) {
+                #if os(macOS)
+                Menu {
+                    Button {
+                        prepareLogExport(as: .json, destination: .file)
+                    } label: {
+                        Label("Save to File", systemImage: "folder")
+                    }
+
+                    Button {
+                        prepareLogExport(as: .json, destination: .share)
+                    } label: {
+                        Label("System Share", systemImage: "square.and.arrow.up")
+                    }
+                } label: {
+                    Label("JSON", systemImage: "doc")
                 }
 
-                settingsIconButton(
-                    "Export CSV",
-                    systemImage: "tablecells.badge.ellipsis",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText,
-                    isEnabled: selectedStoredLogSession != nil
-                ) {
-                    prepareLogExport(as: .commaSeparatedText)
+                Menu {
+                    Button {
+                        prepareLogExport(as: .commaSeparatedText, destination: .file)
+                    } label: {
+                        Label("Save to File", systemImage: "folder")
+                    }
+
+                    Button {
+                        prepareLogExport(as: .commaSeparatedText, destination: .share)
+                    } label: {
+                        Label("System Share", systemImage: "square.and.arrow.up")
+                    }
+                } label: {
+                    Label("CSV", systemImage: "tablecells")
+                }
+                #else
+                Button {
+                    prepareLogExport(as: .json, destination: .share)
+                } label: {
+                    Label("JSON", systemImage: "doc")
                 }
 
-                settingsIconButton(
-                    "Delete",
-                    systemImage: "trash",
-                    tint: themePalette.destructiveTint,
-                    foreground: .white,
-                    isEnabled: selectedStoredLogSession != nil
-                ) {
+                Button {
+                    prepareLogExport(as: .commaSeparatedText, destination: .share)
+                } label: {
+                    Label("CSV", systemImage: "tablecells")
+                }
+                #endif
+            }
+
+            settingsToolbarIconButton(
+                "Delete",
+                systemImage: "trash",
+                tint: themePalette.destructiveTint,
+                foreground: .white,
+                isEnabled: selectedStoredLogSession != nil,
+                role: .destructive
+            ) {
+                if let selectedStoredLogSession {
                     pendingLogDeletion = selectedStoredLogSession
                 }
             }
-            .padding(.vertical, 4)
         }
     }
 
-    private var settingsLogSessionList: some View {
+    private var settingsLogSessionManagerList: some View {
         Group {
             if storedLogSessions.isEmpty {
-                Text("No log sessions yet. Start operating the scoreboard to create the first per-run log.")
-                    .font(.subheadline)
-                    .foregroundStyle(settingsPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 12)
+                settingsEmptyFileManagerMessage("No log sessions yet. Start operating the scoreboard to create the first per-run log.")
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(storedLogSessions.enumerated()), id: \.element.id) { index, session in
-                        settingsLogSessionRow(session)
+                List {
+                    ForEach(storedLogSessions) { session in
+                        settingsLogSessionManagerRow(session)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(logSessionRowBackground(session))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    pendingLogDeletion = session
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button {
+                                    selectedStoredLogSessionID = session.id
+                                } label: {
+                                    Label("Open", systemImage: "folder")
+                                }
 
-                        if index < storedLogSessions.count - 1 {
-                            settingsDivider()
-                        }
+                                #if os(macOS)
+                                Menu {
+                                    Button {
+                                        selectedStoredLogSessionID = session.id
+                                        prepareLogExport(as: .json, destination: .file)
+                                    } label: {
+                                        Label("Save to File", systemImage: "folder")
+                                    }
+
+                                    Button {
+                                        selectedStoredLogSessionID = session.id
+                                        prepareLogExport(as: .json, destination: .share)
+                                    } label: {
+                                        Label("System Share", systemImage: "square.and.arrow.up")
+                                    }
+                                } label: {
+                                    Label("Export JSON", systemImage: "doc")
+                                }
+
+                                Menu {
+                                    Button {
+                                        selectedStoredLogSessionID = session.id
+                                        prepareLogExport(as: .commaSeparatedText, destination: .file)
+                                    } label: {
+                                        Label("Save to File", systemImage: "folder")
+                                    }
+
+                                    Button {
+                                        selectedStoredLogSessionID = session.id
+                                        prepareLogExport(as: .commaSeparatedText, destination: .share)
+                                    } label: {
+                                        Label("System Share", systemImage: "square.and.arrow.up")
+                                    }
+                                } label: {
+                                    Label("Export CSV", systemImage: "tablecells")
+                                }
+                                #else
+                                Button {
+                                    selectedStoredLogSessionID = session.id
+                                    prepareLogExport(as: .json, destination: .share)
+                                } label: {
+                                    Label("Export JSON", systemImage: "doc")
+                                }
+
+                                Button {
+                                    selectedStoredLogSessionID = session.id
+                                    prepareLogExport(as: .commaSeparatedText, destination: .share)
+                                } label: {
+                                    Label("Export CSV", systemImage: "tablecells")
+                                }
+                                #endif
+
+                                Button(role: .destructive) {
+                                    pendingLogDeletion = session
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
             }
         }
+        .frame(minHeight: 360)
+    }
+
+    private func settingsLogSessionManagerRow(_ session: StoredLogSession) -> some View {
+        Button {
+            handleLogSessionRowTap(session)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: logSessionLeadingSystemImage(session))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(logSessionLeadingTint(session))
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                        .lineLimit(1)
+
+                    Text(session.summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(1)
+
+                    Text(session.gameFilesLine)
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText.opacity(0.82))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if !isSelectingLogSessions, selectedStoredLogSessionID == session.id {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var settingsLogPlaybackDetailPane: some View {
+        Group {
+            if let selectedStoredLogSession {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        settingsLogPlaybackControls
+                        settingsDivider()
+                        settingsSummaryValueRow(title: "Session Start", value: selectedStoredLogSession.startedAt.formatted(date: .abbreviated, time: .shortened))
+                        settingsDivider()
+                        settingsSummaryValueRow(title: "Last Update", value: selectedStoredLogSession.lastUpdatedAt.formatted(date: .abbreviated, time: .shortened))
+                        settingsDivider()
+                        settingsSummaryValueRow(title: "Event Count", value: "\(selectedStoredLogSession.eventCount)")
+                        settingsDivider()
+                        settingsSummaryValueRow(title: "Sports", value: selectedStoredLogSession.sportsLine)
+                        settingsDivider()
+                        settingsSummaryValueRow(title: "Game Files", value: selectedStoredLogSession.gameFilesLine)
+                        settingsDivider()
+                        settingsLogPlaybackList(selectedStoredLogSession)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                }
+            } else {
+                settingsEmptyFileManagerMessage("Select a log session to inspect exported actions and captured game context.")
+            }
+        }
+    }
+
+    private func settingsEmptyFileManagerMessage(_ message: String) -> some View {
+        Text(message)
+            .font(.subheadline)
+            .foregroundStyle(settingsPalette.secondaryText)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(18)
+    }
+
+    private var settingsGameFileRenameRow: some View {
+        HStack(spacing: 12) {
+            Text("Selected Name")
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            TextField("Game File", text: $renameGameFileNameDraft)
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: 280)
+                .onSubmit {
+                    renameSelectedStoredGame()
+                }
+
+            Button {
+                renameSelectedStoredGame()
+            } label: {
+                Image(systemName: "checkmark")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(canRenameSelectedGameFile ? settingsPalette.accentText : settingsPalette.secondaryText)
+                    .frame(width: 38, height: 38)
+                    .background(
+                        canRenameSelectedGameFile ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        in: Circle()
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!canRenameSelectedGameFile)
+            .opacity(canRenameSelectedGameFile ? 1 : 0.42)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var settingsLogPlaybackControls: some View {
+        HStack(spacing: 16) {
+            Text("View")
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            Picker("Log View", selection: $logPlaybackOrder) {
+                ForEach(LogPlaybackOrder.allCases) { order in
+                    Text(order.title).tag(order)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
+        }
+        .padding(.vertical, 10)
     }
 
     private func settingsSection<Content: View>(
@@ -2067,14 +2573,11 @@ struct ContentView: View {
 
             if store.supportsCards {
                 HStack(spacing: 10) {
-                    smallSettingsActionButton("Clear", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .clearPlayerState(side, player.id)
+                    smallSettingsActionButton("Yellow", tint: player.cardStatus == .yellow ? .yellow.opacity(0.85) : .yellow.opacity(0.42), foreground: .black) {
+                        store.setCardStatus(toggledCardStatus(.yellow, current: player.cardStatus), for: side, playerID: player.id)
                     }
-                    smallSettingsActionButton("Yellow", tint: .yellow.opacity(0.85), foreground: .black) {
-                        store.setCardStatus(.yellow, for: side, playerID: player.id)
-                    }
-                    smallSettingsActionButton("Red", tint: .red.opacity(0.9), foreground: .white) {
-                        store.setCardStatus(.red, for: side, playerID: player.id)
+                    smallSettingsActionButton("Red", tint: player.cardStatus == .red ? .red.opacity(0.9) : .red.opacity(0.42), foreground: .white) {
+                        store.setCardStatus(toggledCardStatus(.red, current: player.cardStatus), for: side, playerID: player.id)
                     }
                 }
             }
@@ -2175,93 +2678,9 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsGameFileRow(_ gameFile: StoredGameFile) -> some View {
-        Button {
-            loadStoredGameFile(gameFile)
-        } label: {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(gameFile.displayName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(settingsPalette.primaryText)
-
-                    Text(gameFile.matchupLine)
-                        .font(.subheadline)
-                        .foregroundStyle(settingsPalette.secondaryText)
-
-                    Text(gameFile.stateLine)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(settingsPalette.secondaryText)
-
-                    Text(gameFile.detailLine)
-                        .font(.caption)
-                        .foregroundStyle(settingsPalette.secondaryText.opacity(0.8))
-                }
-
-                Spacer(minLength: 0)
-
-                if selectedStoredGameFileID == gameFile.id {
-                    Text("Selected")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(settingsPalette.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(settingsPalette.accent.opacity(0.12), in: Capsule())
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(settingsPalette.secondaryText)
-            }
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func settingsLogSessionRow(_ session: StoredLogSession) -> some View {
-        Button {
-            selectedStoredLogSessionID = session.id
-        } label: {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.displayName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(settingsPalette.primaryText)
-
-                    Text(session.summaryLine)
-                        .font(.caption)
-                        .foregroundStyle(settingsPalette.secondaryText)
-
-                    Text(session.sportsLine)
-                        .font(.caption)
-                        .foregroundStyle(settingsPalette.secondaryText)
-
-                    Text(session.gameFilesLine)
-                        .font(.caption)
-                        .foregroundStyle(settingsPalette.secondaryText)
-                }
-
-                Spacer(minLength: 0)
-
-                if selectedStoredLogSessionID == session.id {
-                    Text("Selected")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(settingsPalette.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(settingsPalette.accent.opacity(0.12), in: Capsule())
-                }
-            }
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func settingsLogPlaybackList(_ session: StoredLogSession) -> some View {
         VStack(spacing: 10) {
-            ForEach(session.session.entries) { entry in
+            ForEach(orderedLogEntries(for: session)) { entry in
                 settingsLogEntryRow(entry)
             }
         }
@@ -3590,18 +4009,13 @@ struct ContentView: View {
                     .padding(.vertical, 8)
                     .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
 
-                smallActionButton("Clr", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding, isEnabled: !isResetInterlockActive) {
-                    pendingGameConfirmation = .clearPlayerState(side, player.id)
-                }
-                .frame(width: 46)
-
-                smallActionButton("Y", tint: .yellow.opacity(0.88), foreground: .black, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.setCardStatus(.yellow, for: side, playerID: player.id)
+                smallActionButton("Y", tint: player.cardStatus == .yellow ? .yellow.opacity(0.88) : .yellow.opacity(0.42), foreground: .black, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.setCardStatus(toggledCardStatus(.yellow, current: player.cardStatus), for: side, playerID: player.id)
                 }
                 .frame(width: 40)
 
-                smallActionButton("R", tint: .red.opacity(0.9), foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.setCardStatus(.red, for: side, playerID: player.id)
+                smallActionButton("R", tint: player.cardStatus == .red ? .red.opacity(0.9) : .red.opacity(0.42), foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                    store.setCardStatus(toggledCardStatus(.red, current: player.cardStatus), for: side, playerID: player.id)
                 }
                 .frame(width: 40)
             }
@@ -4524,6 +4938,10 @@ struct ContentView: View {
         }
     }
 
+    private func toggledCardStatus(_ target: PlayerCardStatus, current: PlayerCardStatus) -> PlayerCardStatus {
+        current == target ? .none : target
+    }
+
     private func resetSetupDraftsToDefaults() {
         homeTeamDraft = ""
         guestTeamDraft = ""
@@ -4657,15 +5075,11 @@ struct ContentView: View {
     }
 
     private func prepareDraftExport() {
-        exportDocument = ScoreboardGameDocument(snapshot: makeDraftSnapshot())
-        exportFilename = suggestedGameFilename(homeTeamDraft, guestTeamDraft)
-        showsGameExporter = true
+        presentGameExport(snapshot: makeDraftSnapshot(), defaultFilename: suggestedGameFilename(homeTeamDraft, guestTeamDraft))
     }
 
     private func prepareLiveGameExport() {
-        exportDocument = ScoreboardGameDocument(snapshot: store.currentGameSnapshot())
-        exportFilename = suggestedGameFilename(store.homeTeamName, store.guestTeamName)
-        showsGameExporter = true
+        presentGameExport(snapshot: store.currentGameSnapshot(), defaultFilename: suggestedGameFilename(store.homeTeamName, store.guestTeamName))
     }
 
     private func createStoredGameFromDraft() {
@@ -4702,7 +5116,7 @@ struct ContentView: View {
                 }
             }
 
-            let data = try Data(contentsOf: sourceURL)
+            let data = try readImportedFileData(from: sourceURL)
             let snapshot = try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: data)
             let destinationURL = try uniqueStoredGameFileURL(preferredFilename: sourceURL.lastPathComponent)
 
@@ -4723,16 +5137,125 @@ struct ContentView: View {
         }
     }
 
-    private func exportSelectedStoredGame() {
+    private func beginGameImport() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSGameImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK else {
+                return
+            }
+
+            importGameIntoLibrary(.success(panel.urls))
+        }
+        #else
+        showsGameImporter = true
+        #endif
+    }
+
+    private func readImportedFileData(from url: URL) throws -> Data {
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        var coordinatedReadResult: Result<Data, Error>?
+
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            coordinatedReadResult = Result {
+                try Data(contentsOf: coordinatedURL)
+            }
+        }
+
+        if let coordinatedReadResult {
+            return try coordinatedReadResult.get()
+        }
+
+        do {
+            return try Data(contentsOf: url)
+        } catch {
+            throw coordinationError ?? error
+        }
+    }
+
+    private func presentGameExport(
+        snapshot: ScoreboardGameSnapshot,
+        defaultFilename: String,
+        destination: ExportDestination = .share
+    ) {
+        do {
+            let data = try JSONEncoder().encode(snapshot)
+            presentExport(data: data, contentType: .scoreboardGame, defaultFilename: defaultFilename, destination: destination)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func presentLogExport(
+        data: Data,
+        contentType: UTType,
+        defaultFilename: String,
+        destination: ExportDestination
+    ) {
+        presentExport(data: data, contentType: contentType, defaultFilename: defaultFilename, destination: destination)
+    }
+
+    private func presentExport(
+        data: Data,
+        contentType: UTType,
+        defaultFilename: String,
+        destination: ExportDestination
+    ) {
+        switch destination {
+        case .share:
+            presentShareExport(data: data, defaultFilename: defaultFilename)
+        case .file:
+            #if os(macOS)
+            presentMacOSSavePanel(data: data, contentType: contentType, defaultFilename: defaultFilename)
+            #else
+            presentShareExport(data: data, defaultFilename: defaultFilename)
+            #endif
+        }
+    }
+
+    private func presentShareExport(data: Data, defaultFilename: String) {
+        do {
+            let url = try temporaryExportURL(defaultFilename: defaultFilename)
+            try data.write(to: url, options: .atomic)
+            exportSharePayload = ExportSharePayload(url: url)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    #if os(macOS)
+    private func presentMacOSSavePanel(data: Data, contentType: UTType, defaultFilename: String) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [contentType]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = defaultFilename
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else {
+                return
+            }
+
+            do {
+                try data.write(to: destinationURL, options: .atomic)
+            } catch {
+                presentFileOperationError(error)
+            }
+        }
+    }
+    #endif
+
+    private func exportSelectedStoredGame(destination: ExportDestination = .share) {
         do {
             guard let selectedURL = selectedStoredGameFile?.url else {
                 return
             }
 
             let snapshot = try loadGameSnapshot(from: selectedURL)
-            exportDocument = ScoreboardGameDocument(snapshot: snapshot)
-            exportFilename = selectedURL.lastPathComponent
-            showsGameExporter = true
+            presentGameExport(snapshot: snapshot, defaultFilename: selectedURL.lastPathComponent, destination: destination)
             recordFileLog(
                 kind: .fileExport,
                 summary: "Export game file",
@@ -4744,19 +5267,88 @@ struct ContentView: View {
         }
     }
 
-    private func deleteSelectedStoredGame() {
-        do {
-            guard let selectedURL = selectedStoredGameFile?.url else {
-                return
-            }
+    private func openSelectedStoredGame() {
+        guard let selectedStoredGameFile else {
+            return
+        }
 
-            try FileManager.default.removeItem(at: selectedURL)
+        loadStoredGameFile(selectedStoredGameFile)
+    }
+
+    private func deleteSelectedStoredGame() {
+        guard let selectedStoredGameFile else {
+            return
+        }
+
+        deleteStoredGame(selectedStoredGameFile)
+    }
+
+    private func deleteStoredGame(_ gameFile: StoredGameFile) {
+        do {
+            try FileManager.default.removeItem(at: gameFile.url)
+            selectedGameFileIDs.remove(gameFile.id)
             refreshStoredGameFiles()
             recordFileLog(
                 kind: .fileDelete,
                 summary: "Delete game file",
                 outcome: .applied,
-                fileURL: selectedURL
+                fileURL: gameFile.url
+            )
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func deleteSelectedStoredGames() {
+        let filesToDelete = storedGameFiles.filter { selectedGameFileIDs.contains($0.id) }
+        guard !filesToDelete.isEmpty else {
+            return
+        }
+
+        do {
+            for gameFile in filesToDelete {
+                try FileManager.default.removeItem(at: gameFile.url)
+                recordFileLog(
+                    kind: .fileDelete,
+                    summary: "Delete game file",
+                    outcome: .applied,
+                    fileURL: gameFile.url
+                )
+            }
+
+            selectedGameFileIDs.removeAll()
+            isSelectingGameFiles = false
+            refreshStoredGameFiles()
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func renameSelectedStoredGame() {
+        do {
+            guard let selectedURL = selectedStoredGameFile?.url else {
+                return
+            }
+
+            let destinationURL = try uniqueStoredGameFileURL(
+                preferredFilename: renameGameFileNameDraft,
+                excluding: selectedURL
+            )
+
+            guard destinationURL.path != selectedURL.path else {
+                renameGameFileNameDraft = selectedURL.deletingPathExtension().lastPathComponent
+                return
+            }
+
+            try FileManager.default.moveItem(at: selectedURL, to: destinationURL)
+            refreshStoredGameFiles(selectedURL: destinationURL)
+            syncCurrentLogGameFile()
+            recordFileLog(
+                kind: .fileRename,
+                summary: "Rename game file",
+                outcome: .applied,
+                fileURL: destinationURL,
+                notes: selectedURL.lastPathComponent
             )
         } catch {
             presentFileOperationError(error)
@@ -4815,42 +5407,48 @@ struct ContentView: View {
             } else {
                 selectedStoredGameFileID = storedGameFiles.first?.id
             }
+
+            renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
+            selectedGameFileIDs.formIntersection(Set(storedGameFiles.map(\.id)))
+            if storedGameFiles.isEmpty {
+                isSelectingGameFiles = false
+            }
         } catch {
             storedGameFiles = []
             selectedStoredGameFileID = nil
+            renameGameFileNameDraft = ""
+            selectedGameFileIDs.removeAll()
+            isSelectingGameFiles = false
             presentFileOperationError(error)
         }
     }
 
-    private func handleGameExport(_ result: Result<URL, Error>) {
-        if case .failure(let error) = result {
-            presentFileOperationError(error)
-        }
-    }
-
-    private func handleLogExport(_ result: Result<URL, Error>) {
-        if case .failure(let error) = result {
-            presentFileOperationError(error)
-        }
-    }
-
-    private func refreshStoredLogSessions() {
+    private func refreshStoredLogSessions(selectedURL: URL? = nil) {
         do {
             storedLogSessions = try logManager.listSessions()
 
-            if let selectedStoredLogSessionID, storedLogSessions.contains(where: { $0.id == selectedStoredLogSessionID }) {
+            if let selectedURL {
+                selectedStoredLogSessionID = selectedURL.path
+            } else if let selectedStoredLogSessionID, storedLogSessions.contains(where: { $0.id == selectedStoredLogSessionID }) {
                 self.selectedStoredLogSessionID = selectedStoredLogSessionID
             } else {
                 selectedStoredLogSessionID = storedLogSessions.first?.id
             }
+
+            selectedLogSessionIDs.formIntersection(Set(storedLogSessions.map(\.id)))
+            if storedLogSessions.isEmpty {
+                isSelectingLogSessions = false
+            }
         } catch {
             storedLogSessions = []
             selectedStoredLogSessionID = nil
+            selectedLogSessionIDs.removeAll()
+            isSelectingLogSessions = false
             presentFileOperationError(error)
         }
     }
 
-    private func prepareLogExport(as contentType: UTType) {
+    private func prepareLogExport(as contentType: UTType, destination: ExportDestination = .share) {
         do {
             guard let session = selectedStoredLogSession else {
                 return
@@ -4864,15 +5462,17 @@ struct ContentView: View {
                 fileExtension = "csv"
             } else {
                 data = try logManager.exportJSONData(for: session.session)
-                fileExtension = "json"
+                fileExtension = contentType == .scoreboardLogSession ? "scoreboardlog" : "json"
             }
 
-            logExportDocument = ScoreboardLogExportDocument(data: data)
-            logExportContentType = contentType
             let timestamp = session.startedAt.ISO8601Format()
                 .replacingOccurrences(of: ":", with: "-")
-            logExportFilename = "Scoreboard Log \(timestamp).\(fileExtension)"
-            showsLogExporter = true
+            presentLogExport(
+                data: data,
+                contentType: contentType,
+                defaultFilename: "Scoreboard Log \(timestamp).\(fileExtension)",
+                destination: destination
+            )
         } catch {
             presentFileOperationError(error)
         }
@@ -4881,6 +5481,26 @@ struct ContentView: View {
     private func deleteLogSession(_ session: StoredLogSession) {
         do {
             try logManager.deleteSession(at: session.url)
+            selectedLogSessionIDs.remove(session.id)
+            refreshStoredLogSessions()
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func deleteSelectedLogSessions() {
+        let sessionsToDelete = storedLogSessions.filter { selectedLogSessionIDs.contains($0.id) }
+        guard !sessionsToDelete.isEmpty else {
+            return
+        }
+
+        do {
+            for session in sessionsToDelete {
+                try logManager.deleteSession(at: session.url)
+            }
+
+            selectedLogSessionIDs.removeAll()
+            isSelectingLogSessions = false
             refreshStoredLogSessions()
         } catch {
             presentFileOperationError(error)
@@ -4985,6 +5605,33 @@ struct ContentView: View {
         name.isEmpty ? "TBD" : name
     }
 
+    private func temporaryExportURL(defaultFilename: String) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent("ScoreboardExports", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        let sanitizedFilename = sanitizeExportFilename(defaultFilename)
+        let baseName = (sanitizedFilename as NSString).deletingPathExtension
+        let pathExtension = (sanitizedFilename as NSString).pathExtension
+        let filename = pathExtension.isEmpty ? baseName : "\(baseName).\(pathExtension)"
+        var candidateURL = directoryURL.appendingPathComponent(filename)
+        var suffix = 2
+
+        while FileManager.default.fileExists(atPath: candidateURL.path) {
+            let suffixedFilename = pathExtension.isEmpty ? "\(baseName) \(suffix)" : "\(baseName) \(suffix).\(pathExtension)"
+            candidateURL = directoryURL.appendingPathComponent(suffixedFilename)
+            suffix += 1
+        }
+
+        return candidateURL
+    }
+
+    private func sanitizeExportFilename(_ filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "Scoreboard Export" : trimmed
+        let invalidCharacters = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+        return String(fallback.unicodeScalars.map { invalidCharacters.contains($0) ? "-" : String($0) }.joined())
+    }
+
     private func logEntryContextLine(_ entry: ScoreboardLogEntry) -> String {
         var segments: [String] = []
         segments.append(entry.context.customSportTitle ?? entry.context.sport.title)
@@ -5080,12 +5727,126 @@ struct ContentView: View {
         return storedGameFiles.first { $0.id == selectedStoredGameFileID }
     }
 
+    private var canRenameSelectedGameFile: Bool {
+        guard let selectedStoredGameFile else {
+            return false
+        }
+
+        let trimmedName = renameGameFileNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedName.isEmpty && trimmedName != selectedStoredGameFile.displayName
+    }
+
+    private func toggleGameFileSelectionMode() {
+        isSelectingGameFiles.toggle()
+        if !isSelectingGameFiles {
+            selectedGameFileIDs.removeAll()
+        }
+    }
+
+    private func handleGameFileRowTap(_ gameFile: StoredGameFile) {
+        if isSelectingGameFiles {
+            toggleGameFileSelection(gameFile)
+        } else {
+            loadStoredGameFile(gameFile)
+        }
+    }
+
+    private func toggleGameFileSelection(_ gameFile: StoredGameFile) {
+        if selectedGameFileIDs.contains(gameFile.id) {
+            selectedGameFileIDs.remove(gameFile.id)
+        } else {
+            selectedGameFileIDs.insert(gameFile.id)
+        }
+    }
+
+    private func gameFileLeadingSystemImage(_ gameFile: StoredGameFile) -> String {
+        if isSelectingGameFiles {
+            return selectedGameFileIDs.contains(gameFile.id) ? "checkmark.circle.fill" : "circle"
+        }
+
+        return "doc.text"
+    }
+
+    private func gameFileLeadingTint(_ gameFile: StoredGameFile) -> Color {
+        if isSelectingGameFiles {
+            return selectedGameFileIDs.contains(gameFile.id) ? settingsPalette.accent : settingsPalette.secondaryText
+        }
+
+        return selectedStoredGameFileID == gameFile.id ? settingsPalette.accent : settingsPalette.secondaryText
+    }
+
+    private func gameFileRowBackground(_ gameFile: StoredGameFile) -> some View {
+        let isHighlighted = isSelectingGameFiles
+            ? selectedGameFileIDs.contains(gameFile.id)
+            : selectedStoredGameFileID == gameFile.id
+
+        return RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(isHighlighted ? settingsPalette.accent.opacity(0.12) : Color.clear)
+    }
+
     private var selectedStoredLogSession: StoredLogSession? {
         guard let selectedStoredLogSessionID else {
             return nil
         }
 
         return storedLogSessions.first { $0.id == selectedStoredLogSessionID }
+    }
+
+    private func toggleLogSessionSelectionMode() {
+        isSelectingLogSessions.toggle()
+        if !isSelectingLogSessions {
+            selectedLogSessionIDs.removeAll()
+        }
+    }
+
+    private func handleLogSessionRowTap(_ session: StoredLogSession) {
+        if isSelectingLogSessions {
+            toggleLogSessionSelection(session)
+        } else {
+            selectedStoredLogSessionID = session.id
+        }
+    }
+
+    private func toggleLogSessionSelection(_ session: StoredLogSession) {
+        if selectedLogSessionIDs.contains(session.id) {
+            selectedLogSessionIDs.remove(session.id)
+        } else {
+            selectedLogSessionIDs.insert(session.id)
+        }
+    }
+
+    private func logSessionLeadingSystemImage(_ session: StoredLogSession) -> String {
+        if isSelectingLogSessions {
+            return selectedLogSessionIDs.contains(session.id) ? "checkmark.circle.fill" : "circle"
+        }
+
+        return "doc.text.magnifyingglass"
+    }
+
+    private func logSessionLeadingTint(_ session: StoredLogSession) -> Color {
+        if isSelectingLogSessions {
+            return selectedLogSessionIDs.contains(session.id) ? settingsPalette.accent : settingsPalette.secondaryText
+        }
+
+        return selectedStoredLogSessionID == session.id ? settingsPalette.accent : settingsPalette.secondaryText
+    }
+
+    private func logSessionRowBackground(_ session: StoredLogSession) -> some View {
+        let isHighlighted = isSelectingLogSessions
+            ? selectedLogSessionIDs.contains(session.id)
+            : selectedStoredLogSessionID == session.id
+
+        return RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(isHighlighted ? settingsPalette.accent.opacity(0.12) : Color.clear)
+    }
+
+    private func orderedLogEntries(for session: StoredLogSession) -> [ScoreboardLogEntry] {
+        switch logPlaybackOrder {
+        case .topToBottom:
+            return session.session.entries
+        case .bottomToTop:
+            return Array(session.session.entries.reversed())
+        }
     }
 
     private func applySetupSportDefaults(_ sport: SportType) {
@@ -5125,7 +5886,7 @@ struct ContentView: View {
         return directoryURL
     }
 
-    private func uniqueStoredGameFileURL(preferredFilename: String) throws -> URL {
+    private func uniqueStoredGameFileURL(preferredFilename: String, excluding excludedURL: URL? = nil) throws -> URL {
         let directoryURL = try storedGameFilesDirectory()
         let fileManager = FileManager.default
         let sanitizedBaseName = sanitizeGameFilename(preferredFilename)
@@ -5136,6 +5897,10 @@ struct ContentView: View {
         var suffix = 2
 
         while fileManager.fileExists(atPath: candidateURL.path) {
+            if let excludedURL, candidateURL.standardizedFileURL == excludedURL.standardizedFileURL {
+                break
+            }
+
             candidateURL = directoryURL.appendingPathComponent("\(baseName) \(suffix)").appendingPathExtension(pathExtension)
             suffix += 1
         }
@@ -5690,6 +6455,8 @@ struct ContentView: View {
             return "Confirm \(store.sideRoleLabel(for: side)) Player Clear"
         case .clearPenalty(let side, _):
             return "Confirm \(store.sideRoleLabel(for: side)) Penalty Clear"
+        case .resetSoundSettings:
+            return "Confirm Sound Reset"
         }
     }
 
@@ -5727,6 +6494,8 @@ struct ContentView: View {
             return "Clear this \(store.sideRoleLabel(for: side)) player's card state and foul count?"
         case .clearPenalty(let side, _):
             return "Clear this \(store.sideRoleLabel(for: side)) penalty timer?"
+        case .resetSoundSettings:
+            return "Reset Sound On and all event sound assignments to their defaults across every sport and mode?"
         }
     }
 
@@ -5758,6 +6527,8 @@ struct ContentView: View {
             return "Clear Player"
         case .clearPenalty:
             return "Clear Penalty"
+        case .resetSoundSettings:
+            return "Reset Sound"
         }
     }
 
@@ -5813,6 +6584,8 @@ struct ContentView: View {
             }
         case .clearPenalty(let side, let timerID):
             store.removePenaltyTimer(for: side, timerID: timerID)
+        case .resetSoundSettings:
+            store.resetSoundSettingsToDefaults()
         }
     }
 }
@@ -5887,6 +6660,11 @@ private struct StoredGameFile: Identifiable {
         let boundedSeconds = max(0, min(99, totalSeconds))
         return String(format: "%.1f", Double(boundedSeconds))
     }
+}
+
+private struct ExportSharePayload: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 private struct FileOperationAlert: Identifiable {
@@ -5985,6 +6763,31 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "info.circle"
         }
     }
+
+    var usesFileManagerLayout: Bool {
+        self == .files || self == .logs
+    }
+}
+
+private enum LogPlaybackOrder: String, CaseIterable, Identifiable {
+    case topToBottom
+    case bottomToTop
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .topToBottom:
+            return "Top to Bottom"
+        case .bottomToTop:
+            return "Bottom to Top"
+        }
+    }
+}
+
+private enum ExportDestination {
+    case file
+    case share
 }
 
 private enum ButtonStyleVariant: Equatable {
@@ -6015,6 +6818,7 @@ private enum GameConfirmationAction: Identifiable {
     case resetSideCards(TeamSide)
     case clearPlayerState(TeamSide, UUID)
     case clearPenalty(TeamSide, UUID)
+    case resetSoundSettings
 
     var id: String {
         switch self {
@@ -6050,6 +6854,8 @@ private enum GameConfirmationAction: Identifiable {
             return "clearPlayerState-\(side.rawValue)-\(playerID.uuidString)"
         case .clearPenalty(let side, let timerID):
             return "clearPenalty-\(side.rawValue)-\(timerID.uuidString)"
+        case .resetSoundSettings:
+            return "resetSoundSettings"
         }
     }
 
@@ -6149,6 +6955,11 @@ private struct InterfaceLayout {
     var previewPanelPadding: CGFloat { denseControls ? 16 : isCompactWidth ? 18 : 24 }
     var previewHeaderUsesVerticalFlow: Bool { isCompactWidth }
     var previewUsesCompactBoard: Bool { width < 1280 || height < 780 }
+    var settingsFileManagerPrimaryColumnWidth: CGFloat {
+        if width < 860 { return 240 }
+        if width < 1180 { return 300 }
+        return 360
+    }
 }
 
 private extension View {
@@ -6217,6 +7028,19 @@ private extension View {
     }
 
     @ViewBuilder
+    func scoreboardShareExporter(payload: Binding<ExportSharePayload?>) -> some View {
+        #if os(iOS)
+        sheet(item: payload) { payload in
+            ScoreboardActivityView(activityItems: [payload.url])
+        }
+        #elseif os(macOS)
+        background(ScoreboardSharingPickerPresenter(payload: payload))
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
     func monospacedDigitIfNeeded(_ enabled: Bool) -> some View {
         if enabled {
             monospacedDigit()
@@ -6225,6 +7049,57 @@ private extension View {
         }
     }
 }
+
+#if os(iOS)
+private struct ScoreboardActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+#endif
+
+#if os(macOS)
+private struct ScoreboardSharingPickerPresenter: NSViewRepresentable {
+    @Binding var payload: ExportSharePayload?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let payload, context.coordinator.presentedID != payload.id else {
+            return
+        }
+
+        context.coordinator.presentedID = payload.id
+        DispatchQueue.main.async {
+            let anchorView = nsView.window?.contentView ?? nsView
+            let anchorBounds = anchorView.bounds
+            let anchorRect = NSRect(
+                x: anchorBounds.midX,
+                y: anchorBounds.midY,
+                width: 1,
+                height: 1
+            )
+            let picker = NSSharingServicePicker(items: [payload.url])
+            picker.show(relativeTo: anchorRect, of: anchorView, preferredEdge: .minY)
+            self.payload = nil
+        }
+    }
+
+    final class Coordinator {
+        var presentedID: UUID?
+    }
+}
+#endif
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {

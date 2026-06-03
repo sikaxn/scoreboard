@@ -1018,6 +1018,12 @@ final class ScoreboardStore: ObservableObject {
         soundAssignments[event] = effect
     }
 
+    func resetSoundSettingsToDefaults() {
+        stopTestSound()
+        isSoundEnabled = true
+        soundAssignments = Self.defaultSoundAssignments
+    }
+
     func playTestSound(_ event: ScoreboardSoundEvent) {
         toggleTestSound(selectedSoundEffect(for: event))
     }

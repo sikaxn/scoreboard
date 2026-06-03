@@ -69,6 +69,7 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case fileCreate
     case fileImport
     case fileLoad
+    case fileRename
     case fileExport
     case fileDelete
 
@@ -174,6 +175,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Game File Import"
         case .fileLoad:
             return "Game File Load"
+        case .fileRename:
+            return "Game File Rename"
         case .fileExport:
             return "Game File Export"
         case .fileDelete:
