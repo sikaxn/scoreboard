@@ -111,6 +111,7 @@ struct ContentView: View {
     }
     private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
     private var isResetInterlockActive: Bool { store.isResetInterlockActive }
+    private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
     private let logManager = ScoreboardLogManager.shared
 
     var body: some View {
@@ -300,32 +301,41 @@ struct ContentView: View {
 
     private var alertConfiguredRootView: some View {
         filePresentationConfiguredRootView
-        .alert(item: $fileOperationError) { error in
-            Alert(
-                title: Text("File Error"),
-                message: Text(error.message),
-                dismissButton: .cancel(Text("OK"))
-            )
-        }
-        .alert(item: $pendingGameConfirmation) { action in
-            Alert(
-                title: Text(gameConfirmationTitle(for: action)),
-                message: Text(gameConfirmationMessage(for: action)),
-                primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
-                    performConfirmedGameAction(action)
-                },
-                secondaryButton: .cancel()
-            )
-        }
-        .alert(item: $pendingLogDeletion) { session in
-            Alert(
-                title: Text("Delete Log Session"),
-                message: Text(logDeletionMessage(for: session)),
-                primaryButton: .destructive(Text("Delete")) {
-                    deleteLogSession(session)
-                },
-                secondaryButton: .cancel()
-            )
+        .alert(item: activeAlertBinding) { alert in
+            switch alert {
+            case .fileOperation(let error):
+                return Alert(
+                    title: Text("File Error"),
+                    message: Text(error.message),
+                    dismissButton: .cancel(Text("OK")) {
+                        fileOperationError = nil
+                    }
+                )
+            case .gameConfirmation(let action):
+                return Alert(
+                    title: Text(gameConfirmationTitle(for: action)),
+                    message: Text(gameConfirmationMessage(for: action)),
+                    primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
+                        pendingGameConfirmation = nil
+                        performConfirmedGameAction(action)
+                    },
+                    secondaryButton: .cancel {
+                        pendingGameConfirmation = nil
+                    }
+                )
+            case .logDeletion(let session):
+                return Alert(
+                    title: Text("Delete Log Session"),
+                    message: Text(logDeletionMessage(for: session)),
+                    primaryButton: .destructive(Text("Delete")) {
+                        pendingLogDeletion = nil
+                        deleteLogSession(session)
+                    },
+                    secondaryButton: .cancel {
+                        pendingLogDeletion = nil
+                    }
+                )
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
             refreshStoredLogSessions()
@@ -399,20 +409,6 @@ struct ContentView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 10) {
-                Button {
-                    store.playTestBuzzer()
-                } label: {
-                    Text("Sound Test")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(settingsPalette.accentText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(settingsPalette.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(!store.isSoundEnabled)
-                .opacity(store.isSoundEnabled ? 1 : 0.42)
-
                 Button {
                     openSetupGame()
                 } label: {
@@ -508,6 +504,8 @@ struct ContentView: View {
             settingsPlayersPane(layout: layout)
         case .display:
             settingsDisplayPane()
+        case .sound:
+            settingsSoundPane()
         case .theme:
             settingsThemePane()
         case .files:
@@ -1165,6 +1163,69 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func settingsSoundPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Global Sound", footer: "Sound is global app state and is not saved in game files.") {
+                settingsToggleRow(title: "Sound", isOn: Binding(
+                    get: { store.isSoundEnabled },
+                    set: { store.setSoundEnabled($0) }
+                ))
+                settingsDivider()
+                settingsSummaryValueRow(title: "Live Board", value: store.isSoundEnabled ? "Sound On" : "Sound Off")
+            }
+
+            settingsSection(title: "Test Sounds", footer: "Available tests follow the current sport and timer types.") {
+                ForEach(Array(store.soundTestEventsForCurrentSport.enumerated()), id: \.element.id) { index, event in
+                    settingsSoundTestRow(event)
+
+                    if index < store.soundTestEventsForCurrentSport.count - 1 {
+                        settingsDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    private func settingsSoundTestRow(_ event: ScoreboardSoundEvent) -> some View {
+        Button {
+            store.playTestSound(event)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: event.systemImage)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(settingsPalette.accent)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(event.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(event.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+
+                Spacer(minLength: 0)
+
+                Label("Test", systemImage: "play.fill")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(store.isSoundEnabled ? settingsPalette.accentText : settingsPalette.secondaryText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(
+                        store.isSoundEnabled ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        in: Capsule()
+                    )
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!store.isSoundEnabled)
+        .opacity(store.isSoundEnabled ? 1 : 0.42)
     }
 
     private func settingsFilesPane() -> some View {
@@ -3122,6 +3183,18 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
+            if store.usesChessClocks && !store.isDebateMode {
+                let side: TeamSide = isHome ? .home : .guest
+                smallActionButton(
+                    "Turn Here",
+                    tint: store.activeChessClockSide == side ? tint.opacity(0.78) : tint,
+                    foreground: .white,
+                    verticalPadding: layout.advancedButtonVerticalPadding
+                ) {
+                    store.setActiveChessClockSide(side)
+                }
+            }
+
             if store.isDebateMode, store.currentDebateSegment?.timerMode == .dualClock {
                 let side: TeamSide = isHome ? .home : .guest
                 smallActionButton(
@@ -3563,8 +3636,8 @@ struct ContentView: View {
             buttonGrid(
                 columns: store.supportsPeriod ? 3 : 1,
                 buttons: store.supportsPeriod ? [
-                    ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white) {
-                        pendingGameConfirmation = .previousPeriod
+                    ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        requestGameConfirmation(.previousPeriod)
                     },
                     ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
@@ -3584,15 +3657,15 @@ struct ContentView: View {
             buttonGrid(
                 columns: store.showsGameClock ? 2 : 1,
                 buttons: store.showsGameClock ? [
-                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .resetClock
+                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        requestGameConfirmation(.resetClock)
                     },
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .zeroScores
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        requestGameConfirmation(.zeroScores)
                     }
                 ] : [
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .zeroScores
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        requestGameConfirmation(.zeroScores)
                     }
                 ],
                 style: .compact,
@@ -3652,12 +3725,12 @@ struct ContentView: View {
                 dense: layout.denseControls
             )
 
-            if store.currentRules.supportsPeriod || store.currentRules.supportsScore {
+            if store.supportsPeriod {
                 buttonGrid(
                     columns: 3,
                     buttons: [
-                        ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white) {
-                            pendingGameConfirmation = .previousPeriod
+                        ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                            requestGameConfirmation(.previousPeriod)
                         },
                         ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                             store.swapSides()
@@ -3669,12 +3742,14 @@ struct ContentView: View {
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
+            }
 
+            if store.supportsScore {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
-                            pendingGameConfirmation = .zeroScores
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                            requestGameConfirmation(.zeroScores)
                         }
                     ],
                     style: .compact,
@@ -3899,7 +3974,7 @@ struct ContentView: View {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
                             pendingGameConfirmation = .zeroScores
                         }
                     ],
@@ -5469,6 +5544,43 @@ struct ContentView: View {
         #endif
     }
 
+    private var activeAlertBinding: Binding<ActiveAlert?> {
+        Binding(
+            get: {
+                if let error = fileOperationError {
+                    return .fileOperation(error)
+                }
+                if let action = pendingGameConfirmation {
+                    return .gameConfirmation(action)
+                }
+                if let session = pendingLogDeletion {
+                    return .logDeletion(session)
+                }
+                return nil
+            },
+            set: { newValue in
+                switch newValue {
+                case .none:
+                    fileOperationError = nil
+                    pendingGameConfirmation = nil
+                    pendingLogDeletion = nil
+                case .some(.fileOperation(let error)):
+                    fileOperationError = error
+                    pendingGameConfirmation = nil
+                    pendingLogDeletion = nil
+                case .some(.gameConfirmation(let action)):
+                    fileOperationError = nil
+                    pendingGameConfirmation = action
+                    pendingLogDeletion = nil
+                case .some(.logDeletion(let session)):
+                    fileOperationError = nil
+                    pendingGameConfirmation = nil
+                    pendingLogDeletion = session
+                }
+            }
+        )
+    }
+
     private func updateIdleTimer(for phase: ScenePhase) {
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = phase == .active
@@ -5580,11 +5692,18 @@ struct ContentView: View {
         }
     }
 
-    private func performConfirmedGameAction(_ action: GameConfirmationAction) {
-        guard !action.isResetInterlocked || !isResetInterlockActive else {
-            return
+    private func requestGameConfirmation(_ action: GameConfirmationAction) {
+        if pendingGameConfirmation?.id == action.id {
+            pendingGameConfirmation = nil
+            DispatchQueue.main.async {
+                pendingGameConfirmation = action
+            }
+        } else {
+            pendingGameConfirmation = action
         }
+    }
 
+    private func performConfirmedGameAction(_ action: GameConfirmationAction) {
         switch action {
         case .previousPeriod:
             store.adjustPeriod(by: -1)
@@ -5706,10 +5825,28 @@ private struct FileOperationAlert: Identifiable {
     let message: String
 }
 
+private enum ActiveAlert: Identifiable {
+    case fileOperation(FileOperationAlert)
+    case gameConfirmation(GameConfirmationAction)
+    case logDeletion(StoredLogSession)
+
+    var id: String {
+        switch self {
+        case .fileOperation(let error):
+            return "file-\(error.id.uuidString)"
+        case .gameConfirmation(let action):
+            return "game-\(action.id)"
+        case .logDeletion(let session):
+            return "log-\(session.id)"
+        }
+    }
+}
+
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
     case players
     case display
+    case sound
     case theme
     case files
     case logs
@@ -5725,6 +5862,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Players"
         case .display:
             return "Display"
+        case .sound:
+            return "Sound"
         case .theme:
             return "Theme"
         case .files:
@@ -5744,6 +5883,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Configure roster size, player identities, active lineup, and foul tracking."
         case .display:
             return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
+        case .sound:
+            return "Control global audio and preview sport-specific timer sounds."
         case .theme:
             return "Choose the look for both the operator controls and public scoreboard."
         case .files:
@@ -5763,6 +5904,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "person.3"
         case .display:
             return "tv"
+        case .sound:
+            return "speaker.wave.2"
         case .theme:
             return "paintpalette"
         case .files:
@@ -5841,16 +5984,6 @@ private enum GameConfirmationAction: Identifiable {
         }
     }
 
-    var isResetInterlocked: Bool {
-        switch self {
-        case .previousPeriod:
-            return false
-        case .resetShotClock:
-            return false
-        default:
-            return true
-        }
-    }
 }
 
 private struct InterfaceLayout {

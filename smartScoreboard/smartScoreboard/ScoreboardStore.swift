@@ -509,6 +509,36 @@ final class ScoreboardStore: ObservableObject {
         return selectedSport.rules(customConfig: customSportConfig)
     }
 
+    var soundTestEventsForCurrentSport: [ScoreboardSoundEvent] {
+        var events: [ScoreboardSoundEvent] = [.general]
+
+        if isDebateMode {
+            if let timerMode = currentDebateSegment?.timerMode, timerMode != .none {
+                events.append(.debateSegmentExpired)
+            }
+            if isDebatePrepTimeEnabled {
+                events.append(.debatePrepExpired)
+            }
+            return events
+        }
+
+        if usesChessClocks {
+            events.append(.chessClockExpired)
+        } else if currentRules.mainClockMode != .disabled {
+            events.append(.gameClockExpired)
+        }
+
+        if supportsShotClock {
+            events.append(.shotClockExpired)
+        }
+
+        if supportsHockeyPenalties {
+            events.append(.hockeyPenaltyExpired)
+        }
+
+        return events
+    }
+
     func substitutionsAllowed(for side: TeamSide) -> Int {
         side == .home ? homeSubstitutionsAllowed : guestSubstitutionsAllowed
     }
@@ -842,20 +872,20 @@ final class ScoreboardStore: ObservableObject {
         )
     }
 
-    func toggleSoundEnabled() {
-        isSoundEnabled.toggle()
+    func setSoundEnabled(_ isEnabled: Bool) {
+        isSoundEnabled = isEnabled
 
         if !isSoundEnabled {
             buzzerPlayer.stop()
         }
     }
 
-    func playTestBuzzer() {
-        guard isSoundEnabled else {
-            return
-        }
+    func toggleSoundEnabled() {
+        setSoundEnabled(!isSoundEnabled)
+    }
 
-        buzzerPlayer.play()
+    func playTestSound(_ event: ScoreboardSoundEvent) {
+        playSound(event)
     }
 
     func toggleShotClock() {
@@ -2419,7 +2449,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func tick(elapsed: TimeInterval) {
-        var shouldPlayBuzzer = false
+        var soundEvents: [ScoreboardSoundEvent] = []
 
         if isClockRunning {
             accumulatedGameClockElapsed += elapsed
@@ -2434,14 +2464,14 @@ final class ScoreboardStore: ObservableObject {
                         if homeChessClockSeconds == 0 {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            shouldPlayBuzzer = true
+                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
                         }
                     case .guest:
                         guestChessClockSeconds = max(0, guestChessClockSeconds - elapsedWholeSeconds)
                         if guestChessClockSeconds == 0 {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            shouldPlayBuzzer = true
+                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
                         }
                     case .none:
                         isClockRunning = false
@@ -2454,7 +2484,7 @@ final class ScoreboardStore: ObservableObject {
                         if gameClockSeconds == 0 {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            shouldPlayBuzzer = true
+                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .gameClockExpired)
                             recordLog(
                                 kind: .clockExpired,
                                 summary: "Game clock expired",
@@ -2492,7 +2522,7 @@ final class ScoreboardStore: ObservableObject {
                 if shotClockMilliseconds == 0 {
                     isShotClockRunning = false
                     accumulatedShotClockElapsed = 0
-                    shouldPlayBuzzer = true
+                    soundEvents.append(.shotClockExpired)
                     recordLog(
                         kind: .shotClockExpired,
                         summary: "Shot clock expired",
@@ -2515,7 +2545,7 @@ final class ScoreboardStore: ObservableObject {
                             timers[index].remainingSeconds = max(0, timers[index].remainingSeconds - elapsedPenaltySeconds)
                             if timers[index].remainingSeconds == 0 {
                                 timers[index].isRunning = false
-                                shouldPlayBuzzer = true
+                                soundEvents.append(.hockeyPenaltyExpired)
                             }
                         }
                     }
@@ -2533,13 +2563,13 @@ final class ScoreboardStore: ObservableObject {
                     debatePrepHomeSeconds = max(0, debatePrepHomeSeconds - elapsedPrepSeconds)
                     if debatePrepHomeSeconds == 0 {
                         isDebatePrepClockRunning = false
-                        shouldPlayBuzzer = true
+                        soundEvents.append(.debatePrepExpired)
                     }
                 case .prepGuest:
                     debatePrepGuestSeconds = max(0, debatePrepGuestSeconds - elapsedPrepSeconds)
                     if debatePrepGuestSeconds == 0 {
                         isDebatePrepClockRunning = false
-                        shouldPlayBuzzer = true
+                        soundEvents.append(.debatePrepExpired)
                     }
                 case .segment:
                     isDebatePrepClockRunning = false
@@ -2549,8 +2579,8 @@ final class ScoreboardStore: ObservableObject {
 
         updateTimerState()
 
-        if shouldPlayBuzzer {
-            playBuzzer()
+        if let soundEvent = highestPrioritySoundEvent(from: soundEvents) {
+            playSound(soundEvent)
         }
     }
 
@@ -2630,12 +2660,66 @@ final class ScoreboardStore: ObservableObject {
         return "\(playerText) \(Self.formatGameClock(timer.remainingSeconds)) \(timer.isRunning ? "RUN" : "STOP")"
     }
 
-    private func playBuzzer() {
+    private func playSound(_ event: ScoreboardSoundEvent) {
         guard isSoundEnabled else {
             return
         }
 
-        buzzerPlayer.play()
+        buzzerPlayer.play(resolvedSoundEffect(for: event))
+    }
+
+    private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
+        switch event {
+        case .general:
+            return .classicBuzzer
+        case .gameClockExpired:
+            return resolvedGameClockSoundEffect()
+        case .shotClockExpired:
+            return .shotClockBeep
+        case .chessClockExpired:
+            return .softChime
+        case .debateSegmentExpired:
+            return .debateBell
+        case .debatePrepExpired:
+            return .debateDoubleBell
+        case .hockeyPenaltyExpired:
+            return .penaltyChirp
+        }
+    }
+
+    private func resolvedGameClockSoundEffect() -> ScoreboardSoundEffect {
+        if usesChessClocks {
+            return .softChime
+        }
+
+        switch selectedSport {
+        case .simple, .custom:
+            return .classicBuzzer
+        case .basketball:
+            return .arenaHorn
+        case .volleyball, .soccer:
+            return .whistle
+        case .hockey:
+            return .hockeySiren
+        case .chess:
+            return .softChime
+        case .debate:
+            return .debateBell
+        }
+    }
+
+    private func highestPrioritySoundEvent(from events: [ScoreboardSoundEvent]) -> ScoreboardSoundEvent? {
+        let priorities: [ScoreboardSoundEvent] = [
+            .shotClockExpired,
+            .gameClockExpired,
+            .chessClockExpired,
+            .debateSegmentExpired,
+            .hockeyPenaltyExpired,
+            .debatePrepExpired,
+            .general
+        ]
+
+        return priorities.first { events.contains($0) }
     }
 
     private func performWithoutAuditLogging(_ action: () -> Void) {
