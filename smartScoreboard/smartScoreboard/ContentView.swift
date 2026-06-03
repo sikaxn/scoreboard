@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
@@ -6,6 +7,18 @@ import UIKit
 #if os(macOS)
 import AppKit
 #endif
+
+private func localizedAppString(_ key: String) -> String {
+    NSLocalizedString(key, comment: "")
+}
+
+private func localizedAppFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localizedAppString(key), locale: Locale.current, arguments: arguments)
+}
+
+private func localizedAppText(_ key: String) -> Text {
+    Text(localizedAppString(key))
+}
 
 struct ContentView: View {
     @EnvironmentObject private var store: ScoreboardStore
@@ -73,12 +86,12 @@ struct ContentView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         if let version, let build {
-            return "Version \(version) (\(build))"
+            return localizedAppFormat("Version %@ (%@)", version, build)
         }
         if let version {
-            return "Version \(version)"
+            return localizedAppFormat("Version %@", version)
         }
-        return "Version unavailable"
+        return localizedAppString("Version unavailable")
     }
     private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
     private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
@@ -394,7 +407,7 @@ struct ContentView: View {
                     .font(.system(size: layout.heroTitleSize - 4, weight: .black, design: .rounded))
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Text(setupDescription)
+                Text(localizedAppString(setupDescription))
                     .font(.subheadline)
                     .foregroundStyle(settingsPalette.secondaryText)
             }
@@ -442,7 +455,7 @@ struct ContentView: View {
                     .font(.headline.weight(.semibold))
                     .frame(width: 22)
 
-                Text(pane.title)
+                localizedAppText(pane.title)
                     .font(.headline.weight(.semibold))
 
                 Spacer(minLength: 0)
@@ -487,11 +500,11 @@ struct ContentView: View {
     private var settingsPaneHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(selectedSettingsPane.title)
+                localizedAppText(selectedSettingsPane.title)
                     .font(.system(size: 30, weight: .black, design: .rounded))
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Text(selectedSettingsPane.subtitle)
+                localizedAppText(selectedSettingsPane.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(settingsPalette.secondaryText)
             }
@@ -920,7 +933,7 @@ struct ContentView: View {
                 } else {
                     ForEach(Array(setupDebatePreset.segments.enumerated()), id: \.element.id) { index, segment in
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("\(index + 1). \(segment.title)")
+                            Text(localizedAppFormat("%lld. %@", index + 1, localizedAppString(segment.title)))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(settingsPalette.primaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -979,12 +992,12 @@ struct ContentView: View {
                     }
                 }
 
-                Text(sport.title)
+                localizedAppText(sport.title)
                     .font(.headline.weight(.black))
                     .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.primaryText)
                     .singleLineFitted(minScale: 0.72)
 
-                Text(sportSelectionSubtitle(for: sport))
+                localizedAppText(sportSelectionSubtitle(for: sport))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isSelected ? settingsPalette.accentText.opacity(0.82) : settingsPalette.secondaryText)
                     .lineLimit(2)
@@ -1107,16 +1120,16 @@ struct ContentView: View {
             }
 
             if store.supportsPlayerTracking {
-                settingsSection(title: "\(store.sideRoleLabel(for: .home)) Roster", footer: "Edit player number, display name, and active lineup status for the first side.") {
+                settingsSection(title: localizedAppFormat("%@ Roster", store.sideRoleLabel(for: .home)), footer: "Edit player number, display name, and active lineup status for the first side.") {
                     settingsRosterEditor(side: .home, layout: layout)
                 }
 
-                settingsSection(title: "\(store.sideRoleLabel(for: .guest)) Roster", footer: "Edit player number, display name, and active lineup status for the second side.") {
+                settingsSection(title: localizedAppFormat("%@ Roster", store.sideRoleLabel(for: .guest)), footer: "Edit player number, display name, and active lineup status for the second side.") {
                     settingsRosterEditor(side: .guest, layout: layout)
                 }
             } else {
                 settingsSection(title: "Tracking Unavailable", footer: "The current sport uses score, clock, and substitution controls only.") {
-                    settingsSummaryValueRow(title: "Sport", value: store.selectedSport.title)
+                    settingsSummaryValueRow(title: "Sport", value: localizedAppString(store.selectedSport.title))
                 }
             }
         }
@@ -1189,12 +1202,12 @@ struct ContentView: View {
                     set: { store.setSoundEnabled($0) }
                 ))
                 settingsDivider()
-                settingsSummaryValueRow(title: "Live Board", value: store.isSoundEnabled ? "Sound On" : "Sound Off")
+                settingsSummaryValueRow(title: "Live Board", value: localizedAppString(store.isSoundEnabled ? "Sound On" : "Sound Off"))
             }
 
             settingsSection(title: "Event Sounds", footer: "Assign one available sound to each supported event for the current sport.") {
                 if events.isEmpty {
-                    settingsSummaryValueRow(title: "Current Sport", value: "No configurable sound events")
+                    settingsSummaryValueRow(title: "Current Sport", value: localizedAppString("No configurable sound events"))
                 } else {
                     ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
                         settingsSoundAssignmentRow(event)
@@ -1235,11 +1248,11 @@ struct ContentView: View {
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(event.title)
+                    localizedAppText(event.title)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(settingsPalette.primaryText)
 
-                    Text(event.subtitle)
+                    localizedAppText(event.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(settingsPalette.secondaryText)
                 }
@@ -1251,7 +1264,7 @@ struct ContentView: View {
                     set: { store.setSoundEffect($0, for: event) }
                 )) {
                     ForEach(ScoreboardSoundEffect.allCases) { effect in
-                        Text(effect.title).tag(effect)
+                        localizedAppText(effect.title).tag(effect)
                     }
                 }
                 .pickerStyle(.menu)
@@ -1275,7 +1288,7 @@ struct ContentView: View {
                 .opacity(store.canTestSoundEffect(selectedEffect) ? 1 : 0.42)
             }
 
-            Text(selectedEffect.subtitle)
+            localizedAppText(selectedEffect.subtitle)
                 .font(.footnote)
                 .foregroundStyle(settingsPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1286,11 +1299,11 @@ struct ContentView: View {
     private func settingsSoundLibraryRow(_ effect: ScoreboardSoundEffect) -> some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(effect.title)
+                localizedAppText(effect.title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Text(effect.subtitle)
+                localizedAppText(effect.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(settingsPalette.secondaryText)
             }
@@ -1455,11 +1468,11 @@ struct ContentView: View {
                         .frame(width: 24)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
+                        localizedAppText(title)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(settingsPalette.primaryText)
 
-                        Text(subtitle)
+                        localizedAppText(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(settingsPalette.secondaryText)
                     }
@@ -1484,7 +1497,7 @@ struct ContentView: View {
     ) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(title)
+                localizedAppText(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(settingsPalette.secondaryText)
                     .textCase(.uppercase)
@@ -1531,8 +1544,8 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.42)
-        .accessibilityLabel(title)
-        .help(title)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func settingsToolbarIconMenu<Content: View>(
@@ -1553,8 +1566,8 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.42)
-        .accessibilityLabel(title)
-        .help(title)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private var settingsGameFileManagerToolbar: some View {
@@ -1775,19 +1788,19 @@ struct ContentView: View {
 
     private var settingsCurrentGameSummaryRows: some View {
         VStack(spacing: 0) {
-            settingsSummaryValueRow(title: "Working File", value: selectedStoredGameFile?.displayName ?? "Auto-created")
+            settingsSummaryValueRow(title: "Working File", value: selectedStoredGameFile?.displayName ?? localizedAppString("Auto-created"))
             settingsDivider()
             settingsSummaryValueRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
             settingsDivider()
             settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
             settingsDivider()
-            settingsSummaryValueRow(title: "Sport", value: setupSport.title)
+            settingsSummaryValueRow(title: "Sport", value: localizedAppString(setupSport.title))
             if setupRules.supportsPeriod {
                 settingsDivider()
                 settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
             }
             settingsDivider()
-            settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? "Disabled" : formatClock(setupClockSeconds))
+            settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? localizedAppString("Disabled") : formatClock(setupClockSeconds))
             if setupRules.usesChessClocks {
                 settingsDivider()
                 settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
@@ -1797,7 +1810,7 @@ struct ContentView: View {
                 settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
             }
             settingsDivider()
-            settingsSummaryValueRow(title: "Player Tracking", value: store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")
+            settingsSummaryValueRow(title: "Player Tracking", value: localizedAppString(store.isPlayerTrackingEnabled ? "Enabled" : "Disabled"))
             settingsDivider()
             settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
         }
@@ -2057,7 +2070,7 @@ struct ContentView: View {
     }
 
     private func settingsEmptyFileManagerMessage(_ message: String) -> some View {
-        Text(message)
+        localizedAppText(message)
             .font(.subheadline)
             .foregroundStyle(settingsPalette.secondaryText)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2111,7 +2124,7 @@ struct ContentView: View {
 
             Picker("Log View", selection: $logPlaybackOrder) {
                 ForEach(LogPlaybackOrder.allCases) { order in
-                    Text(order.title).tag(order)
+                    localizedAppText(order.title).tag(order)
                 }
             }
             .pickerStyle(.segmented)
@@ -2126,7 +2139,7 @@ struct ContentView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            localizedAppText(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(settingsPalette.secondaryText)
                 .textCase(.uppercase)
@@ -2143,7 +2156,7 @@ struct ContentView: View {
             )
 
             if let footer, !footer.isEmpty {
-                Text(footer)
+                localizedAppText(footer)
                     .font(.footnote)
                     .foregroundStyle(settingsPalette.secondaryText)
             }
@@ -2157,13 +2170,13 @@ struct ContentView: View {
         teamSide: Bool? = nil
     ) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
-            TextField(placeholder ?? title, text: text)
+            TextField(localizedAppString(placeholder ?? title), text: text)
                 .scoreboardUppercaseEntry()
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
@@ -2187,7 +2200,7 @@ struct ContentView: View {
         increment: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
@@ -2205,7 +2218,7 @@ struct ContentView: View {
 
     private func settingsToggleRow(title: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
         }
         .toggleStyle(.switch)
@@ -2218,14 +2231,14 @@ struct ContentView: View {
         selection: Binding<Int>
     ) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
-            Picker(title, selection: selection) {
+            Picker(localizedAppString(title), selection: selection) {
                 ForEach(options, id: \.1) { option in
-                    Text(option.0).tag(option.1)
+                    localizedAppText(option.0).tag(option.1)
                 }
             }
             .pickerStyle(.segmented)
@@ -2241,7 +2254,7 @@ struct ContentView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 16) {
-                Text(title)
+                localizedAppText(title)
                     .foregroundStyle(settingsPalette.primaryText)
 
                 Spacer(minLength: 0)
@@ -2260,7 +2273,7 @@ struct ContentView: View {
                             selection.wrappedValue = option.1
                         }
                     } label: {
-                        Text(option.0)
+                        localizedAppText(option.0)
                             .font(.subheadline.weight(.black))
                             .monospacedDigit()
                             .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.primaryText)
@@ -2285,14 +2298,14 @@ struct ContentView: View {
         label: @escaping (Option) -> String
     ) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
-            Picker(title, selection: selection) {
+            Picker(localizedAppString(title), selection: selection) {
                 ForEach(options, id: \.self) { option in
-                    Text(label(option)).tag(option)
+                    localizedAppText(label(option)).tag(option)
                 }
             }
             .pickerStyle(.menu)
@@ -2512,7 +2525,7 @@ struct ContentView: View {
                 if store.supportsCards || store.supportsFouls {
                     HStack(spacing: 8) {
                         if store.supportsCards {
-                            Text(player.cardStatus.title.uppercased())
+                            Text(localizedAppString(player.cardStatus.title).uppercased())
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(cardStatusColor(player.cardStatus))
                                 .padding(.horizontal, 10)
@@ -2605,13 +2618,13 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
             Button(action: action) {
-                Text(buttonTitle)
+                localizedAppText(buttonTitle)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(foreground)
                     .padding(.horizontal, 16)
@@ -2634,7 +2647,7 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
+            Label(localizedAppString(title), systemImage: systemImage)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 14)
@@ -2648,7 +2661,7 @@ struct ContentView: View {
 
     private func settingsSummaryValueRow(title: String, value: String) -> some View {
         HStack(spacing: 16) {
-            Text(title)
+            localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
             Spacer(minLength: 0)
             Text(value)
@@ -2666,7 +2679,7 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
+            localizedAppText(title)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(foreground)
                 .frame(maxWidth: .infinity)
@@ -2690,7 +2703,7 @@ struct ContentView: View {
     private func settingsLogEntryRow(_ entry: ScoreboardLogEntry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(entry.operation.kind.title)
+                localizedAppText(entry.operation.kind.title)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(settingsPalette.primaryText)
 
@@ -2701,7 +2714,7 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
             }
 
-            Text(entry.operation.summary)
+            Text(localizedAppString(entry.operation.summary))
                 .font(.subheadline)
                 .foregroundStyle(settingsPalette.primaryText)
 
@@ -2721,7 +2734,7 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
             }
 
-            Text("Outcome: \(entry.outcome.title)")
+            Text(localizedAppFormat("Outcome: %@", entry.outcome.title))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(entry.outcome == .applied ? settingsPalette.accent : settingsPalette.secondaryText)
         }
@@ -2745,12 +2758,12 @@ struct ContentView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(settingsPalette.accent)
 
-                        Text(theme.title)
+                        localizedAppText(theme.title)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(settingsPalette.primaryText)
                     }
 
-                    Text(theme.subtitle)
+                    localizedAppText(theme.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(settingsPalette.secondaryText)
                 }
@@ -2777,11 +2790,11 @@ struct ContentView: View {
         } label: {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(mode.title)
+                    localizedAppText(mode.title)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(settingsPalette.primaryText)
 
-                    Text(mode.subtitle)
+                    localizedAppText(mode.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(settingsPalette.secondaryText)
                 }
@@ -2965,7 +2978,7 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.6)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            Text(store.selectedSport.title)
+            localizedAppText(store.selectedSport.title)
                 .font(layout.headerSubtitleFont.weight(.semibold))
                 .singleLineFitted(minScale: 0.8)
                 .foregroundStyle(themePalette.dashboardMutedText)
@@ -2974,7 +2987,7 @@ struct ContentView: View {
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
         HStack(spacing: 10) {
-            Label(displayStatusTitle, systemImage: displayStatusSystemImage)
+            Label(localizedAppString(displayStatusTitle), systemImage: displayStatusSystemImage)
                 .font(layout.headerBadgeFont)
                 .lineLimit(1)
                 .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
@@ -3223,18 +3236,18 @@ struct ContentView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(title)
+                localizedAppText(title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                Text(caption)
+                localizedAppText(caption)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
 
             if let actionTitle, let action {
                 Button(action: action) {
-                    Label(actionTitle, systemImage: actionSystemImage ?? "arrow.right")
+                    Label(localizedAppString(actionTitle), systemImage: actionSystemImage ?? "arrow.right")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(themePalette.dashboardNeutralButtonText)
                         .padding(.horizontal, 14)
@@ -3569,7 +3582,7 @@ struct ContentView: View {
     private func chessStatusWidget(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("\(store.selectedSport.title) Clocks")
+                Text(localizedAppFormat("%@ Clocks", store.selectedSport.title))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
@@ -3608,7 +3621,7 @@ struct ContentView: View {
 
     private func chessClockColumn(title: String, value: String, tint: Color, isActive: Bool, layout: InterfaceLayout) -> some View {
         VStack(spacing: 10) {
-            Text(title)
+            localizedAppText(title)
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(themePalette.dashboardSubtleText)
 
@@ -3789,7 +3802,7 @@ struct ContentView: View {
         let isHome = side == .home
         let clockText = isHome ? store.formattedHomeChessClock : store.formattedGuestChessClock
         return VStack(alignment: .leading, spacing: 12) {
-            Text(side.title)
+            localizedAppText(side.title)
                 .font(.title3.weight(.bold))
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
@@ -3981,7 +3994,7 @@ struct ContentView: View {
 
         if store.supportsFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Player Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                ActionDescriptor(title: localizedAppFormat("Reset %@ Player Fouls", sideTitle), tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
                     pendingGameConfirmation = .resetSidePlayerFouls(side)
                 }
             )
@@ -3989,7 +4002,7 @@ struct ContentView: View {
 
         if store.supportsTeamFouls {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Team Fouls", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                ActionDescriptor(title: localizedAppFormat("Reset %@ Team Fouls", sideTitle), tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
                     pendingGameConfirmation = .resetSideTeamFouls(side)
                 }
             )
@@ -3997,7 +4010,7 @@ struct ContentView: View {
 
         if store.supportsCards {
             buttons.append(
-                ActionDescriptor(title: "Reset \(sideTitle) Cards", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                ActionDescriptor(title: localizedAppFormat("Reset %@ Cards", sideTitle), tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
                     pendingGameConfirmation = .resetSideCards(side)
                 }
             )
@@ -4009,7 +4022,7 @@ struct ContentView: View {
     private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("#\(player.number.isEmpty ? "--" : player.number) \(player.name.isEmpty ? "PLAYER" : player.name)")
+                Text("#\(player.number.isEmpty ? "--" : player.number) \(player.name.isEmpty ? localizedAppString("PLAYER") : player.name)")
                     .font(.subheadline.weight(.bold))
                     .singleLineFitted(minScale: 0.65)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
@@ -4022,7 +4035,7 @@ struct ContentView: View {
             Spacer(minLength: 0)
 
             if store.supportsCards {
-                Text(player.cardStatus.title.uppercased())
+                Text(localizedAppString(player.cardStatus.title).uppercased())
                     .font(.subheadline.weight(.black))
                     .foregroundStyle(cardStatusColor(player.cardStatus))
                     .padding(.horizontal, 10)
@@ -4145,7 +4158,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
                     },
-                    ActionDescriptor(title: "Next \(store.periodTitle)", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                    ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                         store.adjustPeriod(by: 1)
                     }
                 ] : [
@@ -4160,7 +4173,7 @@ struct ContentView: View {
             buttonGrid(
                 columns: store.showsGameClock ? 2 : 1,
                 buttons: store.showsGameClock ? [
-                    ActionDescriptor(title: "Reset \(formatClock(store.defaultClockSeconds))", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                    ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.resetClock)
                     },
                     ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
@@ -4187,11 +4200,11 @@ struct ContentView: View {
     private func chessGameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("\(store.selectedSport.title) Controls")
+                Text(localizedAppFormat("%@ Controls", store.selectedSport.title))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
                 Spacer(minLength: 0)
-                Text(store.selectedSport == .chess ? store.chessClockPreset.title : "Dual Clock")
+                localizedAppText(store.selectedSport == .chess ? store.chessClockPreset.title : "Dual Clock")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
@@ -4238,7 +4251,7 @@ struct ContentView: View {
                         ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                             store.swapSides()
                         },
-                        ActionDescriptor(title: "Next \(store.periodTitle)", tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                        ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                             store.adjustPeriod(by: 1)
                         }
                     ],
@@ -4273,11 +4286,11 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(store.currentDebatePreset.title)
+                    localizedAppText(store.currentDebatePreset.title)
                         .font(.title3.weight(.bold))
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                    Text(store.debateSegmentTitle)
+                    localizedAppText(store.debateSegmentTitle)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(themePalette.dashboardMutedText)
                         .id("status-segment-title-\(store.debateCurrentSegmentIndex)-\(store.debateSegmentTitle)")
@@ -4317,7 +4330,7 @@ struct ContentView: View {
             if store.showsDebatePrepTime {
                 HStack(spacing: 10) {
                     compactDualClockBadge(
-                        title: "\(store.sideRoleLabel(for: .home)) Prep",
+                        title: localizedAppFormat("%@ Prep", store.sideRoleLabel(for: .home)),
                         value: store.formattedDebatePrepHomeClock,
                         tint: homeTint,
                         isActive: store.debateActiveTimer == .prepHome,
@@ -4325,7 +4338,7 @@ struct ContentView: View {
                     )
 
                     compactDualClockBadge(
-                        title: "\(store.sideRoleLabel(for: .guest)) Prep",
+                        title: localizedAppFormat("%@ Prep", store.sideRoleLabel(for: .guest)),
                         value: store.formattedDebatePrepGuestClock,
                         tint: guestTint,
                         isActive: store.debateActiveTimer == .prepGuest,
@@ -4388,11 +4401,11 @@ struct ContentView: View {
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(store.currentDebatePreset.title)
+                    localizedAppText(store.currentDebatePreset.title)
                         .font(.title3.weight(.bold))
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                    Text(store.debateSegmentTitle)
+                    localizedAppText(store.debateSegmentTitle)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(themePalette.dashboardMutedText)
                         .id("controls-segment-title-\(store.debateCurrentSegmentIndex)-\(store.debateSegmentTitle)")
@@ -4660,7 +4673,7 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
+            localizedAppText(title)
                 .font(titleFont)
                 .singleLineFitted(minScale: 0.55)
                 .foregroundStyle(foreground)
@@ -4682,7 +4695,7 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
+            localizedAppText(title)
                 .font(.headline.weight(.bold))
                 .singleLineFitted(minScale: 0.55)
                 .foregroundStyle(foreground)
@@ -4792,7 +4805,7 @@ struct ContentView: View {
             ForEach(timers) { timer in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("\(timer.playerNumber.isEmpty ? "#" : "#\(timer.playerNumber)") \(timer.playerName.isEmpty ? "PLAYER" : timer.playerName)")
+                        Text("\(timer.playerNumber.isEmpty ? "#" : "#\(timer.playerNumber)") \(timer.playerName.isEmpty ? localizedAppString("PLAYER") : timer.playerName)")
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(themePalette.dashboardPrimaryText)
                         Spacer(minLength: 0)
@@ -4840,7 +4853,7 @@ struct ContentView: View {
                             .foregroundStyle(selection.side == .home ? homeTint : guestTint)
                             .frame(width: 54, alignment: .leading)
 
-                        Text(player.name.isEmpty ? "PLAYER" : player.name)
+                        Text(player.name.isEmpty ? localizedAppString("PLAYER") : player.name)
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(themePalette.dashboardPrimaryText)
 
@@ -4850,7 +4863,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .navigationTitle("Select \(selection.side.title) Player")
+            .navigationTitle(localizedAppFormat("Select %@ Player", localizedAppString(selection.side.title)))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -5551,7 +5564,7 @@ struct ContentView: View {
         logManager.record(
             operation: ScoreboardLogOperation(
                 kind: kind,
-                summary: summary,
+                summary: localizedAppString(summary),
                 teamSide: nil,
                 playerID: nil,
                 playerNumber: nil,
@@ -5627,7 +5640,7 @@ struct ContentView: View {
     }
 
     private func displayTeamName(_ name: String) -> String {
-        name.isEmpty ? "TBD" : name
+        name.isEmpty ? localizedAppString("TBD") : name
     }
 
     private func temporaryExportURL(defaultFilename: String) throws -> URL {
@@ -5659,15 +5672,15 @@ struct ContentView: View {
 
     private func logEntryContextLine(_ entry: ScoreboardLogEntry) -> String {
         var segments: [String] = []
-        segments.append(entry.context.customSportTitle ?? entry.context.sport.title)
+        segments.append(entry.context.customSportTitle ?? localizedAppString(entry.context.sport.title))
         if let debatePresetTitle = entry.context.debatePresetTitle {
-            segments.append(debatePresetTitle)
+            segments.append(localizedAppString(debatePresetTitle))
         }
         if let debateSegmentTitle = entry.context.debateSegmentTitle {
-            segments.append(debateSegmentTitle)
+            segments.append(localizedAppString(debateSegmentTitle))
         }
         if entry.context.homeChessClockSeconds == nil && entry.context.guestChessClockSeconds == nil {
-            segments.append("\(entry.context.sport.periodTitle) \(entry.context.period)")
+            segments.append(localizedAppFormat("%@ %lld", localizedAppString(entry.context.sport.periodTitle), entry.context.period))
         }
         if entry.context.homeChessClockSeconds != nil || entry.context.guestChessClockSeconds != nil {
             let home = entry.context.homeChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
@@ -5677,17 +5690,18 @@ struct ContentView: View {
                     return entry.context.debateHomeSideLabel ?? side.title
                 }
                 return entry.context.debateGuestSideLabel ?? side.title
-            } ?? "None"
-            segments.append("Dual Clock \(home) / \(guest) • \(activeSide)")
+            } ?? localizedAppString("None")
+            segments.append(localizedAppFormat("Dual Clock %@ / %@ • %@", home, guest, activeSide))
         } else if entry.context.showsGameClock {
-            segments.append("Clock \(entry.context.isClockRunning ? "Running" : "Stopped") \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
+            let clockState = localizedAppString(entry.context.isClockRunning ? "Running" : "Stopped")
+            segments.append(localizedAppFormat("Clock %@ %@", clockState, ScoreboardStore.formatGameClock(entry.context.gameClockSeconds)))
         } else {
-            segments.append("Clock Disabled")
+            segments.append(localizedAppString("Clock Disabled"))
         }
 
         if entry.context.supportsShotClock, let milliseconds = entry.context.shotClockMilliseconds {
-            let shotState = entry.context.isShotClockRunning == true ? "Running" : "Stopped"
-            segments.append("Shot \(shotState) \(ScoreboardStore.formatShotClock(milliseconds: milliseconds))")
+            let shotState = localizedAppString(entry.context.isShotClockRunning == true ? "Running" : "Stopped")
+            segments.append(localizedAppFormat("Shot %@ %@", shotState, ScoreboardStore.formatShotClock(milliseconds: milliseconds)))
         }
 
         if let hockeyPenaltySummary = entry.context.hockeyPenaltySummary, !hockeyPenaltySummary.isEmpty {
@@ -5713,7 +5727,7 @@ struct ContentView: View {
             if entry.context.sport == .debate {
                 segments.append(side == .home ? (entry.context.debateHomeSideLabel ?? side.title) : (entry.context.debateGuestSideLabel ?? side.title))
             } else {
-                segments.append(side.title)
+                segments.append(localizedAppString(side.title))
             }
         }
 
@@ -5733,11 +5747,11 @@ struct ContentView: View {
             return nil
         }
 
-        return "File: \(fileName)"
+        return localizedAppFormat("File: %@", fileName)
     }
 
     private func logDeletionMessage(for session: StoredLogSession) -> String {
-        "Delete the log session from \(session.startedAt.formatted(date: .abbreviated, time: .shortened))?"
+        localizedAppFormat("Delete the log session from %@?", session.startedAt.formatted(date: .abbreviated, time: .shortened))
     }
 
     private func presentFileOperationError(_ error: Error) {
@@ -6267,25 +6281,25 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
             if layout.previewHeaderUsesVerticalFlow {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
+                    localizedAppText(title)
                         .font(.title3.weight(.bold))
                         .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                    Text(caption)
+                    localizedAppText(caption)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(themePalette.dashboardMutedText)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(title)
+                    localizedAppText(title)
                         .font(.title3.weight(.bold))
                         .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
                     Spacer(minLength: 0)
 
-                    Text(caption)
+                    localizedAppText(caption)
                         .font(.subheadline.weight(.semibold))
                         .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(themePalette.dashboardMutedText)
@@ -6450,111 +6464,111 @@ struct ContentView: View {
     private func gameConfirmationTitle(for action: GameConfirmationAction) -> String {
         switch action {
         case .previousPeriod:
-            return "Confirm Previous \(store.periodTitle)"
+            return localizedAppFormat("Confirm Previous %@", localizedAppString(store.periodTitle))
         case .resetClock:
-            return "Confirm Clock Reset"
+            return localizedAppString("Confirm Clock Reset")
         case .resetShotClock:
-            return "Confirm Shot Clock Reset"
+            return localizedAppString("Confirm Shot Clock Reset")
         case .zeroScores:
-            return "Confirm Zero Scores"
+            return localizedAppString("Confirm Zero Scores")
         case .resetChessClocks:
-            return "Confirm Clock Reset"
+            return localizedAppString("Confirm Clock Reset")
         case .resetDebateSegment:
-            return "Confirm Segment Reset"
+            return localizedAppString("Confirm Segment Reset")
         case .resetDebateRound:
-            return "Confirm Round Reset"
+            return localizedAppString("Confirm Round Reset")
         case .resetDebatePrep(let side):
-            return "Confirm \(store.sideRoleLabel(for: side)) Prep Reset"
+            return localizedAppFormat("Confirm %@ Prep Reset", store.sideRoleLabel(for: side))
         case .resetAllPlayerFouls:
-            return "Confirm Player Foul Reset"
+            return localizedAppString("Confirm Player Foul Reset")
         case .resetAllTeamFouls:
-            return "Confirm Team Foul Reset"
+            return localizedAppString("Confirm Team Foul Reset")
         case .resetAllCards:
-            return "Confirm Card Reset"
+            return localizedAppString("Confirm Card Reset")
         case .resetSidePlayerFouls(let side):
-            return "Confirm \(store.sideRoleLabel(for: side)) Foul Reset"
+            return localizedAppFormat("Confirm %@ Foul Reset", store.sideRoleLabel(for: side))
         case .resetSideTeamFouls(let side):
-            return "Confirm \(store.sideRoleLabel(for: side)) Team Foul Reset"
+            return localizedAppFormat("Confirm %@ Team Foul Reset", store.sideRoleLabel(for: side))
         case .resetSideCards(let side):
-            return "Confirm \(store.sideRoleLabel(for: side)) Card Reset"
+            return localizedAppFormat("Confirm %@ Card Reset", store.sideRoleLabel(for: side))
         case .clearPlayerState(let side, _):
-            return "Confirm \(store.sideRoleLabel(for: side)) Player Clear"
+            return localizedAppFormat("Confirm %@ Player Clear", store.sideRoleLabel(for: side))
         case .clearPenalty(let side, _):
-            return "Confirm \(store.sideRoleLabel(for: side)) Penalty Clear"
+            return localizedAppFormat("Confirm %@ Penalty Clear", store.sideRoleLabel(for: side))
         case .resetSoundSettings:
-            return "Confirm Sound Reset"
+            return localizedAppString("Confirm Sound Reset")
         }
     }
 
     private func gameConfirmationMessage(for action: GameConfirmationAction) -> String {
         switch action {
         case .previousPeriod:
-            return "Move back one \(store.periodTitle.lowercased())?"
+            return localizedAppFormat("Move back one %@?", localizedAppString(store.periodTitle).lowercased())
         case .resetClock:
-            return "Reset the game clock to \(formatClock(store.defaultClockSeconds))?"
+            return localizedAppFormat("Reset the game clock to %@?", formatClock(store.defaultClockSeconds))
         case .resetShotClock:
-            return "Reset the shot clock to its active preset?"
+            return localizedAppString("Reset the shot clock to its active preset?")
         case .zeroScores:
-            return "Set both team scores back to zero?"
+            return localizedAppString("Set both team scores back to zero?")
         case .resetChessClocks:
-            return "Reset both side clocks to their configured starting time?"
+            return localizedAppString("Reset both side clocks to their configured starting time?")
         case .resetDebateSegment:
-            return "Reset the current debate segment timer?"
+            return localizedAppString("Reset the current debate segment timer?")
         case .resetDebateRound:
-            return "Reset the full debate round, including segment, prep, and player state?"
+            return localizedAppString("Reset the full debate round, including segment, prep, and player state?")
         case .resetDebatePrep(let side):
-            return "Reset \(store.sideRoleLabel(for: side)) prep time?"
+            return localizedAppFormat("Reset %@ prep time?", store.sideRoleLabel(for: side))
         case .resetAllPlayerFouls:
-            return "Reset all player fouls for both sides?"
+            return localizedAppString("Reset all player fouls for both sides?")
         case .resetAllTeamFouls:
-            return "Reset all team fouls for both sides?"
+            return localizedAppString("Reset all team fouls for both sides?")
         case .resetAllCards:
-            return "Clear all player cards for both sides?"
+            return localizedAppString("Clear all player cards for both sides?")
         case .resetSidePlayerFouls(let side):
-            return "Reset all player fouls for \(store.sideRoleLabel(for: side))?"
+            return localizedAppFormat("Reset all player fouls for %@?", store.sideRoleLabel(for: side))
         case .resetSideTeamFouls(let side):
-            return "Reset team fouls for \(store.sideRoleLabel(for: side))?"
+            return localizedAppFormat("Reset team fouls for %@?", store.sideRoleLabel(for: side))
         case .resetSideCards(let side):
-            return "Clear all player cards for \(store.sideRoleLabel(for: side))?"
+            return localizedAppFormat("Clear all player cards for %@?", store.sideRoleLabel(for: side))
         case .clearPlayerState(let side, _):
-            return "Clear this \(store.sideRoleLabel(for: side)) player's card state and foul count?"
+            return localizedAppFormat("Clear this %@ player's card state and foul count?", store.sideRoleLabel(for: side))
         case .clearPenalty(let side, _):
-            return "Clear this \(store.sideRoleLabel(for: side)) penalty timer?"
+            return localizedAppFormat("Clear this %@ penalty timer?", store.sideRoleLabel(for: side))
         case .resetSoundSettings:
-            return "Reset Sound On and all event sound assignments to their defaults across every sport and mode?"
+            return localizedAppString("Reset Sound On and all event sound assignments to their defaults across every sport and mode?")
         }
     }
 
     private func gameConfirmationButtonTitle(for action: GameConfirmationAction) -> String {
         switch action {
         case .previousPeriod:
-            return "Previous \(store.periodTitle)"
+            return localizedAppFormat("Previous %@", localizedAppString(store.periodTitle))
         case .resetClock:
-            return "Reset Clock"
+            return localizedAppString("Reset Clock")
         case .resetShotClock:
-            return "Reset Shot"
+            return localizedAppString("Reset Shot")
         case .zeroScores:
-            return "Zero Scores"
+            return localizedAppString("Zero Scores")
         case .resetChessClocks:
-            return "Reset Clocks"
+            return localizedAppString("Reset Clocks")
         case .resetDebateSegment:
-            return "Reset Segment"
+            return localizedAppString("Reset Segment")
         case .resetDebateRound:
-            return "Reset Round"
+            return localizedAppString("Reset Round")
         case .resetDebatePrep:
-            return "Reset Prep"
+            return localizedAppString("Reset Prep")
         case .resetAllPlayerFouls, .resetSidePlayerFouls:
-            return "Reset Fouls"
+            return localizedAppString("Reset Fouls")
         case .resetAllTeamFouls, .resetSideTeamFouls:
-            return "Reset Team Fouls"
+            return localizedAppString("Reset Team Fouls")
         case .resetAllCards, .resetSideCards:
-            return "Clear Cards"
+            return localizedAppString("Clear Cards")
         case .clearPlayerState:
-            return "Clear Player"
+            return localizedAppString("Clear Player")
         case .clearPenalty:
-            return "Clear Penalty"
+            return localizedAppString("Clear Penalty")
         case .resetSoundSettings:
-            return "Reset Sound"
+            return localizedAppString("Reset Sound")
         }
     }
 
@@ -6639,39 +6653,40 @@ private struct StoredGameFile: Identifiable {
     var displayName: String { url.deletingPathExtension().lastPathComponent }
     var matchupLine: String {
         guard let snapshot else {
-            return "Game file"
+            return localizedAppString("Game file")
         }
 
-        let home = snapshot.homeTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TBD" : snapshot.homeTeamName
-        let guest = snapshot.guestTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "TBD" : snapshot.guestTeamName
-        return "\(home) vs \(guest)"
+        let home = snapshot.homeTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : snapshot.homeTeamName
+        let guest = snapshot.guestTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : snapshot.guestTeamName
+        return localizedAppFormat("%@ vs %@", home, guest)
     }
     var stateLine: String {
         guard let snapshot else {
-            return "Preview unavailable"
+            return localizedAppString("Preview unavailable")
         }
 
         let sport = snapshot.sport ?? .basketball
         let rules = sport.rules(customConfig: snapshot.customSportConfig)
+        let sportTitle = localizedAppString(rules.title)
         let clockLine = formatGameClock(snapshot.defaultClockSeconds)
 
         if rules.usesChessClocks {
             let homeClock = formatGameClock(snapshot.homeChessClockSeconds ?? ChessClockPreset.rapid.seconds)
             let guestClock = formatGameClock(snapshot.guestChessClockSeconds ?? ChessClockPreset.rapid.seconds)
-            return "\(rules.title) • \(homeClock) / \(guestClock)"
+            return "\(sportTitle) • \(homeClock) / \(guestClock)"
         }
 
         if rules.supportsShotClock {
             let periodSegment = rules.supportsPeriod ? "\(rules.periodShortTitle)\(snapshot.period) • " : ""
-            return "\(rules.title) • \(periodSegment)\(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+            return "\(sportTitle) • \(periodSegment)\(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
         }
 
         if rules.supportsPeriod {
             let periodLine = "\(rules.periodShortTitle)\(snapshot.period)"
-            return "\(rules.title) • \(periodLine) • \(clockLine)"
+            return "\(sportTitle) • \(periodLine) • \(clockLine)"
         }
 
-        return "\(rules.title) • \(clockLine)"
+        return "\(sportTitle) • \(clockLine)"
     }
     var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
 

@@ -1,6 +1,18 @@
 import Combine
 import Foundation
 
+private func localizedStoreString(_ key: String) -> String {
+    NSLocalizedString(key, comment: "")
+}
+
+private func localizedStoreFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localizedStoreString(key), locale: Locale.current, arguments: arguments)
+}
+
+private func signedStoreDelta(_ delta: Int, suffix: String = "") -> String {
+    "\(delta >= 0 ? "+" : "")\(delta)\(suffix)"
+}
+
 enum PossessionDirection: String, Codable, CaseIterable {
     case home
     case none
@@ -9,11 +21,11 @@ enum PossessionDirection: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .home:
-            return "HOME"
+            return NSLocalizedString("HOME", comment: "")
         case .guest:
-            return "GUEST"
+            return NSLocalizedString("GUEST", comment: "")
         case .none:
-            return "OFF"
+            return NSLocalizedString("OFF", comment: "")
         }
     }
 }
@@ -27,9 +39,9 @@ enum TeamSide: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home:
-            return "Home"
+            return NSLocalizedString("Home", comment: "")
         case .guest:
-            return "Guest"
+            return NSLocalizedString("Guest", comment: "")
         }
     }
 }
@@ -44,11 +56,11 @@ enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .red:
-            return "Red"
+            return NSLocalizedString("Red", comment: "")
         case .orange:
-            return "Orange"
+            return NSLocalizedString("Orange", comment: "")
         case .yellow:
-            return "Yellow"
+            return NSLocalizedString("Yellow", comment: "")
         }
     }
 }
@@ -63,11 +75,11 @@ enum PlayerCardStatus: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .none:
-            return "None"
+            return NSLocalizedString("None", comment: "")
         case .yellow:
-            return "Yellow"
+            return NSLocalizedString("Yellow", comment: "")
         case .red:
-            return "Red"
+            return NSLocalizedString("Red", comment: "")
         }
     }
 }
@@ -487,7 +499,7 @@ final class ScoreboardStore: ObservableObject {
 
     var periodTitle: String {
         if isDebateMode {
-            return "Segment"
+            return localizedStoreString("Segment")
         }
 
         return currentRules.periodTitle
@@ -669,9 +681,9 @@ final class ScoreboardStore: ObservableObject {
 
         switch side {
         case .home:
-            return debateHomeSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Side A" : debateHomeSideLabel
+            return debateHomeSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSLocalizedString("Side A", comment: "") : debateHomeSideLabel
         case .guest:
-            return debateGuestSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Side B" : debateGuestSideLabel
+            return debateGuestSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSLocalizedString("Side B", comment: "") : debateGuestSideLabel
         }
     }
 
@@ -753,7 +765,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsScore else {
             recordLog(
                 kind: .scoreAdjustment,
-                summary: "\(isHome ? TeamSide.home.title : TeamSide.guest.title) score \(delta >= 0 ? "+" : "")\(delta)",
+                summary: localizedStoreFormat("%@ score %@", isHome ? TeamSide.home.title : TeamSide.guest.title, signedStoreDelta(delta)),
                 outcome: .ignored,
                 teamSide: isHome ? .home : .guest,
                 delta: delta
@@ -774,7 +786,7 @@ final class ScoreboardStore: ObservableObject {
         let previousScore = isHome ? previousHomeScore : previousGuestScore
         recordLog(
             kind: .scoreAdjustment,
-            summary: "\(isHome ? TeamSide.home.title : TeamSide.guest.title) score \(delta >= 0 ? "+" : "")\(delta)",
+            summary: localizedStoreFormat("%@ score %@", isHome ? TeamSide.home.title : TeamSide.guest.title, signedStoreDelta(delta)),
             outcome: updatedScore == previousScore ? .ignored : .applied,
             teamSide: isHome ? .home : .guest,
             delta: delta,
@@ -789,7 +801,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsPeriod else {
             recordLog(
                 kind: .periodAdjustment,
-                summary: "\(delta >= 0 ? "Next" : "Previous") \(periodTitle)",
+                summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
                 outcome: .ignored,
                 delta: delta
             )
@@ -800,7 +812,7 @@ final class ScoreboardStore: ObservableObject {
         period = max(1, min(9, period + delta))
         recordLog(
             kind: .periodAdjustment,
-            summary: "\(delta >= 0 ? "Next" : "Previous") \(periodTitle)",
+            summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
             outcome: period == previousPeriod ? .ignored : .applied,
             delta: delta,
             value: period
@@ -823,7 +835,7 @@ final class ScoreboardStore: ObservableObject {
             guard currentDebateSegment?.timerMode == .masterClock else {
                 recordLog(
                     kind: .debateTimerAdjustment,
-                    summary: "Adjust debate timer",
+                    summary: localizedStoreString("Adjust debate timer"),
                     outcome: .ignored,
                     delta: delta
                 )
@@ -834,7 +846,7 @@ final class ScoreboardStore: ObservableObject {
         guard showsGameClock else {
             recordLog(
                 kind: .clockAdjustment,
-                summary: "Game clock \(delta >= 0 ? "+" : "")\(delta)s",
+                summary: localizedStoreFormat("Game clock %@", signedStoreDelta(delta, suffix: "s")),
                 outcome: .ignored,
                 delta: delta
             )
@@ -849,7 +861,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .clockAdjustment,
-            summary: "Game clock \(delta >= 0 ? "+" : "")\(delta)s",
+            summary: localizedStoreFormat("Game clock %@", signedStoreDelta(delta, suffix: "s")),
             outcome: gameClockSeconds == previousClock ? .ignored : .applied,
             delta: delta,
             value: gameClockSeconds
@@ -860,7 +872,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAdjustment,
-                summary: "Shot clock \(delta >= 0 ? "+" : "")\(delta)s",
+                summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
                 outcome: .ignored,
                 delta: delta
             )
@@ -875,7 +887,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .shotClockAdjustment,
-            summary: "Shot clock \(delta >= 0 ? "+" : "")\(delta)s",
+            summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
             outcome: shotClockMilliseconds == previousMilliseconds ? .ignored : .applied,
             delta: delta,
             value: shotClockMilliseconds / 1_000
@@ -892,7 +904,7 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             recordLog(
                 kind: .clockReset,
-                summary: "Reset game clock",
+                summary: localizedStoreString("Reset game clock"),
                 outcome: .ignored,
                 value: seconds ?? defaultClockSeconds
             )
@@ -902,7 +914,7 @@ final class ScoreboardStore: ObservableObject {
         guard !isGameClockInterlockActive else {
             recordLog(
                 kind: .clockReset,
-                summary: "Reset game clock",
+                summary: localizedStoreString("Reset game clock"),
                 outcome: .ignored,
                 value: seconds ?? defaultClockSeconds
             )
@@ -913,7 +925,7 @@ final class ScoreboardStore: ObservableObject {
         gameClockSeconds = boundedGameClockSeconds(seconds ?? defaultClockSeconds)
         recordLog(
             kind: .clockReset,
-            summary: "Reset game clock",
+            summary: localizedStoreString("Reset game clock"),
             outcome: .applied,
             value: gameClockSeconds
         )
@@ -927,7 +939,7 @@ final class ScoreboardStore: ObservableObject {
             pauseShotClock()
             recordLog(
                 kind: .shotClockReset,
-                summary: "Reset shot clock",
+                summary: localizedStoreString("Reset shot clock"),
                 outcome: .ignored,
                 value: 0
             )
@@ -940,7 +952,7 @@ final class ScoreboardStore: ObservableObject {
         shotClockMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
         recordLog(
             kind: .shotClockReset,
-            summary: "Reset shot clock",
+            summary: localizedStoreString("Reset shot clock"),
             outcome: .applied,
             value: targetSeconds
         )
@@ -964,7 +976,7 @@ final class ScoreboardStore: ObservableObject {
         isClockRunning ? pauseClock() : startClock()
         recordLog(
             kind: .clockToggle,
-            summary: wasRunning ? "Pause game clock" : "Start game clock",
+            summary: localizedStoreString(wasRunning ? "Pause game clock" : "Start game clock"),
             outcome: wasRunning == isClockRunning ? .ignored : .applied
         )
         if wasRunning != isClockRunning {
@@ -977,7 +989,7 @@ final class ScoreboardStore: ObservableObject {
         guard let segment = currentDebateSegment, segment.timerMode != .none else {
             recordLog(
                 kind: .debateTimerToggle,
-                summary: "Toggle debate timer",
+                summary: localizedStoreString("Toggle debate timer"),
                 outcome: .ignored,
                 notes: debateSegmentTitle
             )
@@ -989,7 +1001,7 @@ final class ScoreboardStore: ObservableObject {
         isClockRunning ? pauseClock() : startClock()
         recordLog(
             kind: .debateTimerToggle,
-            summary: wasRunning ? "Pause debate timer" : "Start debate timer",
+            summary: localizedStoreString(wasRunning ? "Pause debate timer" : "Start debate timer"),
             outcome: wasRunning == isClockRunning ? .ignored : .applied,
             notes: segment.title
         )
@@ -1071,7 +1083,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockToggle,
-                summary: "Toggle shot clock",
+                summary: localizedStoreString("Toggle shot clock"),
                 outcome: .ignored
             )
             return
@@ -1081,7 +1093,7 @@ final class ScoreboardStore: ObservableObject {
         isShotClockRunning ? pauseShotClock() : startShotClock()
         recordLog(
             kind: .shotClockToggle,
-            summary: wasRunning ? "Pause shot clock" : "Start shot clock",
+            summary: localizedStoreString(wasRunning ? "Pause shot clock" : "Start shot clock"),
             outcome: wasRunning == isShotClockRunning ? .ignored : .applied
         )
         if wasRunning != isShotClockRunning {
@@ -1094,9 +1106,9 @@ final class ScoreboardStore: ObservableObject {
             possessionDirection = .none
             recordLog(
                 kind: .possessionChange,
-                summary: "Set possession \(direction.displayName)",
+                summary: localizedStoreFormat("Set possession %@", direction.displayName),
                 outcome: .ignored,
-                notes: "Current sport does not support possession"
+                notes: localizedStoreString("Current sport does not support possession")
             )
             return
         }
@@ -1110,7 +1122,7 @@ final class ScoreboardStore: ObservableObject {
             }
             recordLog(
                 kind: .possessionChange,
-                summary: "Set possession OFF",
+                summary: localizedStoreFormat("Set possession %@", PossessionDirection.none.displayName),
                 outcome: previousDirection == direction ? .ignored : .applied
             )
             if previousDirection != direction {
@@ -1122,7 +1134,7 @@ final class ScoreboardStore: ObservableObject {
         guard autoStartShotClock, !isShotClockRunning else {
             recordLog(
                 kind: .possessionChange,
-                summary: "Set possession \(direction.displayName)",
+                summary: localizedStoreFormat("Set possession %@", direction.displayName),
                 outcome: previousDirection == direction ? .ignored : .applied
             )
             if previousDirection != direction {
@@ -1134,9 +1146,9 @@ final class ScoreboardStore: ObservableObject {
         startShotClock()
         recordLog(
             kind: .possessionChange,
-            summary: "Set possession \(direction.displayName)",
+            summary: localizedStoreFormat("Set possession %@", direction.displayName),
             outcome: .applied,
-            notes: "Shot clock auto-started"
+            notes: localizedStoreString("Shot clock auto-started")
         )
         playSound(.possessionChanged)
     }
@@ -1145,7 +1157,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAssignment,
-                summary: "Assign shot clock \(seconds)s to \(isHome ? TeamSide.home.title : TeamSide.guest.title)",
+                summary: localizedStoreFormat("Assign shot clock %@ to %@", "\(seconds)s", isHome ? TeamSide.home.title : TeamSide.guest.title),
                 outcome: .ignored,
                 teamSide: isHome ? .home : .guest,
                 value: seconds
@@ -1163,7 +1175,7 @@ final class ScoreboardStore: ObservableObject {
             isShotClockRunning ? pauseShotClock() : startShotClock()
             recordLog(
                 kind: .shotClockAssignment,
-                summary: "\(isShotClockRunning ? "Start" : "Pause") \(seconds)s shot clock for \(isHome ? TeamSide.home.title : TeamSide.guest.title)",
+                summary: localizedStoreFormat("%@ %@ shot clock for %@", localizedStoreString(isShotClockRunning ? "Start" : "Pause"), "\(seconds)s", isHome ? TeamSide.home.title : TeamSide.guest.title),
                 outcome: .applied,
                 teamSide: isHome ? .home : .guest,
                 value: seconds
@@ -1180,7 +1192,7 @@ final class ScoreboardStore: ObservableObject {
         startShotClock()
         recordLog(
             kind: .shotClockAssignment,
-            summary: "Assign \(seconds)s shot clock to \(isHome ? TeamSide.home.title : TeamSide.guest.title)",
+            summary: localizedStoreFormat("Assign %@ shot clock to %@", "\(seconds)s", isHome ? TeamSide.home.title : TeamSide.guest.title),
             outcome: .applied,
             teamSide: isHome ? .home : .guest,
             value: targetSeconds
@@ -1192,7 +1204,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockReset,
-                summary: "Reset active shot clock",
+                summary: localizedStoreString("Reset active shot clock"),
                 outcome: .ignored
             )
             return
@@ -1209,7 +1221,7 @@ final class ScoreboardStore: ObservableObject {
         updateTimerState()
         recordLog(
             kind: .shotClockReset,
-            summary: "Reset active shot clock",
+            summary: localizedStoreString("Reset active shot clock"),
             outcome: .applied,
             value: targetSeconds
         )
@@ -1249,7 +1261,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsScore else {
             recordLog(
                 kind: .scoresReset,
-                summary: "Zero both scores",
+                summary: localizedStoreString("Zero both scores"),
                 outcome: .ignored
             )
             return
@@ -1258,7 +1270,7 @@ final class ScoreboardStore: ObservableObject {
         guard !isGameClockInterlockActive else {
             recordLog(
                 kind: .scoresReset,
-                summary: "Zero both scores",
+                summary: localizedStoreString("Zero both scores"),
                 outcome: .ignored
             )
             return
@@ -1268,7 +1280,7 @@ final class ScoreboardStore: ObservableObject {
         guestScore = 0
         recordLog(
             kind: .scoresReset,
-            summary: "Zero both scores",
+            summary: localizedStoreString("Zero both scores"),
             outcome: .applied
         )
     }
@@ -1277,7 +1289,7 @@ final class ScoreboardStore: ObservableObject {
         areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
-            summary: "Swap home and guest sides",
+            summary: localizedStoreString("Swap home and guest sides"),
             outcome: .applied
         )
         playSound(.sideSwitched)
@@ -1296,7 +1308,7 @@ final class ScoreboardStore: ObservableObject {
         isPlayerOverlayPaused.toggle()
         recordLog(
             kind: .playerOverlayToggle,
-            summary: isPlayerOverlayPaused ? "Pause public player overlay" : "Resume public player overlay",
+            summary: localizedStoreString(isPlayerOverlayPaused ? "Pause public player overlay" : "Resume public player overlay"),
             outcome: .applied
         )
         playSound(isPlayerOverlayPaused ? .playerOverlayPaused : .playerOverlayShown)
@@ -1344,7 +1356,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulAdjustment,
-                summary: "Adjust player foul",
+                summary: localizedStoreString("Adjust player foul"),
                 outcome: .ignored,
                 teamSide: side,
                 delta: delta
@@ -1363,7 +1375,7 @@ final class ScoreboardStore: ObservableObject {
         let updatedPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         recordLog(
             kind: .playerFoulAdjustment,
-            summary: "\(side.title) player foul \(delta >= 0 ? "+" : "")\(delta)",
+            summary: localizedStoreFormat("%@ player foul %@", side.title, signedStoreDelta(delta)),
             outcome: playerSummary?.foulCount == updatedPlayer?.foulCount ? .ignored : .applied,
             teamSide: side,
             player: updatedPlayer ?? playerSummary,
@@ -1379,7 +1391,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulReset,
-                summary: "Reset player foul",
+                summary: localizedStoreString("Reset player foul"),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1397,7 +1409,7 @@ final class ScoreboardStore: ObservableObject {
         let updatedPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         recordLog(
             kind: .playerFoulReset,
-            summary: "Reset \(side.title) player foul",
+            summary: localizedStoreFormat("Reset %@ player foul", side.title),
             outcome: previousPlayer?.foulCount == updatedPlayer?.foulCount ? .ignored : .applied,
             teamSide: side,
             player: updatedPlayer ?? previousPlayer
@@ -1408,7 +1420,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulResetAll,
-                summary: "Reset \(side.title) player fouls",
+                summary: localizedStoreFormat("Reset %@ player fouls", side.title),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1423,7 +1435,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .playerFoulResetAll,
-            summary: "Reset \(side.title) player fouls",
+            summary: localizedStoreFormat("Reset %@ player fouls", side.title),
             outcome: hadFouls ? .applied : .ignored,
             teamSide: side
         )
@@ -1438,7 +1450,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsCards else {
             recordLog(
                 kind: .playerCardSet,
-                summary: "Set player card \(status.title)",
+                summary: localizedStoreFormat("Set player card %@", status.title),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1456,7 +1468,7 @@ final class ScoreboardStore: ObservableObject {
         let updatedPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         recordLog(
             kind: .playerCardSet,
-            summary: "Set \(side.title) player card \(status.title)",
+            summary: localizedStoreFormat("Set %@ player card %@", side.title, status.title),
             outcome: previousPlayer?.cardStatus == updatedPlayer?.cardStatus ? .ignored : .applied,
             teamSide: side,
             player: updatedPlayer ?? previousPlayer,
@@ -1478,7 +1490,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsCards else {
             recordLog(
                 kind: .playerCardReset,
-                summary: "Reset \(side.title) cards",
+                summary: localizedStoreFormat("Reset %@ cards", side.title),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1493,7 +1505,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .playerCardReset,
-            summary: "Reset \(side.title) cards",
+            summary: localizedStoreFormat("Reset %@ cards", side.title),
             outcome: hadCards ? .applied : .ignored,
             teamSide: side
         )
@@ -1508,7 +1520,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulAdjustment,
-                summary: "\(side.title) team fouls \(delta >= 0 ? "+" : "")\(delta)",
+                summary: localizedStoreFormat("%@ team fouls %@", side.title, signedStoreDelta(delta)),
                 outcome: .ignored,
                 teamSide: side,
                 delta: delta
@@ -1525,7 +1537,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .teamFoulAdjustment,
-            summary: "\(side.title) team fouls \(delta >= 0 ? "+" : "")\(delta)",
+            summary: localizedStoreFormat("%@ team fouls %@", side.title, signedStoreDelta(delta)),
             outcome: teamFouls(for: side) == previousValue ? .ignored : .applied,
             teamSide: side,
             delta: delta,
@@ -1540,7 +1552,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulReset,
-                summary: "Reset \(side.title) team fouls",
+                summary: localizedStoreFormat("Reset %@ team fouls", side.title),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1556,7 +1568,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .teamFoulReset,
-            summary: "Reset \(side.title) team fouls",
+            summary: localizedStoreFormat("Reset %@ team fouls", side.title),
             outcome: previousValue == 0 ? .ignored : .applied,
             teamSide: side
         )
@@ -1707,7 +1719,7 @@ final class ScoreboardStore: ObservableObject {
         resetPlayerTrackingForNewGame()
         recordLog(
             kind: logKind,
-            summary: logKind == .debatePresetChange ? "Apply debate preset" : "Reset debate round",
+            summary: localizedStoreString(logKind == .debatePresetChange ? "Apply debate preset" : "Reset debate round"),
             outcome: .applied,
             notes: notes ?? currentDebatePreset.title
         )
@@ -1719,7 +1731,7 @@ final class ScoreboardStore: ObservableObject {
         configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: false)
         recordLog(
             kind: .debateSegmentReset,
-            summary: "Reset debate segment",
+            summary: localizedStoreString("Reset debate segment"),
             outcome: .applied,
             notes: debateSegmentTitle
         )
@@ -1732,7 +1744,7 @@ final class ScoreboardStore: ObservableObject {
         guard boundedIndex != previousIndex else {
             recordLog(
                 kind: .debateSegmentChange,
-                summary: delta >= 0 ? "Next debate segment" : "Previous debate segment",
+                summary: localizedStoreString(delta >= 0 ? "Next debate segment" : "Previous debate segment"),
                 outcome: .ignored,
                 notes: debateSegmentTitle
             )
@@ -1743,7 +1755,7 @@ final class ScoreboardStore: ObservableObject {
         configureDebateSegment(index: boundedIndex, preserveRunningState: false)
         recordLog(
             kind: .debateSegmentChange,
-            summary: delta >= 0 ? "Next debate segment" : "Previous debate segment",
+            summary: localizedStoreString(delta >= 0 ? "Next debate segment" : "Previous debate segment"),
             outcome: .applied,
             notes: debateSegmentTitle
         )
@@ -1762,7 +1774,7 @@ final class ScoreboardStore: ObservableObject {
         guard currentSeconds > 0 else {
             recordLog(
                 kind: .debatePrepToggle,
-                summary: "\(sideRoleLabel(for: side)) prep clock toggle",
+                summary: localizedStoreFormat("%@ prep clock toggle", sideRoleLabel(for: side)),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1772,7 +1784,7 @@ final class ScoreboardStore: ObservableObject {
         updateTimerState()
         recordLog(
             kind: .debatePrepToggle,
-            summary: "\(sideRoleLabel(for: side)) prep clock \(isDebatePrepClockRunning ? "start" : "pause")",
+            summary: localizedStoreFormat("%@ prep clock %@", sideRoleLabel(for: side), localizedStoreString(isDebatePrepClockRunning ? "start" : "pause")),
             outcome: .applied,
             teamSide: side,
             value: currentSeconds
@@ -1795,7 +1807,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .debateTimerToggle,
-            summary: resume ? "Return to segment timer and resume" : "Return to segment timer",
+            summary: localizedStoreString(resume ? "Return to segment timer and resume" : "Return to segment timer"),
             outcome: wasOnPrepTimer ? .applied : .ignored,
             notes: debateSegmentTitle
         )
@@ -1819,7 +1831,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .debatePrepReset,
-            summary: "Reset \(sideRoleLabel(for: side)) prep clock",
+            summary: localizedStoreFormat("Reset %@ prep clock", sideRoleLabel(for: side)),
             outcome: .applied,
             teamSide: side,
             value: value
@@ -1838,7 +1850,7 @@ final class ScoreboardStore: ObservableObject {
         let updatedValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
         recordLog(
             kind: .debatePrepAdjustment,
-            summary: "\(sideRoleLabel(for: side)) prep \(delta >= 0 ? "+" : "")\(delta)s",
+            summary: localizedStoreFormat("%@ prep %@", sideRoleLabel(for: side), signedStoreDelta(delta, suffix: "s")),
             outcome: previousValue == updatedValue ? .ignored : .applied,
             teamSide: side,
             delta: delta,
@@ -1850,7 +1862,7 @@ final class ScoreboardStore: ObservableObject {
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
-                summary: isDebateMode ? "Toggle debate timer" : "Toggle chess clock",
+                summary: localizedStoreString(isDebateMode ? "Toggle debate timer" : "Toggle chess clock"),
                 outcome: .ignored
             )
             return
@@ -1868,7 +1880,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
-            summary: isDebateMode ? (wasRunning ? "Pause debate timer" : "Start debate timer") : (wasRunning ? "Pause chess clock" : "Start chess clock"),
+            summary: localizedStoreString(isDebateMode ? (wasRunning ? "Pause debate timer" : "Start debate timer") : (wasRunning ? "Pause chess clock" : "Start chess clock")),
             outcome: wasRunning == isClockRunning ? .ignored : .applied,
             teamSide: activeChessClockSide,
             notes: isDebateMode ? debateSegmentTitle : nil
@@ -1882,7 +1894,7 @@ final class ScoreboardStore: ObservableObject {
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
-                summary: isDebateMode ? "Switch debate active side" : "Switch active chess clock",
+                summary: localizedStoreString(isDebateMode ? "Switch debate active side" : "Switch active chess clock"),
                 outcome: .ignored
             )
             return
@@ -1900,7 +1912,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
-            summary: isDebateMode ? "Switch debate active side" : "Switch active chess clock",
+            summary: localizedStoreString(isDebateMode ? "Switch debate active side" : "Switch active chess clock"),
             outcome: previousSide == activeChessClockSide ? .ignored : .applied,
             teamSide: activeChessClockSide,
             notes: isDebateMode ? debateSegmentTitle : nil
@@ -1914,7 +1926,7 @@ final class ScoreboardStore: ObservableObject {
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
-                summary: isDebateMode ? "Set debate active side to \(sideRoleLabel(for: side))" : "Set active chess clock to \(side.title)",
+                summary: isDebateMode ? localizedStoreFormat("Set debate active side to %@", sideRoleLabel(for: side)) : localizedStoreFormat("Set active chess clock to %@", side.title),
                 outcome: .ignored,
                 teamSide: side
             )
@@ -1925,7 +1937,7 @@ final class ScoreboardStore: ObservableObject {
         activeChessClockSide = side
         recordLog(
             kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
-            summary: isDebateMode ? "Set debate active side to \(sideRoleLabel(for: side))" : "Set active chess clock to \(side.title)",
+            summary: isDebateMode ? localizedStoreFormat("Set debate active side to %@", sideRoleLabel(for: side)) : localizedStoreFormat("Set active chess clock to %@", side.title),
             outcome: previousSide == side ? .ignored : .applied,
             teamSide: side,
             notes: isDebateMode ? debateSegmentTitle : nil
@@ -1939,7 +1951,7 @@ final class ScoreboardStore: ObservableObject {
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
-                summary: isDebateMode ? "\(sideRoleLabel(for: side)) debate clock \(delta >= 0 ? "+" : "")\(delta)s" : "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+                summary: isDebateMode ? localizedStoreFormat("%@ debate clock %@", sideRoleLabel(for: side), signedStoreDelta(delta, suffix: "s")) : localizedStoreFormat("%@ chess clock %@", side.title, signedStoreDelta(delta, suffix: "s")),
                 outcome: .ignored,
                 teamSide: side,
                 delta: delta
@@ -1962,7 +1974,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
-            summary: isDebateMode ? "\(sideRoleLabel(for: side)) debate clock \(delta >= 0 ? "+" : "")\(delta)s" : "\(side.title) chess clock \(delta >= 0 ? "+" : "")\(delta)s",
+            summary: isDebateMode ? localizedStoreFormat("%@ debate clock %@", sideRoleLabel(for: side), signedStoreDelta(delta, suffix: "s")) : localizedStoreFormat("%@ chess clock %@", side.title, signedStoreDelta(delta, suffix: "s")),
             outcome: previousValue == updatedValue ? .ignored : .applied,
             teamSide: side,
             delta: delta,
@@ -1975,7 +1987,7 @@ final class ScoreboardStore: ObservableObject {
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
-                summary: isDebateMode ? "Reset debate timer" : "Reset chess clocks",
+                summary: localizedStoreString(isDebateMode ? "Reset debate timer" : "Reset chess clocks"),
                 outcome: .ignored
             )
             return
@@ -1991,7 +2003,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
-            summary: isDebateMode ? "Reset debate timer" : "Reset chess clocks",
+            summary: localizedStoreString(isDebateMode ? "Reset debate timer" : "Reset chess clocks"),
             outcome: .applied,
             notes: isDebateMode ? debateSegmentTitle : (selectedSport == .chess ? chessClockPreset.title : selectedSport.title)
         )
@@ -2005,7 +2017,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsHockeyPenalties else {
             recordLog(
                 kind: .hockeyPenaltyAdd,
-                summary: "Add \(side.title) penalty timer",
+                summary: localizedStoreFormat("Add %@ penalty timer", side.title),
                 outcome: .ignored,
                 teamSide: side,
                 value: seconds
@@ -2030,7 +2042,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .hockeyPenaltyAdd,
-            summary: "Add \(side.title) penalty timer",
+            summary: localizedStoreFormat("Add %@ penalty timer", side.title),
             outcome: .applied,
             teamSide: side,
             player: player,
@@ -2056,7 +2068,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .hockeyPenaltyRemove,
-            summary: "Remove \(side.title) penalty timer",
+            summary: localizedStoreFormat("Remove %@ penalty timer", side.title),
             outcome: removed == nil ? .ignored : .applied,
             teamSide: side,
             value: removed?.remainingSeconds
@@ -2074,7 +2086,7 @@ final class ScoreboardStore: ObservableObject {
         let updated = penaltyTimer(for: side, timerID: timerID)
         recordLog(
             kind: .hockeyPenaltyToggle,
-            summary: "\(side.title) penalty timer \(updated?.isRunning == true ? "start" : "pause")",
+            summary: localizedStoreFormat("%@ penalty timer %@", side.title, localizedStoreString(updated?.isRunning == true ? "start" : "pause")),
             outcome: previous?.isRunning == updated?.isRunning ? .ignored : .applied,
             teamSide: side,
             value: updated?.remainingSeconds
@@ -2098,7 +2110,7 @@ final class ScoreboardStore: ObservableObject {
         let updated = penaltyTimer(for: side, timerID: timerID)
         recordLog(
             kind: .hockeyPenaltyAdjustment,
-            summary: "\(side.title) penalty timer \(delta >= 0 ? "+" : "")\(delta)s",
+            summary: localizedStoreFormat("%@ penalty timer %@", side.title, signedStoreDelta(delta, suffix: "s")),
             outcome: previous?.remainingSeconds == updated?.remainingSeconds ? .ignored : .applied,
             teamSide: side,
             delta: delta,
@@ -2116,7 +2128,7 @@ final class ScoreboardStore: ObservableObject {
         let updated = penaltyTimer(for: side, timerID: timerID)
         recordLog(
             kind: .hockeyPenaltyPlayerEdit,
-            summary: "Edit \(side.title) penalty player",
+            summary: localizedStoreFormat("Edit %@ penalty player", side.title),
             outcome: previous?.playerNumber == updated?.playerNumber ? .ignored : .applied,
             teamSide: side,
             notes: penaltySummaryItem(updated)
@@ -2133,7 +2145,7 @@ final class ScoreboardStore: ObservableObject {
         let updated = penaltyTimer(for: side, timerID: timerID)
         recordLog(
             kind: .hockeyPenaltyPlayerEdit,
-            summary: "Edit \(side.title) penalty player",
+            summary: localizedStoreFormat("Edit %@ penalty player", side.title),
             outcome: previous?.playerName == updated?.playerName ? .ignored : .applied,
             teamSide: side,
             notes: penaltySummaryItem(updated)
@@ -2151,7 +2163,7 @@ final class ScoreboardStore: ObservableObject {
         let updated = penaltyTimer(for: side, timerID: timerID)
         recordLog(
             kind: .hockeyPenaltyPlayerEdit,
-            summary: "Assign \(side.title) penalty player",
+            summary: localizedStoreFormat("Assign %@ penalty player", side.title),
             outcome: previous?.playerNumber == updated?.playerNumber && previous?.playerName == updated?.playerName ? .ignored : .applied,
             teamSide: side,
             player: player,
@@ -2284,7 +2296,7 @@ final class ScoreboardStore: ObservableObject {
         }
         recordLog(
             kind: .substitutionsAdjustment,
-            summary: "\(side.title) swaps \(delta >= 0 ? "+" : "")\(delta)",
+            summary: localizedStoreFormat("%@ swaps %@", side.title, signedStoreDelta(delta)),
             outcome: substitutionsUsed(for: side) == previousValue ? .ignored : .applied,
             teamSide: side,
             delta: delta,
@@ -2318,11 +2330,11 @@ final class ScoreboardStore: ObservableObject {
         let updatedPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         recordLog(
             kind: .lineupToggle,
-            summary: "\(isActive ? "Show" : "Bench") \(side.title) player",
+            summary: localizedStoreFormat("%@ %@ player", localizedStoreString(isActive ? "Show" : "Bench"), side.title),
             outcome: previousPlayer?.isInActiveLineup == updatedPlayer?.isInActiveLineup ? .ignored : .applied,
             teamSide: side,
             player: updatedPlayer ?? previousPlayer,
-            notes: updatedPlayer?.isInActiveLineup == true ? "Active lineup" : "Bench"
+            notes: localizedStoreString(updatedPlayer?.isInActiveLineup == true ? "Active lineup" : "Bench")
         )
         if previousPlayer?.isInActiveLineup != updatedPlayer?.isInActiveLineup {
             playSound(updatedPlayer?.isInActiveLineup == true ? .playerShown : .playerBenched)
@@ -2724,7 +2736,7 @@ final class ScoreboardStore: ObservableObject {
                             soundEvents.append(isDebateMode ? .debateSegmentExpired : .gameClockExpired)
                             recordLog(
                                 kind: .clockExpired,
-                                summary: "Game clock expired",
+                                summary: localizedStoreString("Game clock expired"),
                                 outcome: .applied,
                                 value: gameClockSeconds
                             )
@@ -2762,7 +2774,7 @@ final class ScoreboardStore: ObservableObject {
                     soundEvents.append(.shotClockExpired)
                     recordLog(
                         kind: .shotClockExpired,
-                        summary: "Shot clock expired",
+                        summary: localizedStoreString("Shot clock expired"),
                         outcome: .applied,
                         value: 0
                     )

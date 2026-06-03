@@ -15,7 +15,16 @@ enum ScoreboardLogOutcome: String, Codable, CaseIterable, Sendable {
     case ignored
     case failed
 
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .applied:
+            return NSLocalizedString("Applied", comment: "")
+        case .ignored:
+            return NSLocalizedString("Ignored", comment: "")
+        case .failed:
+            return NSLocalizedString("Failed", comment: "")
+        }
+    }
 }
 
 enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
@@ -392,25 +401,27 @@ struct StoredLogSession: Identifiable {
     }
 
     var summaryLine: String {
-        "\(eventCount) event\(eventCount == 1 ? "" : "s") • Last update \(session.lastUpdatedAt.formatted(date: .omitted, time: .shortened))"
+        let eventLabel = eventCount == 1 ? NSLocalizedString("event", comment: "") : NSLocalizedString("events", comment: "")
+        let lastUpdate = NSLocalizedString("Last update", comment: "")
+        return "\(eventCount) \(eventLabel) • \(lastUpdate) \(session.lastUpdatedAt.formatted(date: .omitted, time: .shortened))"
     }
 
     var sportsLine: String {
-        let sports = Set(session.entries.map(\.context.sport.title)).sorted()
-        return sports.isEmpty ? "No sports captured" : sports.joined(separator: " • ")
+        let sports = Set(session.entries.map { NSLocalizedString($0.context.sport.title, comment: "") }).sorted()
+        return sports.isEmpty ? NSLocalizedString("No sports captured", comment: "") : sports.joined(separator: " • ")
     }
 
     var gameFilesLine: String {
         let gameFiles = Set(session.entries.compactMap(\.context.gameFileName)).sorted()
         if gameFiles.isEmpty {
-            return "No game file captured"
+            return NSLocalizedString("No game file captured", comment: "")
         }
 
         if gameFiles.count == 1 {
             return gameFiles[0]
         }
 
-        return "\(gameFiles[0]) +\(gameFiles.count - 1) more"
+        return String(format: NSLocalizedString("%@ +%lld more", comment: ""), locale: Locale.current, gameFiles[0], gameFiles.count - 1)
     }
 }
 

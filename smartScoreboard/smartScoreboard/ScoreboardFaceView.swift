@@ -1,5 +1,17 @@
 import SwiftUI
 
+private func localizedBoardString(_ key: String) -> String {
+    NSLocalizedString(key, comment: "")
+}
+
+private func localizedBoardFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localizedBoardString(key), locale: Locale.current, arguments: arguments)
+}
+
+private func localizedBoardText(_ key: String) -> Text {
+    Text(localizedBoardString(key))
+}
+
 struct ScoreboardFaceView: View {
     static let preferredAspectRatio: CGFloat = 16.0 / 9.0
 
@@ -316,7 +328,7 @@ struct ScoreboardFaceView: View {
         ultraCondensed: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
-            Text("PLAYERS")
+            localizedBoardText("PLAYERS")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -331,7 +343,7 @@ struct ScoreboardFaceView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: ultraCondensed ? 48 : 60, alignment: .leading)
 
-                        Text(player.name.isEmpty ? "PLAYER" : player.name)
+                        Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
                             .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
                             .singleLineFitted(minScale: 0.55)
                             .foregroundStyle(playerStatusColor(player))
@@ -413,7 +425,7 @@ struct ScoreboardFaceView: View {
                 if sport == .debate,
                    let debateSegmentTitle,
                    !debateSegmentTitle.isEmpty {
-                    headerBadge(title: "SEGMENT", value: debateSegmentTitle.uppercased(), condensed: condensed, ultraCondensed: ultraCondensed)
+                    headerBadge(title: "SEGMENT", value: localizedBoardString(debateSegmentTitle).uppercased(), condensed: condensed, ultraCondensed: ultraCondensed)
                         .id("public-segment-\(debateSegmentTitle)")
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -432,14 +444,14 @@ struct ScoreboardFaceView: View {
 
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
                     if showsDualClocks {
-                        headerBadge(title: "TURN", value: activeChessClockSide.map { sideRoleLabel(for: $0).uppercased() } ?? "NONE", condensed: condensed, ultraCondensed: ultraCondensed)
+                        headerBadge(title: "TURN", value: activeChessClockSide.map { sideRoleLabel(for: $0).uppercased() } ?? localizedBoardString("NONE"), condensed: condensed, ultraCondensed: ultraCondensed)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     } else if showsGameClock {
-                        headerBadge(title: "CLOCK", value: isClockRunning ? "RUNNING" : "STOPPED", condensed: condensed, ultraCondensed: ultraCondensed)
+                        headerBadge(title: "CLOCK", value: localizedBoardString(isClockRunning ? "RUNNING" : "STOPPED"), condensed: condensed, ultraCondensed: ultraCondensed)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     if rules.supportsPeriod {
-                        headerBadge(title: rules.periodTitle.uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                        headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
                     }
                 }
 
@@ -556,7 +568,7 @@ struct ScoreboardFaceView: View {
                 .monospacedDigit()
                 .foregroundStyle(accent)
 
-            Text(isActive ? "ACTIVE" : "WAITING")
+            localizedBoardText(isActive ? "ACTIVE" : "WAITING")
                 .font(.system(size: ultraCondensed ? 12 : 16, weight: .black, design: .rounded))
                 .foregroundStyle(isActive ? accent : boardSecondaryTextColor)
         }
@@ -601,7 +613,7 @@ struct ScoreboardFaceView: View {
         showsContainer: Bool = true
     ) -> some View {
         VStack(spacing: ultraCondensed ? 3 : 6) {
-            Text(title)
+            localizedBoardText(title)
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 16 : 14, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.5)
                 .singleLineFitted(minScale: 0.75)
@@ -647,7 +659,7 @@ struct ScoreboardFaceView: View {
         let dotSize = ultraCondensed ? max(8, base * 0.015) : condensed ? max(10, base * 0.018) : max(12, base * 0.02)
 
         return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
-            Text("SWAPS")
+            localizedBoardText("SWAPS")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -692,7 +704,7 @@ struct ScoreboardFaceView: View {
         let overflow = max(0, boundedFouls - visibleLimit)
 
         return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
-            Text("FOULS")
+            localizedBoardText("FOULS")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -736,7 +748,7 @@ struct ScoreboardFaceView: View {
         let overflow = max(0, penaltyTimers.count - visibleTimers.count)
 
         return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
-            Text("PENALTIES")
+            localizedBoardText("PENALTIES")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -746,7 +758,7 @@ struct ScoreboardFaceView: View {
                     Text(timer.playerNumber.isEmpty ? "#" : "#\(timer.playerNumber)")
                         .font(.system(size: ultraCondensed ? base * 0.018 : base * 0.02, weight: .black, design: .rounded))
                         .foregroundStyle(accent)
-                    Text(timer.playerName.isEmpty ? "PLAYER" : timer.playerName)
+                    Text(timer.playerName.isEmpty ? localizedBoardString("PLAYER") : timer.playerName)
                         .font(.system(size: ultraCondensed ? base * 0.016 : base * 0.018, weight: .bold, design: .rounded))
                         .singleLineFitted(minScale: 0.6)
                         .foregroundStyle(boardPrimaryTextColor)
@@ -759,7 +771,7 @@ struct ScoreboardFaceView: View {
             }
 
             if overflow > 0 {
-                Text("+\(overflow) more")
+                Text(localizedBoardFormat("+%lld more", overflow))
                     .font(.caption.weight(.bold))
                     .foregroundStyle(boardSecondaryTextColor)
             }
@@ -777,7 +789,7 @@ struct ScoreboardFaceView: View {
     private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
         HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
             soccerPlayerColumn(
-                title: "\(sideRoleLabel(for: .home).uppercased()) PLAYERS",
+                title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .home).uppercased()),
                 players: displayedPlayers(for: .home),
                 accent: palette.homeAccent,
                 base: base,
@@ -786,7 +798,7 @@ struct ScoreboardFaceView: View {
             )
 
             soccerPlayerColumn(
-                title: "\(sideRoleLabel(for: .guest).uppercased()) PLAYERS",
+                title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .guest).uppercased()),
                 players: displayedPlayers(for: .guest),
                 accent: palette.guestAccent,
                 base: base,
@@ -828,7 +840,7 @@ struct ScoreboardFaceView: View {
                         .fixedSize(horizontal: true, vertical: false)
                         .frame(width: ultraCondensed ? 50 : condensed ? 58 : 54, alignment: .leading)
 
-                    Text(player.name.isEmpty ? "PLAYER" : player.name)
+                    Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
                         .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
                         .singleLineFitted(minScale: 0.55)
                         .foregroundStyle(playerStatusColor(player))
@@ -849,7 +861,7 @@ struct ScoreboardFaceView: View {
 
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? placeholder : trimmed
+        return trimmed.isEmpty ? localizedBoardString(placeholder) : trimmed
     }
 
     private var centerPossessionIndicator: (systemName: String, color: Color)? {
@@ -952,7 +964,7 @@ struct ScoreboardFaceView: View {
         }
 
         return HStack(spacing: ultraCondensed ? 8 : 10) {
-            Text("PREP")
+            localizedBoardText("PREP")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -1009,7 +1021,7 @@ struct ScoreboardFaceView: View {
 
     private func sideRoleLabel(for side: TeamSide) -> String {
         guard sport == .debate else {
-            return side.title
+            return localizedBoardString(side.title)
         }
 
         switch side {
