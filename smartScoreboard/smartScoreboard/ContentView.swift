@@ -50,7 +50,9 @@ struct ContentView: View {
     @State private var setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
     @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
     @State private var setupCustomDebatePreset = DebatePreset.customDefault
+    @State private var selectedSoundSettingsSport: SportType = .simple
     @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .webAPI
+    @State private var selectedCompanionSettingsSport: SportType = .simple
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var selectedSettingsPane: SettingsPane = .game
@@ -286,8 +288,25 @@ struct ContentView: View {
         }
     }
 
-    private var lifecycleConfiguredRootView: some View {
+    private var integrationEditorSportConfiguredRootView: some View {
         setupDraftConfiguredRootView
+        .onChange(of: selectedSettingsPane) { _, pane in
+            if pane == .sound {
+                selectedSoundSettingsSport = setupSport
+            } else if pane == .integration, selectedIntegrationDetail == .bitfocusCompanion {
+                selectedCompanionSettingsSport = setupSport
+            }
+        }
+        .onChange(of: selectedIntegrationDetail) { _, detail in
+            guard selectedSettingsPane == .integration, detail == .bitfocusCompanion else {
+                return
+            }
+            selectedCompanionSettingsSport = setupSport
+        }
+    }
+
+    private var lifecycleConfiguredRootView: some View {
+        integrationEditorSportConfiguredRootView
         .onAppear(perform: handleRootAppear)
         .onChange(of: scenePhase) { _, newPhase in
             handleScenePhaseChange(newPhase)
@@ -534,7 +553,7 @@ struct ContentView: View {
         case .display:
             settingsDisplayPane()
         case .sound:
-            settingsSoundPane()
+            settingsSoundPane(layout: layout)
         case .theme:
             settingsThemePane()
         case .files:
@@ -542,7 +561,7 @@ struct ContentView: View {
         case .logs:
             settingsLogsPane(layout: layout)
         case .integration:
-            settingsIntegrationPane()
+            settingsIntegrationPane(layout: layout)
         case .about:
             settingsAboutPane()
         }
@@ -958,21 +977,25 @@ struct ContentView: View {
     }
 
     private func sportSelectionGrid(layout: InterfaceLayout) -> some View {
+        sportSelectionGrid(layout: layout, selection: $setupSport)
+    }
+
+    private func sportSelectionGrid(layout: InterfaceLayout, selection: Binding<SportType>) -> some View {
         let columnCount = layout.size.width < 760 ? 2 : layout.size.width < 1120 ? 3 : 4
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount)
 
         return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(SportType.allCases) { sport in
-                sportSelectionButton(sport)
+                sportSelectionButton(sport, selection: selection)
             }
         }
     }
 
-    private func sportSelectionButton(_ sport: SportType) -> some View {
-        let isSelected = setupSport == sport
+    private func sportSelectionButton(_ sport: SportType, selection: Binding<SportType>) -> some View {
+        let isSelected = selection.wrappedValue == sport
         return Button {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                setupSport = sport
+                selection.wrappedValue = sport
             }
         } label: {
             VStack(alignment: .leading, spacing: 10) {
@@ -1020,6 +1043,64 @@ struct ContentView: View {
             .shadow(color: isSelected ? settingsPalette.accent.opacity(0.22) : .clear, radius: 14, y: 8)
             .scaleEffect(isSelected ? 1.015 : 1)
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isSelected)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compactSportSelectionGrid(layout: InterfaceLayout, selection: Binding<SportType>) -> some View {
+        let columnCount = layout.size.width < 560 ? 2 : layout.size.width < 980 ? 3 : 4
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: columnCount)
+
+        return LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(SportType.allCases) { sport in
+                compactSportSelectionButton(sport, selection: selection)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func compactSportSelectionButton(_ sport: SportType, selection: Binding<SportType>) -> some View {
+        let isSelected = selection.wrappedValue == sport
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                selection.wrappedValue = sport
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: sportSelectionSystemImage(for: sport))
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 22)
+
+                    Spacer(minLength: 0)
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.caption.weight(.black))
+                            .transition(.opacity)
+                    }
+                }
+
+                localizedAppText(sport.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(isSelected ? settingsPalette.accentText : settingsPalette.primaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .topLeading)
+            .background(
+                isSelected ? settingsPalette.accent : settingsPalette.fieldBackground,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? settingsPalette.accentText.opacity(0.28) : settingsPalette.cardBorder, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -1196,53 +1277,77 @@ struct ContentView: View {
         }
     }
 
-    private func settingsSoundPane() -> some View {
-        let events = store.assignableSoundEventsForCurrentSport
+    private func settingsSoundPane(layout: InterfaceLayout) -> some View {
+        let events = store.assignableSoundEvents(for: selectedSoundSettingsSport)
 
-        return VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Global Sound", footer: "Sound is global app state and is not saved in game files.") {
-                settingsToggleRow(title: "Sound", isOn: Binding(
-                    get: { store.isSoundEnabled },
-                    set: { store.setSoundEnabled($0) }
-                ))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Live Board", value: localizedAppString(store.isSoundEnabled ? "Sound On" : "Sound Off"))
+        return settingsTwoColumnLayout(layout: layout) {
+            VStack(alignment: .leading, spacing: 22) {
+                settingsSoundGlobalSection()
+                settingsSoundSportSection(layout: layout)
+                settingsSoundLibrarySection()
+                settingsSoundResetSection()
             }
+        } right: {
+            settingsSoundEventsSection(events)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
 
-            settingsSection(title: "Event Sounds", footer: "Assign one available sound to each supported event for the current sport.") {
-                if events.isEmpty {
-                    settingsSummaryValueRow(title: "Current Sport", value: localizedAppString("No configurable sound events"))
-                } else {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        settingsSoundAssignmentRow(event)
+    private func settingsSoundGlobalSection() -> some View {
+        settingsSection(title: "Global Sound", footer: "Sound is global app state and is not saved in game files.") {
+            settingsToggleRow(title: "Sound", isOn: Binding(
+                get: { store.isSoundEnabled },
+                set: { store.setSoundEnabled($0) }
+            ))
+            settingsDivider()
+            settingsSummaryValueRow(title: "Live Board", value: localizedAppString(store.isSoundEnabled ? "Sound On" : "Sound Off"))
+        }
+    }
 
-                        if index < events.count - 1 {
-                            settingsDivider()
-                        }
-                    }
-                }
-            }
+    private func settingsSoundSportSection(layout: InterfaceLayout) -> some View {
+        settingsSection(title: "Configure Sport", footer: "Choose which sport's sound assignments to edit. The live board keeps using the currently configured game sport.") {
+            compactSportSelectionGrid(layout: layout, selection: $selectedSoundSettingsSport)
+        }
+    }
 
-            settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
-                ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
-                    settingsSoundLibraryRow(effect)
+    private func settingsSoundEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
+        settingsSection(title: "Event Sounds", footer: "Assign one available sound to each supported event for the selected sport.") {
+            if events.isEmpty {
+                settingsSummaryValueRow(title: selectedSoundSettingsSport.title, value: localizedAppString("No configurable sound events"))
+            } else {
+                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                    settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
 
-                    if index < ScoreboardSoundEffect.allCases.count - 1 {
+                    if index < events.count - 1 {
                         settingsDivider()
                     }
-                }
-            }
-
-            settingsSection(title: "Reset", footer: "Restores Sound On and every event assignment to the default sound setup across all sports and modes.") {
-                settingsButtonRow(title: "Sound Defaults", buttonTitle: "Reset", tint: themePalette.destructiveTint, foreground: .white) {
-                    requestGameConfirmation(.resetSoundSettings)
                 }
             }
         }
     }
 
-    private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent) -> some View {
-        let selectedEffect = store.selectedSoundEffect(for: event)
+    private func settingsSoundLibrarySection() -> some View {
+        settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
+            ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
+                settingsSoundLibraryRow(effect)
+
+                if index < ScoreboardSoundEffect.allCases.count - 1 {
+                    settingsDivider()
+                }
+            }
+        }
+    }
+
+    private func settingsSoundResetSection() -> some View {
+        settingsSection(title: "Reset", footer: "Restores Sound On and every event assignment to the default sound setup across all sports and modes.") {
+            settingsButtonRow(title: "Sound Defaults", buttonTitle: "Reset", tint: themePalette.destructiveTint, foreground: .white) {
+                requestGameConfirmation(.resetSoundSettings)
+            }
+        }
+    }
+
+    private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
+        let selectedEffect = store.selectedSoundEffect(for: event, sport: sport)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -1264,8 +1369,8 @@ struct ContentView: View {
                 Spacer(minLength: 0)
 
                 Picker("Sound", selection: Binding(
-                    get: { store.selectedSoundEffect(for: event) },
-                    set: { store.setSoundEffect($0, for: event) }
+                    get: { store.selectedSoundEffect(for: event, sport: sport) },
+                    set: { store.setSoundEffect($0, for: event, sport: sport) }
                 )) {
                     ForEach(ScoreboardSoundEffect.allCases) { effect in
                         localizedAppText(effect.title).tag(effect)
@@ -1275,7 +1380,7 @@ struct ContentView: View {
                 .frame(maxWidth: 210)
 
                 Button {
-                    store.playTestSound(event)
+                    store.playTestSound(event, sport: sport)
                 } label: {
                     Label(store.isTestingSoundEffect(selectedEffect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(selectedEffect) ? "stop.fill" : "play.fill")
                         .font(.headline.weight(.semibold))
@@ -1370,15 +1475,16 @@ struct ContentView: View {
         }
     }
 
-    private func settingsIntegrationPane() -> some View {
+    private func settingsIntegrationPane(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 22) {
+            settingsLocalNetworkPermissionSection()
             settingsIntegrationConfigurationSection()
 
             switch selectedIntegrationDetail {
             case .webAPI:
                 settingsWebAPIPane()
             case .bitfocusCompanion:
-                settingsBitfocusCompanionPane()
+                settingsBitfocusCompanionPane(layout: layout)
             }
         }
     }
@@ -1427,19 +1533,6 @@ struct ContentView: View {
                     isEnabled: store.isWebAPIEnabled
                 ) {
                     openWebAPIDemo()
-                }
-            }
-
-            if store.webAPIStatus == .permissionDenied {
-                settingsSection(title: "Local Network Permission", footer: localNetworkPermissionFooter) {
-                    settingsButtonRow(
-                        title: "System Settings",
-                        buttonTitle: "Open",
-                        tint: settingsPalette.accent,
-                        foreground: settingsPalette.accentText
-                    ) {
-                        openLocalNetworkSettings()
-                    }
                 }
             }
 
@@ -1524,29 +1617,259 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsBitfocusCompanionPane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Bitfocus Companion") {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: "square.grid.3x3")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(settingsPalette.accent)
-                        .frame(width: 28)
+    private func settingsBitfocusCompanionPane(layout: InterfaceLayout) -> some View {
+        let events = store.assignableSoundEvents(for: selectedCompanionSettingsSport)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Planned: scoreboard events can trigger commands in Bitfocus Companion.")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(settingsPalette.primaryText)
-                        Text("This placeholder reserves the integration section while event triggers, command mapping, and connection settings are designed. It can run alongside Web API when implemented.")
-                            .font(.subheadline)
-                            .foregroundStyle(settingsPalette.secondaryText)
-                    }
+        return VStack(alignment: .leading, spacing: 22) {
+            settingsCompanionAboutSection()
 
-                    Spacer(minLength: 0)
+            settingsTwoColumnLayout(layout: layout) {
+                VStack(alignment: .leading, spacing: 22) {
+                    settingsCompanionConnectionSection()
+                    settingsCompanionSportSection(layout: layout)
                 }
-                .padding(.vertical, 12)
+            } right: {
+                settingsCompanionEventsSection(events)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
+    }
+
+    private func settingsCompanionConnectionSection() -> some View {
+        settingsSection(title: "Bitfocus Companion", footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.") {
+            settingsToggleRow(title: "Show Companion", isOn: Binding(
+                get: { store.isCompanionVisible },
+                set: { store.setCompanionVisible($0) }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Enable Companion", isOn: Binding(
+                get: { store.isCompanionEnabled },
+                set: { store.setCompanionEnabled($0) }
+            ))
+            .disabled(!store.isCompanionVisible)
+            .opacity(store.isCompanionVisible ? 1 : 0.42)
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Companion IP",
+                text: Binding(
+                    get: { store.companionHost },
+                    set: { store.setCompanionHost($0) }
+                ),
+                placeholder: "192.168.1.50"
+            )
+            settingsDivider()
+            settingsPickerRow(
+                title: "Mode",
+                selection: Binding(
+                    get: { store.companionMode },
+                    set: { store.setCompanionMode($0) }
+                ),
+                options: ScoreboardCompanionMode.allCases,
+                label: { $0.title }
+            )
+            settingsDivider()
+            settingsCompanionPortRow()
+            settingsDivider()
+            settingsSummaryValueRow(title: "Status", value: companionStatusTitle)
+            settingsDivider()
+            Text(companionStatusDetail)
+                .font(.subheadline)
+                .foregroundStyle(companionStatusIsError ? themePalette.destructiveTint : settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+        }
+    }
+
+    private func settingsCompanionAboutSection() -> some View {
+        settingsSection(title: "About Companion") {
+            Text("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
+                .font(.body)
+                .foregroundStyle(settingsPalette.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+            settingsDivider()
+            settingsLinkRow(
+                title: "Bitfocus Companion",
+                subtitle: "bitfocus.io/companion",
+                systemImage: "square.grid.3x3",
+                urlString: "https://bitfocus.io/companion"
+            )
+        }
+    }
+
+    private func settingsCompanionSportSection(layout: InterfaceLayout) -> some View {
+        settingsSection(title: "Configure Sport", footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.") {
+            compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport)
+        }
+    }
+
+    private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
+        settingsSection(title: "Event Commands", footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.") {
+            if events.isEmpty {
+                settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
+            } else {
+                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                    settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
+
+                    if index < events.count - 1 {
+                        settingsDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    private func settingsLocalNetworkPermissionSection() -> some View {
+        settingsSection(title: "Local Network Permission", footer: localNetworkPermissionFooter) {
+            settingsButtonRow(
+                title: "System Settings",
+                buttonTitle: "Open",
+                tint: settingsPalette.accent,
+                foreground: settingsPalette.accentText
+            ) {
+                openLocalNetworkSettings()
+            }
+        }
+    }
+
+    private var companionStatusTitle: String {
+        if !store.isCompanionVisible {
+            return localizedAppString("Hidden")
+        }
+        if !store.isCompanionEnabled {
+            return localizedAppString("Off")
+        }
+        if store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return localizedAppString("Missing Host")
+        }
+        if store.companionLastError != nil {
+            return localizedAppString("Last Error")
+        }
+        return localizedAppString("Ready")
+    }
+
+    private var companionStatusDetail: String {
+        if !store.isCompanionVisible {
+            return localizedAppString("Companion is hidden from the live board and disabled. Settings and event assignments remain saved.")
+        }
+        if !store.isCompanionEnabled {
+            return localizedAppString("Companion is disabled. Settings and event assignments remain saved.")
+        }
+        if store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return localizedAppString("Enter the Companion IP address or host before event triggers can send commands.")
+        }
+        if let error = store.companionLastError {
+            return error
+        }
+        return localizedAppFormat("Ready to send %@ commands to %@:%d.", store.companionMode.title, store.companionHost, Int(store.companionPort))
+    }
+
+    private var companionStatusIsError: Bool {
+        store.isCompanionEnabled && (store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.companionLastError != nil)
+    }
+
+    private func settingsCompanionPortRow() -> some View {
+        HStack(spacing: 16) {
+            localizedAppText("Port")
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            TextField("Port", text: Binding(
+                get: { store.companionPortText() },
+                set: { store.setCompanionPortText($0) }
+            ))
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                .scoreboardNumberEntry()
+                .monospacedDigit()
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: 140)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func settingsCompanionAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
+        let locationText = store.companionLocationText(for: event, sport: sport)
+        let validationMessage = store.companionLocationValidationMessage(for: event, sport: sport)
+        let normalizedLocation = ScoreboardCompanionLocation(rawValue: locationText)?.rawValue
+        let hasAssignment = !locationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Image(systemName: event.systemImage)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(settingsPalette.accent)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    localizedAppText(event.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    localizedAppText(event.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                TextField("1:0:2", text: Binding(
+                    get: { store.companionLocationDisplayText(for: event, sport: sport) },
+                    set: { store.setCompanionLocationDisplayText($0, for: event, sport: sport) }
+                ))
+                .font(.headline.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .autocorrectionDisabled()
+                .scoreboardNumberEntry()
+                .monospacedDigit()
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 128)
+
+                Button {
+                    store.testCompanionCommand(for: event, sport: sport)
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            in: Circle()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!store.canTestCompanionCommand(for: event, sport: sport))
+                .opacity(store.canTestCompanionCommand(for: event, sport: sport) ? 1 : 0.42)
+                .accessibilityLabel(localizedAppString("Test Companion command"))
+                .help(localizedAppString("Test Companion command"))
+            }
+
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(.footnote)
+                    .foregroundStyle(themePalette.destructiveTint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if let normalizedLocation {
+                Text(localizedAppFormat("Sends LOCATION %@ PRESS.", normalizedLocation))
+                    .font(.footnote)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if !hasAssignment {
+                localizedAppText("No Companion command assigned.")
+                    .font(.footnote)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.vertical, 12)
     }
 
     private func settingsWebAPIUpdateModeRow() -> some View {
@@ -2427,6 +2750,29 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    @ViewBuilder
+    private func settingsTwoColumnLayout<Left: View, Right: View>(
+        layout: InterfaceLayout,
+        @ViewBuilder left: () -> Left,
+        @ViewBuilder right: () -> Right
+    ) -> some View {
+        if layout.settingsTwoColumnUsesVerticalFlow {
+            VStack(alignment: .leading, spacing: 22) {
+                left()
+                right()
+            }
+        } else {
+            HStack(alignment: .top, spacing: 22) {
+                left()
+                    .frame(width: layout.settingsPrimaryColumnWidth, alignment: .topLeading)
+
+                right()
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
     private func settingsSection<Content: View>(
         title: String,
         footer: String? = nil,
@@ -2453,6 +2799,9 @@ struct ContentView: View {
                 localizedAppText(footer)
                     .font(.footnote)
                     .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -2483,6 +2832,31 @@ struct ContentView: View {
                     guard let teamSide else { return }
                     synchronizeDraftTeamName(text.wrappedValue, isHome: teamSide)
                 }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func settingsPlainTextEntryRow(
+        title: String,
+        text: Binding<String>,
+        placeholder: String? = nil
+    ) -> some View {
+        HStack(spacing: 16) {
+            localizedAppText(title)
+                .font(.body)
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Spacer(minLength: 0)
+
+            TextField(localizedAppString(placeholder ?? title), text: text)
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                .scoreboardPlainTextEntry()
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: 280)
         }
         .padding(.vertical, 10)
     }
@@ -3307,18 +3681,35 @@ struct ContentView: View {
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
         #if os(macOS)
         HStack(spacing: 10) {
+            Spacer(minLength: 0)
             publicBoardHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
+            if store.isCompanionVisible {
+                companionHeaderButton(layout: layout)
+            }
             settingsHeaderButton(layout: layout)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         #else
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, layout.headerActionColumns)),
-            spacing: 10
-        ) {
-            soundHeaderButton(layout: layout)
-            settingsHeaderButton(layout: layout)
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 10),
+                    count: max(1, min(layout.headerActionColumns, store.isCompanionVisible ? 3 : 2))
+                ),
+                spacing: 10
+            ) {
+                soundHeaderButton(layout: layout)
+                if store.isCompanionVisible {
+                    companionHeaderButton(layout: layout)
+                }
+                settingsHeaderButton(layout: layout)
+            }
+            .frame(maxWidth: layout.headerActionWidth, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         #endif
     }
 
@@ -3343,6 +3734,17 @@ struct ContentView: View {
             verticalPadding: layout.headerActionVerticalPadding
         ) {
             store.toggleSoundEnabled()
+        }
+    }
+
+    private func companionHeaderButton(layout: InterfaceLayout) -> some View {
+        actionButton(
+            store.isCompanionEnabled ? "Companion On" : "Companion Off",
+            tint: store.isCompanionEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+            foreground: store.isCompanionEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+            verticalPadding: layout.headerActionVerticalPadding
+        ) {
+            store.toggleCompanionEnabled()
         }
     }
 
@@ -5231,8 +5633,78 @@ struct ContentView: View {
                         removal: .opacity.combined(with: .scale(scale: 1.015))
                     ))
             }
+
+            if !showsSetup, let notice = store.companionFailureNotice {
+                VStack {
+                    companionFailureBanner(notice)
+                        .padding(.top, layout.outerPadding + 8)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, layout.outerPadding)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .animation(.easeInOut(duration: 0.24), value: showsSetup)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.companionFailureNotice?.id)
+    }
+
+    private func companionFailureBanner(_ notice: ScoreboardCompanionFailureNotice) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title3.weight(.black))
+                .foregroundStyle(themePalette.destructiveTint)
+                .frame(width: 46, height: 46)
+                .background(.white.opacity(0.94), in: Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(notice.message)
+                    .font(.title3.weight(.black))
+                    .foregroundStyle(.white)
+
+                Text(notice.detail)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(3)
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                Text("FAILED")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(themePalette.destructiveTint)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.white.opacity(0.94), in: Capsule())
+
+                Button {
+                    store.dismissCompanionFailureNotice()
+                } label: {
+                    Label("Dismiss", systemImage: "xmark")
+                        .font(.subheadline.weight(.black))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundStyle(themePalette.destructiveTint)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.94), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(localizedAppString("Dismiss Companion failure"))
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: 720, alignment: .leading)
+        .background(themePalette.destructiveTint, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(0.35), lineWidth: 1.5)
+        )
+        .shadow(color: themePalette.destructiveTint.opacity(0.42), radius: 24, y: 10)
+        .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
     }
 
     private func teamFoulControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
@@ -5894,6 +6366,8 @@ struct ContentView: View {
         homeTeamDraft = store.homeTeamName
         guestTeamDraft = store.guestTeamName
         setupSport = store.selectedSport
+        selectedSoundSettingsSport = store.selectedSport
+        selectedCompanionSettingsSport = store.selectedSport
         setupPeriod = store.period
         setupClockSeconds = store.defaultClockSeconds
         setupUsesGameClock = store.isGameClockEnabled
@@ -7299,23 +7773,22 @@ private struct InterfaceLayout {
     var secondaryButtonColumns: Int { width < 620 ? 1 : 2 }
 
     var dashboardHeaderHeight: CGFloat {
-        if isPortraitish { return 118 }
-        if isTabletSized { return denseControls || headerUsesVerticalFlow ? 84 : 68 }
-        return denseControls || headerUsesVerticalFlow ? 96 : 76
+        if isPortraitish { return 142 }
+        if isTabletSized { return denseControls || headerUsesVerticalFlow ? 108 : 72 }
+        return denseControls || headerUsesVerticalFlow ? 122 : 80
     }
 
     var headerUsesVerticalFlow: Bool { isPortraitish || width < 920 }
     var headerActionColumns: Int {
         if width < 520 { return 1 }
-        if isPortraitish { return 3 }
-        if width < 1320 { return 2 }
+        if width < 760 { return 2 }
         return 3
     }
     var headerActionWidth: CGFloat {
         #if os(macOS)
-        return width < 1320 ? 460 : 540
+        return width < 1320 ? 620 : 720
         #else
-        return width < 1320 ? 320 : 420
+        return width < 1320 ? 480 : 560
         #endif
     }
 
@@ -7350,6 +7823,10 @@ private struct InterfaceLayout {
         if width < 1180 { return 300 }
         return 360
     }
+    var settingsTwoColumnUsesVerticalFlow: Bool { width < 1180 }
+    var settingsPrimaryColumnWidth: CGFloat {
+        min(max(contentMaxWidth * 0.34, 340), 460)
+    }
 }
 
 private extension View {
@@ -7364,6 +7841,24 @@ private extension View {
         self
         #else
         textInputAutocapitalization(.characters)
+        #endif
+    }
+
+    @ViewBuilder
+    func scoreboardPlainTextEntry() -> some View {
+        #if os(macOS)
+        self
+        #else
+        textInputAutocapitalization(.never)
+        #endif
+    }
+
+    @ViewBuilder
+    func scoreboardNumberEntry() -> some View {
+        #if os(macOS)
+        self
+        #else
+        keyboardType(.numberPad)
         #endif
     }
 

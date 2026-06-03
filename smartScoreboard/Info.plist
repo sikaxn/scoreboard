@@ -42,7 +42,7 @@
 		<string>_smartscoreboard._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Scoreboard uses the local network to let trusted broadcast and production tools read live scoreboard status while Web API integration is enabled.</string>
+	<string>Scoreboard uses the local network to let trusted broadcast and production tools read live scoreboard status with Web API and trigger Bitfocus Companion commands when those integrations are enabled.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
