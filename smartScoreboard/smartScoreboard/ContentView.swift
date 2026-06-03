@@ -64,6 +64,22 @@ struct ContentView: View {
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "ScoreBoard"
+    }
+    private var appVersionLine: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        if let version, let build {
+            return "Version \(version) (\(build))"
+        }
+        if let version {
+            return "Version \(version)"
+        }
+        return "Version unavailable"
+    }
     private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
     private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
     private var resolvedSetupCustomSportConfig: CustomSportConfig {
@@ -498,6 +514,8 @@ struct ContentView: View {
             settingsFilesPane()
         case .logs:
             settingsLogsPane()
+        case .about:
+            settingsAboutPane()
         }
     }
 
@@ -1227,6 +1245,115 @@ struct ContentView: View {
                         .padding(.vertical, 12)
                 }
             }
+        }
+    }
+
+    private func settingsAboutPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsSection(title: "Application") {
+                HStack(alignment: .center, spacing: 18) {
+                    Image("ScoreboardIcon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 96, height: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(settingsPalette.cardBorder)
+                        )
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(appDisplayName)
+                            .font(.title3.weight(.black))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        Text(appVersionLine)
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 12)
+            }
+
+            settingsSection(title: "License", footer: "See LICENSE.md in the repository for the full GNU General Public License text.") {
+                settingsSummaryValueRow(title: "License", value: "GNU General Public License v3.0")
+                settingsDivider()
+                Text("This software is free software released under the GNU General Public License version 3. You may redistribute and modify it under those terms.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                settingsDivider()
+                Text("Distributed without warranty.")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+
+            settingsSection(title: "Links") {
+                settingsLinkRow(
+                    title: "Source Code",
+                    subtitle: "github.com/sikaxn/scoreboard",
+                    systemImage: "chevron.left.forwardslash.chevron.right",
+                    urlString: "https://github.com/sikaxn/scoreboard"
+                )
+                settingsDivider()
+                settingsLinkRow(
+                    title: "Privacy Policy",
+                    subtitle: "studenttechsupport.com/privacy",
+                    systemImage: "hand.raised",
+                    urlString: "https://studenttechsupport.com/privacy"
+                )
+            }
+
+            settingsSection(title: "Privacy") {
+                Text("This app does not collect any data and does not phone any third-party server.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsLinkRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        urlString: String
+    ) -> some View {
+        if let url = URL(string: urlString) {
+            Link(destination: url) {
+                HStack(spacing: 14) {
+                    Image(systemName: systemImage)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -5569,6 +5696,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case theme
     case files
     case logs
+    case about
 
     var id: String { rawValue }
 
@@ -5586,6 +5714,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Library"
         case .logs:
             return "Logs"
+        case .about:
+            return "About"
         }
     }
 
@@ -5603,6 +5733,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Manage local game files for both reusable setups and live games."
         case .logs:
             return "Review per-run audit sessions with export and delete tools."
+        case .about:
+            return "View app information, icon, version, and license details."
         }
     }
 
@@ -5620,6 +5752,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "books.vertical"
         case .logs:
             return "list.bullet.rectangle.portrait"
+        case .about:
+            return "info.circle"
         }
     }
 }
