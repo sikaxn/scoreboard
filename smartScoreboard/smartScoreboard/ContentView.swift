@@ -2996,43 +2996,63 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
+        #if os(macOS)
+        HStack(spacing: 10) {
+            publicBoardHeaderButton(layout: layout)
+            soundHeaderButton(layout: layout)
+            settingsHeaderButton(layout: layout)
+        }
+        #else
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, layout.headerActionColumns)),
             spacing: 10
         ) {
-            #if os(macOS)
-            actionButton(
-                publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard",
-                tint: themePalette.dashboardNeutralButton,
-                foreground: themePalette.dashboardNeutralButtonText,
-                verticalPadding: layout.headerActionVerticalPadding
-            ) {
-                showPublicBoardWindow()
-            }
-            #endif
-
-            actionButton(
-                store.isSoundEnabled ? "Sound On" : "Sound Off",
-                tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-                foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
-                verticalPadding: layout.headerActionVerticalPadding
-            ) {
-                store.toggleSoundEnabled()
-            }
-
-            Button {
-                openSettingsFromLiveBoard()
-            } label: {
-                Label("Setting", systemImage: "gearshape")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, layout.headerActionVerticalPadding)
-                    .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
+            soundHeaderButton(layout: layout)
+            settingsHeaderButton(layout: layout)
         }
+        #endif
+    }
+
+    #if os(macOS)
+    private func publicBoardHeaderButton(layout: InterfaceLayout) -> some View {
+        actionButton(
+            publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard",
+            tint: themePalette.dashboardNeutralButton,
+            foreground: themePalette.dashboardNeutralButtonText,
+            verticalPadding: layout.headerActionVerticalPadding
+        ) {
+            showPublicBoardWindow()
+        }
+    }
+    #endif
+
+    private func soundHeaderButton(layout: InterfaceLayout) -> some View {
+        actionButton(
+            store.isSoundEnabled ? "Sound On" : "Sound Off",
+            tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+            foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+            verticalPadding: layout.headerActionVerticalPadding
+        ) {
+            store.toggleSoundEnabled()
+        }
+    }
+
+    private func settingsHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            openSettingsFromLiveBoard()
+        } label: {
+            Label("Settings", systemImage: "gearshape")
+                .font(.headline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, layout.headerActionVerticalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
@@ -4997,9 +5017,14 @@ struct ContentView: View {
     }
 
     private func openSetupGame() {
+        #if os(macOS)
+        let shouldOpenPublicBoard = !store.didCompleteSetup && NSScreen.screens.count > 1
+        #endif
         commitSetupEdits(forceRefresh: true)
         #if os(macOS)
-        showPublicBoardWindow()
+        if shouldOpenPublicBoard {
+            showPublicBoardWindow()
+        }
         #endif
         withAnimation(.easeInOut(duration: 0.24)) {
             showsSetup = false
@@ -6205,6 +6230,7 @@ struct ContentView: View {
 
     #if os(macOS)
     private func showPublicBoardWindow() {
+        publicBoardState.requestFullscreen()
         openWindow(id: "public-scoreboard")
     }
     #endif
@@ -6927,7 +6953,13 @@ private struct InterfaceLayout {
         if width < 1320 { return 2 }
         return 3
     }
-    var headerActionWidth: CGFloat { width < 1320 ? 320 : 420 }
+    var headerActionWidth: CGFloat {
+        #if os(macOS)
+        return width < 1320 ? 460 : 540
+        #else
+        return width < 1320 ? 320 : 420
+        #endif
+    }
 
     var requiresDashboardScroll: Bool { isPortraitish || width < 760 || height < 820 }
     var topControlUsesVerticalFlow: Bool { width < 720 }

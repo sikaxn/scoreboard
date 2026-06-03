@@ -5,6 +5,7 @@ import AppKit
 
 struct ExternalScoreboardView: View {
     @EnvironmentObject private var store: ScoreboardStore
+    @EnvironmentObject private var publicBoardState: PublicBoardState
 
     var body: some View {
         let palette = store.theme.palette
@@ -73,7 +74,10 @@ struct ExternalScoreboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(externalBackgroundView(using: palette).ignoresSafeArea())
         #if os(macOS)
-        .background(PublicBoardWindowConfigurator(backgroundMode: store.externalDisplayBackgroundMode))
+        .background(PublicBoardWindowConfigurator(
+            backgroundMode: store.externalDisplayBackgroundMode,
+            fullscreenRequestID: publicBoardState.fullscreenRequestID
+        ))
         #endif
     }
 
@@ -124,6 +128,7 @@ struct ExternalScoreboardView: View {
 #if os(macOS)
 private struct PublicBoardWindowConfigurator: NSViewRepresentable {
     let backgroundMode: ExternalDisplayBackgroundMode
+    let fullscreenRequestID: UUID
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -132,23 +137,35 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            context.coordinator.configureWindowIfNeeded(for: view, backgroundMode: backgroundMode)
+            context.coordinator.configureWindowIfNeeded(
+                for: view,
+                backgroundMode: backgroundMode,
+                fullscreenRequestID: fullscreenRequestID
+            )
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            context.coordinator.configureWindowIfNeeded(for: nsView, backgroundMode: backgroundMode)
+            context.coordinator.configureWindowIfNeeded(
+                for: nsView,
+                backgroundMode: backgroundMode,
+                fullscreenRequestID: fullscreenRequestID
+            )
         }
     }
 
     final class Coordinator {
         private var configuredWindowNumbers = Set<Int>()
         private var placedWindowNumbers = Set<Int>()
-        private var fullscreenRequestedWindowNumbers = Set<Int>()
+        private var handledFullscreenRequestIDs = [Int: UUID]()
 
-        func configureWindowIfNeeded(for view: NSView, backgroundMode: ExternalDisplayBackgroundMode) {
+        func configureWindowIfNeeded(
+            for view: NSView,
+            backgroundMode: ExternalDisplayBackgroundMode,
+            fullscreenRequestID: UUID
+        ) {
             guard let window = view.window else {
                 return
             }
@@ -168,7 +185,7 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
                 placeWindowOnSecondaryDisplayIfAvailable(window)
             }
 
-            requestFullscreenIfNeeded(window)
+            requestFullscreenIfNeeded(window, fullscreenRequestID: fullscreenRequestID)
         }
 
         private func placeWindowOnSecondaryDisplayIfAvailable(_ window: NSWindow) {
@@ -192,15 +209,17 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
             window.setFrame(CGRect(origin: origin, size: fittedSize), display: true)
         }
 
-        private func requestFullscreenIfNeeded(_ window: NSWindow) {
+        private func requestFullscreenIfNeeded(_ window: NSWindow, fullscreenRequestID: UUID) {
             guard !window.styleMask.contains(.fullScreen) else {
+                handledFullscreenRequestIDs[window.windowNumber] = fullscreenRequestID
                 return
             }
 
-            guard fullscreenRequestedWindowNumbers.insert(window.windowNumber).inserted else {
+            guard handledFullscreenRequestIDs[window.windowNumber] != fullscreenRequestID else {
                 return
             }
 
+            handledFullscreenRequestIDs[window.windowNumber] = fullscreenRequestID
             DispatchQueue.main.async {
                 guard !window.styleMask.contains(.fullScreen) else {
                     return

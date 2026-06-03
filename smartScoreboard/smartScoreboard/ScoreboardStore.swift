@@ -3687,6 +3687,11 @@ final class PublicBoardState: ObservableObject {
     static let shared = PublicBoardState()
 
     @Published var isPresented = false
+    @Published var fullscreenRequestID = UUID()
 
     private init() {}
+
+    func requestFullscreen() {
+        fullscreenRequestID = UUID()
+    }
 }
