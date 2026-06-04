@@ -40,9 +40,10 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smartscoreboard._tcp</string>
+		<string>_scorebrd-tv._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Scoreboard uses the local network to let trusted broadcast and production tools read live scoreboard status with Web API and trigger Bitfocus Companion commands when those integrations are enabled.</string>
+	<string>Scoreboard uses the local network to pair Remote Display devices, let trusted production tools read live scoreboard status with Web API, and trigger Bitfocus Companion commands when those integrations are enabled.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

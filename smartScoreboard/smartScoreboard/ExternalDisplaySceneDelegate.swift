@@ -1,6 +1,6 @@
 import SwiftUI
 
-#if canImport(UIKit) && !os(macOS)
+#if os(iOS)
 import UIKit
 
 @MainActor
@@ -17,7 +17,7 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
         }
 
         let hostingController = UIHostingController(
-            rootView: ExternalScoreboardView()
+            rootView: ExternalDisplayRootView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environmentObject(ScoreboardStore.shared)
                 .environmentObject(PublicBoardState.shared)
@@ -66,6 +66,21 @@ final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
 
     private func displayBounds(for windowScene: UIWindowScene) -> CGRect {
         windowScene.screen.bounds
+    }
+}
+
+private struct ExternalDisplayRootView: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @EnvironmentObject private var publicBoardState: PublicBoardState
+
+    var body: some View {
+        if store.isRemoteDisplayViewerModeEnabled {
+            RemoteScoreboardView(showsPairingControls: false)
+        } else {
+            ExternalScoreboardView()
+                .environmentObject(store)
+                .environmentObject(publicBoardState)
+        }
     }
 }
 #endif

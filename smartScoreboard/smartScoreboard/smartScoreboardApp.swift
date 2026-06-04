@@ -2,20 +2,26 @@ import SwiftUI
 
 @main
 struct SmartScoreboardApp: App {
+    #if !os(tvOS)
     @StateObject private var store = ScoreboardStore.shared
     @StateObject private var publicBoardState = PublicBoardState.shared
+    #endif
 
     var body: some Scene {
-        #if os(macOS)
+        #if os(tvOS)
+        WindowGroup {
+            RemoteScoreboardView()
+        }
+        #elseif os(macOS)
         Window("Control Board", id: "control-board") {
-            ContentView()
+            MacControlBoardRootView()
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
         }
         .defaultSize(width: 1280, height: 820)
 
         Window("Public Scoreboard", id: "public-scoreboard") {
-            ExternalScoreboardView()
+            MacPublicScoreboardRootView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
@@ -30,10 +36,57 @@ struct SmartScoreboardApp: App {
         .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup {
-            ContentView()
-                .environmentObject(store)
-                .environmentObject(publicBoardState)
+            if store.isRemoteDisplayViewerModeEnabled {
+                RemoteScoreboardView(exitRemoteDisplayMode: {
+                    store.setRemoteDisplayViewerModeEnabled(false)
+                })
+            } else {
+                ContentView()
+                    .environmentObject(store)
+                    .environmentObject(publicBoardState)
+            }
         }
         #endif
     }
 }
+
+#if os(macOS)
+private struct MacControlBoardRootView: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @EnvironmentObject private var publicBoardState: PublicBoardState
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if store.isRemoteDisplayViewerModeEnabled {
+            RemoteScoreboardView(
+                exitRemoteDisplayMode: {
+                    store.setRemoteDisplayViewerModeEnabled(false)
+                },
+                openScoreboardWindow: {
+                    publicBoardState.requestFullscreen()
+                    openWindow(id: "public-scoreboard")
+                }
+            )
+        } else {
+            ContentView()
+                .environmentObject(store)
+                .environmentObject(publicBoardState)
+        }
+    }
+}
+
+private struct MacPublicScoreboardRootView: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @EnvironmentObject private var publicBoardState: PublicBoardState
+
+    var body: some View {
+        if store.isRemoteDisplayViewerModeEnabled {
+            RemoteScoreboardView(showsPairingControls: false)
+        } else {
+            ExternalScoreboardView()
+                .environmentObject(store)
+                .environmentObject(publicBoardState)
+        }
+    }
+}
+#endif

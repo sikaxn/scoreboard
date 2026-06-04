@@ -339,6 +339,17 @@ final class ScoreboardStore: ObservableObject {
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
     @Published private(set) var webAPILocalAddresses: [String] = []
+    @Published var isRemoteDisplayHostEnabled = false
+    @Published var isRemoteDisplayViewerModeEnabled = false
+    @Published private(set) var remoteDisplayHostStatus: ScoreboardRemoteDisplayHostStatus = .off
+    @Published private(set) var remoteDisplaySources: [ScoreboardRemoteDisplaySource] = []
+    @Published private(set) var remoteDisplayConnectedDisplays: [ScoreboardRemoteDisplayConnection] = []
+    @Published private(set) var remoteDisplayTrustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = []
+    @Published private(set) var remoteDisplayMutedDisplayIDs: Set<String> = []
+
+    var remoteDisplayHostID: String {
+        remoteDisplayHostService.hostID
+    }
 
     private var timer: Timer?
     private var lastTimerFireDate: Date?
@@ -352,15 +363,19 @@ final class ScoreboardStore: ObservableObject {
     private let buzzerPlayer = BuzzerPlayer()
     private let logManager = ScoreboardLogManager.shared
     private let webAPIService = ScoreboardWebAPIService()
+    private let remoteDisplayHostService = ScoreboardRemoteDisplayHostService()
     private let companionService = ScoreboardCompanionService()
     private var isWebAPIAppLifecycleActive = true
     private var companionFailureClearTask: Task<Void, Never>?
+    private var isStateSideEffectRefreshScheduled = false
 
     private init() {
         loadPersistedState()
         configurePersistence()
         configureWebAPIService()
+        configureRemoteDisplayService()
         refreshWebAPIState()
+        refreshRemoteDisplayState()
     }
 
     var formattedClock: String {
@@ -3134,7 +3149,9 @@ final class ScoreboardStore: ObservableObject {
         if playingTestSoundEffect != nil {
             stopTestSound()
         }
-        buzzerPlayer.play(resolvedSoundEffect(for: event))
+        let effect = resolvedSoundEffect(for: event)
+        buzzerPlayer.play(effect)
+        remoteDisplayHostService.sendSoundEffect(effect)
     }
 
     private func triggerCompanionCommand(for event: ScoreboardSoundEvent) {
@@ -3275,6 +3292,51 @@ final class ScoreboardStore: ObservableObject {
         webAPIUpdateMode = mode
     }
 
+    func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
+        isRemoteDisplayHostEnabled = isEnabled
+    }
+
+    func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
+        isRemoteDisplayViewerModeEnabled = isEnabled
+        persistState()
+    }
+
+    func pairRemoteDisplay(_ source: ScoreboardRemoteDisplaySource, pairingCode: String) {
+        remoteDisplayHostService.pair(with: source, pairingCode: pairingCode)
+    }
+
+    func connectTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) {
+        remoteDisplayHostService.connectTrustedDisplay(source)
+    }
+
+    func removeRemoteDisplayPairing(displayID: String) {
+        remoteDisplayHostService.removeTrustedDisplay(id: displayID)
+    }
+
+    func isTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
+        remoteDisplayHostService.isTrustedDisplay(source)
+    }
+
+    func disconnectRemoteDisplays() {
+        remoteDisplayHostService.disconnectDisplays()
+    }
+
+    func disconnectRemoteDisplay(displayID: String) {
+        remoteDisplayHostService.disconnectDisplay(id: displayID)
+    }
+
+    func sendRemoteDisplaySoundTest(displayID: String) {
+        remoteDisplayHostService.sendSoundTest(toDisplayID: displayID)
+    }
+
+    func setRemoteDisplayMuted(displayID: String, isMuted: Bool) {
+        remoteDisplayHostService.setDisplayMuted(id: displayID, isMuted: isMuted)
+    }
+
+    func isRemoteDisplayMuted(displayID: String) -> Bool {
+        remoteDisplayMutedDisplayIDs.contains(displayID)
+    }
+
     func refreshWebAPILocalAddresses() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
     }
@@ -3330,6 +3392,52 @@ final class ScoreboardStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func configureRemoteDisplayService() {
+        remoteDisplayHostService.$status
+            .sink { [weak self] status in
+                self?.remoteDisplayHostStatus = status
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$sources
+            .sink { [weak self] sources in
+                self?.remoteDisplaySources = sources
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$connectedDisplays
+            .sink { [weak self] connectedDisplays in
+                self?.remoteDisplayConnectedDisplays = connectedDisplays
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$trustedDisplays
+            .sink { [weak self] trustedDisplays in
+                self?.remoteDisplayTrustedDisplays = trustedDisplays
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$mutedDisplayIDs
+            .sink { [weak self] mutedDisplayIDs in
+                self?.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest(
+            $isRemoteDisplayHostEnabled.removeDuplicates(),
+            $isRemoteDisplayViewerModeEnabled.removeDuplicates()
+        )
+        .sink { [weak self] isHostEnabled, isViewerModeEnabled in
+            guard let self else { return }
+            if isHostEnabled && !isViewerModeEnabled {
+                self.startRemoteDisplayHostService()
+            } else {
+                self.stopRemoteDisplayHostService()
+            }
+        }
+        .store(in: &cancellables)
+    }
+
     private func startWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
@@ -3351,10 +3459,32 @@ final class ScoreboardStore: ObservableObject {
         webAPIService.updateState(encodedWebAPIState())
     }
 
+    private func startRemoteDisplayHostService() {
+        remoteDisplayHostService.start(
+            initialState: encodedWebAPIState(),
+            displayName: remoteDisplayHostName,
+            currentStateProvider: { [weak self] in
+                self?.encodedWebAPIState() ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+            }
+        )
+    }
+
+    private func stopRemoteDisplayHostService() {
+        remoteDisplayHostService.stop()
+    }
+
+    private func refreshRemoteDisplayState() {
+        remoteDisplayHostService.updateState(encodedWebAPIState())
+    }
+
     private func encodedWebAPIState() -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(currentWebAPIState())) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
+    private var remoteDisplayHostName: String {
+        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Host"
     }
 
     private func configurePersistence() {
@@ -3426,15 +3556,33 @@ final class ScoreboardStore: ObservableObject {
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
-            $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher()
+            $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
+            $isRemoteDisplayHostEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher()
         ]
 
         Publishers.MergeMany(persistencePublishers)
             .sink { [weak self] _ in
-                self?.persistState()
-                self?.refreshWebAPIState()
+                self?.scheduleStateSideEffectRefresh()
             }
             .store(in: &cancellables)
+    }
+
+    private func scheduleStateSideEffectRefresh() {
+        guard !isStateSideEffectRefreshScheduled else {
+            return
+        }
+
+        isStateSideEffectRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.isStateSideEffectRefreshScheduled = false
+            self.persistState()
+            self.refreshWebAPIState()
+            self.refreshRemoteDisplayState()
+        }
     }
 
     func exportPersistedStateData() throws -> Data {
@@ -3552,6 +3700,8 @@ final class ScoreboardStore: ObservableObject {
             setupPresets = persistedState.setupPresets
             isWebAPIEnabled = persistedState.isWebAPIEnabled
             webAPIUpdateMode = persistedState.webAPIUpdateMode
+            isRemoteDisplayHostEnabled = persistedState.isRemoteDisplayHostEnabled
+            isRemoteDisplayViewerModeEnabled = persistedState.isRemoteDisplayViewerModeEnabled
             if !currentRules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
@@ -3576,6 +3726,7 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning = false
             updateTimerState()
             refreshWebAPIState()
+            refreshRemoteDisplayState()
         }
     }
 
@@ -3658,7 +3809,9 @@ final class ScoreboardStore: ObservableObject {
             didCompleteSetup: didCompleteSetup,
             setupPresets: setupPresets,
             isWebAPIEnabled: isWebAPIEnabled,
-            webAPIUpdateMode: webAPIUpdateMode
+            webAPIUpdateMode: webAPIUpdateMode,
+            isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
+            isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled
         )
     }
 
@@ -3851,6 +4004,8 @@ private struct PersistedState: Codable {
     var setupPresets: [SetupPreset]
     var isWebAPIEnabled: Bool
     var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
+    var isRemoteDisplayHostEnabled: Bool
+    var isRemoteDisplayViewerModeEnabled: Bool
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
@@ -3922,6 +4077,8 @@ private struct PersistedState: Codable {
         case setupPresets
         case isWebAPIEnabled
         case webAPIUpdateMode
+        case isRemoteDisplayHostEnabled
+        case isRemoteDisplayViewerModeEnabled
     }
 
     init(
@@ -3990,7 +4147,9 @@ private struct PersistedState: Codable {
         didCompleteSetup: Bool,
         setupPresets: [SetupPreset],
         isWebAPIEnabled: Bool,
-        webAPIUpdateMode: ScoreboardWebAPIUpdateMode
+        webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
+        isRemoteDisplayHostEnabled: Bool,
+        isRemoteDisplayViewerModeEnabled: Bool
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
@@ -4058,6 +4217,8 @@ private struct PersistedState: Codable {
         self.setupPresets = setupPresets
         self.isWebAPIEnabled = isWebAPIEnabled
         self.webAPIUpdateMode = webAPIUpdateMode
+        self.isRemoteDisplayHostEnabled = isRemoteDisplayHostEnabled
+        self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -4151,6 +4312,8 @@ private struct PersistedState: Codable {
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
         isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
         webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
+        isRemoteDisplayHostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayHostEnabled) ?? false
+        isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -4221,6 +4384,8 @@ private struct PersistedState: Codable {
         try container.encode(setupPresets, forKey: .setupPresets)
         try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
+        try container.encode(isRemoteDisplayHostEnabled, forKey: .isRemoteDisplayHostEnabled)
+        try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
     }
 }
 
@@ -4293,7 +4458,9 @@ private extension PersistedState {
             didCompleteSetup: false,
             setupPresets: [],
             isWebAPIEnabled: false,
-            webAPIUpdateMode: .fixedInterval
+            webAPIUpdateMode: .fixedInterval,
+            isRemoteDisplayHostEnabled: false,
+            isRemoteDisplayViewerModeEnabled: false
         )
     }
 }

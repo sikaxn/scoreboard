@@ -4,7 +4,7 @@
   <img src="icon.png" alt="Scoreboard app icon" width="160">
 </p>
 
-Scoreboard is a SwiftUI scoreboard app for iPad and Mac. It gives an operator a private control board while showing a clean public scoreboard on an external display or through AirPlay.
+Scoreboard is a SwiftUI scoreboard app for iPad, Mac, and Apple TV. It gives an operator a private control board while showing a clean public scoreboard on an external display, through AirPlay, or on paired Remote Display devices.
 
 This project use AI generated contents.
 
@@ -28,6 +28,7 @@ For the full Scoreboard experience, connect an external display or use AirPlay. 
 
 - Real-time score, period, and game clock controls
 - Public scoreboard support for external displays and AirPlay
+- Apple TV, iPad, and Mac Remote Display pairing with live scoreboard sync
 - Built-in modes for Simple, Basketball, Volleyball, Soccer, Hockey, Chess, and Debate
 - Custom sport mode with configurable periods, clocks, score steps, possession, players, fouls, cards, and substitutions
 - Shot clock controls for supported sports
@@ -45,15 +46,16 @@ For the full Scoreboard experience, connect an external display or use AirPlay. 
 
 - iPad
 - Mac
+- Apple TV
 
-The project is configured as a SwiftUI app with iPadOS and macOS support.
+The iPad and Mac app includes the full operator interface and can also be switched into Remote Display mode from Settings. Apple TV always runs as a Remote Display. Remote Display uses Multipeer Connectivity pairing, not the Web API.
 
 ## Build From Source
 
 1. Clone the repository.
 2. Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode.
 3. Select the `smartScoreboard` scheme.
-4. Choose an iPad simulator, a connected iPad, or Mac as the run destination.
+4. Choose an iPad simulator, a connected iPad, Mac, or Apple TV simulator as the run destination.
 5. Build and run.
 
 ## Project Structure

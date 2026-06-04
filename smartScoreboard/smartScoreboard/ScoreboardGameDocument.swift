@@ -289,6 +289,7 @@ extension ScoreboardGameSnapshot: Codable {
     }
 }
 
+#if !os(tvOS)
 struct ScoreboardGameDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.scoreboardGame] }
 
@@ -311,3 +312,4 @@ struct ScoreboardGameDocument: FileDocument {
         return .init(regularFileWithContents: data)
     }
 }
+#endif

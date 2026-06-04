@@ -119,9 +119,12 @@ nonisolated enum ScoreboardWebAPIUpdateMode: String, CaseIterable, Codable, Iden
 nonisolated struct ScoreboardWebAPIState: Codable, Sendable {
     let schemaVersion: Int
     let generatedAt: String
+    let generatedAtUnixTime: TimeInterval?
     let app: ScoreboardWebAPIAppInfo
     let game: ScoreboardGameSnapshot
     let runtime: ScoreboardWebAPIRuntime
+    let display: ScoreboardWebAPIDisplay?
+    let audio: ScoreboardWebAPIAudio?
     let rules: ScoreboardWebAPIRules
     let teams: ScoreboardWebAPITeams
     let clocks: ScoreboardWebAPIClocks
@@ -134,6 +137,20 @@ nonisolated struct ScoreboardWebAPIAppInfo: Codable, Sendable {
     let version: String
     let build: String
     let apiVersion: String
+
+    static var current: ScoreboardWebAPIAppInfo {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Scoreboard"
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        return ScoreboardWebAPIAppInfo(
+            name: appName,
+            version: appVersion,
+            build: appBuild,
+            apiVersion: "v1"
+        )
+    }
 }
 
 nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
@@ -142,6 +159,16 @@ nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
     let isDebatePrepClockRunning: Bool
     let areSidesSwapped: Bool
     let possessionDirection: PossessionDirection
+}
+
+nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
+    let theme: ScoreboardTheme
+    let backgroundMode: ExternalDisplayBackgroundMode
+}
+
+nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
+    let isSoundEnabled: Bool
+    let assignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
 }
 
 nonisolated struct ScoreboardWebAPIRules: Codable, Sendable {
@@ -285,7 +312,6 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     domain: nil,
                     txtRecord: nil
                 )
-
                 self.configureHTTPListener(httpListener)
                 self.configureWebSocketListener(webSocketListener)
                 self.httpListener = httpListener
@@ -575,6 +601,9 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             "Content-Type: \(contentType)",
             "Content-Length: \(body.count)",
             "Cache-Control: no-store",
+            "X-SmartScoreboard-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.version))",
+            "X-SmartScoreboard-Build: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.build))",
+            "X-SmartScoreboard-API-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.apiVersion))",
             "Connection: close"
         ]
         headers.append(contentsOf: extraHeaders)
@@ -716,7 +745,10 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     }
 
     private func latestEnvelopeDataLocked() -> Data {
-        var envelope = Data(#"{"type":"scoreboard.state","schemaVersion":1,"payload":"#.utf8)
+        let appData = (try? JSONEncoder().encode(ScoreboardWebAPIAppInfo.current)) ?? Data(#"{"name":"Scoreboard","version":"unknown","build":"unknown","apiVersion":"v1"}"#.utf8)
+        var envelope = Data(#"{"type":"scoreboard.state","schemaVersion":1,"app":"#.utf8)
+        envelope.append(appData)
+        envelope.append(Data(#","payload":"#.utf8))
         envelope.append(latestStateData)
         envelope.append(Data("}".utf8))
         return envelope
@@ -726,6 +758,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let health = HealthResponse(
             schemaVersion: 1,
             service: "smartscoreboard.web_api",
+            app: ScoreboardWebAPIAppInfo.current,
             status: status.healthValue,
             httpPort: Self.httpPort,
             webSocketPort: Self.webSocketPort,
@@ -746,6 +779,12 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 
     private static func timestamp() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+
+    private static func httpHeaderSafeValue(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
     }
 
     private static func webSocketParameters() -> NWParameters {
@@ -784,6 +823,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private struct HealthResponse: Codable {
         let schemaVersion: Int
         let service: String
+        let app: ScoreboardWebAPIAppInfo
         let status: String
         let httpPort: UInt16
         let webSocketPort: UInt16
@@ -956,22 +996,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 @MainActor
 extension ScoreboardStore {
     func currentWebAPIState() -> ScoreboardWebAPIState {
+        let now = Date()
         let rules = currentRules
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "Scoreboard"
-        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-        let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
 
         return ScoreboardWebAPIState(
             schemaVersion: 1,
-            generatedAt: ISO8601DateFormatter().string(from: Date()),
-            app: ScoreboardWebAPIAppInfo(
-                name: appName,
-                version: appVersion,
-                build: appBuild,
-                apiVersion: "v1"
-            ),
+            generatedAt: ISO8601DateFormatter().string(from: now),
+            generatedAtUnixTime: now.timeIntervalSince1970,
+            app: ScoreboardWebAPIAppInfo.current,
             game: currentGameSnapshot(),
             runtime: ScoreboardWebAPIRuntime(
                 isClockRunning: isClockRunning,
@@ -979,6 +1011,14 @@ extension ScoreboardStore {
                 isDebatePrepClockRunning: isDebatePrepClockRunning,
                 areSidesSwapped: areSidesSwapped,
                 possessionDirection: possessionDirection
+            ),
+            display: ScoreboardWebAPIDisplay(
+                theme: theme,
+                backgroundMode: externalDisplayBackgroundMode
+            ),
+            audio: ScoreboardWebAPIAudio(
+                isSoundEnabled: isSoundEnabled,
+                assignmentsBySport: soundAssignmentsBySport
             ),
             rules: ScoreboardWebAPIRules(
                 sport: selectedSport,

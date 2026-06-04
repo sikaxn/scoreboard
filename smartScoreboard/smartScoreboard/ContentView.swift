@@ -8,6 +8,8 @@ import UIKit
 import AppKit
 #endif
 
+#if !os(tvOS)
+
 private func localizedAppString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
@@ -51,7 +53,8 @@ struct ContentView: View {
     @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
     @State private var setupCustomDebatePreset = DebatePreset.customDefault
     @State private var selectedSoundSettingsSport: SportType = .simple
-    @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .webAPI
+    @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .remoteDisplay
+    @State private var remoteDisplayPairingCodes: [String: String] = [:]
     @State private var selectedCompanionSettingsSport: SportType = .simple
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
@@ -1645,6 +1648,8 @@ struct ContentView: View {
             switch selectedIntegrationDetail {
             case .webAPI:
                 settingsWebAPIPane()
+            case .remoteDisplay:
+                settingsRemoteDisplayPane()
             case .bitfocusCompanion:
                 settingsBitfocusCompanionPane(layout: layout)
             }
@@ -1711,7 +1716,7 @@ struct ContentView: View {
     private func settingsIntegrationConfigurationSection() -> some View {
         settingsSection(
             title: "Configure Integration",
-            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API and Bitfocus Companion are separate integrations and can run at the same time when enabled."
+            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display, and Bitfocus Companion are separate integrations."
         ) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 ForEach(IntegrationSettingsDetail.allCases) { detail in
@@ -1777,6 +1782,480 @@ struct ContentView: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isSelected)
         }
         .buttonStyle(.plain)
+    }
+
+    private func settingsRemoteDisplayPane() -> some View {
+        let displayRows = remoteDisplaySettingsRows
+
+        return VStack(alignment: .leading, spacing: 22) {
+            #if !os(tvOS)
+            settingsSection(title: "This Device", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
+                settingsButtonRow(
+                    title: "Use This Device as Remote Display",
+                    buttonTitle: "Enter",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    store.setRemoteDisplayViewerModeEnabled(true)
+                }
+
+                #if os(macOS)
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Scoreboard Window",
+                    buttonTitle: "Open",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    store.setRemoteDisplayViewerModeEnabled(true)
+                    showPublicBoardWindow()
+                }
+                #endif
+            }
+            #endif
+
+            settingsSection(title: "About Remote Display") {
+                Text("Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings.")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+
+            settingsSection(title: "Operator Broadcast", footer: "Turn this on from the operator device. Nearby displays in Remote Display Mode appear below by device name.") {
+                settingsToggleRow(title: "Enable Remote Display Pairing", isOn: Binding(
+                    get: { store.isRemoteDisplayHostEnabled },
+                    set: { store.setRemoteDisplayHostEnabled($0) }
+                ))
+                settingsDivider()
+                settingsSummaryValueRow(title: "Status", value: localizedAppString(store.remoteDisplayHostStatus.title))
+                settingsDivider()
+                settingsSummaryValueRow(title: "Connected Displays", value: remoteDisplayConnectedDisplayCountLabel)
+                settingsDivider()
+                Text(remoteDisplayHostStatusDetail)
+                    .font(.subheadline)
+                    .foregroundStyle(store.remoteDisplayHostStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+
+            settingsSection(title: "Displays", footer: "Connected, saved, and nearby displays appear together. Saved displays can connect without another code; new displays need the 4-digit code shown on that display.") {
+                if !store.isRemoteDisplayHostEnabled {
+                    settingsSummaryValueRow(title: "Displays", value: localizedAppString("Enable Remote Display Pairing first"))
+                } else if displayRows.isEmpty {
+                    settingsSummaryValueRow(title: "Displays", value: localizedAppString("No displays found or saved"))
+                } else {
+                    ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
+                        settingsRemoteDisplayRow(row)
+                        if index < displayRows.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var remoteDisplayConnectedDisplayCountLabel: String {
+        let count = store.remoteDisplayConnectedDisplays.count
+        if count == 0 {
+            return localizedAppString("None")
+        }
+        return localizedAppFormat("%d connected", count)
+    }
+
+    private var remoteDisplayHostStatusDetail: String {
+        if store.isRemoteDisplayViewerModeEnabled {
+            return localizedAppString("Pairing is paused while this device is in Remote Display Mode.")
+        }
+        return localizedAppString(store.remoteDisplayHostStatus.detail)
+    }
+
+    private var remoteDisplaySettingsRows: [RemoteDisplaySettingsRow] {
+        var rowsByID: [String: RemoteDisplaySettingsRow] = [:]
+
+        for trusted in store.remoteDisplayTrustedDisplays {
+            rowsByID[trusted.id] = RemoteDisplaySettingsRow(
+                id: trusted.id,
+                name: trusted.name,
+                deviceType: trusted.deviceType ?? .unknown,
+                source: nil,
+                connection: nil,
+                trusted: trusted,
+                isTrusted: true,
+                isMuted: store.isRemoteDisplayMuted(displayID: trusted.id)
+            )
+        }
+
+        for source in store.remoteDisplaySources {
+            let trusted = store.remoteDisplayTrustedDisplays.first { $0.id == source.id }
+            let isTrusted = store.isTrustedRemoteDisplay(source)
+            let existing = rowsByID[source.id]
+            rowsByID[source.id] = RemoteDisplaySettingsRow(
+                id: source.id,
+                name: source.name,
+                deviceType: source.deviceType,
+                source: source,
+                connection: existing?.connection,
+                trusted: trusted,
+                isTrusted: isTrusted,
+                isMuted: store.isRemoteDisplayMuted(displayID: source.id)
+            )
+        }
+
+        for connection in store.remoteDisplayConnectedDisplays {
+            let trusted = store.remoteDisplayTrustedDisplays.first { $0.id == connection.id }
+            let existing = rowsByID[connection.id]
+            rowsByID[connection.id] = RemoteDisplaySettingsRow(
+                id: connection.id,
+                name: connection.name,
+                deviceType: connection.deviceType,
+                source: existing?.source,
+                connection: connection,
+                trusted: trusted,
+                isTrusted: trusted != nil || existing?.isTrusted == true,
+                isMuted: connection.isMuted || store.isRemoteDisplayMuted(displayID: connection.id)
+            )
+        }
+
+        return rowsByID.values.sorted { lhs, rhs in
+            if lhs.sortRank != rhs.sortRank {
+                return lhs.sortRank < rhs.sortRank
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func settingsRemoteDisplayRow(_ row: RemoteDisplaySettingsRow) -> some View {
+        let versionWarning = row.isOffline ? nil : remoteDisplayVersionWarningText(row.appVersion)
+        let isInUseByOtherBoard = row.source?.isInUseByOtherBoard(currentHostID: store.remoteDisplayHostID) == true
+        let enteredCode = row.source.map { remoteDisplayPairingCodes[$0.id] ?? "" } ?? ""
+        let canConnect = row.source != nil
+            && row.isTrusted
+            && !row.isConnected
+            && !isInUseByOtherBoard
+        let canPair = row.source != nil
+            && !row.isTrusted
+            && !row.isConnected
+            && !isInUseByOtherBoard
+            && enteredCode.count == ScoreboardRemoteDisplayHostService.pairingCodeLength
+        let canTestSound = row.isConnected && !row.isMuted
+
+        return HStack(alignment: .center, spacing: 16) {
+            Image(systemName: row.deviceType.systemImage)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(remoteDisplayRowIconColor(row, isInUseByOtherBoard: isInUseByOtherBoard, hasVersionWarning: versionWarning != nil))
+                .frame(width: 30)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(row.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                        .lineLimit(1)
+
+                    Text(row.deviceType.title)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(settingsPalette.fieldBackground, in: Capsule())
+                }
+
+                Text(remoteDisplayRowStatusText(row, isInUseByOtherBoard: isInUseByOtherBoard))
+                    .font(.subheadline)
+                    .foregroundStyle(isInUseByOtherBoard ? themePalette.destructiveTint : settingsPalette.secondaryText)
+
+                if let versionWarning {
+                    Text(versionWarning)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.orange)
+                }
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            if let connection = row.connection {
+                remoteDisplayConnectionQualityBadge(connection.quality)
+            } else if row.isTrusted {
+                remoteDisplayStatusBadge(row.isOffline ? "Offline" : "Ready")
+            }
+
+            if row.isTrusted || row.isConnected {
+                remoteDisplayIconActionButton(
+                    row.isMuted ? "Unmute" : "Mute",
+                    systemImage: row.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                    tint: row.isMuted ? settingsPalette.accent : settingsPalette.fieldBackground,
+                    foreground: row.isMuted ? settingsPalette.accentText : settingsPalette.primaryText
+                ) {
+                    store.setRemoteDisplayMuted(displayID: row.id, isMuted: !row.isMuted)
+                }
+            }
+
+            if row.isConnected {
+                remoteDisplayIconActionButton(
+                    "Test",
+                    systemImage: "play.fill",
+                    tint: canTestSound ? settingsPalette.accent : settingsPalette.fieldBackground,
+                    foreground: canTestSound ? settingsPalette.accentText : settingsPalette.secondaryText,
+                    isEnabled: canTestSound
+                ) {
+                    store.sendRemoteDisplaySoundTest(displayID: row.id)
+                }
+
+                remoteDisplayIconActionButton(
+                    "Disconnect",
+                    systemImage: "xmark.circle",
+                    tint: themePalette.destructiveTint.opacity(0.12),
+                    foreground: themePalette.destructiveTint
+                ) {
+                    store.disconnectRemoteDisplay(displayID: row.id)
+                }
+            } else if row.isTrusted, let source = row.source {
+                remoteDisplayTextActionButton(
+                    "Connect",
+                    systemImage: "link",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: canConnect
+                ) {
+                    store.connectTrustedRemoteDisplay(source)
+                }
+            } else if let source = row.source {
+                TextField(
+                    localizedAppString("Code"),
+                    text: remoteDisplayPairingCodeBinding(for: source)
+                )
+                .font(.title3.weight(.black).monospacedDigit())
+                .multilineTextAlignment(.center)
+                .scoreboardNumberEntry()
+                .foregroundStyle(settingsPalette.primaryText)
+                .textFieldStyle(.plain)
+                .frame(width: 88)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+                .onSubmit {
+                    guard canPair else { return }
+                    store.pairRemoteDisplay(source, pairingCode: enteredCode)
+                }
+                .disabled(isInUseByOtherBoard)
+
+                remoteDisplayTextActionButton(
+                    "Pair",
+                    systemImage: "key.fill",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: canPair
+                ) {
+                    store.pairRemoteDisplay(source, pairingCode: enteredCode)
+                }
+            }
+
+            if row.isTrusted {
+                remoteDisplayIconActionButton(
+                    "Remove",
+                    systemImage: "trash",
+                    tint: themePalette.destructiveTint.opacity(0.12),
+                    foreground: themePalette.destructiveTint
+                ) {
+                    store.removeRemoteDisplayPairing(displayID: row.id)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func remoteDisplayIconActionButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color,
+        foreground: Color,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(foreground)
+                .frame(width: 44, height: 44)
+                .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(settingsPalette.cardBorder.opacity(0.7), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.48)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func remoteDisplayTextActionButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color,
+        foreground: Color,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(localizedAppString(title), systemImage: systemImage)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(tint, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.58)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func remoteDisplayRowIconColor(
+        _ row: RemoteDisplaySettingsRow,
+        isInUseByOtherBoard: Bool,
+        hasVersionWarning: Bool
+    ) -> Color {
+        if hasVersionWarning {
+            return .orange
+        }
+        if isInUseByOtherBoard {
+            return themePalette.destructiveTint
+        }
+        if let quality = row.connection?.quality {
+            return remoteDisplayConnectionQualityColor(quality)
+        }
+        if row.source != nil {
+            return settingsPalette.accent
+        }
+        return settingsPalette.secondaryText
+    }
+
+    private func remoteDisplayRowStatusText(
+        _ row: RemoteDisplaySettingsRow,
+        isInUseByOtherBoard: Bool
+    ) -> String {
+        if let connection = row.connection {
+            let soundState = row.isMuted ? localizedAppString("Muted") : localizedAppString("Sound on")
+            return "\(remoteDisplayConnectionDetail(connection)) · \(soundState)"
+        }
+        if isInUseByOtherBoard, let source = row.source {
+            return localizedAppFormat("In use by %@", source.activeHostName ?? localizedAppString("another board"))
+        }
+        if row.isTrusted, row.source != nil {
+            return localizedAppString("Saved. Use Connect without a code.")
+        }
+        if row.isTrusted {
+            return localizedAppString("Offline. Saved display can reconnect when it is in Remote Display Mode.")
+        }
+        return row.source?.detail ?? localizedAppString("Waiting for Remote Display")
+    }
+
+    private func remoteDisplayConnectionQualityBadge(_ quality: ScoreboardRemoteDisplayConnectionQuality) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(remoteDisplayConnectionQualityColor(quality))
+                .frame(width: 8, height: 8)
+            Text(remoteDisplayConnectionQualityLabel(quality))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(settingsPalette.primaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(settingsPalette.fieldBackground, in: Capsule())
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func remoteDisplayStatusBadge(_ title: String) -> some View {
+        Text(localizedAppString(title))
+            .font(.caption.weight(.bold))
+            .foregroundStyle(settingsPalette.primaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(settingsPalette.fieldBackground, in: Capsule())
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func remoteDisplayPairingCodeBinding(for source: ScoreboardRemoteDisplaySource) -> Binding<String> {
+        Binding(
+            get: { remoteDisplayPairingCodes[source.id] ?? "" },
+            set: { value in
+                remoteDisplayPairingCodes[source.id] = String(value.filter(\.isNumber).prefix(ScoreboardRemoteDisplayHostService.pairingCodeLength))
+            }
+        )
+    }
+
+    private func remoteDisplayVersionWarningText(_ version: ScoreboardRemoteDisplayAppVersion?) -> String? {
+        guard let version else {
+            return localizedAppFormat(
+                "Version unknown on display, master %@",
+                ScoreboardRemoteDisplayAppVersion.current.displayText
+            )
+        }
+        guard version.isMismatch() else {
+            return nil
+        }
+        return localizedAppFormat(
+            "Version mismatch: display %@, master %@",
+            version.displayText,
+            ScoreboardRemoteDisplayAppVersion.current.displayText
+        )
+    }
+
+    private func remoteDisplayConnectionDetail(_ connection: ScoreboardRemoteDisplayConnection) -> String {
+        if let latencyMilliseconds = connection.latencyMilliseconds {
+            if let age = connection.lastHandshakeAgeSeconds, age >= 1 {
+                return localizedAppFormat("Ping %d ms · last reply %d s ago", latencyMilliseconds, age)
+            }
+            return localizedAppFormat("Ping %d ms", latencyMilliseconds)
+        }
+        if let age = connection.lastHandshakeAgeSeconds {
+            return localizedAppFormat("Waiting for ping reply · last reply %d s ago", age)
+        }
+        return localizedAppString("Pinging")
+    }
+
+    private func remoteDisplayConnectionQualityColor(_ quality: ScoreboardRemoteDisplayConnectionQuality) -> Color {
+        switch quality {
+        case .connecting:
+            return settingsPalette.secondaryText
+        case .live:
+            return .green
+        case .poor:
+            return .orange
+        case .unresponsive:
+            return themePalette.destructiveTint
+        }
+    }
+
+    private func remoteDisplayConnectionQualityLabel(_ quality: ScoreboardRemoteDisplayConnectionQuality) -> String {
+        switch quality {
+        case .connecting:
+            return localizedAppString("Connecting")
+        case .live:
+            return localizedAppString("Good")
+        case .poor:
+            return localizedAppString("Poor")
+        case .unresponsive:
+            return localizedAppString("No Reply")
+        }
     }
 
     private func settingsBitfocusCompanionPane(layout: InterfaceLayout) -> some View {
@@ -3957,6 +4436,8 @@ struct ContentView: View {
                 .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.4)
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: store.formattedShotClock)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
@@ -4544,6 +5025,8 @@ struct ContentView: View {
                 .font(.system(size: layout.centerMetricValueSize, weight: .black, design: .rounded))
                 .monospacedDigitIfNeeded(monospaced)
                 .singleLineFitted(minScale: 0.4)
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -7984,6 +8467,42 @@ private struct PendingBackupRestore: Identifiable {
     let sourceFilename: String
 }
 
+private struct RemoteDisplaySettingsRow: Identifiable {
+    let id: String
+    let name: String
+    let deviceType: ScoreboardRemoteDisplayDeviceType
+    let source: ScoreboardRemoteDisplaySource?
+    let connection: ScoreboardRemoteDisplayConnection?
+    let trusted: ScoreboardRemoteDisplayTrustedPeer?
+    let isTrusted: Bool
+    let isMuted: Bool
+
+    var isConnected: Bool {
+        connection != nil
+    }
+
+    var isOffline: Bool {
+        isTrusted && source == nil && connection == nil
+    }
+
+    var appVersion: ScoreboardRemoteDisplayAppVersion? {
+        connection?.appVersion ?? source?.appVersion
+    }
+
+    var sortRank: Int {
+        if isConnected {
+            return 0
+        }
+        if source != nil {
+            return 1
+        }
+        if trusted != nil {
+            return 2
+        }
+        return 3
+    }
+}
+
 private enum ActiveAlert: Identifiable {
     case fileOperation(FileOperationAlert)
     case gameConfirmation(GameConfirmationAction)
@@ -8095,6 +8614,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
+    case remoteDisplay
     case webAPI
     case bitfocusCompanion
 
@@ -8104,6 +8624,8 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "Web API"
+        case .remoteDisplay:
+            return "Remote Display"
         case .bitfocusCompanion:
             return "Bitfocus Companion"
         }
@@ -8113,6 +8635,8 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "Read scoreboard state with HTTP and WebSocket."
+        case .remoteDisplay:
+            return "Pair nearby Apple TV, iPad, or Mac display devices."
         case .bitfocusCompanion:
             return "Trigger Companion commands from scoreboard events."
         }
@@ -8122,6 +8646,8 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "network"
+        case .remoteDisplay:
+            return "tv.and.mediabox"
         case .bitfocusCompanion:
             return "square.grid.3x3"
         }
@@ -8566,4 +9092,6 @@ private struct ControlBoardWindowConfigurator: NSViewRepresentable {
         }
     }
 }
+#endif
+
 #endif

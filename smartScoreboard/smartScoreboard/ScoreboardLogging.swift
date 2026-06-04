@@ -425,6 +425,7 @@ struct StoredLogSession: Identifiable {
     }
 }
 
+#if !os(tvOS)
 struct ScoreboardLogExportDocument: FileDocument {
     static var readableContentTypes: [UTType] {
         [.scoreboardLogSession, .json, .commaSeparatedText, .plainText]
@@ -448,6 +449,7 @@ struct ScoreboardLogExportDocument: FileDocument {
         FileWrapper(regularFileWithContents: data)
     }
 }
+#endif
 
 @MainActor
 final class ScoreboardLogManager {

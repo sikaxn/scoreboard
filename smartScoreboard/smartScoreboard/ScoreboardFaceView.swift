@@ -422,6 +422,8 @@ struct ScoreboardFaceView: View {
             }
 
             VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
+                let shotClockValueSize = ultraCondensed ? base * 0.112 : condensed ? base * 0.148 : base * 0.132
+
                 if sport == .debate,
                    let debateSegmentTitle,
                    !debateSegmentTitle.isEmpty {
@@ -436,10 +438,11 @@ struct ScoreboardFaceView: View {
                         condensed: condensed,
                         ultraCondensed: ultraCondensed,
                         base: base,
-                        valueFontSize: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19,
-                        valueMinScale: 0.24,
+                        valueFontSize: shotClockValueSize,
+                        valueMinScale: 0.34,
                         valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
                     )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
                 }
 
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
@@ -473,6 +476,9 @@ struct ScoreboardFaceView: View {
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: formattedShotClock)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isDisplayShotClockAlertActive)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: period)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }
@@ -489,17 +495,20 @@ struct ScoreboardFaceView: View {
         let arrowFontSize = ultraCondensed ? base * 0.072 : condensed ? base * 0.102 : base * 0.088
         let arrowSlotWidth = ultraCondensed ? base * 0.1 : condensed ? base * 0.14 : base * 0.12
         let arrowIndicator = centerPossessionIndicator
+        let showsArrowIndicator = arrowIndicator != nil
         let showsLeftArrow = arrowIndicator?.systemName.contains("left") == true
         let showsRightArrow = arrowIndicator?.systemName.contains("right") == true
 
-        return HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-            shotArrowSlot(
-                systemName: arrowIndicator?.systemName,
-                color: arrowIndicator?.color,
-                isVisible: showsLeftArrow,
-                fontSize: arrowFontSize,
-                slotWidth: arrowSlotWidth
-            )
+        return HStack(spacing: showsArrowIndicator ? (ultraCondensed ? 8 : condensed ? 14 : 12) : 0) {
+            if showsArrowIndicator {
+                shotArrowSlot(
+                    systemName: arrowIndicator?.systemName,
+                    color: arrowIndicator?.color,
+                    isVisible: showsLeftArrow,
+                    fontSize: arrowFontSize,
+                    slotWidth: arrowSlotWidth
+                )
+            }
 
             headerBadge(
                 title: "SHOT",
@@ -513,13 +522,15 @@ struct ScoreboardFaceView: View {
             )
             .frame(maxWidth: .infinity)
 
-            shotArrowSlot(
-                systemName: arrowIndicator?.systemName,
-                color: arrowIndicator?.color,
-                isVisible: showsRightArrow,
-                fontSize: arrowFontSize,
-                slotWidth: arrowSlotWidth
-            )
+            if showsArrowIndicator {
+                shotArrowSlot(
+                    systemName: arrowIndicator?.systemName,
+                    color: arrowIndicator?.color,
+                    isVisible: showsRightArrow,
+                    fontSize: arrowFontSize,
+                    slotWidth: arrowSlotWidth
+                )
+            }
         }
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
         .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
@@ -618,13 +629,19 @@ struct ScoreboardFaceView: View {
                 .tracking(ultraCondensed ? 0.8 : 1.5)
                 .singleLineFitted(minScale: 0.75)
                 .foregroundStyle(boardBadgeTitleTextColor)
+                .frame(maxWidth: .infinity)
 
             Text(value)
                 .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 34 : 28), weight: .heavy, design: .rounded))
                 .monospacedDigit()
+                .allowsTightening(true)
                 .singleLineFitted(minScale: valueMinScale)
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
                 .foregroundStyle(valueColor ?? boardBadgeValueTextColor)
+                .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
         .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
         .background(
