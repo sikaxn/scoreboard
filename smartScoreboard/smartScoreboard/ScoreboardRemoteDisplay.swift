@@ -9,6 +9,14 @@ import UIKit
 import SystemConfiguration
 #endif
 
+private func localizedRemoteDisplayString(_ key: String) -> String {
+    NSLocalizedString(key, comment: "")
+}
+
+private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
+}
+
 nonisolated enum ScoreboardRemoteDisplayHostStatus: Equatable, Sendable {
     case off
     case browsing(displayCount: Int, pairedCount: Int)
@@ -153,7 +161,7 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
 
     var id: String { discoveryInfo?["displayID"] ?? peerID.displayName }
     var name: String { discoveryInfo?["name"] ?? peerID.displayName }
-    var detail: String { discoveryInfo?["app"] ?? "Scoreboard Remote Display" }
+    var detail: String { discoveryInfo?["app"] ?? localizedRemoteDisplayString("Scoreboard Remote Display") }
     var deviceType: ScoreboardRemoteDisplayDeviceType {
         discoveryInfo?["deviceType"].flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:)) ?? .unknown
     }
@@ -515,18 +523,26 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
 
     func pair(with source: ScoreboardRemoteDisplaySource, pairingCode: String) {
         guard let browser, let session else {
-            status = .failed("Remote Display pairing is not running.")
+            status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
 
         guard !source.isInUseByOtherBoard(currentHostID: hostID) else {
-            status = .failed("\(source.name) is in use by \(source.activeHostName ?? "another board").")
+            status = .failed(localizedRemoteDisplayFormat(
+                "%@ is in use by %@.",
+                source.name,
+                source.activeHostName ?? localizedRemoteDisplayString("another board")
+            ))
             return
         }
 
         let sanitizedCode = Self.sanitizedPairingCode(pairingCode)
         guard sanitizedCode.count == Self.pairingCodeLength else {
-            status = .failed("Enter the \(Self.pairingCodeLength)-digit pairing code shown on \(source.name).")
+            status = .failed(localizedRemoteDisplayFormat(
+                "Enter the %d-digit pairing code shown on %@.",
+                Self.pairingCodeLength,
+                source.name
+            ))
             return
         }
 
@@ -552,12 +568,16 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
 
     func connectTrustedDisplay(_ source: ScoreboardRemoteDisplaySource) {
         guard !source.isInUseByOtherBoard(currentHostID: hostID) else {
-            status = .failed("\(source.name) is in use by \(source.activeHostName ?? "another board").")
+            status = .failed(localizedRemoteDisplayFormat(
+                "%@ is in use by %@.",
+                source.name,
+                source.activeHostName ?? localizedRemoteDisplayString("another board")
+            ))
             return
         }
 
         guard isTrustedDisplay(source) else {
-            status = .failed("\(source.name) needs a new pairing code.")
+            status = .failed(localizedRemoteDisplayFormat("%@ needs a new pairing code.", source.name))
             return
         }
 
@@ -605,11 +625,11 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
 
     func sendSoundTest(toDisplayID displayID: String) {
         guard !mutedDisplayIDs.contains(displayID) else {
-            status = .failed("Unmute this Remote Display before running a sound test.")
+            status = .failed(localizedRemoteDisplayString("Unmute this Remote Display before running a sound test."))
             return
         }
         guard let peer = connectedPeer(forDisplayID: displayID) else {
-            status = .failed("Connect the Remote Display before running a sound test.")
+            status = .failed(localizedRemoteDisplayString("Connect the Remote Display before running a sound test."))
             return
         }
 
@@ -682,7 +702,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
 
     private func inviteTrustedDisplayIfNeeded(_ source: ScoreboardRemoteDisplaySource, force: Bool = false) {
         guard let browser, let session else {
-            status = .failed("Remote Display pairing is not running.")
+            status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
         guard isTrustedDisplay(source), !source.isInUseByOtherBoard(currentHostID: hostID) else {
@@ -1238,7 +1258,7 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     func release() {
         activeConsumerCount = max(0, activeConsumerCount - 1)
         if activeConsumerCount == 0 {
-            stopAdvertising(statusMessage: "Remote Display stopped.")
+            stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
         }
     }
 
@@ -1271,7 +1291,7 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
 
     func stop() {
         activeConsumerCount = 0
-        stopAdvertising(statusMessage: "Remote Display stopped.")
+        stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
     }
 
     private func stopAdvertising(statusMessage: String) {
@@ -1383,12 +1403,12 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             return
         }
 
-        let staleHostName = pairedHostName ?? "Remote Display host"
+        let staleHostName = pairedHostName ?? localizedRemoteDisplayString("Remote Display host")
         pairedHostID = nil
         pairedHostName = nil
         self.lastHeartbeatAt = nil
         masterClockOffset = nil
-        status = .disconnected("\(staleHostName) stopped responding. Waiting for reconnect.")
+        status = .disconnected(localizedRemoteDisplayFormat("%@ stopped responding. Waiting for reconnect.", staleHostName))
         startOrRefreshAdvertiser()
     }
 
@@ -1447,7 +1467,10 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             } else if self.state == nil {
                 status = .waiting
             } else {
-                status = .disconnected("\(peerID.displayName) disconnected. Waiting for Remote Display to reconnect.")
+                status = .disconnected(localizedRemoteDisplayFormat(
+                    "%@ disconnected. Waiting for Remote Display to reconnect.",
+                    peerID.displayName
+                ))
             }
         @unknown default:
             break
@@ -1466,7 +1489,7 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
 
         let decoder = JSONDecoder()
         guard let decodedState = try? decoder.decode(ScoreboardWebAPIState.self, from: data) else {
-            status = .failed("Received an unreadable Remote Display update.")
+            status = .failed(localizedRemoteDisplayString("Received an unreadable Remote Display update."))
             return
         }
 
@@ -1544,7 +1567,7 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         pairedHostName = nil
         lastHeartbeatAt = nil
         masterClockOffset = nil
-        status = .disconnected("\(hostName) disconnected this Remote Display.")
+        status = .disconnected(localizedRemoteDisplayFormat("%@ disconnected this Remote Display.", hostName))
         session?.disconnect()
         startOrRefreshAdvertiser()
     }
@@ -1616,7 +1639,10 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         state = nil
         isMuted = false
         soundTestPlayer.stop()
-        status = .disconnected("\(message.hostName ?? peerID.displayName) removed this display. Pair again to reconnect.")
+        status = .disconnected(localizedRemoteDisplayFormat(
+            "%@ removed this display. Pair again to reconnect.",
+            message.hostName ?? peerID.displayName
+        ))
         session?.disconnect()
         pairingCode = Self.makePairingCode()
         startPairingCodeTimer()

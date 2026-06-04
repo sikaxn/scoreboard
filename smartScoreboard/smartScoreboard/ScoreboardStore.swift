@@ -13,6 +13,45 @@ private func signedStoreDelta(_ delta: Int, suffix: String = "") -> String {
     "\(delta >= 0 ? "+" : "")\(delta)\(suffix)"
 }
 
+struct ScoreboardRemoteDisplayWarningNotice: Equatable, Identifiable {
+    enum Kind: Equatable {
+        case disconnected
+        case unresponsive
+    }
+
+    let id: UUID
+    let kind: Kind
+    let displayIDs: Set<String>
+    let message: String
+    let detail: String
+
+    init(kind: Kind, displaysByID: [String: String]) {
+        id = UUID()
+        self.kind = kind
+        displayIDs = Set(displaysByID.keys)
+
+        let names = displaysByID.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let joinedNames = names.joined(separator: ", ")
+
+        switch kind {
+        case .disconnected:
+            message = localizedStoreString("Remote Display disconnected")
+            if names.count == 1, let name = names.first {
+                detail = localizedStoreFormat("%@ disconnected. Waiting for Remote Display to reconnect.", name)
+            } else {
+                detail = localizedStoreFormat("%d Remote Displays disconnected: %@", names.count, joinedNames)
+            }
+        case .unresponsive:
+            message = localizedStoreString("Remote Display not responding")
+            if names.count == 1, let name = names.first {
+                detail = localizedStoreFormat("No reply from %@. Check the Remote Display connection.", name)
+            } else {
+                detail = localizedStoreFormat("%d Remote Displays are not replying: %@", names.count, joinedNames)
+            }
+        }
+    }
+}
+
 enum PossessionDirection: String, Codable, CaseIterable {
     case home
     case none
@@ -346,6 +385,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteDisplayConnectedDisplays: [ScoreboardRemoteDisplayConnection] = []
     @Published private(set) var remoteDisplayTrustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = []
     @Published private(set) var remoteDisplayMutedDisplayIDs: Set<String> = []
+    @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
 
     var remoteDisplayHostID: String {
         remoteDisplayHostService.hostID
@@ -367,6 +407,10 @@ final class ScoreboardStore: ObservableObject {
     private let companionService = ScoreboardCompanionService()
     private var isWebAPIAppLifecycleActive = true
     private var companionFailureClearTask: Task<Void, Never>?
+    private var remoteDisplayConnectedDisplaysByID: [String: ScoreboardRemoteDisplayConnection] = [:]
+    private var remoteDisplayDisconnectedDisplaysByID: [String: String] = [:]
+    private var dismissedRemoteDisplayWarningDisplayIDs = Set<String>()
+    private var intentionallyDisconnectedRemoteDisplayIDs = Set<String>()
     private var isStateSideEffectRefreshScheduled = false
 
     private init() {
@@ -1129,6 +1173,13 @@ final class ScoreboardStore: ObservableObject {
         }
 
         setCompanionEnabled(!isCompanionEnabled)
+    }
+
+    func dismissRemoteDisplayWarningNotice() {
+        if let notice = remoteDisplayWarningNotice {
+            dismissedRemoteDisplayWarningDisplayIDs.formUnion(notice.displayIDs)
+        }
+        remoteDisplayWarningNotice = nil
     }
 
     func setCompanionHost(_ host: String) {
@@ -3294,10 +3345,16 @@ final class ScoreboardStore: ObservableObject {
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
         isRemoteDisplayHostEnabled = isEnabled
+        if !isEnabled {
+            resetRemoteDisplayWarningState()
+        }
     }
 
     func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
         isRemoteDisplayViewerModeEnabled = isEnabled
+        if isEnabled {
+            resetRemoteDisplayWarningState()
+        }
         persistState()
     }
 
@@ -3310,6 +3367,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removeRemoteDisplayPairing(displayID: String) {
+        if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
+            intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
+        }
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+        dismissedRemoteDisplayWarningDisplayIDs.remove(displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
         remoteDisplayHostService.removeTrustedDisplay(id: displayID)
     }
 
@@ -3318,10 +3383,20 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func disconnectRemoteDisplays() {
+        intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        remoteDisplayWarningNotice = nil
         remoteDisplayHostService.disconnectDisplays()
     }
 
     func disconnectRemoteDisplay(displayID: String) {
+        if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
+            intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
+        }
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
         remoteDisplayHostService.disconnectDisplay(id: displayID)
     }
 
@@ -3407,13 +3482,13 @@ final class ScoreboardStore: ObservableObject {
 
         remoteDisplayHostService.$connectedDisplays
             .sink { [weak self] connectedDisplays in
-                self?.remoteDisplayConnectedDisplays = connectedDisplays
+                self?.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$trustedDisplays
             .sink { [weak self] trustedDisplays in
-                self?.remoteDisplayTrustedDisplays = trustedDisplays
+                self?.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
             }
             .store(in: &cancellables)
 
@@ -3436,6 +3511,98 @@ final class ScoreboardStore: ObservableObject {
             }
         }
         .store(in: &cancellables)
+    }
+
+    private func handleRemoteDisplayConnectedDisplaysChanged(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) {
+        remoteDisplayConnectedDisplays = connectedDisplays
+
+        guard isRemoteDisplayHostEnabled, !isRemoteDisplayViewerModeEnabled else {
+            resetRemoteDisplayWarningState(connectedDisplays: connectedDisplays)
+            return
+        }
+
+        let connectedDisplaysByID = Dictionary(uniqueKeysWithValues: connectedDisplays.map { ($0.id, $0) })
+        let droppedDisplays = remoteDisplayConnectedDisplaysByID.filter { connectedDisplaysByID[$0.key] == nil }
+
+        for (displayID, display) in droppedDisplays {
+            if intentionallyDisconnectedRemoteDisplayIDs.remove(displayID) != nil {
+                continue
+            }
+            remoteDisplayDisconnectedDisplaysByID[displayID] = display.name
+        }
+
+        for displayID in connectedDisplaysByID.keys {
+            remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+            dismissedRemoteDisplayWarningDisplayIDs.remove(displayID)
+            intentionallyDisconnectedRemoteDisplayIDs.remove(displayID)
+        }
+
+        remoteDisplayConnectedDisplaysByID = connectedDisplaysByID
+        refreshRemoteDisplayWarningNotice(
+            unresponsiveDisplays: connectedDisplays.filter { $0.quality == .unresponsive }
+        )
+    }
+
+    private func handleRemoteDisplayTrustedDisplaysChanged(_ trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer]) {
+        remoteDisplayTrustedDisplays = trustedDisplays
+
+        let trustedDisplayIDs = Set(trustedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID = remoteDisplayDisconnectedDisplaysByID.filter { trustedDisplayIDs.contains($0.key) }
+        dismissedRemoteDisplayWarningDisplayIDs.formIntersection(
+            trustedDisplayIDs.union(remoteDisplayConnectedDisplays.map(\.id))
+        )
+        refreshRemoteDisplayWarningNotice(
+            unresponsiveDisplays: remoteDisplayConnectedDisplays.filter { $0.quality == .unresponsive }
+        )
+    }
+
+    private func refreshRemoteDisplayWarningNotice(unresponsiveDisplays: [ScoreboardRemoteDisplayConnection]) {
+        let unresponsiveDisplaysByID = Dictionary(uniqueKeysWithValues: unresponsiveDisplays.map { ($0.id, $0.name) })
+        let problemDisplayIDs = Set(remoteDisplayDisconnectedDisplaysByID.keys).union(unresponsiveDisplaysByID.keys)
+
+        dismissedRemoteDisplayWarningDisplayIDs.formIntersection(problemDisplayIDs)
+
+        guard !problemDisplayIDs.isEmpty else {
+            remoteDisplayWarningNotice = nil
+            return
+        }
+
+        let unsuppressedDisconnectedDisplays = remoteDisplayDisconnectedDisplaysByID.filter {
+            !dismissedRemoteDisplayWarningDisplayIDs.contains($0.key)
+        }
+        if !unsuppressedDisconnectedDisplays.isEmpty {
+            presentRemoteDisplayWarningNotice(kind: .disconnected, displaysByID: unsuppressedDisconnectedDisplays)
+            return
+        }
+
+        let unsuppressedUnresponsiveDisplays = unresponsiveDisplaysByID.filter {
+            !dismissedRemoteDisplayWarningDisplayIDs.contains($0.key)
+        }
+        if !unsuppressedUnresponsiveDisplays.isEmpty {
+            presentRemoteDisplayWarningNotice(kind: .unresponsive, displaysByID: unsuppressedUnresponsiveDisplays)
+            return
+        }
+
+        remoteDisplayWarningNotice = nil
+    }
+
+    private func presentRemoteDisplayWarningNotice(
+        kind: ScoreboardRemoteDisplayWarningNotice.Kind,
+        displaysByID: [String: String]
+    ) {
+        let displayIDs = Set(displaysByID.keys)
+        if remoteDisplayWarningNotice?.kind == kind, remoteDisplayWarningNotice?.displayIDs == displayIDs {
+            return
+        }
+        remoteDisplayWarningNotice = ScoreboardRemoteDisplayWarningNotice(kind: kind, displaysByID: displaysByID)
+    }
+
+    private func resetRemoteDisplayWarningState(connectedDisplays: [ScoreboardRemoteDisplayConnection] = []) {
+        remoteDisplayConnectedDisplaysByID = Dictionary(uniqueKeysWithValues: connectedDisplays.map { ($0.id, $0) })
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        dismissedRemoteDisplayWarningDisplayIDs.removeAll()
+        intentionallyDisconnectedRemoteDisplayIDs.removeAll()
+        remoteDisplayWarningNotice = nil
     }
 
     private func startWebAPIService() {
@@ -3470,6 +3637,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func stopRemoteDisplayHostService() {
+        resetRemoteDisplayWarningState()
         remoteDisplayHostService.stop()
     }
 
@@ -3586,7 +3754,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func exportPersistedStateData() throws -> Data {
-        try encodedPersistedStateData()
+        try JSONEncoder().encode(currentPersistedState().excludingRemoteDisplayPairingState)
     }
 
     func validatePersistedStateData(_ data: Data) throws {
@@ -3595,7 +3763,7 @@ final class ScoreboardStore: ObservableObject {
 
     func restorePersistedStateData(_ data: Data) throws {
         let persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
-        applyPersistedState(persistedState)
+        applyPersistedState(persistedState.excludingRemoteDisplayPairingState)
         persistState()
     }
 
@@ -3630,6 +3798,7 @@ final class ScoreboardStore: ObservableObject {
             pauseShotClock()
             stopTestSound()
             dismissCompanionFailureNotice()
+            resetRemoteDisplayWarningState()
             companionLastError = nil
 
             selectedSport = persistedState.selectedSport
@@ -4390,6 +4559,13 @@ private struct PersistedState: Codable {
 }
 
 private extension PersistedState {
+    var excludingRemoteDisplayPairingState: PersistedState {
+        var state = self
+        state.isRemoteDisplayHostEnabled = false
+        state.isRemoteDisplayViewerModeEnabled = false
+        return state
+    }
+
     static var factoryDefault: PersistedState {
         let defaultRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
         return PersistedState(

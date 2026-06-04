@@ -1577,7 +1577,7 @@ struct ContentView: View {
     }
 
     private func settingsBackupSection() -> some View {
-        settingsSection(title: "App Backup", footer: "Back up or restore app settings, current game state, stored game files, and log sessions.") {
+        settingsSection(title: "App Backup", footer: "Back up or restore app settings, current game state, stored game files, and log sessions. Remote Display pairings are excluded; pair displays again after restoring on another device.") {
             HStack(spacing: 16) {
                 localizedAppText("Full App Backup")
                     .foregroundStyle(settingsPalette.primaryText)
@@ -1828,7 +1828,7 @@ struct ContentView: View {
                     set: { store.setRemoteDisplayHostEnabled($0) }
                 ))
                 settingsDivider()
-                settingsSummaryValueRow(title: "Status", value: localizedAppString(store.remoteDisplayHostStatus.title))
+                settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
                 settingsDivider()
                 settingsSummaryValueRow(title: "Connected Displays", value: remoteDisplayConnectedDisplayCountLabel)
                 settingsDivider()
@@ -1868,7 +1868,32 @@ struct ContentView: View {
         if store.isRemoteDisplayViewerModeEnabled {
             return localizedAppString("Pairing is paused while this device is in Remote Display Mode.")
         }
-        return localizedAppString(store.remoteDisplayHostStatus.detail)
+        return localizedRemoteDisplayHostStatusDetail(store.remoteDisplayHostStatus)
+    }
+
+    private func localizedRemoteDisplayHostStatusTitle(_ status: ScoreboardRemoteDisplayHostStatus) -> String {
+        switch status {
+        case .off:
+            return localizedAppString("Off")
+        case .browsing:
+            return localizedAppString("Ready")
+        case .failed:
+            return localizedAppString("Failed")
+        }
+    }
+
+    private func localizedRemoteDisplayHostStatusDetail(_ status: ScoreboardRemoteDisplayHostStatus) -> String {
+        switch status {
+        case .off:
+            return localizedAppString("Remote Display pairing is off.")
+        case .browsing(let displayCount, let pairedCount):
+            if displayCount == 1 {
+                return localizedAppFormat("Found %d display, %d paired.", displayCount, pairedCount)
+            }
+            return localizedAppFormat("Found %d displays, %d paired.", displayCount, pairedCount)
+        case .failed(let message):
+            return message
+        }
     }
 
     private var remoteDisplaySettingsRows: [RemoteDisplaySettingsRow] {
@@ -1954,7 +1979,7 @@ struct ContentView: View {
                         .foregroundStyle(settingsPalette.primaryText)
                         .lineLimit(1)
 
-                    Text(row.deviceType.title)
+                    Text(localizedAppString(row.deviceType.title))
                         .font(.caption.weight(.bold))
                         .foregroundStyle(settingsPalette.secondaryText)
                         .lineLimit(1)
@@ -4306,13 +4331,30 @@ struct ContentView: View {
 
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
         HStack(spacing: 10) {
-            Label(localizedAppString(displayStatusTitle), systemImage: displayStatusSystemImage)
-                .font(layout.headerBadgeFont)
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                Image(systemName: displayStatusSystemImage)
+                    .imageScale(.medium)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    localizedAppText(displayStatusTitle)
+                        .font(layout.headerBadgeFont)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    if let remoteDisplayHeaderStatusTitle {
+                        Text(remoteDisplayHeaderStatusTitle)
+                            .font(layout.headerBadgeDetailFont)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                }
+            }
                 .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
                 .padding(.horizontal, layout.headerBadgeHorizontalPadding)
                 .padding(.vertical, layout.headerBadgeVerticalPadding)
                 .background(themePalette.dashboardCardBackground, in: Capsule())
+                .accessibilityElement(children: .combine)
 
             Button {
                 dashboardPage = .preview
@@ -6289,10 +6331,19 @@ struct ContentView: View {
                     ))
             }
 
-            if !showsSetup, let notice = store.companionFailureNotice {
+            if !showsSetup, store.companionFailureNotice != nil || store.remoteDisplayWarningNotice != nil {
                 VStack {
-                    companionFailureBanner(notice)
-                        .padding(.top, layout.outerPadding + 8)
+                    VStack(spacing: 12) {
+                        if let notice = store.companionFailureNotice {
+                            companionFailureBanner(notice)
+                        }
+
+                        if let notice = store.remoteDisplayWarningNotice {
+                            remoteDisplayWarningBanner(notice)
+                        }
+                    }
+                    .padding(.top, layout.outerPadding + 8)
+
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, layout.outerPadding)
@@ -6301,6 +6352,7 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.24), value: showsSetup)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.companionFailureNotice?.id)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.remoteDisplayWarningNotice?.id)
     }
 
     private func companionFailureBanner(_ notice: ScoreboardCompanionFailureNotice) -> some View {
@@ -6359,6 +6411,68 @@ struct ContentView: View {
                 .strokeBorder(.white.opacity(0.35), lineWidth: 1.5)
         )
         .shadow(color: themePalette.destructiveTint.opacity(0.42), radius: 24, y: 10)
+        .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
+    }
+
+    private func remoteDisplayWarningBanner(_ notice: ScoreboardRemoteDisplayWarningNotice) -> some View {
+        let warningTint = themePalette.dashboardWarningButton
+        let warningForeground = themePalette.dashboardWarningButtonText
+
+        return HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title3.weight(.black))
+                .foregroundStyle(.black)
+                .frame(width: 46, height: 46)
+                .background(.white.opacity(0.94), in: Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(notice.message)
+                    .font(.title3.weight(.black))
+                    .foregroundStyle(warningForeground)
+
+                Text(notice.detail)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(3)
+                    .foregroundStyle(warningForeground.opacity(0.90))
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                Text("WARNING")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.white.opacity(0.94), in: Capsule())
+
+                Button {
+                    store.dismissRemoteDisplayWarningNotice()
+                } label: {
+                    Label("Dismiss", systemImage: "xmark")
+                        .font(.subheadline.weight(.black))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.94), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(localizedAppString("Dismiss Remote Display warning"))
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: 720, alignment: .leading)
+        .background(warningTint, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(0.35), lineWidth: 1.5)
+        )
+        .shadow(color: warningTint.opacity(0.42), radius: 24, y: 10)
         .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
     }
 
@@ -8132,6 +8246,30 @@ struct ContentView: View {
         #endif
     }
 
+    private var remoteDisplayHeaderStatusTitle: String? {
+        guard store.isRemoteDisplayHostEnabled else {
+            return nil
+        }
+
+        let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
+        let pairedDisplayCount = pairedDisplayIDs.count
+        guard pairedDisplayCount > 0 else {
+            return nil
+        }
+
+        let connectedDisplayCount = store.remoteDisplayConnectedDisplays.filter {
+            pairedDisplayIDs.contains($0.id)
+        }.count
+
+        return localizedAppFormat(
+            "Remote Display %d/%d (%d paired %d connected)",
+            connectedDisplayCount,
+            pairedDisplayCount,
+            pairedDisplayCount,
+            connectedDisplayCount
+        )
+    }
+
     private var displayStatusSystemImage: String {
         #if os(macOS)
         return publicBoardState.isPresented ? "rectangle.on.rectangle" : "rectangle"
@@ -8781,6 +8919,7 @@ private struct InterfaceLayout {
     var headerTitleSize: CGFloat { denseControls ? 22 : 26 }
     var headerSubtitleFont: Font { denseControls ? .caption : .subheadline }
     var headerBadgeFont: Font { denseControls ? .caption.weight(.semibold) : .subheadline.weight(.semibold) }
+    var headerBadgeDetailFont: Font { denseControls ? .caption2.weight(.semibold) : .caption.weight(.semibold) }
     var headerTitleSpacing: CGFloat { denseControls ? 4 : 5 }
     var headerBlockSpacing: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 12 }
     var headerInlineSpacing: CGFloat { denseControls ? 12 : isTabletSized ? 10 : 14 }

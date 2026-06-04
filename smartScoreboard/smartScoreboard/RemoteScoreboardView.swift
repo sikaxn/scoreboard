@@ -1,4 +1,13 @@
+import Foundation
 import SwiftUI
+
+private func localizedRemoteDisplayString(_ key: String) -> String {
+    NSLocalizedString(key, comment: "")
+}
+
+private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
+}
 
 struct RemoteScoreboardView: View {
     var exitRemoteDisplayMode: (() -> Void)?
@@ -496,7 +505,7 @@ private enum RemoteDisplayConnectionHealth: Equatable {
 
         if status.isLive, let age {
             if age >= Self.disconnectedInterval {
-                self = .disconnected("No handshake for \(Int(age))s")
+                self = .disconnected(localizedRemoteDisplayFormat("No handshake for %d s", Int(age)))
             } else if age >= Self.poorConnectionInterval {
                 self = .poor(age)
             } else {
@@ -507,9 +516,9 @@ private enum RemoteDisplayConnectionHealth: Equatable {
 
         switch status {
         case .paired:
-            self = .disconnected("Waiting for scoreboard data")
+            self = .disconnected(localizedRemoteDisplayString("Waiting for scoreboard data"))
         case .waiting:
-            self = .disconnected("Waiting to reconnect")
+            self = .disconnected(localizedRemoteDisplayString("Waiting to reconnect"))
         case .disconnected(let message), .failed(let message):
             self = .disconnected(message)
         }
@@ -518,11 +527,11 @@ private enum RemoteDisplayConnectionHealth: Equatable {
     var title: String {
         switch self {
         case .live:
-            return "Live"
+            return localizedRemoteDisplayString("Live")
         case .poor:
-            return "Poor"
+            return localizedRemoteDisplayString("Poor")
         case .disconnected:
-            return "Disconnected"
+            return localizedRemoteDisplayString("Disconnected")
         }
     }
 
@@ -531,7 +540,7 @@ private enum RemoteDisplayConnectionHealth: Equatable {
         case .live:
             return nil
         case .poor(let age):
-            return "Handshake \(Int(age))s"
+            return localizedRemoteDisplayFormat("Handshake %d s", Int(age))
         case .disconnected(let message):
             return message
         }
@@ -601,12 +610,12 @@ private struct RemoteDisplayConfigurationView: View {
     private var pairingPanel: some View {
         VStack(spacing: 22) {
             VStack(spacing: 10) {
-                Text(receiver.status.title)
+                Text(localizedRemoteDisplayReceiverStatusTitle(receiver.status))
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.86))
                     .contentTransition(.opacity)
 
-                Text(showsPairingControls ? receiver.status.detail : passiveDisplayDetail)
+                Text(showsPairingControls ? localizedRemoteDisplayReceiverStatusDetail(receiver.status) : passiveDisplayDetail)
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.64))
@@ -721,18 +730,42 @@ private struct RemoteDisplayConfigurationView: View {
     }
 
     private var passiveDisplayDetail: String {
-        "This screen mirrors the Remote Display output. Use the main Smart Scoreboard window on this device to pair."
+        localizedRemoteDisplayString("This screen mirrors the Remote Display output. Use the main Smart Scoreboard window on this device to pair.")
     }
 
     private var savedPairingDetail: String {
         let count = receiver.trustedHosts.count
         if count == 0 {
-            return "No operator devices saved"
+            return localizedRemoteDisplayString("No operator devices saved")
         }
         if count == 1 {
-            return "1 operator device saved"
+            return localizedRemoteDisplayString("1 operator device saved")
         }
-        return "\(count) operator devices saved"
+        return localizedRemoteDisplayFormat("%d operator devices saved", count)
+    }
+
+    private func localizedRemoteDisplayReceiverStatusTitle(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
+        switch status {
+        case .waiting:
+            return localizedRemoteDisplayString("Ready to Pair")
+        case .paired:
+            return localizedRemoteDisplayString("Live")
+        case .disconnected:
+            return localizedRemoteDisplayString("Disconnected")
+        case .failed:
+            return localizedRemoteDisplayString("Connection Failed")
+        }
+    }
+
+    private func localizedRemoteDisplayReceiverStatusDetail(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
+        switch status {
+        case .waiting:
+            return localizedRemoteDisplayString("Open Scoreboard settings on the operator device and pair this display.")
+        case .paired(let name):
+            return localizedRemoteDisplayFormat("Receiving live scoreboard updates from %@.", name)
+        case .disconnected(let message), .failed(let message):
+            return message
+        }
     }
 
     private var passiveDisplayPanel: some View {
@@ -771,7 +804,7 @@ private struct RemoteDisplayAboutHeader: View {
     }
 
     private var appVersionLine: String {
-        "Version \(ScoreboardRemoteDisplayAppVersion.current.displayText)"
+        localizedRemoteDisplayFormat("Version %@", ScoreboardRemoteDisplayAppVersion.current.displayText)
     }
 
     var body: some View {
