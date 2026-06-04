@@ -569,6 +569,58 @@ final class ScoreboardLogManager {
         notifyChange()
     }
 
+    func backupFiles() throws -> [ScoreboardBackupFile] {
+        try listSessions().map { session in
+            ScoreboardBackupFile(
+                filename: session.url.lastPathComponent,
+                data: try Data(contentsOf: session.url)
+            )
+        }
+    }
+
+    func validateBackupFiles(_ files: [ScoreboardBackupFile]) throws {
+        var filenames = Set<String>()
+        for file in files {
+            let filename = try safeRestoredLogFilename(file.filename)
+            guard filenames.insert(filename).inserted else {
+                throw ScoreboardBackupError.invalidFilename(file.filename)
+            }
+            _ = try decoder.decode(ScoreboardLogSession.self, from: file.data)
+        }
+    }
+
+    func replaceSessions(with files: [ScoreboardBackupFile]) throws {
+        try validateBackupFiles(files)
+
+        let directoryURL = try logsDirectory()
+        let existingURLs = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension.lowercased() == "scoreboardlog" }
+
+        for url in existingURLs {
+            try fileManager.removeItem(at: url)
+        }
+
+        for file in files {
+            let filename = try safeRestoredLogFilename(file.filename)
+            let session = try decoder.decode(ScoreboardLogSession.self, from: file.data)
+            let destinationURL = directoryURL.appendingPathComponent(filename)
+            try persist(session, to: destinationURL)
+        }
+
+        if let firstSession = try listSessions().first {
+            currentSession = firstSession.session
+            currentSessionURL = firstSession.url
+            notifyChange()
+        } else {
+            currentSession = nil
+            currentSessionURL = nil
+            startSession()
+        }
+    }
+
     func exportJSONData(for session: ScoreboardLogSession) throws -> Data {
         try encoder.encode(session)
     }
@@ -684,6 +736,18 @@ final class ScoreboardLogManager {
         let timestamp = session.startedAt.ISO8601Format()
             .replacingOccurrences(of: ":", with: "-")
         return "\(timestamp)-\(session.sessionID.uuidString)"
+    }
+
+    private func safeRestoredLogFilename(_ filename: String) throws -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        guard !trimmed.isEmpty,
+              trimmed == lastPathComponent,
+              (trimmed as NSString).pathExtension.lowercased() == "scoreboardlog" else {
+            throw ScoreboardBackupError.invalidFilename(filename)
+        }
+
+        return trimmed
     }
 
     private func notifyChange() {

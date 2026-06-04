@@ -66,11 +66,15 @@ struct ContentView: View {
     @State private var selectedLogSessionIDs: Set<String> = []
     @State private var isSelectingLogSessions = false
     @State private var showsGameImporter = false
+    @State private var showsBackupImporter = false
+    @State private var showsRosterCSVImporter = false
     @State private var exportSharePayload: ExportSharePayload?
     @State private var fileOperationError: FileOperationAlert?
     @State private var dashboardPage: DashboardPage = .main
     @State private var pendingGameConfirmation: GameConfirmationAction?
+    @State private var pendingBackupRestore: PendingBackupRestore?
     @State private var pendingLogDeletion: StoredLogSession?
+    @State private var isFactoryDefaultConfirmationPresented = false
     @State private var pendingPenaltySelection: PendingPenaltySelection?
     @State private var logPlaybackOrder: LogPlaybackOrder = .topToBottom
     @State private var isLoadingSetupDrafts = false
@@ -132,9 +136,13 @@ struct ContentView: View {
     private let logManager = ScoreboardLogManager.shared
     #if os(iOS)
     private var iOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json, .data] }
+    private var iOSBackupImportContentTypes: [UTType] { [.scoreboardBackup, .json, .data] }
+    private var iOSRosterCSVImportContentTypes: [UTType] { [.commaSeparatedText, .plainText, .data] }
     #endif
     #if os(macOS)
     private var macOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json] }
+    private var macOSBackupImportContentTypes: [UTType] { [.scoreboardBackup, .json] }
+    private var macOSRosterCSVImportContentTypes: [UTType] { [.commaSeparatedText, .plainText] }
     #endif
 
     var body: some View {
@@ -323,6 +331,20 @@ struct ContentView: View {
         ) { result in
             importGameIntoLibrary(result)
         }
+        .fileImporter(
+            isPresented: $showsBackupImporter,
+            allowedContentTypes: iOSBackupImportContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            importBackupForRestore(result)
+        }
+        .fileImporter(
+            isPresented: $showsRosterCSVImporter,
+            allowedContentTypes: iOSRosterCSVImportContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            importRosterCSV(result)
+        }
         .scoreboardShareExporter(payload: $exportSharePayload)
     }
     #else
@@ -356,6 +378,18 @@ struct ContentView: View {
                         pendingGameConfirmation = nil
                     }
                 )
+            case .backupRestore(let backupRestore):
+                return Alert(
+                    title: Text("Restore Full Backup"),
+                    message: Text(backupRestoreMessage(for: backupRestore)),
+                    primaryButton: .destructive(Text("Restore")) {
+                        pendingBackupRestore = nil
+                        restoreFullBackup(backupRestore.backup)
+                    },
+                    secondaryButton: .cancel {
+                        pendingBackupRestore = nil
+                    }
+                )
             case .logDeletion(let session):
                 return Alert(
                     title: Text("Delete Log Session"),
@@ -366,6 +400,18 @@ struct ContentView: View {
                     },
                     secondaryButton: .cancel {
                         pendingLogDeletion = nil
+                    }
+                )
+            case .factoryDefault:
+                return Alert(
+                    title: Text("Factory Default App"),
+                    message: Text("This will delete all local game files, log sessions, roster edits, settings, integrations, and current game state."),
+                    primaryButton: .destructive(Text("Factory Default")) {
+                        isFactoryDefaultConfirmationPresented = false
+                        performFactoryDefaultReset()
+                    },
+                    secondaryButton: .cancel {
+                        isFactoryDefaultConfirmationPresented = false
                     }
                 )
             }
@@ -1205,18 +1251,84 @@ struct ContentView: View {
             }
 
             if store.supportsPlayerTracking {
-                settingsSection(title: localizedAppFormat("%@ Roster", store.sideRoleLabel(for: .home)), footer: "Edit player number, display name, and active lineup status for the first side.") {
-                    settingsRosterEditor(side: .home, layout: layout)
-                }
-
-                settingsSection(title: localizedAppFormat("%@ Roster", store.sideRoleLabel(for: .guest)), footer: "Edit player number, display name, and active lineup status for the second side.") {
-                    settingsRosterEditor(side: .guest, layout: layout)
-                }
+                settingsRosterCSVSection()
+                settingsRosterSections(layout: layout)
             } else {
                 settingsSection(title: "Tracking Unavailable", footer: "The current sport uses score, clock, and substitution controls only.") {
                     settingsSummaryValueRow(title: "Sport", value: localizedAppString(store.selectedSport.title))
                 }
             }
+        }
+    }
+
+    private func settingsRosterCSVSection() -> some View {
+        settingsSection(title: "Roster CSV", footer: "Import or export both team rosters in one comma-separated file.") {
+            HStack(spacing: 16) {
+                localizedAppText("Roster File")
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    #if os(macOS)
+                    Menu {
+                        Button {
+                            exportRosterCSV(destination: .file)
+                        } label: {
+                            Label("Save to File", systemImage: "folder")
+                        }
+
+                        Button {
+                            exportRosterCSV(destination: .share)
+                        } label: {
+                            Label("System Share", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(settingsPalette.accentText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(settingsPalette.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    #else
+                    settingsIconButton("Export", systemImage: "square.and.arrow.up", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        exportRosterCSV(destination: .share)
+                    }
+                    #endif
+
+                    settingsIconButton("Import", systemImage: "square.and.arrow.down", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                        beginRosterCSVImport()
+                    }
+                }
+            }
+            .padding(.vertical, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func settingsRosterSections(layout: InterfaceLayout) -> some View {
+        if layout.settingsTwoColumnUsesVerticalFlow {
+            VStack(alignment: .leading, spacing: 22) {
+                settingsRosterSection(side: .home, layout: layout, footer: "Edit player number, display name, and active lineup status for the first side.")
+                settingsRosterSection(side: .guest, layout: layout, footer: "Edit player number, display name, and active lineup status for the second side.")
+            }
+        } else {
+            HStack(alignment: .top, spacing: 22) {
+                settingsRosterSection(side: .home, layout: layout, footer: "Edit player number, display name, and active lineup status for the first side.")
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                settingsRosterSection(side: .guest, layout: layout, footer: "Edit player number, display name, and active lineup status for the second side.")
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func settingsRosterSection(side: TeamSide, layout: InterfaceLayout, footer: String) -> some View {
+        settingsSection(title: localizedAppFormat("%@ Roster", store.sideRoleLabel(for: side)), footer: footer) {
+            settingsRosterEditor(side: side, layout: layout)
         }
     }
 
@@ -1440,20 +1552,70 @@ struct ContentView: View {
     }
 
     private func settingsFilesPane(layout: InterfaceLayout) -> some View {
-        HStack(alignment: .top, spacing: 18) {
-            settingsFileManagerPanel(title: "Game Files") {
-                settingsGameFileManagerToolbar
-            } content: {
-                settingsGameFileManagerList
-            }
-            .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
+        VStack(alignment: .leading, spacing: 18) {
+            settingsBackupSection()
 
-            settingsFileManagerPanel(title: "Details") {
-                settingsSelectedGameFileToolbar
-            } content: {
-                settingsGameFileDetailPane
+            HStack(alignment: .top, spacing: 18) {
+                settingsFileManagerPanel(title: "Game Files") {
+                    settingsGameFileManagerToolbar
+                } content: {
+                    settingsGameFileManagerList
+                }
+                .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
+
+                settingsFileManagerPanel(title: "Details") {
+                    settingsSelectedGameFileToolbar
+                } content: {
+                    settingsGameFileDetailPane
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func settingsBackupSection() -> some View {
+        settingsSection(title: "App Backup", footer: "Back up or restore app settings, current game state, stored game files, and log sessions.") {
+            HStack(spacing: 16) {
+                localizedAppText("Full App Backup")
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    #if os(macOS)
+                    Menu {
+                        Button {
+                            prepareFullBackup(destination: .file)
+                        } label: {
+                            Label("Save to File", systemImage: "folder")
+                        }
+
+                        Button {
+                            prepareFullBackup(destination: .share)
+                        } label: {
+                            Label("System Share", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Label("Backup", systemImage: "externaldrive")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(settingsPalette.accentText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(settingsPalette.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    #else
+                    settingsIconButton("Backup", systemImage: "externaldrive", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        prepareFullBackup(destination: .share)
+                    }
+                    #endif
+
+                    settingsIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
+                        beginBackupRestore()
+                    }
+                }
+            }
+            .padding(.vertical, 10)
         }
     }
 
@@ -1994,6 +2156,16 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, 12)
+            }
+
+            settingsSection(title: "Factory Default", footer: "Deletes local app data and returns Scoreboard to its first-launch defaults.") {
+                settingsButtonRow(
+                    title: "Reset App",
+                    buttonTitle: "Factory Default",
+                    tint: themePalette.destructiveTint
+                ) {
+                    isFactoryDefaultConfirmationPresented = true
+                }
             }
 
             settingsSection(title: "License", footer: "See LICENSE.md in the repository for the full GNU General Public License text.") {
@@ -5949,6 +6121,167 @@ struct ContentView: View {
         }
     }
 
+    private func exportRosterCSV(destination: ExportDestination = .share) {
+        let data = ScoreboardRosterCSV.exportData(homeRoster: store.homeRoster, guestRoster: store.guestRoster)
+        presentExport(
+            data: data,
+            contentType: .commaSeparatedText,
+            defaultFilename: "Scoreboard Roster.csv",
+            destination: destination
+        )
+        recordFileLog(
+            kind: .fileExport,
+            summary: "Export roster CSV",
+            outcome: .applied,
+            notes: "Player roster CSV"
+        )
+    }
+
+    private func importRosterCSV(_ result: Result<[URL], Error>) {
+        do {
+            guard let sourceURL = try result.get().first else {
+                return
+            }
+
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try readImportedFileData(from: sourceURL)
+            let importedRoster = try ScoreboardRosterCSV.importData(data)
+            store.replaceRosters(
+                home: importedRoster.homeRoster,
+                guest: importedRoster.guestRoster,
+                rosterSize: importedRoster.rosterSize
+            )
+            autosaveSelectedGameFile(refreshSelection: true)
+            recordFileLog(
+                kind: .fileImport,
+                summary: "Import roster CSV",
+                outcome: .applied,
+                notes: sourceURL.lastPathComponent
+            )
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func prepareFullBackup(destination: ExportDestination = .share) {
+        do {
+            autosaveSelectedGameFile(refreshSelection: true)
+            let backup = try makeFullBackup()
+            let data = try ScoreboardAppBackup.makeEncoder().encode(backup)
+            presentExport(
+                data: data,
+                contentType: .scoreboardBackup,
+                defaultFilename: "Scoreboard Backup \(backupTimestamp()).scoreboardbackup",
+                destination: destination
+            )
+            recordFileLog(
+                kind: .fileExport,
+                summary: "Export app backup",
+                outcome: .applied,
+                notes: "Full app backup"
+            )
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func importBackupForRestore(_ result: Result<[URL], Error>) {
+        do {
+            guard let sourceURL = try result.get().first else {
+                return
+            }
+
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try readImportedFileData(from: sourceURL)
+            let backup = try ScoreboardAppBackup.makeDecoder().decode(ScoreboardAppBackup.self, from: data)
+            try validateFullBackup(backup)
+            pendingBackupRestore = PendingBackupRestore(backup: backup, sourceFilename: sourceURL.lastPathComponent)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func makeFullBackup() throws -> ScoreboardAppBackup {
+        ScoreboardAppBackup(
+            schemaVersion: ScoreboardAppBackup.currentSchemaVersion,
+            createdAt: Date(),
+            appVersion: appVersionLine,
+            selectedGameFilename: selectedStoredGameFile?.url.lastPathComponent,
+            persistedStateData: try store.exportPersistedStateData(),
+            storedGameFiles: try storedGameBackupFiles(),
+            logSessions: try logManager.backupFiles()
+        )
+    }
+
+    private func validateFullBackup(_ backup: ScoreboardAppBackup) throws {
+        try backup.validateSchema()
+        try store.validatePersistedStateData(backup.persistedStateData)
+        try validateStoredGameBackupFiles(backup.storedGameFiles)
+        try logManager.validateBackupFiles(backup.logSessions)
+    }
+
+    private func restoreFullBackup(_ backup: ScoreboardAppBackup) {
+        do {
+            try validateFullBackup(backup)
+            try replaceStoredGameFiles(with: backup.storedGameFiles)
+            try logManager.replaceSessions(with: backup.logSessions)
+            try store.restorePersistedStateData(backup.persistedStateData)
+
+            selectedGameFileIDs.removeAll()
+            selectedLogSessionIDs.removeAll()
+            isSelectingGameFiles = false
+            isSelectingLogSessions = false
+
+            let selectedURL = try restoredStoredGameURL(named: backup.selectedGameFilename)
+            refreshStoredGameFiles(selectedURL: selectedURL)
+            refreshStoredLogSessions()
+            loadSetupDraftsFromStore()
+            syncCurrentLogGameFile()
+            showsSetup = true
+            selectedSettingsPane = .files
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func performFactoryDefaultReset() {
+        do {
+            try deleteAllStoredGameFiles()
+            try logManager.replaceSessions(with: [])
+            store.resetToFactoryDefaults()
+
+            storedGameFiles = []
+            selectedStoredGameFileID = nil
+            renameGameFileNameDraft = ""
+            selectedGameFileIDs.removeAll()
+            isSelectingGameFiles = false
+            selectedLogSessionIDs.removeAll()
+            isSelectingLogSessions = false
+            refreshStoredGameFiles()
+            refreshStoredLogSessions()
+            resetSetupDraftsToDefaults()
+            loadSetupDraftsFromStore()
+            syncCurrentLogGameFile()
+            dashboardPage = .main
+            selectedSettingsPane = .game
+            showsSetup = true
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
     private func beginGameImport() {
         #if os(macOS)
         let panel = NSOpenPanel()
@@ -5965,6 +6298,44 @@ struct ContentView: View {
         }
         #else
         showsGameImporter = true
+        #endif
+    }
+
+    private func beginBackupRestore() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSBackupImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK else {
+                return
+            }
+
+            importBackupForRestore(.success(panel.urls))
+        }
+        #else
+        showsBackupImporter = true
+        #endif
+    }
+
+    private func beginRosterCSVImport() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSRosterCSVImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK else {
+                return
+            }
+
+            importRosterCSV(.success(panel.urls))
+        }
+        #else
+        showsRosterCSVImporter = true
         #endif
     }
 
@@ -6530,6 +6901,17 @@ struct ContentView: View {
         localizedAppFormat("Delete the log session from %@?", session.startedAt.formatted(date: .abbreviated, time: .shortened))
     }
 
+    private func backupRestoreMessage(for backupRestore: PendingBackupRestore) -> String {
+        let gameCount = backupRestore.backup.storedGameFiles.count
+        let logCount = backupRestore.backup.logSessions.count
+        return localizedAppFormat(
+            "Restore %@? This will replace all local app settings, current game state, %lld game files, and %lld log sessions.",
+            backupRestore.sourceFilename,
+            gameCount,
+            logCount
+        )
+    }
+
     private func presentFileOperationError(_ error: Error) {
         fileOperationError = FileOperationAlert(message: error.localizedDescription)
     }
@@ -6751,6 +7133,87 @@ struct ContentView: View {
     private func loadGameSnapshot(from url: URL) throws -> ScoreboardGameSnapshot {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: data)
+    }
+
+    private func storedGameBackupFiles() throws -> [ScoreboardBackupFile] {
+        let directoryURL = try storedGameFilesDirectory()
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+
+        return try urls
+            .filter { $0.pathExtension.lowercased() == "scoreboardgame" }
+            .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+            .map { url in
+                ScoreboardBackupFile(filename: url.lastPathComponent, data: try Data(contentsOf: url))
+            }
+    }
+
+    private func validateStoredGameBackupFiles(_ files: [ScoreboardBackupFile]) throws {
+        var filenames = Set<String>()
+        for file in files {
+            let filename = try safeRestoredStoredGameFilename(file.filename)
+            guard filenames.insert(filename).inserted else {
+                throw ScoreboardBackupError.invalidFilename(file.filename)
+            }
+            _ = try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: file.data)
+        }
+    }
+
+    private func replaceStoredGameFiles(with files: [ScoreboardBackupFile]) throws {
+        try validateStoredGameBackupFiles(files)
+        try deleteAllStoredGameFiles()
+
+        let directoryURL = try storedGameFilesDirectory()
+        for file in files {
+            let filename = try safeRestoredStoredGameFilename(file.filename)
+            let destinationURL = directoryURL.appendingPathComponent(filename)
+            try file.data.write(to: destinationURL, options: .atomic)
+        }
+    }
+
+    private func restoredStoredGameURL(named filename: String?) throws -> URL? {
+        guard let filename else {
+            return nil
+        }
+
+        let safeFilename = try safeRestoredStoredGameFilename(filename)
+        let url = try storedGameFilesDirectory().appendingPathComponent(safeFilename)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func deleteAllStoredGameFiles() throws {
+        let directoryURL = try storedGameFilesDirectory()
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+
+        for url in urls where url.pathExtension.lowercased() == "scoreboardgame" {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func safeRestoredStoredGameFilename(_ filename: String) throws -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        let invalidCharacters = CharacterSet(charactersIn: "/:\\")
+        guard !trimmed.isEmpty,
+              trimmed == lastPathComponent,
+              !trimmed.unicodeScalars.contains(where: { invalidCharacters.contains($0) }),
+              (trimmed as NSString).pathExtension.lowercased() == "scoreboardgame" else {
+            throw ScoreboardBackupError.invalidFilename(filename)
+        }
+
+        return trimmed
+    }
+
+    private func backupTimestamp() -> String {
+        Date().ISO8601Format()
+            .replacingOccurrences(of: ":", with: "-")
     }
 
     private func initializeWorkingGameFile() {
@@ -7203,8 +7666,14 @@ struct ContentView: View {
                 if let action = pendingGameConfirmation {
                     return .gameConfirmation(action)
                 }
+                if let backupRestore = pendingBackupRestore {
+                    return .backupRestore(backupRestore)
+                }
                 if let session = pendingLogDeletion {
                     return .logDeletion(session)
+                }
+                if isFactoryDefaultConfirmationPresented {
+                    return .factoryDefault
                 }
                 return nil
             },
@@ -7213,19 +7682,39 @@ struct ContentView: View {
                 case .none:
                     fileOperationError = nil
                     pendingGameConfirmation = nil
+                    pendingBackupRestore = nil
                     pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = false
                 case .some(.fileOperation(let error)):
                     fileOperationError = error
                     pendingGameConfirmation = nil
+                    pendingBackupRestore = nil
                     pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = false
                 case .some(.gameConfirmation(let action)):
                     fileOperationError = nil
                     pendingGameConfirmation = action
+                    pendingBackupRestore = nil
                     pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = false
+                case .some(.backupRestore(let backupRestore)):
+                    fileOperationError = nil
+                    pendingGameConfirmation = nil
+                    pendingBackupRestore = backupRestore
+                    pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = false
                 case .some(.logDeletion(let session)):
                     fileOperationError = nil
                     pendingGameConfirmation = nil
+                    pendingBackupRestore = nil
                     pendingLogDeletion = session
+                    isFactoryDefaultConfirmationPresented = false
+                case .some(.factoryDefault):
+                    fileOperationError = nil
+                    pendingGameConfirmation = nil
+                    pendingBackupRestore = nil
+                    pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = true
                 }
             }
         )
@@ -7489,10 +7978,18 @@ private struct FileOperationAlert: Identifiable {
     let message: String
 }
 
+private struct PendingBackupRestore: Identifiable {
+    let id = UUID()
+    let backup: ScoreboardAppBackup
+    let sourceFilename: String
+}
+
 private enum ActiveAlert: Identifiable {
     case fileOperation(FileOperationAlert)
     case gameConfirmation(GameConfirmationAction)
+    case backupRestore(PendingBackupRestore)
     case logDeletion(StoredLogSession)
+    case factoryDefault
 
     var id: String {
         switch self {
@@ -7500,8 +7997,12 @@ private enum ActiveAlert: Identifiable {
             return "file-\(error.id.uuidString)"
         case .gameConfirmation(let action):
             return "game-\(action.id)"
+        case .backupRestore(let backupRestore):
+            return "backup-\(backupRestore.id.uuidString)"
         case .logDeletion(let session):
             return "log-\(session.id)"
+        case .factoryDefault:
+            return "factoryDefault"
         }
     }
 }

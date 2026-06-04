@@ -3437,6 +3437,34 @@ final class ScoreboardStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func exportPersistedStateData() throws -> Data {
+        try encodedPersistedStateData()
+    }
+
+    func validatePersistedStateData(_ data: Data) throws {
+        _ = try JSONDecoder().decode(PersistedState.self, from: data)
+    }
+
+    func restorePersistedStateData(_ data: Data) throws {
+        let persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
+        applyPersistedState(persistedState)
+        persistState()
+    }
+
+    func resetToFactoryDefaults() {
+        applyPersistedState(.factoryDefault)
+        UserDefaults.standard.removeObject(forKey: persistenceKey)
+        persistState()
+    }
+
+    func replaceRosters(home: TeamRoster, guest: TeamRoster, rosterSize: Int) {
+        let boundedSize = max(Self.minRosterSize, min(Self.maxRosterSize, rosterSize))
+        rosterSizePerTeam = boundedSize
+        displayLineupSize = max(1, min(boundedSize, displayLineupSize))
+        homeRoster = normalizedRoster(home, fallbackCount: boundedSize)
+        guestRoster = normalizedRoster(guest, fallbackCount: boundedSize)
+    }
+
     private func loadPersistedState() {
         guard
             let data = UserDefaults.standard.data(forKey: persistenceKey),
@@ -3445,99 +3473,126 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        selectedSport = persistedState.selectedSport
-        customSportConfig = persistedState.customSportConfig
-        homeTeamName = persistedState.homeTeamName
-        guestTeamName = persistedState.guestTeamName
-        homeScore = persistedState.homeScore
-        guestScore = persistedState.guestScore
-        period = max(1, min(9, persistedState.period))
-        gameClockSeconds = boundedGameClockSeconds(persistedState.gameClockSeconds)
-        defaultClockSeconds = boundedGameClockSeconds(persistedState.defaultClockSeconds)
-        isGameClockEnabled = persistedState.isGameClockEnabled
-        shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
-        defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
-        activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
-        possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
-        areSidesSwapped = persistedState.areSidesSwapped
-        isPlayerTrackingEnabled = selectedSport == .debate
-            ? persistedState.isDebatePlayerTrackingEnabled
-            : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
-        isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
-        rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
-        displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
-        playerFoulHighlightColor = persistedState.playerFoulHighlightColor
-        isGameClockRedEnabled = persistedState.isGameClockRedEnabled
-        gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
-        isShotClockRedEnabled = persistedState.isShotClockRedEnabled
-        shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
-        homeSubstitutionsAllowed = max(0, persistedState.homeSubstitutionsAllowed)
-        guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
-        homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
-        guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
-        homeTeamFouls = max(0, persistedState.homeTeamFouls)
-        guestTeamFouls = max(0, persistedState.guestTeamFouls)
-        homeChessClockSeconds = boundedGameClockSeconds(persistedState.homeChessClockSeconds)
-        guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
-        activeChessClockSide = persistedState.activeChessClockSide
-        chessClockPreset = persistedState.chessClockPreset
-        selectedDebatePresetID = persistedState.selectedDebatePresetID
-        customDebatePreset = persistedState.customDebatePreset
-        debateHomeSideLabel = persistedState.debateHomeSideLabel
-        debateGuestSideLabel = persistedState.debateGuestSideLabel
-        debateCurrentSegmentIndex = persistedState.debateCurrentSegmentIndex
-        isDebatePrepTimeEnabled = persistedState.isDebatePrepTimeEnabled
-        debatePrepHomeSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepHomeSeconds) : 0
-        debatePrepGuestSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepGuestSeconds) : 0
-        debateActiveTimer = persistedState.debateActiveTimer
-        isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
-        isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
-        isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
-        isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
-        isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
-        homePenaltyTimers = persistedState.homePenaltyTimers
-        guestPenaltyTimers = persistedState.guestPenaltyTimers
-        homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
-        guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
-        theme = persistedState.theme
-        externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
-        isSoundEnabled = persistedState.isSoundEnabled
-        soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
-        isCompanionVisible = persistedState.isCompanionVisible
-        isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
-        companionHost = persistedState.companionHost
-        companionMode = persistedState.companionMode
-        companionPort = persistedState.companionPort == 0 ? persistedState.companionMode.defaultPort : persistedState.companionPort
-        companionAssignmentsBySport = normalizedCompanionAssignmentsBySport(persistedState.companionAssignmentsBySport)
-        didCompleteSetup = persistedState.didCompleteSetup
-        setupPresets = persistedState.setupPresets
-        isWebAPIEnabled = persistedState.isWebAPIEnabled
-        webAPIUpdateMode = persistedState.webAPIUpdateMode
-        if !currentRules.supportsShotClock {
-            defaultShotClockSeconds = 0
-            activeShotClockPresetSeconds = 0
-            shotClockMilliseconds = 0
-        }
-        if selectedSport != .volleyball {
-            isGameClockEnabled = selectedSport == .custom ? isGameClockEnabled : true
-        }
-        if isDebateMode {
-            let preset = currentDebatePreset
-            debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
-            configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
-            if debateActiveTimer != .segment {
-                pauseClock()
+        applyPersistedState(persistedState)
+    }
+
+    private func applyPersistedState(_ persistedState: PersistedState) {
+        performWithoutAuditLogging {
+            pauseClock()
+            pauseShotClock()
+            stopTestSound()
+            dismissCompanionFailureNotice()
+            companionLastError = nil
+
+            selectedSport = persistedState.selectedSport
+            customSportConfig = persistedState.customSportConfig
+            homeTeamName = persistedState.homeTeamName
+            guestTeamName = persistedState.guestTeamName
+            homeScore = persistedState.homeScore
+            guestScore = persistedState.guestScore
+            period = max(1, min(9, persistedState.period))
+            gameClockSeconds = boundedGameClockSeconds(persistedState.gameClockSeconds)
+            defaultClockSeconds = boundedGameClockSeconds(persistedState.defaultClockSeconds)
+            isGameClockEnabled = persistedState.isGameClockEnabled
+            shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
+            defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
+            activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
+            possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
+            areSidesSwapped = persistedState.areSidesSwapped
+            isPlayerTrackingEnabled = selectedSport == .debate
+                ? persistedState.isDebatePlayerTrackingEnabled
+                : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
+            isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
+            rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
+            displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
+            playerFoulHighlightColor = persistedState.playerFoulHighlightColor
+            isGameClockRedEnabled = persistedState.isGameClockRedEnabled
+            gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
+            isShotClockRedEnabled = persistedState.isShotClockRedEnabled
+            shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
+            homeSubstitutionsAllowed = max(0, persistedState.homeSubstitutionsAllowed)
+            guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
+            homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
+            guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+            homeTeamFouls = max(0, persistedState.homeTeamFouls)
+            guestTeamFouls = max(0, persistedState.guestTeamFouls)
+            homeChessClockSeconds = boundedGameClockSeconds(persistedState.homeChessClockSeconds)
+            guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
+            activeChessClockSide = persistedState.activeChessClockSide
+            chessClockPreset = persistedState.chessClockPreset
+            selectedDebatePresetID = persistedState.selectedDebatePresetID
+            customDebatePreset = persistedState.customDebatePreset
+            debateHomeSideLabel = persistedState.debateHomeSideLabel
+            debateGuestSideLabel = persistedState.debateGuestSideLabel
+            debateCurrentSegmentIndex = persistedState.debateCurrentSegmentIndex
+            isDebatePrepTimeEnabled = persistedState.isDebatePrepTimeEnabled
+            debatePrepHomeSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepHomeSeconds) : 0
+            debatePrepGuestSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepGuestSeconds) : 0
+            debateActiveTimer = persistedState.debateActiveTimer
+            isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
+            isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
+            isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
+            isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
+            isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
+            homePenaltyTimers = persistedState.homePenaltyTimers
+            guestPenaltyTimers = persistedState.guestPenaltyTimers
+            homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
+            guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
+            theme = persistedState.theme
+            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
+            isSoundEnabled = persistedState.isSoundEnabled
+            soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
+            isCompanionVisible = persistedState.isCompanionVisible
+            isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
+            companionHost = persistedState.companionHost
+            companionMode = persistedState.companionMode
+            companionPort = persistedState.companionPort == 0 ? persistedState.companionMode.defaultPort : persistedState.companionPort
+            companionAssignmentsBySport = normalizedCompanionAssignmentsBySport(persistedState.companionAssignmentsBySport)
+            didCompleteSetup = persistedState.didCompleteSetup
+            setupPresets = persistedState.setupPresets
+            isWebAPIEnabled = persistedState.isWebAPIEnabled
+            webAPIUpdateMode = persistedState.webAPIUpdateMode
+            if !currentRules.supportsShotClock {
+                defaultShotClockSeconds = 0
+                activeShotClockPresetSeconds = 0
+                shotClockMilliseconds = 0
             }
-            if !isDebatePlayerTrackingEnabled {
-                isPlayerTrackingEnabled = false
+            if selectedSport != .volleyball {
+                isGameClockEnabled = selectedSport == .custom ? isGameClockEnabled : true
             }
+            if isDebateMode {
+                let preset = currentDebatePreset
+                debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
+                configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
+                if debateActiveTimer != .segment {
+                    pauseClock()
+                }
+                if !isDebatePlayerTrackingEnabled {
+                    isPlayerTrackingEnabled = false
+                }
+            }
+            isClockRunning = false
+            isShotClockRunning = false
+            isDebatePrepClockRunning = false
+            updateTimerState()
+            refreshWebAPIState()
         }
-        isClockRunning = false
-        isShotClockRunning = false
     }
 
     private func persistState() {
-        let persistedState = PersistedState(
+        guard let data = try? encodedPersistedStateData() else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: persistenceKey)
+    }
+
+    private func encodedPersistedStateData() throws -> Data {
+        try JSONEncoder().encode(currentPersistedState())
+    }
+
+    private func currentPersistedState() -> PersistedState {
+        PersistedState(
             selectedSport: selectedSport,
             customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
@@ -3605,12 +3660,6 @@ final class ScoreboardStore: ObservableObject {
             isWebAPIEnabled: isWebAPIEnabled,
             webAPIUpdateMode: webAPIUpdateMode
         )
-
-        guard let data = try? JSONEncoder().encode(persistedState) else {
-            return
-        }
-
-        UserDefaults.standard.set(data, forKey: persistenceKey)
     }
 
     private func normalizedSoundAssignmentsBySport(_ assignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]) -> [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]] {
@@ -4172,6 +4221,80 @@ private struct PersistedState: Codable {
         try container.encode(setupPresets, forKey: .setupPresets)
         try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
+    }
+}
+
+private extension PersistedState {
+    static var factoryDefault: PersistedState {
+        let defaultRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
+        return PersistedState(
+            selectedSport: .simple,
+            customSportConfig: .default,
+            homeTeamName: "",
+            guestTeamName: "",
+            homeScore: 0,
+            guestScore: 0,
+            period: 1,
+            gameClockSeconds: 10 * 60,
+            defaultClockSeconds: 10 * 60,
+            isGameClockEnabled: true,
+            shotClockMilliseconds: 0,
+            defaultShotClockSeconds: 0,
+            activeShotClockPresetSeconds: 0,
+            possessionDirection: .none,
+            areSidesSwapped: false,
+            isPlayerTrackingEnabled: false,
+            isPlayerOverlayPaused: false,
+            rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
+            displayLineupSize: ScoreboardStore.defaultDisplayLineupSize,
+            playerFoulHighlightColor: .yellow,
+            isGameClockRedEnabled: false,
+            gameClockRedThresholdSeconds: 60,
+            isShotClockRedEnabled: false,
+            shotClockRedThresholdSeconds: 5,
+            homeSubstitutionsAllowed: 0,
+            guestSubstitutionsAllowed: 0,
+            homeSubstitutionsUsed: 0,
+            guestSubstitutionsUsed: 0,
+            homeTeamFouls: 0,
+            guestTeamFouls: 0,
+            homeChessClockSeconds: ChessClockPreset.rapid.seconds,
+            guestChessClockSeconds: ChessClockPreset.rapid.seconds,
+            activeChessClockSide: .home,
+            chessClockPreset: .rapid,
+            selectedDebatePresetID: DebatePreset.publicForum.id,
+            customDebatePreset: .customDefault,
+            debateHomeSideLabel: DebatePreset.publicForum.homeSideLabel,
+            debateGuestSideLabel: DebatePreset.publicForum.guestSideLabel,
+            debateCurrentSegmentIndex: 0,
+            debatePrepHomeSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+            debatePrepGuestSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+            isDebatePrepTimeEnabled: DebatePreset.publicForum.isPrepTimeEnabled,
+            debateActiveTimer: .segment,
+            isDebatePrepClockRunning: false,
+            isDebateScoreTrackingEnabled: DebatePreset.publicForum.defaultScoreTrackingEnabled,
+            isDebatePlayerTrackingEnabled: DebatePreset.publicForum.defaultPlayerTrackingEnabled,
+            isDebatePlayerFoulsEnabled: DebatePreset.publicForum.defaultPlayerFoulsEnabled,
+            isDebatePlayerCardsEnabled: DebatePreset.publicForum.defaultPlayerCardsEnabled,
+            homePenaltyTimers: [],
+            guestPenaltyTimers: [],
+            homeRoster: defaultRoster,
+            guestRoster: defaultRoster,
+            theme: .classic,
+            externalDisplayBackgroundMode: .blurred,
+            isSoundEnabled: true,
+            soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
+            isCompanionVisible: false,
+            isCompanionEnabled: false,
+            companionHost: "",
+            companionMode: .tcp,
+            companionPort: ScoreboardCompanionMode.tcp.defaultPort,
+            companionAssignmentsBySport: [:],
+            didCompleteSetup: false,
+            setupPresets: [],
+            isWebAPIEnabled: false,
+            webAPIUpdateMode: .fixedInterval
+        )
     }
 }
 
