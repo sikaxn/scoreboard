@@ -197,6 +197,17 @@ struct ScoreboardGameSnapshot: Sendable {
         homeTeamLogoImage: nil,
         guestTeamLogoImage: nil
     )
+
+    var excludingEmbeddedImages: ScoreboardGameSnapshot {
+        var snapshot = self
+        snapshot.externalDisplayBackgroundImage = nil
+        snapshot.homeTeamLogoImage = nil
+        snapshot.guestTeamLogoImage = nil
+        if snapshot.externalDisplayBackgroundMode == .image {
+            snapshot.externalDisplayBackgroundMode = .blurred
+        }
+        return snapshot
+    }
 }
 
 extension ScoreboardGameSnapshot: Codable {

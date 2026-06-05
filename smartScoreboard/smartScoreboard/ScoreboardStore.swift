@@ -4031,7 +4031,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        applyPersistedState(persistedState)
+        applyPersistedState(persistedState.excludingLaunchImageReferences)
     }
 
     private func applyPersistedState(_ persistedState: PersistedState) {
@@ -4168,7 +4168,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func encodedPersistedStateData() throws -> Data {
-        try JSONEncoder().encode(currentPersistedState())
+        try JSONEncoder().encode(currentPersistedState().excludingLaunchImageReferences)
     }
 
     private func currentPersistedState() -> PersistedState {
@@ -4847,6 +4847,17 @@ private extension PersistedState {
         var state = self
         state.isRemoteDisplayHostEnabled = false
         state.isRemoteDisplayViewerModeEnabled = false
+        return state
+    }
+
+    var excludingLaunchImageReferences: PersistedState {
+        var state = self
+        state.externalDisplayBackgroundImage = nil
+        state.homeTeamLogoImage = nil
+        state.guestTeamLogoImage = nil
+        if state.externalDisplayBackgroundMode == .image {
+            state.externalDisplayBackgroundMode = .blurred
+        }
         return state
     }
 

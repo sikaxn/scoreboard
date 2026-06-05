@@ -1069,7 +1069,7 @@ extension ScoreboardStore {
             generatedAt: ISO8601DateFormatter().string(from: now),
             generatedAtUnixTime: now.timeIntervalSince1970,
             app: ScoreboardWebAPIAppInfo.current,
-            game: currentGameSnapshot(),
+            game: currentGameSnapshot().excludingEmbeddedImages,
             runtime: ScoreboardWebAPIRuntime(
                 isClockRunning: isClockRunning,
                 isShotClockRunning: isShotClockRunning,
