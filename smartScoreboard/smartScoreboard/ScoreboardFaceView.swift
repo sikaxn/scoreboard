@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 private func localizedBoardString(_ key: String) -> String {
@@ -14,6 +15,32 @@ private func localizedBoardText(_ key: String) -> Text {
 
 struct ScoreboardFaceView: View {
     static let preferredAspectRatio: CGFloat = 16.0 / 9.0
+    static func fittedBoardSize(
+        in availableSize: CGSize,
+        horizontalInsetFraction: CGFloat = 0.025,
+        maxHorizontalInset: CGFloat = 32,
+        verticalInsetFraction: CGFloat = 0.025,
+        maxVerticalInset: CGFloat = 26
+    ) -> CGSize {
+        let horizontalInset = max(0, min(availableSize.width * horizontalInsetFraction, maxHorizontalInset))
+        let verticalInset = max(0, min(availableSize.height * verticalInsetFraction, maxVerticalInset))
+        let usableWidth = max(availableSize.width - (horizontalInset * 2), 0)
+        let usableHeight = max(availableSize.height - (verticalInset * 2), 0)
+        guard usableWidth > 0, usableHeight > 0 else {
+            return .zero
+        }
+
+        let usableAspect = usableWidth / usableHeight
+        if usableAspect < 1.55 {
+            let preferredHeight = usableWidth / preferredAspectRatio
+            let adaptiveHeight = min(usableHeight, usableWidth * 1.05)
+            return CGSize(width: usableWidth, height: max(preferredHeight, adaptiveHeight))
+        }
+
+        let preferredWidth = min(usableWidth, usableHeight * preferredAspectRatio)
+        let preferredHeight = min(usableHeight, preferredWidth / preferredAspectRatio)
+        return CGSize(width: preferredWidth, height: preferredHeight)
+    }
 
     enum BackgroundStyle {
         case blurred
@@ -28,6 +55,14 @@ struct ScoreboardFaceView: View {
     let showsScore: Bool
     let homeTeamName: String
     let guestTeamName: String
+    let homeTeamLogoData: Data?
+    let guestTeamLogoData: Data?
+    let playerLineupOverflowMode: PlayerLineupOverflowMode
+    let playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    let playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    let playerLineupFadePageSeconds: Int
+    let playerLineupScrollSpeed: Int
+    let playerLineupScrollDirection: PlayerLineupScrollDirection
     let homeScore: Int
     let guestScore: Int
     let period: Int
@@ -79,22 +114,60 @@ struct ScoreboardFaceView: View {
     private var displayAlertColor: Color { .red }
     private var usesDedicatedDualClockLayout: Bool { sport == .chess }
     private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 }
-    private var shouldShowSoccerCenterPlayers: Bool { rules.usesCenterPlayerStrip && (!displayedPlayers(for: .home).isEmpty || !displayedPlayers(for: .guest).isEmpty) }
+
+    private enum PlayerLineupListStyle {
+        case side
+        case center
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let base = min(size.width, size.height)
-            let condensed = compact || size.width < 960 || size.height < 560
-            let ultraCondensed = size.width < 760 || size.height < 430
-            let outerPadding = ultraCondensed ? max(12, base * 0.04) : condensed ? max(18, base * 0.055) : max(24, base * 0.07)
-            let columnSpacing = ultraCondensed ? max(10, size.width * 0.012) : condensed ? max(18, size.width * 0.018) : max(24, size.width * 0.024)
+            let boardAspect = size.height > 0 ? size.width / size.height : Self.preferredAspectRatio
+            let condensed = compact || boardAspect < 1.55 || size.width < 960 || size.height < 560
+            let ultraCondensed = size.width < 760 || size.height < 620
+            let outerPadding = ultraCondensed ? max(12, base * 0.035) : condensed ? max(16, base * 0.045) : max(24, base * 0.07)
+            let columnSpacing = ultraCondensed ? max(10, size.width * 0.012) : condensed ? max(14, size.width * 0.014) : max(24, size.width * 0.024)
             let centerWidth = min(
-                max(size.width * (condensed ? 0.32 : 0.3), ultraCondensed ? 180 : condensed ? 220 : 260),
-                size.width * (ultraCondensed ? 0.42 : 0.38)
+                max(size.width * (condensed ? 0.31 : 0.3), ultraCondensed ? 170 : condensed ? 210 : 260),
+                size.width * (ultraCondensed ? 0.4 : 0.38)
             )
             let leftTeam = areSidesSwapped ? sidePanelData(for: .guest) : sidePanelData(for: .home)
             let rightTeam = areSidesSwapped ? sidePanelData(for: .home) : sidePanelData(for: .guest)
+            let leftHasLogo = leftTeam.logoData != nil
+            let rightHasLogo = rightTeam.logoData != nil
+            let leftDisplayedPlayers = displayedPlayers(for: leftTeam.side)
+            let rightDisplayedPlayers = displayedPlayers(for: rightTeam.side)
+            let leftRequestedPlayerCount = leftDisplayedPlayers.count
+            let rightRequestedPlayerCount = rightDisplayedPlayers.count
+            let leftSidePlayerLimit = sidePlayerDisplayLimit(
+                for: size,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                hasLogo: leftHasLogo
+            )
+            let rightSidePlayerLimit = sidePlayerDisplayLimit(
+                for: size,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                hasLogo: rightHasLogo
+            )
+            let usesCenterPlayerStripLayout = usesCenterPlayerStripFallback(
+                size: size,
+                leftSidePlayerLimit: leftSidePlayerLimit,
+                rightSidePlayerLimit: rightSidePlayerLimit,
+                leftRequestedPlayerCount: leftRequestedPlayerCount,
+                rightRequestedPlayerCount: rightRequestedPlayerCount
+            )
+            let showsSidePlayerStrip = leftSidePlayerLimit > 0 && rightSidePlayerLimit > 0 && !usesCenterPlayerStripLayout
+            let leftPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: leftHasLogo) : 0
+            let rightPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: rightHasLogo) : 0
+            let centerHasLogo = leftHasLogo || rightHasLogo
+            let centerPlayerViewportHeight = centerPlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed)
+            let leftOverflowMode = resolvedPlayerLineupOverflowMode(hasLogo: leftHasLogo)
+            let rightOverflowMode = resolvedPlayerLineupOverflowMode(hasLogo: rightHasLogo)
+            let centerOverflowMode = resolvedPlayerLineupOverflowMode(hasLogo: centerHasLogo)
 
             ZStack {
                 scoreboardBackground(leftAccent: leftTeam.accent, rightAccent: rightTeam.accent)
@@ -109,20 +182,31 @@ struct ScoreboardFaceView: View {
                                 role: leftTeam.role,
                                 title: leftTeam.title,
                                 placeholder: leftTeam.role,
+                                logoData: leftTeam.logoData,
                                 score: leftTeam.score,
                                 accent: leftTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: leftTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
                                 teamFouls: teamFouls(for: leftTeam.side),
                                 penaltyTimers: penaltyTimers(for: leftTeam.side),
-                                displayedPlayers: displayedPlayers(for: leftTeam.side),
+                                displayedPlayers: leftDisplayedPlayers,
+                                showsPlayerStrip: showsSidePlayerStrip,
+                                playerViewportHeight: leftPlayerViewportHeight,
+                                playerOverflowMode: leftOverflowMode,
                                 base: base,
                                 condensed: condensed,
                                 ultraCondensed: ultraCondensed
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                            centerClockPanel(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                            centerClockPanel(
+                                base: base,
+                                condensed: condensed,
+                                ultraCondensed: ultraCondensed,
+                                showsCenterPlayerStrip: usesCenterPlayerStripLayout,
+                                playerViewportHeight: centerPlayerViewportHeight,
+                                playerOverflowMode: centerOverflowMode
+                            )
                                 .frame(width: centerWidth)
                                 .frame(maxHeight: .infinity)
 
@@ -131,13 +215,17 @@ struct ScoreboardFaceView: View {
                                 role: rightTeam.role,
                                 title: rightTeam.title,
                                 placeholder: rightTeam.role,
+                                logoData: rightTeam.logoData,
                                 score: rightTeam.score,
                                 accent: rightTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: rightTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
                                 teamFouls: teamFouls(for: rightTeam.side),
                                 penaltyTimers: penaltyTimers(for: rightTeam.side),
-                                displayedPlayers: displayedPlayers(for: rightTeam.side),
+                                displayedPlayers: rightDisplayedPlayers,
+                                showsPlayerStrip: showsSidePlayerStrip,
+                                playerViewportHeight: rightPlayerViewportHeight,
+                                playerOverflowMode: rightOverflowMode,
                                 base: base,
                                 condensed: condensed,
                                 ultraCondensed: ultraCondensed
@@ -212,6 +300,7 @@ struct ScoreboardFaceView: View {
         role: String,
         title: String,
         placeholder: String,
+        logoData: Data?,
         score: Int,
         accent: Color,
         substitutionsUsed: Int,
@@ -219,33 +308,46 @@ struct ScoreboardFaceView: View {
         teamFouls: Int,
         penaltyTimers: [HockeyPenaltyTimer],
         displayedPlayers: [TrackedPlayer],
+        showsPlayerStrip: Bool,
+        playerViewportHeight: CGFloat,
+        playerOverflowMode: PlayerLineupOverflowMode,
         base: CGFloat,
         condensed: Bool,
         ultraCondensed: Bool
     ) -> some View {
-        VStack(spacing: ultraCondensed ? max(10, base * 0.02) : condensed ? max(18, base * 0.03) : max(22, base * 0.035)) {
+        VStack(spacing: ultraCondensed ? max(8, base * 0.016) : condensed ? max(12, base * 0.02) : max(22, base * 0.035)) {
             VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
+                if let logoData {
+                    TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 10)
+                        .frame(
+                            width: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14,
+                            height: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14
+                        )
+                        .frame(maxWidth: .infinity)
+                        .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
                 Text(role)
-                    .font(.system(size: ultraCondensed ? base * 0.026 : condensed ? base * 0.032 : base * 0.028, weight: .black, design: .rounded))
+                    .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.026 : base * 0.028, weight: .black, design: .rounded))
                     .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
                     .singleLineFitted(minScale: 0.8)
                     .foregroundStyle(boardSecondaryTextColor)
 
                 Text(resolvedTitle(title, placeholder: placeholder))
-                    .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
+                    .font(.system(size: ultraCondensed ? base * 0.034 : condensed ? base * 0.044 : base * 0.054, weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.35)
                     .foregroundStyle(boardPrimaryTextColor)
 
                 Capsule()
                     .fill(accent)
-                    .frame(width: ultraCondensed ? base * 0.22 : condensed ? base * 0.3 : base * 0.24, height: ultraCondensed ? 5 : condensed ? 10 : 8)
+                    .frame(width: ultraCondensed ? base * 0.22 : condensed ? base * 0.26 : base * 0.24, height: ultraCondensed ? 5 : condensed ? 7 : 8)
             }
 
             Spacer(minLength: 0)
 
             if showsScore {
                 Text("\(score)")
-                    .font(.system(size: ultraCondensed ? base * 0.22 : condensed ? base * 0.34 : base * 0.28, weight: .black, design: .rounded))
+                    .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.22 : base * 0.28, weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.32)
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
@@ -297,20 +399,31 @@ struct ScoreboardFaceView: View {
                 )
             }
 
-            if !rules.usesCenterPlayerStrip && !displayedPlayers.isEmpty {
-                activeLineupStrip(displayedPlayers, accent: accent, base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+            if showsPlayerStrip, !rules.usesCenterPlayerStrip, !displayedPlayers.isEmpty, playerViewportHeight > 0 {
+                activeLineupStrip(
+                    displayedPlayers,
+                    accent: accent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed,
+                    viewportHeight: playerViewportHeight,
+                    overflowMode: playerOverflowMode
+                )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 Spacer(minLength: 0)
             }
         }
-        .padding(ultraCondensed ? 14 : condensed ? 28 : 24)
+        .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
         .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous)
                 .strokeBorder(boardPanelBorderColor)
         )
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
+        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: logoData != nil)
+        .animation(.spring(response: 0.36, dampingFraction: 0.84), value: playerViewportHeight)
+        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: playerOverflowMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
@@ -325,62 +438,34 @@ struct ScoreboardFaceView: View {
         accent: Color,
         base: CGFloat,
         condensed: Bool,
-        ultraCondensed: Bool
+        ultraCondensed: Bool,
+        viewportHeight: CGFloat,
+        overflowMode: PlayerLineupOverflowMode
     ) -> some View {
-        VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
-            localizedBoardText("PLAYERS")
-                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
-                .tracking(ultraCondensed ? 0.8 : 1.4)
-                .foregroundStyle(boardSecondaryTextColor)
-
-            VStack(spacing: ultraCondensed ? 4 : 6) {
-                ForEach(players) { player in
-                    HStack(spacing: 8) {
-                        Text("#\(player.number.isEmpty ? "--" : player.number)")
-                            .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.027 : base * 0.024, weight: .black, design: .rounded))
-                            .foregroundStyle(accent)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(width: ultraCondensed ? 48 : 60, alignment: .leading)
-
-                        Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
-                            .font(.system(size: ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023, weight: .bold, design: .rounded))
-                            .singleLineFitted(minScale: 0.55)
-                            .foregroundStyle(playerStatusColor(player))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer(minLength: 0)
-
-                        if rules.supportsFouls {
-                            Text(foulDisplayText(for: player.foulCount))
-                                .font(.system(size: ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022, weight: .black, design: .rounded))
-                                .monospaced()
-                                .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
-                        }
-                    }
-                    .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-                }
-            }
+        playerLineupBadge(ultraCondensed: ultraCondensed) {
+            playerLineupColumn(
+                title: "PLAYERS",
+                players: players,
+                accent: accent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                style: .side,
+                viewportHeight: viewportHeight,
+                overflowMode: overflowMode
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, ultraCondensed ? 10 : 12)
-        .padding(.vertical, ultraCondensed ? 8 : 10)
-        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
-                .strokeBorder(boardBadgeBorderColor)
-        )
-        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: players)
     }
 
-    private func centerClockPanel(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        VStack(spacing: ultraCondensed ? max(10, base * 0.018) : condensed ? max(18, base * 0.026) : max(20, base * 0.03)) {
+    private func centerClockPanel(
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        showsCenterPlayerStrip: Bool,
+        playerViewportHeight: CGFloat,
+        playerOverflowMode: PlayerLineupOverflowMode
+    ) -> some View {
+        VStack(spacing: ultraCondensed ? max(8, base * 0.014) : condensed ? max(12, base * 0.02) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
             if showsDualClocks {
@@ -390,7 +475,7 @@ struct ScoreboardFaceView: View {
                         value: formattedHomeChessClock,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed,
-                        valueFontSize: ultraCondensed ? base * 0.065 : condensed ? base * 0.085 : base * 0.078,
+                        valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
                         valueMinScale: 0.42,
                         valueColor: activeChessClockSide == .home ? palette.homeAccent : boardBadgeValueTextColor
                     )
@@ -400,7 +485,7 @@ struct ScoreboardFaceView: View {
                         value: formattedGuestChessClock,
                         condensed: condensed,
                         ultraCondensed: ultraCondensed,
-                        valueFontSize: ultraCondensed ? base * 0.065 : condensed ? base * 0.085 : base * 0.078,
+                        valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
                         valueMinScale: 0.42,
                         valueColor: activeChessClockSide == .guest ? palette.guestAccent : boardBadgeValueTextColor
                     )
@@ -409,7 +494,7 @@ struct ScoreboardFaceView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             } else if showsGameClock {
                 Text(formattedClock)
-                    .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.215 : base * 0.19, weight: .heavy, design: .rounded))
+                    .font(.system(size: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.24)
                     .contentTransition(.numericText())
@@ -421,8 +506,8 @@ struct ScoreboardFaceView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            VStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                let shotClockValueSize = ultraCondensed ? base * 0.112 : condensed ? base * 0.148 : base * 0.132
+            VStack(spacing: ultraCondensed ? 8 : condensed ? 10 : 12) {
+                let shotClockValueSize = ultraCondensed ? base * 0.088 : condensed ? base * 0.118 : base * 0.132
 
                 if sport == .debate,
                    let debateSegmentTitle,
@@ -458,8 +543,14 @@ struct ScoreboardFaceView: View {
                     }
                 }
 
-                if shouldShowSoccerCenterPlayers {
-                    soccerCenterPlayerStrip(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                if showsCenterPlayerStrip {
+                    soccerCenterPlayerStrip(
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed,
+                        viewportHeight: playerViewportHeight,
+                        overflowMode: playerOverflowMode
+                    )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
@@ -467,7 +558,7 @@ struct ScoreboardFaceView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(ultraCondensed ? 14 : condensed ? 28 : 24)
+        .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
         .background(boardClockPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous)
@@ -492,48 +583,53 @@ struct ScoreboardFaceView: View {
         valueMinScale: CGFloat,
         valueColor: Color
     ) -> some View {
-        let arrowFontSize = ultraCondensed ? base * 0.072 : condensed ? base * 0.102 : base * 0.088
-        let arrowSlotWidth = ultraCondensed ? base * 0.1 : condensed ? base * 0.14 : base * 0.12
+        let arrowFontSize = ultraCondensed ? min(26, base * 0.044) : condensed ? min(34, base * 0.055) : min(40, base * 0.064)
+        let arrowSlotWidth = arrowFontSize + (ultraCondensed ? 6 : 8)
         let arrowIndicator = centerPossessionIndicator
         let showsArrowIndicator = arrowIndicator != nil
         let showsLeftArrow = arrowIndicator?.systemName.contains("left") == true
         let showsRightArrow = arrowIndicator?.systemName.contains("right") == true
+        let resolvedValueMinScale = min(valueMinScale, ultraCondensed ? 0.12 : condensed ? 0.16 : 0.22)
 
-        return HStack(spacing: showsArrowIndicator ? (ultraCondensed ? 8 : condensed ? 14 : 12) : 0) {
-            if showsArrowIndicator {
-                shotArrowSlot(
-                    systemName: arrowIndicator?.systemName,
-                    color: arrowIndicator?.color,
-                    isVisible: showsLeftArrow,
-                    fontSize: arrowFontSize,
-                    slotWidth: arrowSlotWidth
-                )
-            }
-
+        return ZStack {
             headerBadge(
                 title: "SHOT",
                 value: value,
                 condensed: condensed,
                 ultraCondensed: ultraCondensed,
                 valueFontSize: valueFontSize,
-                valueMinScale: valueMinScale,
+                valueMinScale: resolvedValueMinScale,
                 valueColor: valueColor,
                 showsContainer: false
             )
-            .frame(maxWidth: .infinity)
+            .layoutPriority(2)
 
             if showsArrowIndicator {
-                shotArrowSlot(
-                    systemName: arrowIndicator?.systemName,
-                    color: arrowIndicator?.color,
-                    isVisible: showsRightArrow,
-                    fontSize: arrowFontSize,
-                    slotWidth: arrowSlotWidth
-                )
+                HStack {
+                    shotArrowSlot(
+                        systemName: arrowIndicator?.systemName,
+                        color: arrowIndicator?.color,
+                        isVisible: showsLeftArrow,
+                        fontSize: arrowFontSize,
+                        slotWidth: arrowSlotWidth
+                    )
+
+                    Spacer(minLength: 0)
+
+                    shotArrowSlot(
+                        systemName: arrowIndicator?.systemName,
+                        color: arrowIndicator?.color,
+                        isVisible: showsRightArrow,
+                        fontSize: arrowFontSize,
+                        slotWidth: arrowSlotWidth
+                    )
+                }
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
             }
         }
-        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
-        .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
+        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
+        .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 14)
         .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
@@ -625,14 +721,14 @@ struct ScoreboardFaceView: View {
     ) -> some View {
         VStack(spacing: ultraCondensed ? 3 : 6) {
             localizedBoardText(title)
-                .font(.system(size: ultraCondensed ? 10 : condensed ? 16 : 14, weight: .black, design: .rounded))
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 13 : 14, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.5)
                 .singleLineFitted(minScale: 0.75)
                 .foregroundStyle(boardBadgeTitleTextColor)
                 .frame(maxWidth: .infinity)
 
             Text(value)
-                .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 34 : 28), weight: .heavy, design: .rounded))
+                .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 28 : 28), weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .allowsTightening(true)
                 .singleLineFitted(minScale: valueMinScale)
@@ -642,8 +738,8 @@ struct ScoreboardFaceView: View {
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 22 : 18)
-        .padding(.vertical, ultraCondensed ? 8 : condensed ? 16 : 14)
+        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
+        .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 14)
         .background(
             Group {
                 if showsContainer {
@@ -803,77 +899,456 @@ struct ScoreboardFaceView: View {
         )
     }
 
-    private func soccerCenterPlayerStrip(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
-            soccerPlayerColumn(
-                title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .home).uppercased()),
-                players: displayedPlayers(for: .home),
-                accent: palette.homeAccent,
-                base: base,
-                condensed: condensed,
-                ultraCondensed: ultraCondensed
-            )
+    private func soccerCenterPlayerStrip(
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        viewportHeight: CGFloat,
+        overflowMode: PlayerLineupOverflowMode
+    ) -> some View {
+        playerLineupBadge(ultraCondensed: ultraCondensed) {
+            HStack(alignment: .top, spacing: ultraCondensed ? 10 : condensed ? 14 : 16) {
+                playerLineupColumn(
+                    title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .home).uppercased()),
+                    players: displayedPlayers(for: .home),
+                    accent: palette.homeAccent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed,
+                    style: .center,
+                    viewportHeight: viewportHeight,
+                    overflowMode: overflowMode
+                )
 
-            soccerPlayerColumn(
-                title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .guest).uppercased()),
-                players: displayedPlayers(for: .guest),
-                accent: palette.guestAccent,
-                base: base,
-                condensed: condensed,
-                ultraCondensed: ultraCondensed
-            )
+                playerLineupColumn(
+                    title: localizedBoardFormat("%@ PLAYERS", sideRoleLabel(for: .guest).uppercased()),
+                    players: displayedPlayers(for: .guest),
+                    accent: palette.guestAccent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed,
+                    style: .center,
+                    viewportHeight: viewportHeight,
+                    overflowMode: overflowMode
+                )
+            }
         }
-        .padding(.horizontal, ultraCondensed ? 10 : 12)
-        .padding(.vertical, ultraCondensed ? 8 : 10)
-        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
-                .strokeBorder(boardBadgeBorderColor)
-        )
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: displayedPlayers(for: .home))
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }
 
-    private func soccerPlayerColumn(
+    private func playerLineupBadge<Content: View>(
+        ultraCondensed: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, ultraCondensed ? 10 : 12)
+            .padding(.vertical, ultraCondensed ? 8 : 10)
+            .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                    .strokeBorder(boardBadgeBorderColor)
+            )
+    }
+
+    private func playerLineupColumn(
         title: String,
         players: [TrackedPlayer],
         accent: Color,
         base: CGFloat,
         condensed: Bool,
-        ultraCondensed: Bool
+        ultraCondensed: Bool,
+        style: PlayerLineupListStyle,
+        viewportHeight: CGFloat,
+        overflowMode: PlayerLineupOverflowMode
     ) -> some View {
-        VStack(alignment: .leading, spacing: ultraCondensed ? 4 : 6) {
-            Text(title)
-                .font(.system(size: ultraCondensed ? 9 : condensed ? 12 : 11, weight: .black, design: .rounded))
-                .tracking(ultraCondensed ? 0.8 : 1.2)
+        let height = max(28, viewportHeight)
+        let unscaledHeight = playerLineupContentHeight(
+            playerCount: players.count,
+            base: base,
+            condensed: condensed,
+            ultraCondensed: ultraCondensed,
+            style: style,
+            scale: 1
+        )
+        let fitScale = overflowMode == .fit ? max(playerLineupMinimumFitScale(for: style), min(1, height / max(unscaledHeight, 1))) : 1
+        let titleFontSize = playerLineupTitleFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * fitScale
+        let titleHeight = titleFontSize * 1.25
+        let titleSpacing = players.isEmpty ? 0 : playerLineupTitleSpacing(ultraCondensed: ultraCondensed, style: style) * fitScale
+        let rowsViewportHeight = max(1, height - titleHeight - titleSpacing)
+        let rowsContentHeight = playerLineupRowsHeight(
+            playerCount: players.count,
+            base: base,
+            condensed: condensed,
+            ultraCondensed: ultraCondensed,
+            style: style,
+            scale: fitScale
+        )
+        let shouldClipRows = rowsContentHeight > rowsViewportHeight + 1
+        let shouldScroll = overflowMode == .scroll && shouldClipRows
+        let usesPagedRows = (overflowMode == .fade || overflowMode == .fit) && shouldClipRows
+        let pageSize = usesPagedRows
+            ? playerLineupPageSize(
+                rowViewportHeight: rowsViewportHeight,
+                rowHeight: playerLineupRowHeight(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * fitScale,
+                rowSpacing: playerLineupRowSpacing(ultraCondensed: ultraCondensed, style: style) * fitScale
+            )
+            : max(players.count, 1)
+        let pageCount = usesPagedRows ? max(1, Int(ceil(Double(players.count) / Double(max(pageSize, 1))))) : 1
+        let timelineInterval = shouldScroll ? 1.0 / 30.0 : (usesPagedRows && pageCount > 1 ? 0.5 : 1.0)
+
+        return TimelineView(.animation(minimumInterval: timelineInterval)) { timeline in
+            playerLineupColumnContent(
+                title: title,
+                players: players,
+                accent: accent,
+                base: base,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                style: style,
+                fitScale: fitScale,
+                titleFontSize: titleFontSize,
+                titleSpacing: titleSpacing,
+                rowsViewportHeight: rowsViewportHeight,
+                shouldScroll: shouldScroll,
+                usesPagedRows: usesPagedRows && pageCount > 1,
+                pageSize: pageSize,
+                pageIndex: usesPagedRows && pageCount > 1 ? playerLineupPageIndex(pageCount: pageCount, date: timeline.date) : 0,
+                pageCount: pageCount,
+                scrollDate: timeline.date
+            )
+        }
+    }
+
+    private func playerLineupColumnContent(
+        title: String,
+        players: [TrackedPlayer],
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        style: PlayerLineupListStyle,
+        fitScale: CGFloat,
+        titleFontSize: CGFloat,
+        titleSpacing: CGFloat,
+        rowsViewportHeight: CGFloat,
+        shouldScroll: Bool,
+        usesPagedRows: Bool,
+        pageSize: Int,
+        pageIndex: Int,
+        pageCount: Int,
+        scrollDate: Date
+    ) -> some View {
+        let visiblePlayers: [TrackedPlayer]
+        if usesPagedRows {
+            let start = min(players.count, max(0, pageIndex) * max(pageSize, 1))
+            let end = min(players.count, start + max(pageSize, 1))
+            visiblePlayers = Array(players[start..<end])
+        } else {
+            visiblePlayers = players
+        }
+        let visibleRowsContentHeight = playerLineupRowsHeight(
+            playerCount: visiblePlayers.count,
+            base: base,
+            condensed: condensed,
+            ultraCondensed: ultraCondensed,
+            style: style,
+            scale: fitScale
+        )
+        let titleText = pageCount > 1 ? "\(localizedBoardString(title)) (\(pageIndex + 1)/\(pageCount))" : localizedBoardString(title)
+
+        return VStack(alignment: .leading, spacing: titleSpacing) {
+            Text(titleText)
+                .font(.system(size: titleFontSize, weight: .black, design: .rounded))
+                .tracking((style == .side ? (ultraCondensed ? 0.8 : 1.4) : (ultraCondensed ? 0.8 : 1.2)) * fitScale)
                 .foregroundStyle(boardSecondaryTextColor)
 
-            ForEach(players) { player in
-                HStack(spacing: 6) {
-                    Text("#\(player.number.isEmpty ? "--" : player.number)")
-                        .font(.system(size: ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017, weight: .black, design: .rounded))
-                        .lineLimit(1)
-                        .foregroundStyle(accent)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(width: ultraCondensed ? 50 : condensed ? 58 : 54, alignment: .leading)
-
-                    Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
-                        .font(.system(size: ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016, weight: .bold, design: .rounded))
-                        .singleLineFitted(minScale: 0.55)
-                        .foregroundStyle(playerStatusColor(player))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if !visiblePlayers.isEmpty {
+                playerLineupViewport(
+                    height: rowsViewportHeight,
+                    contentHeight: visibleRowsContentHeight,
+                    shouldScroll: shouldScroll,
+                    shouldFade: visibleRowsContentHeight > rowsViewportHeight + 1,
+                    date: scrollDate
+                ) {
+                    VStack(spacing: playerLineupRowSpacing(ultraCondensed: ultraCondensed, style: style) * fitScale) {
+                        ForEach(visiblePlayers) { player in
+                            playerLineupRow(
+                                player,
+                                accent: accent,
+                                base: base,
+                                condensed: condensed,
+                                ultraCondensed: ultraCondensed,
+                                style: style,
+                                scale: fitScale
+                            )
+                        }
+                    }
                 }
-                .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
-                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
-                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.35), value: pageIndex)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: players)
+    }
+
+    private func playerLineupViewport<Content: View>(
+        height: CGFloat,
+        contentHeight: CGFloat,
+        shouldScroll: Bool,
+        shouldFade: Bool,
+        date: Date,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        let distance = max(0, contentHeight - height)
+        let offset = shouldScroll && distance > 1 ? playerLineupScrollOffset(distance: distance, date: date) : 0
+        return clippedPlayerLineupContent(
+            offset: offset,
+            height: height,
+            shouldFade: shouldFade || shouldScroll,
+            content: content
+        )
+    }
+
+    @ViewBuilder
+    private func clippedPlayerLineupContent<Content: View>(
+        offset: CGFloat,
+        height: CGFloat,
+        shouldFade: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if shouldFade {
+            content()
+                .offset(y: offset)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: height, alignment: .top)
+                .clipped()
+                .mask(playerLineupFadeMask())
+        } else {
+            content()
+                .offset(y: offset)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: height, alignment: .top)
+                .clipped()
+        }
+    }
+
+    private func playerLineupFadeMask() -> some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.08),
+                .init(color: .black, location: 0.92),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private func playerLineupScrollOffset(distance: CGFloat, date: Date) -> CGFloat {
+        let speed = CGFloat(max(1, playerLineupScrollSpeed))
+        let pause: TimeInterval = 1.4
+        let travel = TimeInterval(max(distance / speed, 0.1))
+        let cycle = (travel * 2) + (pause * 2)
+        guard cycle > 0 else {
+            return 0
+        }
+
+        let time = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+        if time < pause {
+            return playerLineupDirectionalScrollOffset(upwardOffset: 0, distance: distance)
+        }
+        if time < pause + travel {
+            let upwardOffset = -distance * CGFloat((time - pause) / travel)
+            return playerLineupDirectionalScrollOffset(upwardOffset: upwardOffset, distance: distance)
+        }
+        if time < pause + travel + pause {
+            return playerLineupDirectionalScrollOffset(upwardOffset: -distance, distance: distance)
+        }
+        let upwardOffset = -distance + (distance * CGFloat((time - pause - travel - pause) / travel))
+        return playerLineupDirectionalScrollOffset(upwardOffset: upwardOffset, distance: distance)
+    }
+
+    private func playerLineupDirectionalScrollOffset(upwardOffset: CGFloat, distance: CGFloat) -> CGFloat {
+        switch playerLineupScrollDirection {
+        case .up:
+            return upwardOffset
+        case .down:
+            return -distance - upwardOffset
+        }
+    }
+
+    private func playerLineupPageIndex(pageCount: Int, date: Date) -> Int {
+        guard pageCount > 1 else {
+            return 0
+        }
+        let pageSeconds = TimeInterval(max(1, playerLineupFadePageSeconds))
+        return Int(date.timeIntervalSinceReferenceDate / pageSeconds) % pageCount
+    }
+
+    private func playerLineupPageSize(rowViewportHeight: CGFloat, rowHeight: CGFloat, rowSpacing: CGFloat) -> Int {
+        let rowHeight = max(1, rowHeight)
+        let rowSpacing = max(0, rowSpacing)
+        guard rowViewportHeight > rowHeight else {
+            return 1
+        }
+        return max(1, Int(floor((rowViewportHeight + rowSpacing) / (rowHeight + rowSpacing))))
+    }
+
+    private func playerLineupRow(
+        _ player: TrackedPlayer,
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        style: PlayerLineupListStyle,
+        scale: CGFloat
+    ) -> some View {
+        HStack(spacing: playerLineupHorizontalSpacing(style: style) * scale) {
+            Text("#\(player.number.isEmpty ? "--" : player.number)")
+                .font(.system(size: playerLineupNumberFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * scale, weight: .black, design: .rounded))
+                .foregroundStyle(accent)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: playerLineupNumberWidth(ultraCondensed: ultraCondensed, condensed: condensed, style: style) * scale, alignment: .leading)
+
+            Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
+                .font(.system(size: playerLineupNameFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * scale, weight: .bold, design: .rounded))
+                .singleLineFitted(minScale: 0.55)
+                .foregroundStyle(playerStatusColor(player))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if style == .side {
+                Spacer(minLength: 0)
+            }
+
+            if rules.supportsFouls {
+                Text(foulDisplayText(for: player.foulCount))
+                    .font(.system(size: playerLineupFoulFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * scale, weight: .black, design: .rounded))
+                    .monospaced()
+                    .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
+            }
+        }
+        .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
+        .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
+        .transition(.asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        ))
+    }
+
+    private func playerLineupContentHeight(
+        playerCount: Int,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        style: PlayerLineupListStyle,
+        scale: CGFloat
+    ) -> CGFloat {
+        let boundedCount = max(0, playerCount)
+        let titleHeight = playerLineupTitleFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * 1.25
+        guard boundedCount > 0 else {
+            return titleHeight * scale
+        }
+
+        let rowHeight = playerLineupRowHeight(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style)
+        let rowSpacing = playerLineupRowSpacing(ultraCondensed: ultraCondensed, style: style)
+        let titleSpacing = playerLineupTitleSpacing(ultraCondensed: ultraCondensed, style: style)
+        return (titleHeight + titleSpacing + (rowHeight * CGFloat(boundedCount)) + (rowSpacing * CGFloat(max(0, boundedCount - 1)))) * scale
+    }
+
+    private func playerLineupRowsHeight(
+        playerCount: Int,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        style: PlayerLineupListStyle,
+        scale: CGFloat
+    ) -> CGFloat {
+        let boundedCount = max(0, playerCount)
+        guard boundedCount > 0 else {
+            return 0
+        }
+
+        let rowHeight = playerLineupRowHeight(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style)
+        let rowSpacing = playerLineupRowSpacing(ultraCondensed: ultraCondensed, style: style)
+        return ((rowHeight * CGFloat(boundedCount)) + (rowSpacing * CGFloat(max(0, boundedCount - 1)))) * scale
+    }
+
+    private func playerLineupRowHeight(base: CGFloat, condensed: Bool, ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        max(
+            playerLineupNumberFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style),
+            playerLineupNameFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style),
+            playerLineupFoulFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style)
+        ) * 1.28
+    }
+
+    private func playerLineupTitleFontSize(base: CGFloat, condensed: Bool, ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? 10 : condensed ? 14 : 12
+        case .center:
+            return ultraCondensed ? 9 : condensed ? 12 : 11
+        }
+    }
+
+    private func playerLineupNumberFontSize(base: CGFloat, condensed: Bool, ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? base * 0.022 : condensed ? base * 0.027 : base * 0.024
+        case .center:
+            return ultraCondensed ? base * 0.016 : condensed ? base * 0.019 : base * 0.017
+        }
+    }
+
+    private func playerLineupNameFontSize(base: CGFloat, condensed: Bool, ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? base * 0.021 : condensed ? base * 0.026 : base * 0.023
+        case .center:
+            return ultraCondensed ? base * 0.015 : condensed ? base * 0.018 : base * 0.016
+        }
+    }
+
+    private func playerLineupFoulFontSize(base: CGFloat, condensed: Bool, ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? base * 0.02 : condensed ? base * 0.024 : base * 0.022
+        case .center:
+            return ultraCondensed ? base * 0.014 : condensed ? base * 0.017 : base * 0.015
+        }
+    }
+
+    private func playerLineupNumberWidth(ultraCondensed: Bool, condensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? 48 : 60
+        case .center:
+            return ultraCondensed ? 50 : condensed ? 58 : 54
+        }
+    }
+
+    private func playerLineupHorizontalSpacing(style: PlayerLineupListStyle) -> CGFloat {
+        style == .side ? 8 : 6
+    }
+
+    private func playerLineupTitleSpacing(ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? 6 : 8
+        case .center:
+            return ultraCondensed ? 4 : 6
+        }
+    }
+
+    private func playerLineupRowSpacing(ultraCondensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        ultraCondensed ? 4 : 6
+    }
+
+    private func playerLineupMinimumFitScale(for style: PlayerLineupListStyle) -> CGFloat {
+        style == .side ? 0.66 : 0.72
     }
 
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
@@ -896,17 +1371,173 @@ struct ScoreboardFaceView: View {
         }
     }
 
-    private func displayedPlayers(for side: TeamSide) -> [TrackedPlayer] {
+    private func usesCenterPlayerStripFallback(
+        size: CGSize,
+        leftSidePlayerLimit: Int,
+        rightSidePlayerLimit: Int,
+        leftRequestedPlayerCount: Int,
+        rightRequestedPlayerCount: Int
+    ) -> Bool {
+        guard leftRequestedPlayerCount > 0 || rightRequestedPlayerCount > 0 else {
+            return false
+        }
+        if rules.usesCenterPlayerStrip {
+            return true
+        }
+        guard size.width >= 760 else {
+            return false
+        }
+
+        let leftNeedsRows = leftRequestedPlayerCount > 0
+        let rightNeedsRows = rightRequestedPlayerCount > 0
+        let sideLayoutMissingRows = (leftNeedsRows && leftSidePlayerLimit == 0) || (rightNeedsRows && rightSidePlayerLimit == 0)
+        return sideLayoutMissingRows
+    }
+
+    private func centerPlayerDisplayLimit(for size: CGSize, condensed: Bool, ultraCondensed: Bool) -> Int {
+        if ultraCondensed {
+            return size.height < 600 ? 4 : 5
+        }
+
+        if condensed {
+            if size.height < 640 {
+                return 5
+            }
+            return 6
+        }
+
+        if size.height < 760 {
+            return 6
+        }
+        return 8
+    }
+
+    private func sidePlayerDisplayLimit(for size: CGSize, condensed: Bool, ultraCondensed: Bool, hasLogo: Bool) -> Int {
+        guard !rules.usesCenterPlayerStrip, size.width >= 620, size.height >= 520 else {
+            return 0
+        }
+
+        if !hasLogo {
+            if ultraCondensed {
+                return size.height < 600 ? 4 : 5
+            }
+
+            if condensed {
+                if size.height < 640 {
+                    return 5
+                }
+                if size.height < 720 {
+                    return 6
+                }
+                if size.height < 820 {
+                    return 7
+                }
+                if size.height < 940 {
+                    return 8
+                }
+                return 9
+            }
+
+            if size.height < 700 {
+                return 6
+            }
+            if size.height < 820 {
+                return 7
+            }
+            if size.height < 940 {
+                return 8
+            }
+            return 10
+        }
+
+        if ultraCondensed {
+            return size.height < 600 ? 2 : 3
+        }
+
+        if condensed {
+            if size.height < 640 {
+                return 3
+            }
+            if size.height < 720 {
+                return 4
+            }
+            if size.height < 820 {
+                return 5
+            }
+            return 6
+        }
+
+        if size.height < 700 {
+            return 4
+        }
+        if size.height < 820 {
+            return 5
+        }
+        return 6
+    }
+
+    private func sidePlayerViewportHeight(for size: CGSize, condensed: Bool, ultraCondensed: Bool, hasLogo: Bool) -> CGFloat {
+        let base = min(size.width, size.height)
+        let capacity = sidePlayerDisplayLimit(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: hasLogo)
+        guard capacity > 0 else {
+            return 0
+        }
+
+        let preferredHeight = playerLineupContentHeight(
+            playerCount: capacity,
+            base: base,
+            condensed: condensed,
+            ultraCondensed: ultraCondensed,
+            style: .side,
+            scale: 1
+        )
+        let maxShare = size.height * (ultraCondensed ? 0.32 : condensed ? 0.36 : 0.38)
+        return min(max(preferredHeight, 44), maxShare)
+    }
+
+    private func centerPlayerViewportHeight(for size: CGSize, condensed: Bool, ultraCondensed: Bool) -> CGFloat {
+        let base = min(size.width, size.height)
+        let capacity = centerPlayerDisplayLimit(for: size, condensed: condensed, ultraCondensed: ultraCondensed)
+        let preferredHeight = playerLineupContentHeight(
+            playerCount: capacity,
+            base: base,
+            condensed: condensed,
+            ultraCondensed: ultraCondensed,
+            style: .center,
+            scale: 1
+        )
+        let maxShare = size.height * (ultraCondensed ? 0.30 : condensed ? 0.34 : 0.36)
+        return min(max(preferredHeight, 42), maxShare)
+    }
+
+    private func resolvedPlayerLineupOverflowMode(hasLogo: Bool) -> PlayerLineupOverflowMode {
+        if hasLogo, let playerLineupOverflowLogoOverride {
+            return playerLineupOverflowLogoOverride
+        }
+        if !hasLogo, let playerLineupOverflowNoLogoOverride {
+            return playerLineupOverflowNoLogoOverride
+        }
+        return playerLineupOverflowMode
+    }
+
+    private func displayedPlayers(for side: TeamSide, limit: Int? = nil) -> [TrackedPlayer] {
         guard isPlayerTrackingEnabled, !isPlayerOverlayPaused else {
             return []
         }
 
+        let players: [TrackedPlayer]
         switch side {
         case .home:
-            return homePlayers
+            players = homePlayers
         case .guest:
-            return guestPlayers
+            players = guestPlayers
         }
+
+        if let limit {
+            return Array(players.prefix(max(0, limit)))
+        }
+
+        return players
     }
 
     private var foulHighlightColor: Color {
@@ -1014,6 +1645,7 @@ struct ScoreboardFaceView: View {
                 side: .home,
                 role: sideRoleLabel(for: .home).uppercased(),
                 title: homeTeamName,
+                logoData: homeTeamLogoData,
                 score: homeScore,
                 accent: palette.homeAccent
             )
@@ -1022,6 +1654,7 @@ struct ScoreboardFaceView: View {
                 side: .guest,
                 role: sideRoleLabel(for: .guest).uppercased(),
                 title: guestTeamName,
+                logoData: guestTeamLogoData,
                 score: guestScore,
                 accent: palette.guestAccent
             )
@@ -1030,6 +1663,7 @@ struct ScoreboardFaceView: View {
                 side: .home,
                 role: "",
                 title: "",
+                logoData: nil,
                 score: 0,
                 accent: palette.boardPrimaryText
             )
@@ -1054,6 +1688,7 @@ private struct SidePanelData {
     let side: TeamSide
     let role: String
     let title: String
+    let logoData: Data?
     let score: Int
     let accent: Color
 }

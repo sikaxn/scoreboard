@@ -1,9 +1,14 @@
+import CoreGraphics
+import Foundation
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable {
     case blurred
     case clear
     case clearUnderBoard
+    case image
     case none
 
     var id: String { rawValue }
@@ -16,6 +21,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Split Background"
         case .clearUnderBoard:
             return "Through Scoreboard"
+        case .image:
+            return "Photo"
         case .none:
             return "No Background"
         }
@@ -29,6 +36,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Show a clean red-blue split behind the scoreboard."
         case .clearUnderBoard:
             return "Let the red-blue split show through where the board background is normally black."
+        case .image:
+            return "Use a selected photo as the public display background."
         case .none:
             return "Leave the external display background unfilled outside the scoreboard."
         }
@@ -429,5 +438,390 @@ extension ThemePalette {
 private extension Color {
     static func rgb(_ red: Double, _ green: Double, _ blue: Double) -> Color {
         Color(red: red, green: green, blue: blue)
+    }
+}
+
+struct ExternalDisplayBackgroundImage: Codable, Equatable, Sendable {
+    static let minScale: Double = 1
+    static let maxScale: Double = 3
+    static let minOffset: Double = -1
+    static let maxOffset: Double = 1
+
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var scale: Double
+    var offsetX: Double
+    var offsetY: Double
+    var data: Data
+
+    init(
+        id: String = UUID().uuidString,
+        sourceName: String?,
+        mimeType: String = "image/jpeg",
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval = Date().timeIntervalSince1970,
+        scale: Double = 1,
+        offsetX: Double = 0,
+        offsetY: Double = 0,
+        data: Data
+    ) {
+        self.id = id
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+        self.scale = Self.boundedScale(scale)
+        self.offsetX = Self.boundedOffset(offsetX)
+        self.offsetY = Self.boundedOffset(offsetY)
+        self.data = data
+    }
+
+    var displayName: String {
+        let trimmed = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Selected Photo" : trimmed
+    }
+
+    var path: String {
+        Self.currentPath
+    }
+
+    var versionedPath: String {
+        "\(Self.currentPath)/\(id)"
+    }
+
+    var legacyVersionedPath: String {
+        "\(versionedPath).jpg"
+    }
+
+    static var currentPath: String {
+        "/api/v1/display/background-image"
+    }
+
+    func withPlacement(scale: Double, offsetX: Double, offsetY: Double) -> ExternalDisplayBackgroundImage {
+        var image = self
+        image.scale = Self.boundedScale(scale)
+        image.offsetX = Self.boundedOffset(offsetX)
+        image.offsetY = Self.boundedOffset(offsetY)
+        image.updatedAtUnixTime = Date().timeIntervalSince1970
+        return image
+    }
+
+    static func boundedScale(_ value: Double) -> Double {
+        min(maxScale, max(minScale, value))
+    }
+
+    static func boundedOffset(_ value: Double) -> Double {
+        min(maxOffset, max(minOffset, value))
+    }
+}
+
+struct TeamLogoImage: Codable, Equatable, Sendable {
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var data: Data
+
+    init(
+        id: String = UUID().uuidString,
+        sourceName: String?,
+        mimeType: String = "image/png",
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval = Date().timeIntervalSince1970,
+        data: Data
+    ) {
+        self.id = id
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+        self.data = data
+    }
+
+    var displayName: String {
+        let trimmed = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Team Logo" : trimmed
+    }
+
+    func path(for side: TeamSide) -> String {
+        Self.currentPath(for: side)
+    }
+
+    func versionedPath(for side: TeamSide) -> String {
+        "\(Self.currentPath(for: side))/\(id)"
+    }
+
+    func legacyVersionedPath(for side: TeamSide) -> String {
+        "\(versionedPath(for: side)).png"
+    }
+
+    static func currentPath(for side: TeamSide) -> String {
+        "/api/v1/teams/\(side.rawValue)/logo"
+    }
+}
+
+nonisolated struct ScoreboardWebAPIBackgroundImage: Codable, Sendable {
+    let id: String
+    let mimeType: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let byteCount: Int
+    let updatedAtUnixTime: TimeInterval
+    let placement: ScoreboardWebAPIBackgroundImagePlacement
+    let path: String
+    let downloadURLs: [String]
+}
+
+nonisolated struct ScoreboardWebAPIBackgroundImagePlacement: Codable, Sendable {
+    let scale: Double
+    let offsetX: Double
+    let offsetY: Double
+}
+
+nonisolated struct ScoreboardWebAPITeamLogo: Codable, Sendable {
+    let id: String
+    let mimeType: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let byteCount: Int
+    let updatedAtUnixTime: TimeInterval
+    let path: String
+    let downloadURLs: [String]
+}
+
+enum ScoreboardDisplayImageError: LocalizedError {
+    case unreadableImage
+    case compressionFailed
+    case processingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage:
+            return "The selected image could not be read."
+        case .compressionFailed:
+            return "The selected image could not be encoded for display."
+        case .processingFailed:
+            return "The selected image could not be prepared for display."
+        }
+    }
+}
+
+enum ScoreboardDisplayImageProcessor {
+    static func makeBackgroundImage(from data: Data, sourceName: String?) throws -> ExternalDisplayBackgroundImage {
+        let cgImage = try downsampleImage(data, maxPixelSize: 1_920)
+        let encodedData = try encode(cgImage, type: .jpeg, quality: 0.86)
+        return ExternalDisplayBackgroundImage(
+            sourceName: sourceName,
+            pixelWidth: cgImage.width,
+            pixelHeight: cgImage.height,
+            byteCount: encodedData.count,
+            data: encodedData
+        )
+    }
+
+    static func makeTeamLogo(from data: Data, sourceName: String?) throws -> TeamLogoImage {
+        let downsampledImage = try downsampleImage(data, maxPixelSize: 512)
+        let renderedImage = try transparentLogoCanvas(from: downsampledImage)
+        let encodedData = try encode(renderedImage, type: .png, quality: nil)
+        return TeamLogoImage(
+            sourceName: sourceName,
+            pixelWidth: renderedImage.width,
+            pixelHeight: renderedImage.height,
+            byteCount: encodedData.count,
+            data: encodedData
+        )
+    }
+
+    private static func downsampleImage(_ data: Data, maxPixelSize: Int) throws -> CGImage {
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary) else {
+            throw ScoreboardDisplayImageError.unreadableImage
+        }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: false,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            throw ScoreboardDisplayImageError.unreadableImage
+        }
+
+        return image
+    }
+
+    private enum EncodedImageType {
+        case jpeg
+        case png
+
+        var identifier: CFString {
+            switch self {
+            case .jpeg:
+                return UTType.jpeg.identifier as CFString
+            case .png:
+                return UTType.png.identifier as CFString
+            }
+        }
+    }
+
+    private static func encode(_ cgImage: CGImage, type: EncodedImageType, quality: Double?) throws -> Data {
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData, type.identifier, 1, nil) else {
+            throw ScoreboardDisplayImageError.compressionFailed
+        }
+
+        var properties: [CFString: Any] = [:]
+        if let quality {
+            properties[kCGImageDestinationLossyCompressionQuality] = quality
+        }
+        CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw ScoreboardDisplayImageError.compressionFailed
+        }
+
+        return mutableData as Data
+    }
+
+    private static func transparentLogoCanvas(from cgImage: CGImage) throws -> CGImage {
+        let canvasSize = 512
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: canvasSize,
+            height: canvasSize,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            throw ScoreboardDisplayImageError.processingFailed
+        }
+
+        context.clear(CGRect(x: 0, y: 0, width: canvasSize, height: canvasSize))
+        context.interpolationQuality = .high
+        let sourceSize = CGSize(width: cgImage.width, height: cgImage.height)
+        let drawRect = sourceSize.aspectFit(in: CGSize(width: canvasSize, height: canvasSize))
+        context.draw(cgImage, in: drawRect)
+
+        guard let output = context.makeImage() else {
+            throw ScoreboardDisplayImageError.processingFailed
+        }
+        return output
+    }
+}
+
+struct ExternalDisplayBackgroundImageView: View {
+    let data: Data
+    let scale: Double
+    let offsetX: Double
+    let offsetY: Double
+
+    init(image: ExternalDisplayBackgroundImage) {
+        data = image.data
+        scale = image.scale
+        offsetX = image.offsetX
+        offsetY = image.offsetY
+    }
+
+    init(data: Data, scale: Double, offsetX: Double, offsetY: Double) {
+        self.data = data
+        self.scale = scale
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let cgImage = Self.cgImage(from: data) {
+                Image(decorative: cgImage, scale: 1, orientation: .up)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .scaleEffect(CGFloat(ExternalDisplayBackgroundImage.boundedScale(scale)))
+                    .offset(
+                        x: CGFloat(ExternalDisplayBackgroundImage.boundedOffset(offsetX)) * proxy.size.width * 0.5,
+                        y: CGFloat(ExternalDisplayBackgroundImage.boundedOffset(offsetY)) * proxy.size.height * 0.5
+                    )
+                    .clipped()
+            } else {
+                Color.clear
+            }
+        }
+        .clipped()
+    }
+
+    private static func cgImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary)
+    }
+}
+
+struct TeamLogoImageView: View {
+    let data: Data
+    var cornerRadius: CGFloat = 10
+
+    var body: some View {
+        ZStack {
+            if let cgImage = Self.cgImage(from: data) {
+                Image(decorative: cgImage, scale: 1, orientation: .up)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(4)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private static func cgImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary)
+    }
+}
+
+private extension CGSize {
+    func aspectFit(in container: CGSize) -> CGRect {
+        guard width > 0, height > 0, container.width > 0, container.height > 0 else {
+            return .zero
+        }
+
+        let ratio = min(container.width / width, container.height / height)
+        let fittedSize = CGSize(width: width * ratio, height: height * ratio)
+        return CGRect(
+            x: (container.width - fittedSize.width) * 0.5,
+            y: (container.height - fittedSize.height) * 0.5,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
     }
 }

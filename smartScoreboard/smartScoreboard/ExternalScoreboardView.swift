@@ -28,6 +28,14 @@ struct ExternalScoreboardView: View {
                     showsScore: store.supportsScore,
                     homeTeamName: store.homeTeamName,
                     guestTeamName: store.guestTeamName,
+                    homeTeamLogoData: store.showsTeamLogos ? store.homeTeamLogoImage?.data : nil,
+                    guestTeamLogoData: store.showsTeamLogos ? store.guestTeamLogoImage?.data : nil,
+                    playerLineupOverflowMode: store.playerLineupOverflowMode,
+                    playerLineupOverflowLogoOverride: store.playerLineupOverflowLogoOverride,
+                    playerLineupOverflowNoLogoOverride: store.playerLineupOverflowNoLogoOverride,
+                    playerLineupFadePageSeconds: store.playerLineupFadePageSeconds,
+                    playerLineupScrollSpeed: store.playerLineupScrollSpeed,
+                    playerLineupScrollDirection: store.playerLineupScrollDirection,
                     homeScore: store.homeScore,
                     guestScore: store.guestScore,
                     period: store.period,
@@ -82,13 +90,7 @@ struct ExternalScoreboardView: View {
     }
 
     private func fittedBoardSize(in availableSize: CGSize) -> CGSize {
-        let horizontalInset = max(0, min(availableSize.width * 0.025, 32))
-        let verticalInset = max(0, min(availableSize.height * 0.025, 26))
-        let usableWidth = max(availableSize.width - (horizontalInset * 2), 0)
-        let usableHeight = max(availableSize.height - (verticalInset * 2), 0)
-        let preferredWidth = min(usableWidth, usableHeight * ScoreboardFaceView.preferredAspectRatio)
-        let preferredHeight = min(usableHeight, preferredWidth / ScoreboardFaceView.preferredAspectRatio)
-        return CGSize(width: preferredWidth, height: preferredHeight)
+        ScoreboardFaceView.fittedBoardSize(in: availableSize)
     }
 
     @ViewBuilder
@@ -106,6 +108,12 @@ struct ExternalScoreboardView: View {
                 palette.homeAccent
                 palette.guestAccent
             }
+        case .image:
+            if let image = store.externalDisplayBackgroundImage {
+                ExternalDisplayBackgroundImageView(image: image)
+            } else {
+                palette.externalDisplayBackground
+            }
         case .none:
             Color.clear
         }
@@ -119,6 +127,8 @@ struct ExternalScoreboardView: View {
             return .clear
         case .clearUnderBoard:
             return .transparent
+        case .image:
+            return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
         case .none:
             return .clear
         }

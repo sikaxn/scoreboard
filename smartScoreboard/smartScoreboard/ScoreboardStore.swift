@@ -104,6 +104,41 @@ enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum PlayerLineupOverflowMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case scroll
+    case fade
+    case fit
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .scroll:
+            return NSLocalizedString("Auto Scroll", comment: "")
+        case .fade:
+            return NSLocalizedString("Paged Fade", comment: "")
+        case .fit:
+            return NSLocalizedString("Adaptive Fit", comment: "")
+        }
+    }
+}
+
+enum PlayerLineupScrollDirection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case up
+    case down
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .up:
+            return NSLocalizedString("Up", comment: "")
+        case .down:
+            return NSLocalizedString("Down", comment: "")
+        }
+    }
+}
+
 enum PlayerCardStatus: String, Codable, CaseIterable, Identifiable {
     case none
     case yellow
@@ -270,6 +305,12 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
     nonisolated static let defaultDisplayLineupSize = 5
+    nonisolated static let defaultPlayerLineupFadePageSeconds = 4
+    nonisolated static let minPlayerLineupFadePageSeconds = 2
+    nonisolated static let maxPlayerLineupFadePageSeconds = 15
+    nonisolated static let defaultPlayerLineupScrollSpeed = 14
+    nonisolated static let minPlayerLineupScrollSpeed = 6
+    nonisolated static let maxPlayerLineupScrollSpeed = 40
     nonisolated static let defaultSoundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect] = [
         .gameClockExpired: .classicBuzzer,
         .shotClockExpired: .shotClockBeep,
@@ -324,6 +365,12 @@ final class ScoreboardStore: ObservableObject {
     @Published var isPlayerOverlayPaused = false
     @Published var rosterSizePerTeam = defaultRosterSize
     @Published var displayLineupSize = defaultDisplayLineupSize
+    @Published var playerLineupOverflowMode: PlayerLineupOverflowMode = .scroll
+    @Published var playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    @Published var playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    @Published var playerLineupFadePageSeconds = defaultPlayerLineupFadePageSeconds
+    @Published var playerLineupScrollSpeed = defaultPlayerLineupScrollSpeed
+    @Published var playerLineupScrollDirection: PlayerLineupScrollDirection = .up
     @Published var playerFoulHighlightColor: PlayerFoulHighlightColor = .yellow
     @Published var isGameClockRedEnabled = false
     @Published var gameClockRedThresholdSeconds = 60
@@ -359,6 +406,10 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
+    @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
+    @Published var showsTeamLogos = true
+    @Published var homeTeamLogoImage: TeamLogoImage?
+    @Published var guestTeamLogoImage: TeamLogoImage?
     @Published var isSoundEnabled = true
     @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
@@ -1086,6 +1137,7 @@ final class ScoreboardStore: ObservableObject {
         let targetSeconds = boundedShotClockSeconds(seconds ?? defaultShotClockSeconds)
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
+        possessionDirection = .none
         recordLog(
             kind: .shotClockReset,
             summary: localizedStoreString("Reset shot clock"),
@@ -1500,6 +1552,7 @@ final class ScoreboardStore: ObservableObject {
         accumulatedShotClockElapsed = 0
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
+        possessionDirection = .none
         updateTimerState()
         recordLog(
             kind: .shotClockReset,
@@ -1608,6 +1661,14 @@ final class ScoreboardStore: ObservableObject {
         displayLineupSize = max(1, min(rosterSizePerTeam, size))
         homeRoster = normalizedRoster(homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(guestRoster, fallbackCount: rosterSizePerTeam)
+    }
+
+    func setPlayerLineupFadePageSeconds(_ seconds: Int) {
+        playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, seconds))
+    }
+
+    func setPlayerLineupScrollSpeed(_ speed: Int) {
+        playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, speed))
     }
 
     func trackedPlayers(for side: TeamSide) -> [TrackedPlayer] {
@@ -2682,6 +2743,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
             displayLineupSize: displayLineupSize,
+            playerLineupOverflowMode: playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: playerLineupScrollSpeed,
+            playerLineupScrollDirection: playerLineupScrollDirection,
             playerFoulHighlightColor: playerFoulHighlightColor,
             isGameClockRedEnabled: isGameClockRedEnabled,
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
@@ -2713,8 +2780,76 @@ final class ScoreboardStore: ObservableObject {
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
-            guestRoster: guestRoster
+            guestRoster: guestRoster,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: embeddedExternalDisplayBackgroundImage(),
+            showsTeamLogos: showsTeamLogos,
+            homeTeamLogoImage: embeddedTeamLogoImage(for: .home),
+            guestTeamLogoImage: embeddedTeamLogoImage(for: .guest)
         )
+    }
+
+    private func embeddedExternalDisplayBackgroundImage() -> ScoreboardGameEmbeddedImage? {
+        guard let externalDisplayBackgroundImage else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(backgroundImage: externalDisplayBackgroundImage)
+    }
+
+    private func embeddedTeamLogoImage(for side: TeamSide) -> ScoreboardGameEmbeddedImage? {
+        guard let logo = teamLogoImage(for: side) else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(teamLogoImage: logo)
+    }
+
+    func setExternalDisplayBackgroundImage(_ image: ExternalDisplayBackgroundImage) {
+        externalDisplayBackgroundImage = image
+        externalDisplayBackgroundMode = .image
+    }
+
+    func updateExternalDisplayBackgroundPlacement(scale: Double, offsetX: Double, offsetY: Double) {
+        guard let image = externalDisplayBackgroundImage else {
+            return
+        }
+
+        externalDisplayBackgroundImage = image.withPlacement(scale: scale, offsetX: offsetX, offsetY: offsetY)
+    }
+
+    func clearExternalDisplayBackgroundImage() {
+        externalDisplayBackgroundImage = nil
+        if externalDisplayBackgroundMode == .image {
+            externalDisplayBackgroundMode = .blurred
+        }
+    }
+
+    func teamLogoImage(for side: TeamSide) -> TeamLogoImage? {
+        switch side {
+        case .home:
+            return homeTeamLogoImage
+        case .guest:
+            return guestTeamLogoImage
+        }
+    }
+
+    func setTeamLogoImage(_ image: TeamLogoImage, for side: TeamSide) {
+        switch side {
+        case .home:
+            homeTeamLogoImage = image
+        case .guest:
+            guestTeamLogoImage = image
+        }
+    }
+
+    func clearTeamLogoImage(for side: TeamSide) {
+        switch side {
+        case .home:
+            homeTeamLogoImage = nil
+        case .guest:
+            guestTeamLogoImage = nil
+        }
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
@@ -2742,6 +2877,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
             rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
             displayLineupSize = max(1, min(rosterSizePerTeam, snapshot.displayLineupSize ?? Self.defaultDisplayLineupSize))
+            playerLineupOverflowMode = snapshot.playerLineupOverflowMode ?? .scroll
+            playerLineupOverflowLogoOverride = snapshot.playerLineupOverflowLogoOverride
+            playerLineupOverflowNoLogoOverride = snapshot.playerLineupOverflowNoLogoOverride
+            playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, snapshot.playerLineupFadePageSeconds ?? Self.defaultPlayerLineupFadePageSeconds))
+            playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, snapshot.playerLineupScrollSpeed ?? Self.defaultPlayerLineupScrollSpeed))
+            playerLineupScrollDirection = snapshot.playerLineupScrollDirection ?? .up
             playerFoulHighlightColor = snapshot.playerFoulHighlightColor ?? .yellow
             isGameClockRedEnabled = snapshot.isGameClockRedEnabled ?? false
             gameClockRedThresholdSeconds = boundedGameClockSeconds(snapshot.gameClockRedThresholdSeconds ?? 60)
@@ -2779,6 +2920,8 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            showsTeamLogos = snapshot.showsTeamLogos ?? true
+            restoreDisplayImages(from: snapshot)
             if isDebateMode {
                 let preset = currentDebatePreset
                 debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
@@ -2809,6 +2952,19 @@ final class ScoreboardStore: ObservableObject {
                 pauseClock()
             }
             didCompleteSetup = true
+        }
+    }
+
+    private func restoreDisplayImages(from snapshot: ScoreboardGameSnapshot) {
+        externalDisplayBackgroundImage = snapshot.externalDisplayBackgroundImage.flatMap(ExternalDisplayBackgroundImage.init(embeddedImage:))
+        homeTeamLogoImage = snapshot.homeTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:))
+        guestTeamLogoImage = snapshot.guestTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:))
+
+        let restoredBackgroundMode = snapshot.externalDisplayBackgroundMode ?? .blurred
+        if restoredBackgroundMode == .image, externalDisplayBackgroundImage == nil {
+            externalDisplayBackgroundMode = .blurred
+        } else {
+            externalDisplayBackgroundMode = restoredBackgroundMode
         }
     }
 
@@ -3650,7 +3806,11 @@ final class ScoreboardStore: ObservableObject {
     private func startWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
-        webAPIService.start(initialState: encodedWebAPIState(), updateMode: webAPIUpdateMode) { [weak self] status in
+        webAPIService.start(
+            initialState: encodedWebAPIState(),
+            updateMode: webAPIUpdateMode,
+            imageResponses: currentWebAPIImageResponses()
+        ) { [weak self] status in
             Task { @MainActor in
                 guard let self else { return }
                 self.webAPIStatus = status
@@ -3665,15 +3825,15 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshWebAPIState() {
-        webAPIService.updateState(encodedWebAPIState())
+        webAPIService.updateState(encodedWebAPIState(), imageResponses: currentWebAPIImageResponses())
     }
 
     private func startRemoteDisplayHostService() {
         remoteDisplayHostService.start(
-            initialState: encodedWebAPIState(),
+            initialState: encodedRemoteDisplayState(),
             displayName: remoteDisplayHostName,
             currentStateProvider: { [weak self] in
-                self?.encodedWebAPIState() ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+                self?.encodedRemoteDisplayState() ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
             }
         )
     }
@@ -3684,13 +3844,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayState() {
-        remoteDisplayHostService.updateState(encodedWebAPIState())
+        remoteDisplayHostService.updateState(encodedRemoteDisplayState())
     }
 
     private func encodedWebAPIState() -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(currentWebAPIState())) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
+    private func encodedRemoteDisplayState() -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(currentWebAPIState().remoteDisplayPayload)) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
     }
 
     private var remoteDisplayHostName: String {
@@ -3718,6 +3884,12 @@ final class ScoreboardStore: ObservableObject {
             $isPlayerOverlayPaused.map { _ in () }.eraseToAnyPublisher(),
             $rosterSizePerTeam.map { _ in () }.eraseToAnyPublisher(),
             $displayLineupSize.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowMode.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowLogoOverride.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowNoLogoOverride.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupFadePageSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupScrollSpeed.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupScrollDirection.map { _ in () }.eraseToAnyPublisher(),
             $playerFoulHighlightColor.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockRedEnabled.map { _ in () }.eraseToAnyPublisher(),
             $gameClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -3753,6 +3925,10 @@ final class ScoreboardStore: ObservableObject {
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
+            $showsTeamLogos.map { _ in () }.eraseToAnyPublisher(),
+            $homeTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
+            $guestTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
             $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
@@ -3864,6 +4040,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
             rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
             displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
+            playerLineupOverflowMode = persistedState.playerLineupOverflowMode
+            playerLineupOverflowLogoOverride = persistedState.playerLineupOverflowLogoOverride
+            playerLineupOverflowNoLogoOverride = persistedState.playerLineupOverflowNoLogoOverride
+            playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, persistedState.playerLineupFadePageSeconds))
+            playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, persistedState.playerLineupScrollSpeed))
+            playerLineupScrollDirection = persistedState.playerLineupScrollDirection
             playerFoulHighlightColor = persistedState.playerFoulHighlightColor
             isGameClockRedEnabled = persistedState.isGameClockRedEnabled
             gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
@@ -3898,7 +4080,11 @@ final class ScoreboardStore: ObservableObject {
             homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
             theme = persistedState.theme
-            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
+            externalDisplayBackgroundImage = nil
+            showsTeamLogos = persistedState.showsTeamLogos
+            homeTeamLogoImage = nil
+            guestTeamLogoImage = nil
+            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image ? .blurred : persistedState.externalDisplayBackgroundMode
             isSoundEnabled = persistedState.isSoundEnabled
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             isCompanionVisible = persistedState.isCompanionVisible
@@ -3974,6 +4160,12 @@ final class ScoreboardStore: ObservableObject {
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
             displayLineupSize: displayLineupSize,
+            playerLineupOverflowMode: playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: playerLineupScrollSpeed,
+            playerLineupScrollDirection: playerLineupScrollDirection,
             playerFoulHighlightColor: playerFoulHighlightColor,
             isGameClockRedEnabled: isGameClockRedEnabled,
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
@@ -4008,7 +4200,8 @@ final class ScoreboardStore: ObservableObject {
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
-            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image ? .blurred : externalDisplayBackgroundMode,
+            showsTeamLogos: showsTeamLogos,
             isSoundEnabled: isSoundEnabled,
             soundAssignmentsBySport: soundAssignmentsBySport,
             isCompanionVisible: isCompanionVisible,
@@ -4168,6 +4361,12 @@ private struct PersistedState: Codable {
     var isPlayerOverlayPaused: Bool
     var rosterSizePerTeam: Int
     var displayLineupSize: Int
+    var playerLineupOverflowMode: PlayerLineupOverflowMode
+    var playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupFadePageSeconds: Int
+    var playerLineupScrollSpeed: Int
+    var playerLineupScrollDirection: PlayerLineupScrollDirection
     var playerFoulHighlightColor: PlayerFoulHighlightColor
     var isGameClockRedEnabled: Bool
     var gameClockRedThresholdSeconds: Int
@@ -4203,6 +4402,7 @@ private struct PersistedState: Codable {
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
+    var showsTeamLogos: Bool
     var isSoundEnabled: Bool
     var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
     var isCompanionVisible: Bool
@@ -4239,6 +4439,12 @@ private struct PersistedState: Codable {
         case isPlayerOverlayPaused
         case rosterSizePerTeam
         case displayLineupSize
+        case playerLineupOverflowMode
+        case playerLineupOverflowLogoOverride
+        case playerLineupOverflowNoLogoOverride
+        case playerLineupFadePageSeconds
+        case playerLineupScrollSpeed
+        case playerLineupScrollDirection
         case playerFoulHighlightColor
         case isGameClockRedEnabled
         case gameClockRedThresholdSeconds
@@ -4274,6 +4480,7 @@ private struct PersistedState: Codable {
         case guestRoster
         case theme
         case externalDisplayBackgroundMode
+        case showsTeamLogos
         case isSoundEnabled
         case soundAssignments
         case soundAssignmentsBySport
@@ -4312,6 +4519,12 @@ private struct PersistedState: Codable {
         isPlayerOverlayPaused: Bool,
         rosterSizePerTeam: Int,
         displayLineupSize: Int,
+        playerLineupOverflowMode: PlayerLineupOverflowMode,
+        playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?,
+        playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?,
+        playerLineupFadePageSeconds: Int,
+        playerLineupScrollSpeed: Int,
+        playerLineupScrollDirection: PlayerLineupScrollDirection,
         playerFoulHighlightColor: PlayerFoulHighlightColor,
         isGameClockRedEnabled: Bool,
         gameClockRedThresholdSeconds: Int,
@@ -4347,6 +4560,7 @@ private struct PersistedState: Codable {
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
+        showsTeamLogos: Bool,
         isSoundEnabled: Bool,
         soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
         isCompanionVisible: Bool,
@@ -4381,6 +4595,12 @@ private struct PersistedState: Codable {
         self.isPlayerOverlayPaused = isPlayerOverlayPaused
         self.rosterSizePerTeam = rosterSizePerTeam
         self.displayLineupSize = displayLineupSize
+        self.playerLineupOverflowMode = playerLineupOverflowMode
+        self.playerLineupOverflowLogoOverride = playerLineupOverflowLogoOverride
+        self.playerLineupOverflowNoLogoOverride = playerLineupOverflowNoLogoOverride
+        self.playerLineupFadePageSeconds = playerLineupFadePageSeconds
+        self.playerLineupScrollSpeed = playerLineupScrollSpeed
+        self.playerLineupScrollDirection = playerLineupScrollDirection
         self.playerFoulHighlightColor = playerFoulHighlightColor
         self.isGameClockRedEnabled = isGameClockRedEnabled
         self.gameClockRedThresholdSeconds = gameClockRedThresholdSeconds
@@ -4416,6 +4636,7 @@ private struct PersistedState: Codable {
         self.guestRoster = guestRoster
         self.theme = theme
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
+        self.showsTeamLogos = showsTeamLogos
         self.isSoundEnabled = isSoundEnabled
         self.soundAssignmentsBySport = soundAssignmentsBySport
         self.isCompanionVisible = isCompanionVisible
@@ -4458,6 +4679,12 @@ private struct PersistedState: Codable {
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
         displayLineupSize = try container.decodeIfPresent(Int.self, forKey: .displayLineupSize) ?? ScoreboardStore.defaultDisplayLineupSize
+        playerLineupOverflowMode = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowMode) ?? .scroll
+        playerLineupOverflowLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowLogoOverride)
+        playerLineupOverflowNoLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowNoLogoOverride)
+        playerLineupFadePageSeconds = try container.decodeIfPresent(Int.self, forKey: .playerLineupFadePageSeconds) ?? ScoreboardStore.defaultPlayerLineupFadePageSeconds
+        playerLineupScrollSpeed = try container.decodeIfPresent(Int.self, forKey: .playerLineupScrollSpeed) ?? ScoreboardStore.defaultPlayerLineupScrollSpeed
+        playerLineupScrollDirection = try container.decodeIfPresent(PlayerLineupScrollDirection.self, forKey: .playerLineupScrollDirection) ?? .up
         playerFoulHighlightColor = try container.decodeIfPresent(PlayerFoulHighlightColor.self, forKey: .playerFoulHighlightColor) ?? .yellow
         isGameClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockRedEnabled) ?? false
         gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds) ?? 60
@@ -4494,6 +4721,7 @@ private struct PersistedState: Codable {
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
+        showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]].self, forKey: .soundAssignmentsBySport) {
             soundAssignmentsBySport = assignmentsBySport
@@ -4548,6 +4776,12 @@ private struct PersistedState: Codable {
         try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encode(rosterSizePerTeam, forKey: .rosterSizePerTeam)
         try container.encode(displayLineupSize, forKey: .displayLineupSize)
+        try container.encode(playerLineupOverflowMode, forKey: .playerLineupOverflowMode)
+        try container.encodeIfPresent(playerLineupOverflowLogoOverride, forKey: .playerLineupOverflowLogoOverride)
+        try container.encodeIfPresent(playerLineupOverflowNoLogoOverride, forKey: .playerLineupOverflowNoLogoOverride)
+        try container.encode(playerLineupFadePageSeconds, forKey: .playerLineupFadePageSeconds)
+        try container.encode(playerLineupScrollSpeed, forKey: .playerLineupScrollSpeed)
+        try container.encode(playerLineupScrollDirection, forKey: .playerLineupScrollDirection)
         try container.encode(playerFoulHighlightColor, forKey: .playerFoulHighlightColor)
         try container.encode(isGameClockRedEnabled, forKey: .isGameClockRedEnabled)
         try container.encode(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
@@ -4583,6 +4817,7 @@ private struct PersistedState: Codable {
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
         try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
         try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
@@ -4630,6 +4865,12 @@ private extension PersistedState {
             isPlayerOverlayPaused: false,
             rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
             displayLineupSize: ScoreboardStore.defaultDisplayLineupSize,
+            playerLineupOverflowMode: .scroll,
+            playerLineupOverflowLogoOverride: nil,
+            playerLineupOverflowNoLogoOverride: nil,
+            playerLineupFadePageSeconds: ScoreboardStore.defaultPlayerLineupFadePageSeconds,
+            playerLineupScrollSpeed: ScoreboardStore.defaultPlayerLineupScrollSpeed,
+            playerLineupScrollDirection: .up,
             playerFoulHighlightColor: .yellow,
             isGameClockRedEnabled: false,
             gameClockRedThresholdSeconds: 60,
@@ -4665,6 +4906,7 @@ private extension PersistedState {
             guestRoster: defaultRoster,
             theme: .classic,
             externalDisplayBackgroundMode: .blurred,
+            showsTeamLogos: true,
             isSoundEnabled: true,
             soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
             isCompanionVisible: false,

@@ -164,6 +164,8 @@ nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
 nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let theme: ScoreboardTheme
     let backgroundMode: ExternalDisplayBackgroundMode
+    let backgroundImage: ScoreboardWebAPIBackgroundImage?
+    let showsTeamLogos: Bool?
 }
 
 nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
@@ -200,6 +202,7 @@ nonisolated struct ScoreboardWebAPITeam: Codable, Sendable {
     let side: TeamSide
     let name: String
     let roleLabel: String
+    let logo: ScoreboardWebAPITeamLogo?
     let score: Int
     let teamFouls: Int
     let substitutionsAllowed: Int
@@ -231,6 +234,12 @@ nonisolated struct ScoreboardWebAPIPlayers: Codable, Sendable {
     let isPlayerOverlayPaused: Bool
     let rosterSizePerTeam: Int
     let displayLineupSize: Int
+    let lineupOverflowMode: PlayerLineupOverflowMode?
+    let lineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    let lineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    let lineupFadePageSeconds: Int?
+    let lineupScrollSpeed: Int?
+    let lineupScrollDirection: PlayerLineupScrollDirection?
     let foulHighlightColor: PlayerFoulHighlightColor
     let homeDisplayed: [TrackedPlayer]
     let guestDisplayed: [TrackedPlayer]
@@ -258,6 +267,53 @@ nonisolated struct ScoreboardWebAPIDebate: Codable, Sendable {
     let playerCardsEnabled: Bool
 }
 
+nonisolated struct ScoreboardWebAPIImageResponse: Sendable {
+    let contentType: String
+    let body: Data
+}
+
+extension ScoreboardWebAPIState {
+    var remoteDisplayPayload: ScoreboardWebAPIState {
+        ScoreboardWebAPIState(
+            schemaVersion: schemaVersion,
+            generatedAt: generatedAt,
+            generatedAtUnixTime: generatedAtUnixTime,
+            app: app,
+            game: game.remoteDisplayPayload,
+            runtime: runtime,
+            display: display,
+            audio: nil,
+            rules: rules,
+            teams: teams,
+            clocks: clocks,
+            players: players.remoteDisplayPayload,
+            debate: debate
+        )
+    }
+}
+
+extension ScoreboardWebAPIPlayers {
+    var remoteDisplayPayload: ScoreboardWebAPIPlayers {
+        ScoreboardWebAPIPlayers(
+            isPlayerTrackingEnabled: isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: isPlayerOverlayPaused,
+            rosterSizePerTeam: rosterSizePerTeam,
+            displayLineupSize: displayLineupSize,
+            lineupOverflowMode: lineupOverflowMode,
+            lineupOverflowLogoOverride: lineupOverflowLogoOverride,
+            lineupOverflowNoLogoOverride: lineupOverflowNoLogoOverride,
+            lineupFadePageSeconds: lineupFadePageSeconds,
+            lineupScrollSpeed: lineupScrollSpeed,
+            lineupScrollDirection: lineupScrollDirection,
+            foulHighlightColor: foulHighlightColor,
+            homeDisplayed: homeDisplayed,
+            guestDisplayed: guestDisplayed,
+            homeRoster: TeamRoster(players: []),
+            guestRoster: TeamRoster(players: [])
+        )
+    }
+}
+
 nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     static let httpPort: UInt16 = 5516
     static let webSocketPort: UInt16 = 5517
@@ -266,7 +322,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.ironmaple.smartscoreboard.webapi", qos: .utility)
     private let maxHTTPHeaderBytes = 16 * 1024
     private let maxWebSocketClients = 16
-    private let maxWebSocketFrameBytes = 64 * 1024
+    private let maxWebSocketFrameBytes = 1 * 1024 * 1024
     private let minimumBroadcastInterval: TimeInterval = 0.10
 
     private var httpListener: NWListener?
@@ -276,6 +332,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private var status: ScoreboardWebAPIStatus = .off
     private var statusHandler: (@Sendable (ScoreboardWebAPIStatus) -> Void)?
     private var latestStateData = Data("{}".utf8)
+    private var latestImageResponses: [String: ScoreboardWebAPIImageResponse] = [:]
     private var updateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     private var clients: [UUID: WebSocketClient] = [:]
     private var broadcastWorkItem: DispatchWorkItem?
@@ -284,11 +341,13 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     func start(
         initialState: Data,
         updateMode: ScoreboardWebAPIUpdateMode,
+        imageResponses: [String: ScoreboardWebAPIImageResponse],
         statusHandler: @escaping @Sendable (ScoreboardWebAPIStatus) -> Void
     ) {
         queue.async {
             self.statusHandler = statusHandler
             self.latestStateData = initialState
+            self.latestImageResponses = imageResponses
             self.updateMode = updateMode
             self.stopLocked(notify: false)
             self.httpReady = false
@@ -332,9 +391,10 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         }
     }
 
-    func updateState(_ data: Data) {
+    func updateState(_ data: Data, imageResponses: [String: ScoreboardWebAPIImageResponse]) {
         queue.async {
             self.latestStateData = data
+            self.latestImageResponses = imageResponses
             guard self.status.isRunning, !self.clients.isEmpty else {
                 return
             }
@@ -578,13 +638,23 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 body: healthDataLocked()
             )
         default:
-            sendHTTPResponse(
-                connection,
-                statusCode: 404,
-                reason: "Not Found",
-                contentType: "application/json; charset=utf-8",
-                body: Data(#"{"error":"notFound"}"#.utf8)
-            )
+            if let imageResponse = latestImageResponses[path] {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 200,
+                    reason: "OK",
+                    contentType: imageResponse.contentType,
+                    body: imageResponse.body
+                )
+            } else {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 404,
+                    reason: "Not Found",
+                    contentType: "application/json; charset=utf-8",
+                    body: Data(#"{"error":"notFound"}"#.utf8)
+                )
+            }
         }
     }
 
@@ -790,7 +860,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private static func webSocketParameters() -> NWParameters {
         let options = NWProtocolWebSocket.Options(.version13)
         options.autoReplyPing = true
-        options.maximumMessageSize = 64 * 1024
+        options.maximumMessageSize = 1 * 1024 * 1024
         options.setClientRequestHandler(DispatchQueue.global(qos: .utility)) { _, _ in
             NWProtocolWebSocket.Response(
                 status: .accept,
@@ -933,7 +1003,6 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         func sendText(_ data: Data) {
             guard !isClosed else { return }
             guard pendingSends < 8 else {
-                close()
                 return
             }
 
@@ -1004,7 +1073,7 @@ extension ScoreboardStore {
             generatedAt: ISO8601DateFormatter().string(from: now),
             generatedAtUnixTime: now.timeIntervalSince1970,
             app: ScoreboardWebAPIAppInfo.current,
-            game: currentGameSnapshot(),
+            game: currentGameSnapshot().excludingEmbeddedImages,
             runtime: ScoreboardWebAPIRuntime(
                 isClockRunning: isClockRunning,
                 isShotClockRunning: isShotClockRunning,
@@ -1014,7 +1083,9 @@ extension ScoreboardStore {
             ),
             display: ScoreboardWebAPIDisplay(
                 theme: theme,
-                backgroundMode: externalDisplayBackgroundMode
+                backgroundMode: externalDisplayBackgroundMode,
+                backgroundImage: webAPIBackgroundImageMetadata(),
+                showsTeamLogos: showsTeamLogos
             ),
             audio: ScoreboardWebAPIAudio(
                 isSoundEnabled: isSoundEnabled,
@@ -1066,6 +1137,12 @@ extension ScoreboardStore {
                 isPlayerOverlayPaused: isPlayerOverlayPaused,
                 rosterSizePerTeam: rosterSizePerTeam,
                 displayLineupSize: displayLineupSize,
+                lineupOverflowMode: playerLineupOverflowMode,
+                lineupOverflowLogoOverride: playerLineupOverflowLogoOverride,
+                lineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
+                lineupFadePageSeconds: playerLineupFadePageSeconds,
+                lineupScrollSpeed: playerLineupScrollSpeed,
+                lineupScrollDirection: playerLineupScrollDirection,
                 foulHighlightColor: playerFoulHighlightColor,
                 homeDisplayed: displayedHomePlayers,
                 guestDisplayed: displayedGuestPlayers,
@@ -1099,11 +1176,96 @@ extension ScoreboardStore {
             side: side,
             name: side == .home ? homeTeamName : guestTeamName,
             roleLabel: sideRoleLabel(for: side),
+            logo: webAPITeamLogoMetadata(for: side),
             score: side == .home ? homeScore : guestScore,
             teamFouls: teamFouls(for: side),
             substitutionsAllowed: substitutionsAllowed(for: side),
             substitutionsUsed: substitutionsUsed(for: side),
             substitutionsRemaining: substitutionsRemaining(for: side)
         )
+    }
+
+    func currentWebAPIImageResponses() -> [String: ScoreboardWebAPIImageResponse] {
+        var responses: [String: ScoreboardWebAPIImageResponse] = [:]
+        if let image = externalDisplayBackgroundImage {
+            let response = ScoreboardWebAPIImageResponse(
+                contentType: image.mimeType,
+                body: image.data
+            )
+            responses[image.path] = response
+            responses[image.versionedPath] = response
+            responses[image.legacyVersionedPath] = response
+        }
+        if let logo = homeTeamLogoImage {
+            let response = ScoreboardWebAPIImageResponse(
+                contentType: logo.mimeType,
+                body: logo.data
+            )
+            responses[logo.path(for: .home)] = response
+            responses[logo.versionedPath(for: .home)] = response
+            responses[logo.legacyVersionedPath(for: .home)] = response
+        }
+        if let logo = guestTeamLogoImage {
+            let response = ScoreboardWebAPIImageResponse(
+                contentType: logo.mimeType,
+                body: logo.data
+            )
+            responses[logo.path(for: .guest)] = response
+            responses[logo.versionedPath(for: .guest)] = response
+            responses[logo.legacyVersionedPath(for: .guest)] = response
+        }
+        return responses
+    }
+
+    private func webAPIBackgroundImageMetadata() -> ScoreboardWebAPIBackgroundImage? {
+        guard let image = externalDisplayBackgroundImage else {
+            return nil
+        }
+
+        let path = image.path
+        return ScoreboardWebAPIBackgroundImage(
+            id: image.id,
+            mimeType: image.mimeType,
+            pixelWidth: image.pixelWidth,
+            pixelHeight: image.pixelHeight,
+            byteCount: image.byteCount,
+            updatedAtUnixTime: image.updatedAtUnixTime,
+            placement: ScoreboardWebAPIBackgroundImagePlacement(
+                scale: image.scale,
+                offsetX: image.offsetX,
+                offsetY: image.offsetY
+            ),
+            path: path,
+            downloadURLs: webAPIAbsoluteURLs(for: path)
+        )
+    }
+
+    private func webAPITeamLogoMetadata(for side: TeamSide) -> ScoreboardWebAPITeamLogo? {
+        guard showsTeamLogos else {
+            return nil
+        }
+        guard let logo = teamLogoImage(for: side) else {
+            return nil
+        }
+
+        let path = logo.path(for: side)
+        return ScoreboardWebAPITeamLogo(
+            id: logo.id,
+            mimeType: logo.mimeType,
+            pixelWidth: logo.pixelWidth,
+            pixelHeight: logo.pixelHeight,
+            byteCount: logo.byteCount,
+            updatedAtUnixTime: logo.updatedAtUnixTime,
+            path: path,
+            downloadURLs: webAPIAbsoluteURLs(for: path)
+        )
+    }
+
+    private func webAPIAbsoluteURLs(for path: String) -> [String] {
+        let addresses = webAPILocalAddresses.isEmpty ? ScoreboardWebAPIService.localIPv4Addresses() : webAPILocalAddresses
+        let resolvedAddresses = addresses.isEmpty ? ["127.0.0.1"] : addresses
+        return resolvedAddresses.map { address in
+            "http://\(address):\(ScoreboardWebAPIService.httpPort)\(path)"
+        }
     }
 }

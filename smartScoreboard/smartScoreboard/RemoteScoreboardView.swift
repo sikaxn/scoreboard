@@ -172,6 +172,12 @@ private struct RemoteScoreboardFace: View {
     let lastReceivedAt: Date?
     let masterClockOffset: TimeInterval?
     let now: Date
+    @State private var cachedBackgroundImageID: String?
+    @State private var cachedBackgroundImageData: Data?
+    @State private var cachedHomeLogoID: String?
+    @State private var cachedHomeLogoData: Data?
+    @State private var cachedGuestLogoID: String?
+    @State private var cachedGuestLogoData: Data?
 
     private var theme: ScoreboardTheme {
         state.display?.theme ?? .classic
@@ -181,8 +187,43 @@ private struct RemoteScoreboardFace: View {
         state.display?.backgroundMode ?? .blurred
     }
 
+    private var displaysTeamLogos: Bool {
+        state.display?.showsTeamLogos ?? true
+    }
+
     private var palette: ThemePalette {
         theme.palette
+    }
+
+    private var backgroundImageFetchSignature: String {
+        guard backgroundMode == .image, let image = state.display?.backgroundImage else {
+            return "background:none"
+        }
+        return "background:\(image.id):\(image.downloadURLs.joined(separator: "|"))"
+    }
+
+    private var homeLogoFetchSignature: String {
+        guard displaysTeamLogos else {
+            return "home:hidden"
+        }
+        guard let logo = state.teams.home.logo else {
+            return "home:none"
+        }
+        return "home:\(logo.id):\(logo.downloadURLs.joined(separator: "|"))"
+    }
+
+    private var guestLogoFetchSignature: String {
+        guard displaysTeamLogos else {
+            return "guest:hidden"
+        }
+        guard let logo = state.teams.guest.logo else {
+            return "guest:none"
+        }
+        return "guest:\(logo.id):\(logo.downloadURLs.joined(separator: "|"))"
+    }
+
+    private var remoteImageRefreshSignature: String {
+        "\(backgroundImageFetchSignature):\(homeLogoFetchSignature):\(guestLogoFetchSignature)"
     }
 
     var body: some View {
@@ -209,6 +250,14 @@ private struct RemoteScoreboardFace: View {
                     showsScore: state.rules.supportsScore,
                     homeTeamName: state.teams.home.name,
                     guestTeamName: state.teams.guest.name,
+                    homeTeamLogoData: displaysTeamLogos ? cachedHomeLogoData : nil,
+                    guestTeamLogoData: displaysTeamLogos ? cachedGuestLogoData : nil,
+                    playerLineupOverflowMode: state.players.lineupOverflowMode ?? .scroll,
+                    playerLineupOverflowLogoOverride: state.players.lineupOverflowLogoOverride,
+                    playerLineupOverflowNoLogoOverride: state.players.lineupOverflowNoLogoOverride,
+                    playerLineupFadePageSeconds: state.players.lineupFadePageSeconds ?? ScoreboardStore.defaultPlayerLineupFadePageSeconds,
+                    playerLineupScrollSpeed: state.players.lineupScrollSpeed ?? ScoreboardStore.defaultPlayerLineupScrollSpeed,
+                    playerLineupScrollDirection: state.players.lineupScrollDirection ?? .up,
                     homeScore: state.teams.home.score,
                     guestScore: state.teams.guest.score,
                     period: state.game.period,
@@ -257,16 +306,15 @@ private struct RemoteScoreboardFace: View {
             .frame(width: displaySize.width, height: displaySize.height)
         }
         .background(externalBackgroundView().ignoresSafeArea())
+        .task(id: remoteImageRefreshSignature) {
+            await updateBackgroundImageCache()
+            await updateTeamLogoCache(for: .home)
+            await updateTeamLogoCache(for: .guest)
+        }
     }
 
     private func fittedBoardSize(in availableSize: CGSize) -> CGSize {
-        let horizontalInset = max(0, min(availableSize.width * 0.025, 32))
-        let verticalInset = max(0, min(availableSize.height * 0.025, 26))
-        let usableWidth = max(availableSize.width - (horizontalInset * 2), 0)
-        let usableHeight = max(availableSize.height - (verticalInset * 2), 0)
-        let preferredWidth = min(usableWidth, usableHeight * ScoreboardFaceView.preferredAspectRatio)
-        let preferredHeight = min(usableHeight, preferredWidth / ScoreboardFaceView.preferredAspectRatio)
-        return CGSize(width: preferredWidth, height: preferredHeight)
+        ScoreboardFaceView.fittedBoardSize(in: availableSize)
     }
 
     @ViewBuilder
@@ -278,6 +326,17 @@ private struct RemoteScoreboardFace: View {
             HStack(spacing: 0) {
                 palette.homeAccent
                 palette.guestAccent
+            }
+        case .image:
+            if let data = cachedBackgroundImageData, let metadata = state.display?.backgroundImage {
+                ExternalDisplayBackgroundImageView(
+                    data: data,
+                    scale: metadata.placement.scale,
+                    offsetX: metadata.placement.offsetX,
+                    offsetY: metadata.placement.offsetY
+                )
+            } else {
+                palette.externalDisplayBackground
             }
         case .none:
             Color.clear
@@ -292,9 +351,97 @@ private struct RemoteScoreboardFace: View {
             return .clear
         case .clearUnderBoard:
             return .transparent
+        case .image:
+            return cachedBackgroundImageData == nil ? .blurred : .transparent
         case .none:
             return .clear
         }
+    }
+
+    @MainActor
+    private func updateBackgroundImageCache() async {
+        guard backgroundMode == .image, let image = state.display?.backgroundImage else {
+            cachedBackgroundImageID = nil
+            cachedBackgroundImageData = nil
+            return
+        }
+
+        guard cachedBackgroundImageID != image.id || cachedBackgroundImageData == nil else {
+            return
+        }
+
+        cachedBackgroundImageID = image.id
+        cachedBackgroundImageData = nil
+        cachedBackgroundImageData = await fetchRemoteImageData(from: image.downloadURLs)
+    }
+
+    @MainActor
+    private func updateTeamLogoCache(for side: TeamSide) async {
+        guard displaysTeamLogos else {
+            switch side {
+            case .home:
+                cachedHomeLogoID = nil
+                cachedHomeLogoData = nil
+            case .guest:
+                cachedGuestLogoID = nil
+                cachedGuestLogoData = nil
+            }
+            return
+        }
+
+        let logo = side == .home ? state.teams.home.logo : state.teams.guest.logo
+        guard let logo else {
+            switch side {
+            case .home:
+                cachedHomeLogoID = nil
+                cachedHomeLogoData = nil
+            case .guest:
+                cachedGuestLogoID = nil
+                cachedGuestLogoData = nil
+            }
+            return
+        }
+
+        switch side {
+        case .home:
+            guard cachedHomeLogoID != logo.id || cachedHomeLogoData == nil else {
+                return
+            }
+            cachedHomeLogoID = logo.id
+            cachedHomeLogoData = nil
+            cachedHomeLogoData = await fetchRemoteImageData(from: logo.downloadURLs)
+        case .guest:
+            guard cachedGuestLogoID != logo.id || cachedGuestLogoData == nil else {
+                return
+            }
+            cachedGuestLogoID = logo.id
+            cachedGuestLogoData = nil
+            cachedGuestLogoData = await fetchRemoteImageData(from: logo.downloadURLs)
+        }
+    }
+
+    private func fetchRemoteImageData(from downloadURLs: [String]) async -> Data? {
+        for value in downloadURLs {
+            guard let url = URL(string: value) else {
+                continue
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard
+                    let httpResponse = response as? HTTPURLResponse,
+                    (200..<300).contains(httpResponse.statusCode),
+                    !data.isEmpty
+                else {
+                    continue
+                }
+                return data
+            } catch {
+                continue
+            }
+        }
+
+        return nil
     }
 
     private func sportRules() -> SportRules {

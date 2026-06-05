@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
+import PhotosUI
 import UIKit
 #endif
 #if os(macOS)
@@ -84,6 +85,15 @@ struct ContentView: View {
     @State private var isLoadingSetupDrafts = false
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
+    @State private var isExternalBackgroundImageEditorVisible = false
+    #if os(iOS)
+    @State private var showsExternalBackgroundPhotoPicker = false
+    @State private var showsHomeLogoPhotoPicker = false
+    @State private var showsGuestLogoPhotoPicker = false
+    @State private var selectedExternalBackgroundPhotoItem: PhotosPickerItem?
+    @State private var selectedHomeLogoPhotoItem: PhotosPickerItem?
+    @State private var selectedGuestLogoPhotoItem: PhotosPickerItem?
+    #endif
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
@@ -147,6 +157,7 @@ struct ContentView: View {
     private var macOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json] }
     private var macOSBackupImportContentTypes: [UTType] { [.scoreboardBackup, .json] }
     private var macOSRosterCSVImportContentTypes: [UTType] { [.commaSeparatedText, .plainText] }
+    private var macOSImageImportContentTypes: [UTType] { [.image] }
     #endif
 
     var body: some View {
@@ -206,6 +217,12 @@ struct ContentView: View {
         .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$displayLineupSize) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupOverflowMode) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupOverflowLogoOverride) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupOverflowNoLogoOverride) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupFadePageSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupScrollSpeed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerLineupScrollDirection) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$playerFoulHighlightColor) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isGameClockRedEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
@@ -220,6 +237,11 @@ struct ContentView: View {
         .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
     }
 
     private var basicSetupDraftConfiguredRootView: some View {
@@ -348,6 +370,51 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             importRosterCSV(result)
+        }
+        .photosPicker(
+            isPresented: $showsExternalBackgroundPhotoPicker,
+            selection: $selectedExternalBackgroundPhotoItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .photosPicker(
+            isPresented: $showsHomeLogoPhotoPicker,
+            selection: $selectedHomeLogoPhotoItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .photosPicker(
+            isPresented: $showsGuestLogoPhotoPicker,
+            selection: $selectedGuestLogoPhotoItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .onChange(of: selectedExternalBackgroundPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importExternalBackgroundPhoto(item)
+                await MainActor.run {
+                    selectedExternalBackgroundPhotoItem = nil
+                }
+            }
+        }
+        .onChange(of: selectedHomeLogoPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importTeamLogoPhoto(item, for: .home)
+                await MainActor.run {
+                    selectedHomeLogoPhotoItem = nil
+                }
+            }
+        }
+        .onChange(of: selectedGuestLogoPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importTeamLogoPhoto(item, for: .guest)
+                await MainActor.run {
+                    selectedGuestLogoPhotoItem = nil
+                }
+            }
         }
         .scoreboardShareExporter(payload: $exportSharePayload)
     }
@@ -1229,7 +1296,10 @@ struct ContentView: View {
                         settingsDivider()
                     }
                 }
+                settingsDivider()
+                externalBackgroundImageControls()
             }
+
         }
     }
 
@@ -1347,7 +1417,67 @@ struct ContentView: View {
                     decrement: { store.setDisplayLineupSize(store.displayLineupSize - 1) },
                     increment: { store.setDisplayLineupSize(store.displayLineupSize + 1) }
                 )
+                settingsDivider()
+                settingsPickerRow(
+                    title: "Overflow Behavior",
+                    selection: Binding(
+                        get: { store.playerLineupOverflowMode },
+                        set: { store.playerLineupOverflowMode = $0 }
+                    ),
+                    options: PlayerLineupOverflowMode.allCases
+                ) { option in
+                    option.title
+                }
+                settingsDivider()
+                settingsPickerRow(
+                    title: "When Logos Shown",
+                    selection: Binding(
+                        get: { store.playerLineupOverflowLogoOverride },
+                        set: { store.playerLineupOverflowLogoOverride = $0 }
+                    ),
+                    options: playerOverflowOverrideOptions
+                ) { option in
+                    playerOverflowOverrideTitle(option)
+                }
+                settingsDivider()
+                settingsPickerRow(
+                    title: "When Logos Hidden",
+                    selection: Binding(
+                        get: { store.playerLineupOverflowNoLogoOverride },
+                        set: { store.playerLineupOverflowNoLogoOverride = $0 }
+                    ),
+                    options: playerOverflowOverrideOptions
+                ) { option in
+                    playerOverflowOverrideTitle(option)
+                }
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Fade Page Time",
+                    value: "\(store.playerLineupFadePageSeconds)s",
+                    decrement: { store.setPlayerLineupFadePageSeconds(store.playerLineupFadePageSeconds - 1) },
+                    increment: { store.setPlayerLineupFadePageSeconds(store.playerLineupFadePageSeconds + 1) }
+                )
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Scroll Speed",
+                    value: "\(store.playerLineupScrollSpeed) px/s",
+                    decrement: { store.setPlayerLineupScrollSpeed(store.playerLineupScrollSpeed - 2) },
+                    increment: { store.setPlayerLineupScrollSpeed(store.playerLineupScrollSpeed + 2) }
+                )
+                settingsDivider()
+                settingsPickerRow(
+                    title: "Scroll Direction",
+                    selection: Binding(
+                        get: { store.playerLineupScrollDirection },
+                        set: { store.playerLineupScrollDirection = $0 }
+                    ),
+                    options: PlayerLineupScrollDirection.allCases
+                ) { option in
+                    option.title
+                }
             }
+
+            settingsTeamLogoSection()
 
             if store.supportsFouls {
                 settingsSection(title: "Foul Highlight") {
@@ -1392,6 +1522,27 @@ struct ContentView: View {
                     )
                 }
             }
+        }
+    }
+
+    private var playerOverflowOverrideOptions: [PlayerLineupOverflowMode?] {
+        [nil] + PlayerLineupOverflowMode.allCases.map { Optional($0) }
+    }
+
+    private func playerOverflowOverrideTitle(_ mode: PlayerLineupOverflowMode?) -> String {
+        mode?.title ?? localizedAppString("Use Overflow Behavior")
+    }
+
+    private func settingsTeamLogoSection() -> some View {
+        settingsSection(title: "Team Logos", footer: "Controls logos on public, external, and remote displays. Hiding logos keeps the selected images.") {
+            settingsToggleRow(title: "Show Team Logos", isOn: Binding(
+                get: { store.showsTeamLogos },
+                set: { store.showsTeamLogos = $0 }
+            ))
+            settingsDivider()
+            teamLogoSettingsRow(for: .home)
+            settingsDivider()
+            teamLogoSettingsRow(for: .guest)
         }
     }
 
@@ -3188,56 +3339,48 @@ struct ContentView: View {
     }
 
     private var settingsGameFileDetailPane: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let selectedStoredGameFile {
-                    settingsGameFileRenameRow
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "File", value: selectedStoredGameFile.url.lastPathComponent)
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Modified", value: selectedStoredGameFile.modifiedAt.formatted(date: .abbreviated, time: .shortened))
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "Matchup", value: selectedStoredGameFile.matchupLine)
-                    settingsDivider()
-                    settingsSummaryValueRow(title: "State", value: selectedStoredGameFile.stateLine)
-                    settingsDivider()
-                }
-
-                settingsCurrentGameSummaryRows
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-        }
+        SettingsGameFileDetailPane(
+            selectedFile: selectedStoredGameFile,
+            workingRows: settingsCurrentGameSummaryDetailRows,
+            renameDraft: $renameGameFileNameDraft,
+            canRename: canRenameSelectedGameFile,
+            palette: settingsPalette,
+            onRename: renameSelectedStoredGame
+        )
     }
 
-    private var settingsCurrentGameSummaryRows: some View {
-        VStack(spacing: 0) {
-            settingsSummaryValueRow(title: "Working File", value: selectedStoredGameFile?.displayName ?? localizedAppString("Auto-created"))
-            settingsDivider()
-            settingsSummaryValueRow(title: "Home Team", value: displayTeamName(homeTeamDraft))
-            settingsDivider()
-            settingsSummaryValueRow(title: "Guest Team", value: displayTeamName(guestTeamDraft))
-            settingsDivider()
-            settingsSummaryValueRow(title: "Sport", value: localizedAppString(setupSport.title))
-            if setupRules.supportsPeriod {
-                settingsDivider()
-                settingsSummaryValueRow(title: setupRules.periodTitle, value: "\(setupPeriod)")
-            }
-            settingsDivider()
-            settingsSummaryValueRow(title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock", value: (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock ? localizedAppString("Disabled") : formatClock(setupClockSeconds))
-            if setupRules.usesChessClocks {
-                settingsDivider()
-                settingsSummaryValueRow(title: "Guest Clock", value: formatClock(setupGuestClockSeconds))
-            }
-            if setupRules.supportsShotClock {
-                settingsDivider()
-                settingsSummaryValueRow(title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds))
-            }
-            settingsDivider()
-            settingsSummaryValueRow(title: "Player Tracking", value: localizedAppString(store.isPlayerTrackingEnabled ? "Enabled" : "Disabled"))
-            settingsDivider()
-            settingsSummaryValueRow(title: "Roster Size", value: "\(store.rosterSizePerTeam)")
+    private var settingsCurrentGameSummaryDetailRows: [SettingsDetailRow] {
+        var rows: [SettingsDetailRow] = [
+            SettingsDetailRow(id: "workingFile", title: "Working File", value: selectedStoredGameFile?.displayName ?? localizedAppString("Auto-created")),
+            SettingsDetailRow(id: "homeTeam", title: "Home Team", value: displayTeamName(homeTeamDraft)),
+            SettingsDetailRow(id: "guestTeam", title: "Guest Team", value: displayTeamName(guestTeamDraft)),
+            SettingsDetailRow(id: "sport", title: "Sport", value: localizedAppString(setupSport.title))
+        ]
+
+        if setupRules.supportsPeriod {
+            rows.append(SettingsDetailRow(id: "period", title: setupRules.periodTitle, value: "\(setupPeriod)"))
         }
+
+        let clockValue = (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock
+            ? localizedAppString("Disabled")
+            : formatClock(setupClockSeconds)
+        rows.append(SettingsDetailRow(
+            id: "clock",
+            title: setupRules.usesChessClocks ? "Home Clock" : "Opening Clock",
+            value: clockValue
+        ))
+
+        if setupRules.usesChessClocks {
+            rows.append(SettingsDetailRow(id: "guestClock", title: "Guest Clock", value: formatClock(setupGuestClockSeconds)))
+        }
+
+        if setupRules.supportsShotClock {
+            rows.append(SettingsDetailRow(id: "shotClock", title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds)))
+        }
+
+        rows.append(SettingsDetailRow(id: "playerTracking", title: "Player Tracking", value: localizedAppString(store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")))
+        rows.append(SettingsDetailRow(id: "rosterSize", title: "Roster Size", value: "\(store.rosterSizePerTeam)"))
+        return rows
     }
 
     private var settingsLogSessionManagerToolbar: some View {
@@ -3499,44 +3642,6 @@ struct ContentView: View {
             .foregroundStyle(settingsPalette.secondaryText)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(18)
-    }
-
-    private var settingsGameFileRenameRow: some View {
-        HStack(spacing: 12) {
-            Text("Selected Name")
-                .foregroundStyle(settingsPalette.primaryText)
-
-            Spacer(minLength: 0)
-
-            TextField("Game File", text: $renameGameFileNameDraft)
-                .multilineTextAlignment(.trailing)
-                .autocorrectionDisabled()
-                .foregroundStyle(settingsPalette.primaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .frame(maxWidth: 280)
-                .onSubmit {
-                    renameSelectedStoredGame()
-                }
-
-            Button {
-                renameSelectedStoredGame()
-            } label: {
-                Image(systemName: "checkmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(canRenameSelectedGameFile ? settingsPalette.accentText : settingsPalette.secondaryText)
-                    .frame(width: 38, height: 38)
-                    .background(
-                        canRenameSelectedGameFile ? settingsPalette.accent : settingsPalette.fieldBackground,
-                        in: Circle()
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canRenameSelectedGameFile)
-            .opacity(canRenameSelectedGameFile ? 1 : 0.42)
-        }
-        .padding(.vertical, 10)
     }
 
     private var settingsLogPlaybackControls: some View {
@@ -4267,7 +4372,14 @@ struct ContentView: View {
         let isSelected = store.externalDisplayBackgroundMode == mode
 
         return Button {
-            store.externalDisplayBackgroundMode = mode
+            if mode == .image, store.externalDisplayBackgroundImage == nil {
+                beginExternalBackgroundImageImport()
+            } else {
+                store.externalDisplayBackgroundMode = mode
+                if mode == .image {
+                    isExternalBackgroundImageEditorVisible = true
+                }
+            }
         } label: {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -4295,6 +4407,271 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func externalBackgroundImageControls() -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                externalBackgroundImagePreview()
+                    .frame(width: 96, height: 54)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    localizedAppText("Background Photo")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(externalBackgroundImageDetail)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    #if os(iOS)
+                    settingsCompactIconButton("Choose", systemImage: "photo", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        showsExternalBackgroundPhotoPicker = true
+                    }
+                    #else
+                    settingsCompactIconButton("Choose", systemImage: "photo", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        beginExternalBackgroundImageImport()
+                    }
+                    #endif
+
+                    if store.externalDisplayBackgroundImage != nil {
+                        settingsCompactIconButton(
+                            isExternalBackgroundImageEditorVisible ? "Hide" : "Edit",
+                            systemImage: isExternalBackgroundImageEditorVisible ? "eye.slash" : "slider.horizontal.3",
+                            tint: settingsPalette.fieldBackground,
+                            foreground: settingsPalette.primaryText
+                        ) {
+                            isExternalBackgroundImageEditorVisible.toggle()
+                        }
+
+                        settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                            store.clearExternalDisplayBackgroundImage()
+                            isExternalBackgroundImageEditorVisible = false
+                        }
+                    }
+                }
+            }
+
+            if store.externalDisplayBackgroundImage != nil, isExternalBackgroundImageEditorVisible {
+                externalBackgroundImageEditor()
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var externalBackgroundImageDetail: String {
+        guard let image = store.externalDisplayBackgroundImage else {
+            return localizedAppString("Choose a photo to enable Photo mode.")
+        }
+
+        return "\(image.displayName) · \(image.pixelWidth)x\(image.pixelHeight) · \(ByteCountFormatter.string(fromByteCount: Int64(image.byteCount), countStyle: .file))"
+    }
+
+    @ViewBuilder
+    private func externalBackgroundImagePreview() -> some View {
+        if let image = store.externalDisplayBackgroundImage {
+            ExternalDisplayBackgroundImageView(image: image)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(settingsPalette.fieldBackground)
+                .overlay(
+                    Image(systemName: "photo")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(settingsPalette.secondaryText)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        }
+    }
+
+    private func externalBackgroundImageEditor() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GeometryReader { proxy in
+                if let image = store.externalDisplayBackgroundImage {
+                    ExternalDisplayBackgroundImageView(image: image)
+                        .frame(width: proxy.size.width, height: proxy.size.width / ScoreboardFaceView.preferredAspectRatio)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                        )
+                }
+            }
+            .aspectRatio(ScoreboardFaceView.preferredAspectRatio, contentMode: .fit)
+
+            externalBackgroundPlacementSlider(
+                title: "Scale",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.scale ?? 1 },
+                    set: {
+                        store.updateExternalDisplayBackgroundPlacement(
+                            scale: $0,
+                            offsetX: store.externalDisplayBackgroundImage?.offsetX ?? 0,
+                            offsetY: store.externalDisplayBackgroundImage?.offsetY ?? 0
+                        )
+                    }
+                ),
+                range: ExternalDisplayBackgroundImage.minScale...ExternalDisplayBackgroundImage.maxScale
+            )
+
+            externalBackgroundPlacementSlider(
+                title: "Horizontal",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.offsetX ?? 0 },
+                    set: {
+                        store.updateExternalDisplayBackgroundPlacement(
+                            scale: store.externalDisplayBackgroundImage?.scale ?? 1,
+                            offsetX: $0,
+                            offsetY: store.externalDisplayBackgroundImage?.offsetY ?? 0
+                        )
+                    }
+                ),
+                range: ExternalDisplayBackgroundImage.minOffset...ExternalDisplayBackgroundImage.maxOffset
+            )
+
+            externalBackgroundPlacementSlider(
+                title: "Vertical",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.offsetY ?? 0 },
+                    set: {
+                        store.updateExternalDisplayBackgroundPlacement(
+                            scale: store.externalDisplayBackgroundImage?.scale ?? 1,
+                            offsetX: store.externalDisplayBackgroundImage?.offsetX ?? 0,
+                            offsetY: $0
+                        )
+                    }
+                ),
+                range: ExternalDisplayBackgroundImage.minOffset...ExternalDisplayBackgroundImage.maxOffset
+            )
+
+            settingsCompactIconButton("Center", systemImage: "scope", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                store.updateExternalDisplayBackgroundPlacement(scale: 1, offsetX: 0, offsetY: 0)
+            }
+            .frame(maxWidth: 150, alignment: .leading)
+        }
+        .padding(12)
+        .background(settingsPalette.fieldBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func externalBackgroundPlacementSlider(title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 12) {
+            localizedAppText(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(width: 76, alignment: .leading)
+
+            Slider(value: value, in: range)
+
+            Text(String(format: "%.2f", value.wrappedValue))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func teamLogoSettingsRow(for side: TeamSide) -> some View {
+        let logo = store.teamLogoImage(for: side)
+        let title = side == .home ? "Home Logo" : "Guest Logo"
+
+        return HStack(alignment: .center, spacing: 14) {
+            teamLogoSettingsPreview(for: side)
+                .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(logo.map { "\($0.displayName) · \($0.pixelWidth)x\($0.pixelHeight)" } ?? localizedAppString("Optional team image for public and remote displays."))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                #if os(iOS)
+                if side == .home {
+                    settingsCompactIconButton("Choose", systemImage: "photo.badge.plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        showsHomeLogoPhotoPicker = true
+                    }
+                } else {
+                    settingsCompactIconButton("Choose", systemImage: "photo.badge.plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                        showsGuestLogoPhotoPicker = true
+                    }
+                }
+                #else
+                settingsCompactIconButton("Choose", systemImage: "photo.badge.plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    beginTeamLogoImageImport(for: side)
+                }
+                #endif
+
+                if logo != nil {
+                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                        store.clearTeamLogoImage(for: side)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func teamLogoSettingsPreview(for side: TeamSide) -> some View {
+        if let logo = store.teamLogoImage(for: side) {
+            TeamLogoImageView(data: logo.data, cornerRadius: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(settingsPalette.fieldBackground)
+                .overlay(
+                    Image(systemName: side == .home ? "h.circle" : "g.circle")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(side == .home ? homeTint : guestTint)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        }
+    }
+
+    private func settingsCompactIconButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color,
+        foreground: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            settingsCompactIconLabel(title, systemImage: systemImage, tint: tint, foreground: foreground)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsCompactIconLabel(_ title: String, systemImage: String, tint: Color, foreground: Color) -> some View {
+        Label(localizedAppString(title), systemImage: systemImage)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(tint, in: Capsule())
     }
 
     private func themeSwatch(_ color: Color) -> some View {
@@ -4375,6 +4752,27 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
                 )
+        } else if mode == .image {
+            if let image = store.externalDisplayBackgroundImage {
+                ExternalDisplayBackgroundImageView(image: image)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(settingsPalette.fieldBackground)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                    )
+            }
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.clear)
@@ -6757,6 +7155,12 @@ struct ContentView: View {
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
             rosterSizePerTeam: store.rosterSizePerTeam,
             displayLineupSize: store.displayLineupSize,
+            playerLineupOverflowMode: store.playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: store.playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: store.playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: store.playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: store.playerLineupScrollSpeed,
+            playerLineupScrollDirection: store.playerLineupScrollDirection,
             playerFoulHighlightColor: store.playerFoulHighlightColor,
             isGameClockRedEnabled: store.isGameClockRedEnabled,
             gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
@@ -6788,7 +7192,12 @@ struct ContentView: View {
             homePenaltyTimers: [],
             guestPenaltyTimers: [],
             homeRoster: store.homeRoster,
-            guestRoster: store.guestRoster
+            guestRoster: store.guestRoster,
+            externalDisplayBackgroundMode: store.externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: store.currentGameSnapshot().externalDisplayBackgroundImage,
+            showsTeamLogos: store.showsTeamLogos,
+            homeTeamLogoImage: store.currentGameSnapshot().homeTeamLogoImage,
+            guestTeamLogoImage: store.currentGameSnapshot().guestTeamLogoImage
         )
     }
 
@@ -7073,6 +7482,125 @@ struct ContentView: View {
         #endif
     }
 
+    private func beginExternalBackgroundImageImport() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSImageImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.urls.first else {
+                return
+            }
+
+            importExternalBackgroundImageFile(url)
+        }
+        #else
+        isExternalBackgroundImageEditorVisible = true
+        #endif
+    }
+
+    private func beginTeamLogoImageImport(for side: TeamSide) {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSImageImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.urls.first else {
+                return
+            }
+
+            importTeamLogoImageFile(url, for: side)
+        }
+        #endif
+    }
+
+    #if os(macOS)
+    private func importExternalBackgroundImageFile(_ sourceURL: URL) {
+        do {
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try readImportedFileData(from: sourceURL)
+            applyExternalBackgroundImageData(data, sourceName: sourceURL.lastPathComponent)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func importTeamLogoImageFile(_ sourceURL: URL, for side: TeamSide) {
+        do {
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try readImportedFileData(from: sourceURL)
+            applyTeamLogoImageData(data, sourceName: sourceURL.lastPathComponent, for: side)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    @MainActor
+    private func importExternalBackgroundPhoto(_ item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw ScoreboardDisplayImageError.unreadableImage
+            }
+
+            applyExternalBackgroundImageData(data, sourceName: item.itemIdentifier)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    @MainActor
+    private func importTeamLogoPhoto(_ item: PhotosPickerItem, for side: TeamSide) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw ScoreboardDisplayImageError.unreadableImage
+            }
+
+            applyTeamLogoImageData(data, sourceName: item.itemIdentifier, for: side)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+    #endif
+
+    private func applyExternalBackgroundImageData(_ data: Data, sourceName: String?) {
+        do {
+            let image = try ScoreboardDisplayImageProcessor.makeBackgroundImage(from: data, sourceName: sourceName)
+            store.setExternalDisplayBackgroundImage(image)
+            isExternalBackgroundImageEditorVisible = true
+            autosaveSelectedGameFile(refreshSelection: true)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func applyTeamLogoImageData(_ data: Data, sourceName: String?, for side: TeamSide) {
+        do {
+            let image = try ScoreboardDisplayImageProcessor.makeTeamLogo(from: data, sourceName: sourceName)
+            store.setTeamLogoImage(image, for: side)
+            autosaveSelectedGameFile(refreshSelection: true)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
     private func readImportedFileData(from url: URL) throws -> Data {
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinationError: NSError?
@@ -7306,7 +7834,7 @@ struct ContentView: View {
                     return StoredGameFile(
                         url: url,
                         modifiedAt: values.contentModificationDate ?? .distantPast,
-                        snapshot: try? loadGameSnapshot(from: url)
+                        summary: try? loadStoredGameFileSummary(from: url)
                     )
                 }
                 .sorted {
@@ -7869,6 +8397,11 @@ struct ContentView: View {
         return try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: data)
     }
 
+    private func loadStoredGameFileSummary(from url: URL) throws -> StoredGameFileSummary {
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(StoredGameFileSummary.self, from: data)
+    }
+
     private func storedGameBackupFiles() throws -> [ScoreboardBackupFile] {
         let directoryURL = try storedGameFilesDirectory()
         let urls = try FileManager.default.contentsOfDirectory(
@@ -7984,7 +8517,7 @@ struct ContentView: View {
 
         if storedGameFiles.isEmpty {
             do {
-                let snapshot = currentSetupWorkingSnapshot()
+                let snapshot = showsSetup ? currentSetupWorkingSnapshot() : store.currentGameSnapshot()
                 let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(snapshot.homeTeamName, snapshot.guestTeamName))
                 try writeGameSnapshot(snapshot, to: url)
                 refreshStoredGameFiles(selectedURL: url)
@@ -8081,6 +8614,12 @@ struct ContentView: View {
             isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
             rosterSizePerTeam: currentSnapshot.rosterSizePerTeam,
             displayLineupSize: currentSnapshot.displayLineupSize,
+            playerLineupOverflowMode: currentSnapshot.playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: currentSnapshot.playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: currentSnapshot.playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: currentSnapshot.playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: currentSnapshot.playerLineupScrollSpeed,
+            playerLineupScrollDirection: currentSnapshot.playerLineupScrollDirection,
             playerFoulHighlightColor: currentSnapshot.playerFoulHighlightColor,
             isGameClockRedEnabled: currentSnapshot.isGameClockRedEnabled,
             gameClockRedThresholdSeconds: currentSnapshot.gameClockRedThresholdSeconds,
@@ -8112,7 +8651,12 @@ struct ContentView: View {
             homePenaltyTimers: currentSnapshot.homePenaltyTimers,
             guestPenaltyTimers: currentSnapshot.guestPenaltyTimers,
             homeRoster: currentSnapshot.homeRoster,
-            guestRoster: currentSnapshot.guestRoster
+            guestRoster: currentSnapshot.guestRoster,
+            externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
+            showsTeamLogos: currentSnapshot.showsTeamLogos,
+            homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
+            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage
         )
     }
 
@@ -8168,6 +8712,12 @@ struct ContentView: View {
                     isPlayerOverlayPaused: false,
                     rosterSizePerTeam: store.rosterSizePerTeam,
                     displayLineupSize: store.displayLineupSize,
+                    playerLineupOverflowMode: store.playerLineupOverflowMode,
+                    playerLineupOverflowLogoOverride: store.playerLineupOverflowLogoOverride,
+                    playerLineupOverflowNoLogoOverride: store.playerLineupOverflowNoLogoOverride,
+                    playerLineupFadePageSeconds: store.playerLineupFadePageSeconds,
+                    playerLineupScrollSpeed: store.playerLineupScrollSpeed,
+                    playerLineupScrollDirection: store.playerLineupScrollDirection,
                     playerFoulHighlightColor: store.playerFoulHighlightColor,
                     isGameClockRedEnabled: store.isGameClockRedEnabled,
                     gameClockRedThresholdSeconds: store.gameClockRedThresholdSeconds,
@@ -8302,6 +8852,14 @@ struct ContentView: View {
             showsScore: store.supportsScore,
             homeTeamName: store.homeTeamName,
             guestTeamName: store.guestTeamName,
+            homeTeamLogoData: store.showsTeamLogos ? store.homeTeamLogoImage?.data : nil,
+            guestTeamLogoData: store.showsTeamLogos ? store.guestTeamLogoImage?.data : nil,
+            playerLineupOverflowMode: store.playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: store.playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: store.playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: store.playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: store.playerLineupScrollSpeed,
+            playerLineupScrollDirection: store.playerLineupScrollDirection,
             homeScore: store.homeScore,
             guestScore: store.guestScore,
             period: store.period,
@@ -8349,6 +8907,8 @@ struct ContentView: View {
             return "Clear Background"
         case .clearUnderBoard:
             return "Transparent Board"
+        case .image:
+            return "Photo Background"
         case .none:
             return "No Background"
         }
@@ -8362,6 +8922,8 @@ struct ContentView: View {
             return .clear
         case .clearUnderBoard:
             return .transparent
+        case .image:
+            return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
         case .none:
             return .clear
         }
@@ -8683,60 +9245,230 @@ private struct PendingPenaltySelection: Identifiable {
     let seconds: Int
 }
 
+private struct SettingsDetailRow: Identifiable {
+    let id: String
+    let title: String
+    let value: String
+}
+
+private struct SettingsGameFileDetailPane: View {
+    let selectedFile: StoredGameFile?
+    let workingRows: [SettingsDetailRow]
+    @Binding var renameDraft: String
+    let canRename: Bool
+    let palette: SettingsPalette
+    let onRename: () -> Void
+    @State private var isRenameEditorVisible = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if let selectedFile {
+                    selectedNameRow(selectedFile)
+                    if isRenameEditorVisible {
+                        divider
+                        renameRow
+                    }
+                    divider
+                    detailRows(selectedRows(for: selectedFile))
+                    divider
+                }
+
+                detailRows(workingRows)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+        }
+        .onChange(of: selectedFile?.id) { _, _ in
+            isRenameEditorVisible = false
+        }
+    }
+
+    private func selectedNameRow(_ file: StoredGameFile) -> some View {
+        HStack(spacing: 12) {
+            Text(localizedAppString("Selected Name"))
+                .foregroundStyle(palette.primaryText)
+
+            Spacer(minLength: 0)
+
+            Text(file.displayName)
+                .foregroundStyle(palette.secondaryText)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+
+            Button {
+                isRenameEditorVisible.toggle()
+            } label: {
+                Text(localizedAppString(isRenameEditorVisible ? "Hide" : "Edit"))
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(palette.accentText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(palette.accent, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var renameRow: some View {
+        HStack(spacing: 12) {
+            Text("Selected Name")
+                .foregroundStyle(palette.primaryText)
+
+            Spacer(minLength: 0)
+
+            TextField("Game File", text: $renameDraft)
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                .foregroundStyle(palette.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(palette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: 280)
+                .onSubmit(onRename)
+
+            Button(action: onRename) {
+                Image(systemName: "checkmark")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(canRename ? palette.accentText : palette.secondaryText)
+                    .frame(width: 38, height: 38)
+                    .background(canRename ? palette.accent : palette.fieldBackground, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canRename)
+            .opacity(canRename ? 1 : 0.42)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func selectedRows(for file: StoredGameFile) -> [SettingsDetailRow] {
+        [
+            SettingsDetailRow(id: "file", title: "File", value: file.url.lastPathComponent),
+            SettingsDetailRow(id: "modified", title: "Modified", value: file.modifiedAt.formatted(date: .abbreviated, time: .shortened)),
+            SettingsDetailRow(id: "matchup", title: "Matchup", value: file.matchupLine),
+            SettingsDetailRow(id: "state", title: "State", value: file.stateLine)
+        ]
+    }
+
+    private func detailRows(_ rows: [SettingsDetailRow]) -> some View {
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            summaryRow(row)
+            if index < rows.count - 1 {
+                divider
+            }
+        }
+    }
+
+    private func summaryRow(_ row: SettingsDetailRow) -> some View {
+        HStack(spacing: 16) {
+            Text(localizedAppString(row.title))
+                .foregroundStyle(palette.primaryText)
+            Spacer(minLength: 0)
+            Text(row.value)
+                .foregroundStyle(palette.secondaryText)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var divider: some View {
+        Divider()
+            .overlay(palette.divider)
+    }
+}
+
 private struct StoredGameFile: Identifiable {
     let url: URL
     let modifiedAt: Date
-    let snapshot: ScoreboardGameSnapshot?
+    let summary: StoredGameFileSummary?
 
     var id: String { url.path }
     var displayName: String { url.deletingPathExtension().lastPathComponent }
     var matchupLine: String {
-        guard let snapshot else {
-            return localizedAppString("Game file")
-        }
-
-        let home = snapshot.homeTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : snapshot.homeTeamName
-        let guest = snapshot.guestTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : snapshot.guestTeamName
-        return localizedAppFormat("%@ vs %@", home, guest)
+        summary?.matchupLine ?? localizedAppString("Game file")
     }
     var stateLine: String {
-        guard let snapshot else {
-            return localizedAppString("Preview unavailable")
-        }
+        summary?.stateLine ?? localizedAppString("Preview unavailable")
+    }
+    var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
+}
 
-        let sport = snapshot.sport ?? .basketball
-        let rules = sport.rules(customConfig: snapshot.customSportConfig)
+private struct StoredGameFileSummary: Decodable {
+    let sport: SportType?
+    let customSportConfig: CustomSportConfig?
+    let homeTeamName: String
+    let guestTeamName: String
+    let period: Int
+    let defaultClockSeconds: Int
+    let defaultShotClockSeconds: Int
+    let homeChessClockSeconds: Int?
+    let guestChessClockSeconds: Int?
+
+    var matchupLine: String {
+        let home = homeTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : homeTeamName
+        let guest = guestTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("TBD") : guestTeamName
+        return localizedAppFormat("%@ vs %@", home, guest)
+    }
+
+    var stateLine: String {
+        let sport = sport ?? .basketball
+        let rules = sport.rules(customConfig: customSportConfig)
         let sportTitle = localizedAppString(rules.title)
-        let clockLine = formatGameClock(snapshot.defaultClockSeconds)
+        let clockLine = Self.formatGameClock(defaultClockSeconds)
 
         if rules.usesChessClocks {
-            let homeClock = formatGameClock(snapshot.homeChessClockSeconds ?? ChessClockPreset.rapid.seconds)
-            let guestClock = formatGameClock(snapshot.guestChessClockSeconds ?? ChessClockPreset.rapid.seconds)
+            let homeClock = Self.formatGameClock(homeChessClockSeconds ?? ChessClockPreset.rapid.seconds)
+            let guestClock = Self.formatGameClock(guestChessClockSeconds ?? ChessClockPreset.rapid.seconds)
             return "\(sportTitle) • \(homeClock) / \(guestClock)"
         }
 
         if rules.supportsShotClock {
-            let periodSegment = rules.supportsPeriod ? "\(rules.periodShortTitle)\(snapshot.period) • " : ""
-            return "\(sportTitle) • \(periodSegment)\(clockLine) • SC \(formatShotClock(snapshot.defaultShotClockSeconds))"
+            let periodSegment = rules.supportsPeriod ? "\(rules.periodShortTitle)\(period) • " : ""
+            return "\(sportTitle) • \(periodSegment)\(clockLine) • SC \(Self.formatShotClock(defaultShotClockSeconds))"
         }
 
         if rules.supportsPeriod {
-            let periodLine = "\(rules.periodShortTitle)\(snapshot.period)"
+            let periodLine = "\(rules.periodShortTitle)\(period)"
             return "\(sportTitle) • \(periodLine) • \(clockLine)"
         }
 
         return "\(sportTitle) • \(clockLine)"
     }
-    var detailLine: String { "Modified \(modifiedAt.formatted(date: .abbreviated, time: .shortened))" }
 
-    private func formatGameClock(_ totalSeconds: Int) -> String {
+    private enum CodingKeys: String, CodingKey {
+        case sport
+        case customSportConfig
+        case homeTeamName
+        case guestTeamName
+        case period
+        case defaultClockSeconds
+        case defaultShotClockSeconds
+        case homeChessClockSeconds
+        case guestChessClockSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sport = try container.decodeIfPresent(SportType.self, forKey: .sport)
+        customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig)
+        homeTeamName = try container.decodeIfPresent(String.self, forKey: .homeTeamName) ?? ""
+        guestTeamName = try container.decodeIfPresent(String.self, forKey: .guestTeamName) ?? ""
+        period = try container.decodeIfPresent(Int.self, forKey: .period) ?? 1
+        defaultClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultClockSeconds) ?? 10 * 60
+        defaultShotClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultShotClockSeconds) ?? 0
+        homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds)
+        guestChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .guestChessClockSeconds)
+    }
+
+    private static func formatGameClock(_ totalSeconds: Int) -> String {
         let boundedSeconds = max(0, min(59 * 60 + 59, totalSeconds))
         let minutes = boundedSeconds / 60
         let seconds = boundedSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    private func formatShotClock(_ totalSeconds: Int) -> String {
+    private static func formatShotClock(_ totalSeconds: Int) -> String {
         let boundedSeconds = max(0, min(99, totalSeconds))
         return String(format: "%.1f", Double(boundedSeconds))
     }
