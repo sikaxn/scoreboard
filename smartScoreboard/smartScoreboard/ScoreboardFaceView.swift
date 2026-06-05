@@ -28,6 +28,8 @@ struct ScoreboardFaceView: View {
     let showsScore: Bool
     let homeTeamName: String
     let guestTeamName: String
+    let homeTeamLogoData: Data?
+    let guestTeamLogoData: Data?
     let homeScore: Int
     let guestScore: Int
     let period: Int
@@ -95,6 +97,8 @@ struct ScoreboardFaceView: View {
             )
             let leftTeam = areSidesSwapped ? sidePanelData(for: .guest) : sidePanelData(for: .home)
             let rightTeam = areSidesSwapped ? sidePanelData(for: .home) : sidePanelData(for: .guest)
+            let leftLogoData = leftTeam.side == .home ? homeTeamLogoData : guestTeamLogoData
+            let rightLogoData = rightTeam.side == .home ? homeTeamLogoData : guestTeamLogoData
 
             ZStack {
                 scoreboardBackground(leftAccent: leftTeam.accent, rightAccent: rightTeam.accent)
@@ -109,6 +113,7 @@ struct ScoreboardFaceView: View {
                                 role: leftTeam.role,
                                 title: leftTeam.title,
                                 placeholder: leftTeam.role,
+                                logoData: leftLogoData,
                                 score: leftTeam.score,
                                 accent: leftTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: leftTeam.side),
@@ -131,6 +136,7 @@ struct ScoreboardFaceView: View {
                                 role: rightTeam.role,
                                 title: rightTeam.title,
                                 placeholder: rightTeam.role,
+                                logoData: rightLogoData,
                                 score: rightTeam.score,
                                 accent: rightTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: rightTeam.side),
@@ -212,6 +218,7 @@ struct ScoreboardFaceView: View {
         role: String,
         title: String,
         placeholder: String,
+        logoData: Data?,
         score: Int,
         accent: Color,
         substitutionsUsed: Int,
@@ -231,10 +238,13 @@ struct ScoreboardFaceView: View {
                     .singleLineFitted(minScale: 0.8)
                     .foregroundStyle(boardSecondaryTextColor)
 
-                Text(resolvedTitle(title, placeholder: placeholder))
-                    .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
-                    .singleLineFitted(minScale: 0.35)
-                    .foregroundStyle(boardPrimaryTextColor)
+                teamTitleRow(
+                    title: resolvedTitle(title, placeholder: placeholder),
+                    logoData: logoData,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
 
                 Capsule()
                     .fill(accent)
@@ -318,6 +328,37 @@ struct ScoreboardFaceView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsDebatePrepTime)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displayedPlayers)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
+    }
+
+    private func teamTitleRow(
+        title: String,
+        logoData: Data?,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        let logoSize = ultraCondensed ? base * 0.072 : condensed ? base * 0.095 : base * 0.082
+
+        return HStack(spacing: ultraCondensed ? 7 : 10) {
+            if logoData != nil {
+                TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 10)
+                    .frame(width: logoSize, height: logoSize)
+                    .background(.black.opacity(0.24), in: RoundedRectangle(cornerRadius: ultraCondensed ? 8 : 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ultraCondensed ? 8 : 10, style: .continuous)
+                            .strokeBorder(boardPanelBorderColor)
+                    )
+                    .accessibilityHidden(true)
+            }
+
+            Text(title)
+                .font(.system(size: ultraCondensed ? base * 0.044 : condensed ? base * 0.06 : base * 0.054, weight: .black, design: .rounded))
+                .singleLineFitted(minScale: 0.35)
+                .foregroundStyle(boardPrimaryTextColor)
+                .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: logoData == nil ? nil : logoSize)
     }
 
     private func activeLineupStrip(

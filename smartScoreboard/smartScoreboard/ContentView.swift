@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
+import PhotosUI
 import UIKit
 #endif
 #if os(macOS)
@@ -71,6 +72,12 @@ struct ContentView: View {
     @State private var showsGameImporter = false
     @State private var showsBackupImporter = false
     @State private var showsRosterCSVImporter = false
+    #if os(iOS)
+    @State private var selectedExternalBackgroundPhotoItem: PhotosPickerItem?
+    @State private var selectedHomeTeamLogoPhotoItem: PhotosPickerItem?
+    @State private var selectedGuestTeamLogoPhotoItem: PhotosPickerItem?
+    #endif
+    @State private var isExternalBackgroundImageEditorVisible = false
     @State private var exportSharePayload: ExportSharePayload?
     @State private var fileOperationError: FileOperationAlert?
     @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
@@ -147,6 +154,7 @@ struct ContentView: View {
     private var macOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json] }
     private var macOSBackupImportContentTypes: [UTType] { [.scoreboardBackup, .json] }
     private var macOSRosterCSVImportContentTypes: [UTType] { [.commaSeparatedText, .plainText] }
+    private var macOSExternalBackgroundImageContentTypes: [UTType] { [.image] }
     #endif
 
     var body: some View {
@@ -220,6 +228,10 @@ struct ContentView: View {
         .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
     }
 
     private var basicSetupDraftConfiguredRootView: some View {
@@ -348,6 +360,15 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             importRosterCSV(result)
+        }
+        .onChange(of: selectedExternalBackgroundPhotoItem) { _, item in
+            importExternalBackgroundPhoto(item)
+        }
+        .onChange(of: selectedHomeTeamLogoPhotoItem) { _, item in
+            importTeamLogoPhoto(item, side: .home)
+        }
+        .onChange(of: selectedGuestTeamLogoPhotoItem) { _, item in
+            importTeamLogoPhoto(item, side: .guest)
         }
         .scoreboardShareExporter(payload: $exportSharePayload)
     }
@@ -638,7 +659,11 @@ struct ContentView: View {
             settingsSection(title: "Teams") {
                 settingsTextEntryRow(title: "Home Team", text: $homeTeamDraft, teamSide: true)
                 settingsDivider()
+                teamLogoSettingsRow(side: .home)
+                settingsDivider()
                 settingsTextEntryRow(title: "Guest Team", text: $guestTeamDraft, teamSide: false)
+                settingsDivider()
+                teamLogoSettingsRow(side: .guest)
             }
 
             if setupSport == .custom {
@@ -1221,7 +1246,7 @@ struct ContentView: View {
                 }
             }
 
-            settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
+            settingsSection(title: "External Display Background", footer: "Controls only the public/external display.") {
                 ForEach(Array(ExternalDisplayBackgroundMode.allCases.enumerated()), id: \.element.id) { index, mode in
                     externalBackgroundModeRow(mode)
 
@@ -1229,6 +1254,9 @@ struct ContentView: View {
                         settingsDivider()
                     }
                 }
+
+                settingsDivider()
+                externalBackgroundImageControls()
             }
         }
     }
@@ -3649,6 +3677,92 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    private func teamLogoSettingsRow(side: TeamSide) -> some View {
+        let logoImage = store.teamLogoImage(for: side)
+        let logoData = TeamLogoImageStorage.imageData(for: logoImage)
+
+        return HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                localizedAppText("\(side.title) Logo")
+                    .font(.body)
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                if let logoImage {
+                    Text("\(logoImage.displayName) - \(logoImage.pixelWidth)x\(logoImage.pixelHeight)")
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    localizedAppText("Optional public display logo.")
+                        .font(.caption)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            TeamLogoImageView(data: logoData)
+                .frame(width: 44, height: 44)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+
+            HStack(spacing: 10) {
+                #if os(iOS)
+                if side == .home {
+                    teamLogoPhotoPicker(side: side, selection: $selectedHomeTeamLogoPhotoItem)
+                } else {
+                    teamLogoPhotoPicker(side: side, selection: $selectedGuestTeamLogoPhotoItem)
+                }
+                #elseif os(macOS)
+                settingsToolbarIconButton(
+                    "Choose \(side.title) Logo",
+                    systemImage: "photo.on.rectangle",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    beginTeamLogoImageImport(for: side)
+                }
+                #endif
+
+                settingsToolbarIconButton(
+                    "Remove \(side.title) Logo",
+                    systemImage: "trash",
+                    isEnabled: logoImage != nil,
+                    role: .destructive
+                ) {
+                    store.clearTeamLogoImage(for: side)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    #if os(iOS)
+    private func teamLogoPhotoPicker(
+        side: TeamSide,
+        selection: Binding<PhotosPickerItem?>
+    ) -> some View {
+        PhotosPicker(
+            selection: selection,
+            matching: .images,
+            photoLibrary: .shared()
+        ) {
+            Image(systemName: "photo.on.rectangle")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(settingsPalette.accentText)
+                .frame(width: 38, height: 38)
+                .background(settingsPalette.accent, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Choose \(side.title) Logo"))
+        .help(localizedAppString("Choose \(side.title) Logo"))
+    }
+    #endif
+
     private func settingsPlainTextEntryRow(
         title: String,
         text: Binding<String>,
@@ -4265,8 +4379,10 @@ struct ContentView: View {
 
     private func externalBackgroundModeRow(_ mode: ExternalDisplayBackgroundMode) -> some View {
         let isSelected = store.externalDisplayBackgroundMode == mode
+        let isEnabled = mode != .image || store.externalDisplayBackgroundImage != nil
 
         return Button {
+            guard isEnabled else { return }
             store.externalDisplayBackgroundMode = mode
         } label: {
             HStack(spacing: 14) {
@@ -4295,6 +4411,176 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.48)
+    }
+
+    private func externalBackgroundImageControls() -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    localizedAppText("Photo Background")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    if let image = store.externalDisplayBackgroundImage {
+                        Text("\(image.displayName) - \(image.pixelWidth)x\(image.pixelHeight)")
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        localizedAppText("Choose an image for the public display.")
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    #if os(iOS)
+                    PhotosPicker(
+                        selection: $selectedExternalBackgroundPhotoItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        Label(localizedAppString("Choose"), systemImage: "photo.on.rectangle")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(settingsPalette.accentText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(settingsPalette.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    #elseif os(macOS)
+                    settingsIconButton(
+                        "Choose",
+                        systemImage: "photo.on.rectangle",
+                        tint: settingsPalette.accent,
+                        foreground: settingsPalette.accentText
+                    ) {
+                        beginExternalBackgroundImageImport()
+                    }
+                    #endif
+
+                    if store.externalDisplayBackgroundImage != nil {
+                        settingsIconButton(
+                            isExternalBackgroundImageEditorVisible ? "Hide" : "Edit",
+                            systemImage: isExternalBackgroundImageEditorVisible ? "chevron.up" : "slider.horizontal.3",
+                            tint: settingsPalette.fieldBackground,
+                            foreground: settingsPalette.primaryText
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                isExternalBackgroundImageEditorVisible.toggle()
+                            }
+                        }
+                    }
+
+                    settingsIconButton(
+                        "Remove",
+                        systemImage: "trash",
+                        tint: settingsPalette.fieldBackground,
+                        foreground: settingsPalette.primaryText,
+                        isEnabled: store.externalDisplayBackgroundImage != nil
+                    ) {
+                        isExternalBackgroundImageEditorVisible = false
+                        store.clearExternalDisplayBackgroundImage()
+                    }
+                }
+            }
+
+            if store.externalDisplayBackgroundImage != nil && isExternalBackgroundImageEditorVisible {
+                externalBackgroundImageEditor()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func externalBackgroundImageEditor() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ExternalDisplayBackgroundImageView(image: store.externalDisplayBackgroundImage)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: 420)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+
+            externalBackgroundSliderRow(
+                title: "Scale",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.scale ?? 1 },
+                    set: { store.setExternalDisplayBackgroundImagePlacement(scale: $0) }
+                ),
+                range: ExternalDisplayBackgroundImage.minimumScale...ExternalDisplayBackgroundImage.maximumScale,
+                step: 0.05,
+                formattedValue: { String(format: "%.2fx", $0) }
+            )
+
+            externalBackgroundSliderRow(
+                title: "Horizontal",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.offsetX ?? 0 },
+                    set: { store.setExternalDisplayBackgroundImagePlacement(offsetX: $0) }
+                ),
+                range: ExternalDisplayBackgroundImage.minimumOffset...ExternalDisplayBackgroundImage.maximumOffset,
+                step: 0.02,
+                formattedValue: { "\(Int(($0 * 100).rounded()))%" }
+            )
+
+            externalBackgroundSliderRow(
+                title: "Vertical",
+                value: Binding(
+                    get: { store.externalDisplayBackgroundImage?.offsetY ?? 0 },
+                    set: { store.setExternalDisplayBackgroundImagePlacement(offsetY: $0) }
+                ),
+                range: ExternalDisplayBackgroundImage.minimumOffset...ExternalDisplayBackgroundImage.maximumOffset,
+                step: 0.02,
+                formattedValue: { "\(Int(($0 * 100).rounded()))%" }
+            )
+
+            HStack {
+                Spacer(minLength: 0)
+                settingsIconButton(
+                    "Center",
+                    systemImage: "scope",
+                    tint: settingsPalette.fieldBackground,
+                    foreground: settingsPalette.primaryText
+                ) {
+                    store.setExternalDisplayBackgroundImagePlacement(
+                        scale: 1,
+                        offsetX: 0,
+                        offsetY: 0
+                    )
+                }
+            }
+        }
+    }
+
+    private func externalBackgroundSliderRow(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double,
+        formattedValue: @escaping (Double) -> String
+    ) -> some View {
+        HStack(spacing: 14) {
+            localizedAppText(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.primaryText)
+                .frame(width: 92, alignment: .leading)
+
+            Slider(value: value, in: range, step: step)
+
+            Text(formattedValue(value.wrappedValue))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(width: 58, alignment: .trailing)
+        }
     }
 
     private func themeSwatch(_ color: Color) -> some View {
@@ -4371,6 +4657,23 @@ struct ContentView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else if mode == .image {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(settingsPalette.fieldBackground)
+                .overlay {
+                    if store.externalDisplayBackgroundImage != nil {
+                        ExternalDisplayBackgroundImageView(image: store.externalDisplayBackgroundImage)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
@@ -6733,8 +7036,10 @@ struct ContentView: View {
     }
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
-        ScoreboardGameSnapshot(
-            fileVersion: 7,
+        let currentSnapshot = store.currentGameSnapshot()
+
+        return ScoreboardGameSnapshot(
+            fileVersion: ScoreboardGameSnapshot.currentFileVersion,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -6788,7 +7093,11 @@ struct ContentView: View {
             homePenaltyTimers: [],
             guestPenaltyTimers: [],
             homeRoster: store.homeRoster,
-            guestRoster: store.guestRoster
+            guestRoster: store.guestRoster,
+            externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
+            homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
+            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage
         )
     }
 
@@ -6955,6 +7264,7 @@ struct ContentView: View {
             selectedGameFilename: selectedStoredGameFile?.url.lastPathComponent,
             persistedStateData: try store.exportPersistedStateData(),
             storedGameFiles: try storedGameBackupFiles(),
+            imageAssets: try store.backupImageAssets(),
             logSessions: try logManager.backupFiles()
         )
     }
@@ -6963,6 +7273,7 @@ struct ContentView: View {
         try backup.validateSchema()
         try store.validatePersistedStateData(backup.persistedStateData)
         try validateStoredGameBackupFiles(backup.storedGameFiles)
+        try store.validateBackupImageAssets(backup.imageAssets)
         try logManager.validateBackupFiles(backup.logSessions)
     }
 
@@ -6971,6 +7282,7 @@ struct ContentView: View {
             try validateFullBackup(backup)
             try replaceStoredGameFiles(with: backup.storedGameFiles)
             try logManager.replaceSessions(with: backup.logSessions)
+            try store.restoreBackupImageAssets(backup.imageAssets)
             try store.restorePersistedStateData(backup.persistedStateData)
 
             selectedGameFileIDs.removeAll()
@@ -7071,6 +7383,156 @@ struct ContentView: View {
         #else
         showsRosterCSVImporter = true
         #endif
+    }
+
+    #if os(macOS)
+    private func beginExternalBackgroundImageImport() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSExternalBackgroundImageContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.urls.first else {
+                return
+            }
+
+            importExternalBackgroundImageFile(url)
+        }
+    }
+
+    private func importExternalBackgroundImageFile(_ url: URL) {
+        do {
+            let isSecurityScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            try applyExternalBackgroundImageData(data, sourceName: url.lastPathComponent)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func beginTeamLogoImageImport(for side: TeamSide) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSExternalBackgroundImageContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.urls.first else {
+                return
+            }
+
+            importTeamLogoImageFile(url, side: side)
+        }
+    }
+
+    private func importTeamLogoImageFile(_ url: URL, side: TeamSide) {
+        do {
+            let isSecurityScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            try applyTeamLogoImageData(data, sourceName: url.lastPathComponent, side: side)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    private func importExternalBackgroundPhoto(_ item: PhotosPickerItem?) {
+        guard let item else {
+            return
+        }
+
+        Task {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw ExternalDisplayBackgroundImageError.unreadableImage
+                }
+
+                await MainActor.run {
+                    do {
+                        try applyExternalBackgroundImageData(data, sourceName: "Photo Library Image")
+                        selectedExternalBackgroundPhotoItem = nil
+                    } catch {
+                        selectedExternalBackgroundPhotoItem = nil
+                        presentFileOperationError(error)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    selectedExternalBackgroundPhotoItem = nil
+                    presentFileOperationError(error)
+                }
+            }
+        }
+    }
+
+    private func importTeamLogoPhoto(_ item: PhotosPickerItem?, side: TeamSide) {
+        guard let item else {
+            return
+        }
+
+        Task {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw TeamLogoImageError.unreadableImage
+                }
+
+                await MainActor.run {
+                    do {
+                        try applyTeamLogoImageData(data, sourceName: "\(side.title) Logo", side: side)
+                        clearSelectedTeamLogoPhotoItem(side)
+                    } catch {
+                        clearSelectedTeamLogoPhotoItem(side)
+                        presentFileOperationError(error)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    clearSelectedTeamLogoPhotoItem(side)
+                    presentFileOperationError(error)
+                }
+            }
+        }
+    }
+
+    private func clearSelectedTeamLogoPhotoItem(_ side: TeamSide) {
+        switch side {
+        case .home:
+            selectedHomeTeamLogoPhotoItem = nil
+        case .guest:
+            selectedGuestTeamLogoPhotoItem = nil
+        }
+    }
+    #endif
+
+    private func applyExternalBackgroundImageData(_ data: Data, sourceName: String?) throws {
+        let image = try ExternalDisplayBackgroundImageStorage.makeImage(
+            from: data,
+            sourceName: sourceName
+        )
+        store.setExternalDisplayBackgroundImage(image)
+        isExternalBackgroundImageEditorVisible = false
+    }
+
+    private func applyTeamLogoImageData(_ data: Data, sourceName: String?, side: TeamSide) throws {
+        let image = try TeamLogoImageStorage.makeImage(
+            from: data,
+            sourceName: sourceName
+        )
+        store.setTeamLogoImage(image, for: side)
     }
 
     private func readImportedFileData(from url: URL) throws -> Data {
@@ -7984,7 +8446,7 @@ struct ContentView: View {
 
         if storedGameFiles.isEmpty {
             do {
-                let snapshot = currentSetupWorkingSnapshot()
+                let snapshot = showsSetup ? currentSetupWorkingSnapshot() : store.currentGameSnapshot()
                 let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(snapshot.homeTeamName, snapshot.guestTeamName))
                 try writeGameSnapshot(snapshot, to: url)
                 refreshStoredGameFiles(selectedURL: url)
@@ -8058,7 +8520,7 @@ struct ContentView: View {
             : currentSnapshot.guestChessClockSeconds
 
         return ScoreboardGameSnapshot(
-            fileVersion: 7,
+            fileVersion: ScoreboardGameSnapshot.currentFileVersion,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -8112,7 +8574,11 @@ struct ContentView: View {
             homePenaltyTimers: currentSnapshot.homePenaltyTimers,
             guestPenaltyTimers: currentSnapshot.guestPenaltyTimers,
             homeRoster: currentSnapshot.homeRoster,
-            guestRoster: currentSnapshot.guestRoster
+            guestRoster: currentSnapshot.guestRoster,
+            externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
+            homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
+            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage
         )
     }
 
@@ -8147,7 +8613,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 7,
+                    fileVersion: ScoreboardGameSnapshot.currentFileVersion,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
@@ -8302,6 +8768,8 @@ struct ContentView: View {
             showsScore: store.supportsScore,
             homeTeamName: store.homeTeamName,
             guestTeamName: store.guestTeamName,
+            homeTeamLogoData: TeamLogoImageStorage.imageData(for: store.homeTeamLogoImage),
+            guestTeamLogoData: TeamLogoImageStorage.imageData(for: store.guestTeamLogoImage),
             homeScore: store.homeScore,
             guestScore: store.guestScore,
             period: store.period,
@@ -8349,6 +8817,8 @@ struct ContentView: View {
             return "Clear Background"
         case .clearUnderBoard:
             return "Transparent Board"
+        case .image:
+            return "Photo Background"
         case .none:
             return "No Background"
         }
@@ -8361,6 +8831,8 @@ struct ContentView: View {
         case .clear:
             return .clear
         case .clearUnderBoard:
+            return .transparent
+        case .image:
             return .transparent
         case .none:
             return .clear

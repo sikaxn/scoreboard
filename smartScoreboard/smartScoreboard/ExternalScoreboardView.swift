@@ -28,6 +28,8 @@ struct ExternalScoreboardView: View {
                     showsScore: store.supportsScore,
                     homeTeamName: store.homeTeamName,
                     guestTeamName: store.guestTeamName,
+                    homeTeamLogoData: TeamLogoImageStorage.imageData(for: store.homeTeamLogoImage),
+                    guestTeamLogoData: TeamLogoImageStorage.imageData(for: store.guestTeamLogoImage),
                     homeScore: store.homeScore,
                     guestScore: store.guestScore,
                     period: store.period,
@@ -106,6 +108,12 @@ struct ExternalScoreboardView: View {
                 palette.homeAccent
                 palette.guestAccent
             }
+        case .image:
+            if store.externalDisplayBackgroundImage != nil {
+                ExternalDisplayBackgroundImageView(image: store.externalDisplayBackgroundImage)
+            } else {
+                palette.externalDisplayBackground
+            }
         case .none:
             Color.clear
         }
@@ -118,6 +126,8 @@ struct ExternalScoreboardView: View {
         case .clear:
             return .clear
         case .clearUnderBoard:
+            return .transparent
+        case .image:
             return .transparent
         case .none:
             return .clear

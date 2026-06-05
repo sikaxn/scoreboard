@@ -6,8 +6,82 @@ extension UTType {
     static let scoreboardGame = UTType(exportedAs: "com.ironmaple.smartscoreboard.game", conformingTo: .json)
 }
 
+struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var scale: Double?
+    var offsetX: Double?
+    var offsetY: Double?
+    var data: Data
+
+    init(
+        sourceName: String?,
+        mimeType: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval,
+        scale: Double? = nil,
+        offsetX: Double? = nil,
+        offsetY: Double? = nil,
+        data: Data
+    ) {
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+        self.scale = scale
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.data = data
+    }
+
+    init(backgroundImage: ExternalDisplayBackgroundImage, data: Data) {
+        self.init(
+            sourceName: backgroundImage.sourceName,
+            mimeType: backgroundImage.mimeType,
+            pixelWidth: backgroundImage.pixelWidth,
+            pixelHeight: backgroundImage.pixelHeight,
+            byteCount: data.count,
+            updatedAtUnixTime: backgroundImage.updatedAtUnixTime,
+            scale: backgroundImage.scale,
+            offsetX: backgroundImage.offsetX,
+            offsetY: backgroundImage.offsetY,
+            data: data
+        )
+    }
+
+    init(teamLogoImage: TeamLogoImage, data: Data) {
+        self.init(
+            sourceName: teamLogoImage.sourceName,
+            mimeType: teamLogoImage.mimeType,
+            pixelWidth: teamLogoImage.pixelWidth,
+            pixelHeight: teamLogoImage.pixelHeight,
+            byteCount: data.count,
+            updatedAtUnixTime: teamLogoImage.updatedAtUnixTime,
+            data: data
+        )
+    }
+
+    func isRestorable(expectedMimeType: String) -> Bool {
+        !data.isEmpty
+            && data.count == byteCount
+            && mimeType == expectedMimeType
+            && pixelWidth > 0
+            && pixelHeight > 0
+    }
+}
+
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 7
+    static let currentFileVersion = 7
+
+    var fileVersion = Self.currentFileVersion
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
@@ -60,6 +134,10 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
+    var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode?
+    var externalDisplayBackgroundImage: ScoreboardGameEmbeddedImage?
+    var homeTeamLogoImage: ScoreboardGameEmbeddedImage?
+    var guestTeamLogoImage: ScoreboardGameEmbeddedImage?
 
     static let empty = ScoreboardGameSnapshot(
         sport: .simple,
@@ -113,7 +191,11 @@ struct ScoreboardGameSnapshot: Sendable {
         homePenaltyTimers: [],
         guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
-        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
+        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
+        externalDisplayBackgroundMode: .blurred,
+        externalDisplayBackgroundImage: nil,
+        homeTeamLogoImage: nil,
+        guestTeamLogoImage: nil
     )
 }
 
@@ -172,6 +254,10 @@ extension ScoreboardGameSnapshot: Codable {
         case guestPenaltyTimers
         case homeRoster
         case guestRoster
+        case externalDisplayBackgroundMode
+        case externalDisplayBackgroundImage
+        case homeTeamLogoImage
+        case guestTeamLogoImage
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -229,6 +315,10 @@ extension ScoreboardGameSnapshot: Codable {
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
+        externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode)
+        externalDisplayBackgroundImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .externalDisplayBackgroundImage)
+        homeTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .homeTeamLogoImage)
+        guestTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .guestTeamLogoImage)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -286,6 +376,10 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
+        try container.encodeIfPresent(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
+        try container.encodeIfPresent(homeTeamLogoImage, forKey: .homeTeamLogoImage)
+        try container.encodeIfPresent(guestTeamLogoImage, forKey: .guestTeamLogoImage)
     }
 }
 

@@ -359,6 +359,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
+    @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
+    @Published var homeTeamLogoImage: TeamLogoImage?
+    @Published var guestTeamLogoImage: TeamLogoImage?
     @Published var isSoundEnabled = true
     @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
@@ -2661,7 +2664,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 7,
+            fileVersion: ScoreboardGameSnapshot.currentFileVersion,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -2713,8 +2716,34 @@ final class ScoreboardStore: ObservableObject {
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
             homeRoster: homeRoster,
-            guestRoster: guestRoster
+            guestRoster: guestRoster,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: embeddedExternalDisplayBackgroundImage(),
+            homeTeamLogoImage: embeddedTeamLogoImage(for: .home),
+            guestTeamLogoImage: embeddedTeamLogoImage(for: .guest)
         )
+    }
+
+    private func embeddedExternalDisplayBackgroundImage() -> ScoreboardGameEmbeddedImage? {
+        guard
+            let externalDisplayBackgroundImage,
+            let data = ExternalDisplayBackgroundImageStorage.imageData(for: externalDisplayBackgroundImage)
+        else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(backgroundImage: externalDisplayBackgroundImage, data: data)
+    }
+
+    private func embeddedTeamLogoImage(for side: TeamSide) -> ScoreboardGameEmbeddedImage? {
+        guard
+            let image = teamLogoImage(for: side),
+            let data = TeamLogoImageStorage.imageData(for: image)
+        else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(teamLogoImage: image, data: data)
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
@@ -2779,6 +2808,7 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            restoreEmbeddedDisplayAssets(from: snapshot)
             if isDebateMode {
                 let preset = currentDebatePreset
                 debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
@@ -2810,6 +2840,30 @@ final class ScoreboardStore: ObservableObject {
             }
             didCompleteSetup = true
         }
+    }
+
+    private func restoreEmbeddedDisplayAssets(from snapshot: ScoreboardGameSnapshot) {
+        let restoredBackgroundMode = snapshot.externalDisplayBackgroundMode ?? .blurred
+        if let embeddedBackgroundImage = snapshot.externalDisplayBackgroundImage,
+           let restoredImage = try? ExternalDisplayBackgroundImageStorage.makeImage(from: embeddedBackgroundImage) {
+            setExternalDisplayBackgroundImage(restoredImage)
+            externalDisplayBackgroundMode = restoredBackgroundMode
+        } else {
+            clearExternalDisplayBackgroundImage()
+            externalDisplayBackgroundMode = restoredBackgroundMode == .image ? .blurred : restoredBackgroundMode
+        }
+
+        restoreEmbeddedTeamLogo(snapshot.homeTeamLogoImage, for: .home)
+        restoreEmbeddedTeamLogo(snapshot.guestTeamLogoImage, for: .guest)
+    }
+
+    private func restoreEmbeddedTeamLogo(_ embeddedLogo: ScoreboardGameEmbeddedImage?, for side: TeamSide) {
+        guard let embeddedLogo, let restoredLogo = try? TeamLogoImageStorage.makeImage(from: embeddedLogo) else {
+            clearTeamLogoImage(for: side)
+            return
+        }
+
+        setTeamLogoImage(restoredLogo, for: side)
     }
 
     func applySetup(
@@ -3438,8 +3492,87 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayMutedDisplayIDs.contains(displayID)
     }
 
+    func setExternalDisplayBackgroundImage(_ image: ExternalDisplayBackgroundImage) {
+        let replacedImageID = externalDisplayBackgroundImage?.id
+        externalDisplayBackgroundImage = image
+        externalDisplayBackgroundMode = .image
+
+        if let replacedImageID, replacedImageID != image.id {
+            ExternalDisplayBackgroundImageStorage.removeImage(id: replacedImageID)
+        }
+    }
+
+    func clearExternalDisplayBackgroundImage() {
+        if let imageID = externalDisplayBackgroundImage?.id {
+            ExternalDisplayBackgroundImageStorage.removeImage(id: imageID)
+        }
+        externalDisplayBackgroundImage = nil
+        if externalDisplayBackgroundMode == .image {
+            externalDisplayBackgroundMode = .blurred
+        }
+    }
+
+    func setExternalDisplayBackgroundImagePlacement(
+        scale: Double? = nil,
+        offsetX: Double? = nil,
+        offsetY: Double? = nil
+    ) {
+        guard var image = externalDisplayBackgroundImage else {
+            return
+        }
+
+        if let scale {
+            image.scale = ExternalDisplayBackgroundImage.boundedScale(scale)
+        }
+        if let offsetX {
+            image.offsetX = ExternalDisplayBackgroundImage.boundedOffset(offsetX)
+        }
+        if let offsetY {
+            image.offsetY = ExternalDisplayBackgroundImage.boundedOffset(offsetY)
+        }
+        externalDisplayBackgroundImage = image
+    }
+
+    func teamLogoImage(for side: TeamSide) -> TeamLogoImage? {
+        switch side {
+        case .home:
+            return homeTeamLogoImage
+        case .guest:
+            return guestTeamLogoImage
+        }
+    }
+
+    func setTeamLogoImage(_ image: TeamLogoImage, for side: TeamSide) {
+        let replacedImageID = teamLogoImage(for: side)?.id
+        switch side {
+        case .home:
+            homeTeamLogoImage = image
+        case .guest:
+            guestTeamLogoImage = image
+        }
+
+        if let replacedImageID, replacedImageID != image.id {
+            TeamLogoImageStorage.removeImage(id: replacedImageID)
+        }
+    }
+
+    func clearTeamLogoImage(for side: TeamSide) {
+        if let imageID = teamLogoImage(for: side)?.id {
+            TeamLogoImageStorage.removeImage(id: imageID)
+        }
+
+        switch side {
+        case .home:
+            homeTeamLogoImage = nil
+        case .guest:
+            guestTeamLogoImage = nil
+        }
+    }
+
     func refreshWebAPILocalAddresses() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
     }
 
     func resumeWebAPIForAppLifecycle() {
@@ -3655,6 +3788,8 @@ final class ScoreboardStore: ObservableObject {
                 guard let self else { return }
                 self.webAPIStatus = status
                 self.webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+                self.refreshWebAPIState()
+                self.refreshRemoteDisplayState()
             }
         }
     }
@@ -3753,6 +3888,9 @@ final class ScoreboardStore: ObservableObject {
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
+            $homeTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
+            $guestTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
             $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
@@ -3799,6 +3937,66 @@ final class ScoreboardStore: ObservableObject {
         try JSONEncoder().encode(currentPersistedState().excludingRemoteDisplayPairingState)
     }
 
+    func backupImageAssets() throws -> [ScoreboardBackupImageAsset] {
+        var assets: [ScoreboardBackupImageAsset] = []
+
+        if
+            let image = externalDisplayBackgroundImage,
+            let data = ExternalDisplayBackgroundImageStorage.imageData(for: image)
+        {
+            assets.append(ScoreboardBackupImageAsset(kind: .externalDisplayBackground, id: image.id, data: data))
+        }
+
+        var backedUpTeamLogoIDs = Set<String>()
+        for side in TeamSide.allCases {
+            guard
+                let image = teamLogoImage(for: side),
+                backedUpTeamLogoIDs.insert(image.id).inserted,
+                let data = TeamLogoImageStorage.imageData(for: image)
+            else {
+                continue
+            }
+            assets.append(ScoreboardBackupImageAsset(kind: .teamLogo, id: image.id, data: data))
+        }
+
+        return assets
+    }
+
+    func validateBackupImageAssets(_ assets: [ScoreboardBackupImageAsset]) throws {
+        var keys = Set<String>()
+        for asset in assets {
+            guard keys.insert("\(asset.kind.rawValue):\(asset.id)").inserted else {
+                throw ScoreboardBackupError.invalidImageAsset
+            }
+
+            switch asset.kind {
+            case .externalDisplayBackground:
+                guard ExternalDisplayBackgroundImageStorage.isRestorableImage(id: asset.id, data: asset.data) else {
+                    throw ScoreboardBackupError.invalidImageAsset
+                }
+            case .teamLogo:
+                guard TeamLogoImageStorage.isRestorableImage(id: asset.id, data: asset.data) else {
+                    throw ScoreboardBackupError.invalidImageAsset
+                }
+            }
+        }
+    }
+
+    func restoreBackupImageAssets(_ assets: [ScoreboardBackupImageAsset]) throws {
+        try validateBackupImageAssets(assets)
+        ExternalDisplayBackgroundImageStorage.removeAllImages()
+        TeamLogoImageStorage.removeAllImages()
+
+        for asset in assets {
+            switch asset.kind {
+            case .externalDisplayBackground:
+                try ExternalDisplayBackgroundImageStorage.restoreImage(id: asset.id, data: asset.data)
+            case .teamLogo:
+                try TeamLogoImageStorage.restoreImage(id: asset.id, data: asset.data)
+            }
+        }
+    }
+
     func validatePersistedStateData(_ data: Data) throws {
         _ = try JSONDecoder().decode(PersistedState.self, from: data)
     }
@@ -3811,6 +4009,8 @@ final class ScoreboardStore: ObservableObject {
 
     func resetToFactoryDefaults() {
         applyPersistedState(.factoryDefault)
+        ExternalDisplayBackgroundImageStorage.removeAllImages()
+        TeamLogoImageStorage.removeAllImages()
         UserDefaults.standard.removeObject(forKey: persistenceKey)
         persistState()
     }
@@ -3899,6 +4099,24 @@ final class ScoreboardStore: ObservableObject {
             guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
             theme = persistedState.theme
             externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
+            externalDisplayBackgroundImage = persistedState.externalDisplayBackgroundImage
+            if
+                let externalDisplayBackgroundImage,
+                ExternalDisplayBackgroundImageStorage.imageData(for: externalDisplayBackgroundImage) == nil
+            {
+                self.externalDisplayBackgroundImage = nil
+            }
+            if externalDisplayBackgroundMode == .image, externalDisplayBackgroundImage == nil {
+                externalDisplayBackgroundMode = .blurred
+            }
+            homeTeamLogoImage = persistedState.homeTeamLogoImage
+            guestTeamLogoImage = persistedState.guestTeamLogoImage
+            if let homeTeamLogoImage, TeamLogoImageStorage.imageData(for: homeTeamLogoImage) == nil {
+                self.homeTeamLogoImage = nil
+            }
+            if let guestTeamLogoImage, TeamLogoImageStorage.imageData(for: guestTeamLogoImage) == nil {
+                self.guestTeamLogoImage = nil
+            }
             isSoundEnabled = persistedState.isSoundEnabled
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             isCompanionVisible = persistedState.isCompanionVisible
@@ -4009,6 +4227,9 @@ final class ScoreboardStore: ObservableObject {
             guestRoster: guestRoster,
             theme: theme,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: externalDisplayBackgroundImage,
+            homeTeamLogoImage: homeTeamLogoImage,
+            guestTeamLogoImage: guestTeamLogoImage,
             isSoundEnabled: isSoundEnabled,
             soundAssignmentsBySport: soundAssignmentsBySport,
             isCompanionVisible: isCompanionVisible,
@@ -4203,6 +4424,9 @@ private struct PersistedState: Codable {
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
+    var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
+    var homeTeamLogoImage: TeamLogoImage?
+    var guestTeamLogoImage: TeamLogoImage?
     var isSoundEnabled: Bool
     var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
     var isCompanionVisible: Bool
@@ -4274,6 +4498,9 @@ private struct PersistedState: Codable {
         case guestRoster
         case theme
         case externalDisplayBackgroundMode
+        case externalDisplayBackgroundImage
+        case homeTeamLogoImage
+        case guestTeamLogoImage
         case isSoundEnabled
         case soundAssignments
         case soundAssignmentsBySport
@@ -4347,6 +4574,9 @@ private struct PersistedState: Codable {
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
+        externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?,
+        homeTeamLogoImage: TeamLogoImage?,
+        guestTeamLogoImage: TeamLogoImage?,
         isSoundEnabled: Bool,
         soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
         isCompanionVisible: Bool,
@@ -4416,6 +4646,9 @@ private struct PersistedState: Codable {
         self.guestRoster = guestRoster
         self.theme = theme
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
+        self.externalDisplayBackgroundImage = externalDisplayBackgroundImage
+        self.homeTeamLogoImage = homeTeamLogoImage
+        self.guestTeamLogoImage = guestTeamLogoImage
         self.isSoundEnabled = isSoundEnabled
         self.soundAssignmentsBySport = soundAssignmentsBySport
         self.isCompanionVisible = isCompanionVisible
@@ -4494,6 +4727,12 @@ private struct PersistedState: Codable {
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
+        externalDisplayBackgroundImage = try container.decodeIfPresent(ExternalDisplayBackgroundImage.self, forKey: .externalDisplayBackgroundImage)
+        if externalDisplayBackgroundMode == .image, externalDisplayBackgroundImage == nil {
+            externalDisplayBackgroundMode = .blurred
+        }
+        homeTeamLogoImage = try container.decodeIfPresent(TeamLogoImage.self, forKey: .homeTeamLogoImage)
+        guestTeamLogoImage = try container.decodeIfPresent(TeamLogoImage.self, forKey: .guestTeamLogoImage)
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]].self, forKey: .soundAssignmentsBySport) {
             soundAssignmentsBySport = assignmentsBySport
@@ -4583,6 +4822,9 @@ private struct PersistedState: Codable {
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
+        try container.encodeIfPresent(homeTeamLogoImage, forKey: .homeTeamLogoImage)
+        try container.encodeIfPresent(guestTeamLogoImage, forKey: .guestTeamLogoImage)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
         try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
         try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
@@ -4665,6 +4907,9 @@ private extension PersistedState {
             guestRoster: defaultRoster,
             theme: .classic,
             externalDisplayBackgroundMode: .blurred,
+            externalDisplayBackgroundImage: nil,
+            homeTeamLogoImage: nil,
+            guestTeamLogoImage: nil,
             isSoundEnabled: true,
             soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
             isCompanionVisible: false,

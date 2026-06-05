@@ -172,6 +172,12 @@ private struct RemoteScoreboardFace: View {
     let lastReceivedAt: Date?
     let masterClockOffset: TimeInterval?
     let now: Date
+    @State private var cachedBackgroundImageID: String?
+    @State private var backgroundImageData: Data?
+    @State private var cachedHomeLogoID: String?
+    @State private var cachedGuestLogoID: String?
+    @State private var homeLogoData: Data?
+    @State private var guestLogoData: Data?
 
     private var theme: ScoreboardTheme {
         state.display?.theme ?? .classic
@@ -179,6 +185,27 @@ private struct RemoteScoreboardFace: View {
 
     private var backgroundMode: ExternalDisplayBackgroundMode {
         state.display?.backgroundMode ?? .blurred
+    }
+
+    private var backgroundImage: ScoreboardWebAPIBackgroundImage? {
+        guard backgroundMode == .image else {
+            return nil
+        }
+        return state.display?.backgroundImage
+    }
+
+    private var backgroundImageFetchSignature: String {
+        guard let backgroundImage else {
+            return "none"
+        }
+        return ([backgroundImage.id] + backgroundImage.downloadURLs).joined(separator: "|")
+    }
+
+    private var teamLogoFetchSignature: String {
+        [
+            teamLogoFetchSignature(for: state.teams.home.logo),
+            teamLogoFetchSignature(for: state.teams.guest.logo)
+        ].joined(separator: "||")
     }
 
     private var palette: ThemePalette {
@@ -209,6 +236,8 @@ private struct RemoteScoreboardFace: View {
                     showsScore: state.rules.supportsScore,
                     homeTeamName: state.teams.home.name,
                     guestTeamName: state.teams.guest.name,
+                    homeTeamLogoData: homeLogoData,
+                    guestTeamLogoData: guestLogoData,
                     homeScore: state.teams.home.score,
                     guestScore: state.teams.guest.score,
                     period: state.game.period,
@@ -257,6 +286,12 @@ private struct RemoteScoreboardFace: View {
             .frame(width: displaySize.width, height: displaySize.height)
         }
         .background(externalBackgroundView().ignoresSafeArea())
+        .task(id: backgroundImageFetchSignature) {
+            await updateRemoteBackgroundImageCache()
+        }
+        .task(id: teamLogoFetchSignature) {
+            await updateRemoteTeamLogoCache()
+        }
     }
 
     private func fittedBoardSize(in availableSize: CGSize) -> CGSize {
@@ -279,6 +314,12 @@ private struct RemoteScoreboardFace: View {
                 palette.homeAccent
                 palette.guestAccent
             }
+        case .image:
+            if let backgroundImage, backgroundImageData != nil {
+                ExternalDisplayBackgroundImageView(image: backgroundImage, data: backgroundImageData)
+            } else {
+                palette.externalDisplayBackground
+            }
         case .none:
             Color.clear
         }
@@ -292,9 +333,108 @@ private struct RemoteScoreboardFace: View {
             return .clear
         case .clearUnderBoard:
             return .transparent
+        case .image:
+            return .transparent
         case .none:
             return .clear
         }
+    }
+
+    @MainActor
+    private func updateRemoteBackgroundImageCache() async {
+        guard let backgroundImage else {
+            cachedBackgroundImageID = nil
+            backgroundImageData = nil
+            return
+        }
+
+        guard cachedBackgroundImageID != backgroundImage.id || backgroundImageData == nil else {
+            return
+        }
+
+        for urlString in backgroundImage.downloadURLs {
+            guard let url = URL(string: urlString) else {
+                continue
+            }
+
+            do {
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard
+                    let httpResponse = response as? HTTPURLResponse,
+                    (200..<300).contains(httpResponse.statusCode),
+                    !data.isEmpty
+                else {
+                    continue
+                }
+
+                cachedBackgroundImageID = backgroundImage.id
+                backgroundImageData = data
+                return
+            } catch {
+                continue
+            }
+        }
+
+        cachedBackgroundImageID = nil
+        backgroundImageData = nil
+    }
+
+    @MainActor
+    private func updateRemoteTeamLogoCache() async {
+        if let logo = state.teams.home.logo {
+            if cachedHomeLogoID != logo.id || homeLogoData == nil {
+                homeLogoData = await fetchRemoteTeamLogoData(logo)
+                cachedHomeLogoID = homeLogoData == nil ? nil : logo.id
+            }
+        } else {
+            cachedHomeLogoID = nil
+            homeLogoData = nil
+        }
+
+        if let logo = state.teams.guest.logo {
+            if cachedGuestLogoID != logo.id || guestLogoData == nil {
+                guestLogoData = await fetchRemoteTeamLogoData(logo)
+                cachedGuestLogoID = guestLogoData == nil ? nil : logo.id
+            }
+        } else {
+            cachedGuestLogoID = nil
+            guestLogoData = nil
+        }
+    }
+
+    private func fetchRemoteTeamLogoData(_ logo: ScoreboardWebAPITeamLogo) async -> Data? {
+        for urlString in logo.downloadURLs {
+            guard let url = URL(string: urlString) else {
+                continue
+            }
+
+            do {
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard
+                    let httpResponse = response as? HTTPURLResponse,
+                    (200..<300).contains(httpResponse.statusCode),
+                    !data.isEmpty
+                else {
+                    continue
+                }
+                return data
+            } catch {
+                continue
+            }
+        }
+
+        return nil
+    }
+
+    private func teamLogoFetchSignature(for logo: ScoreboardWebAPITeamLogo?) -> String {
+        guard let logo else {
+            return "none"
+        }
+        return ([logo.id] + logo.downloadURLs).joined(separator: "|")
     }
 
     private func sportRules() -> SportRules {

@@ -1,9 +1,16 @@
+import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable {
     case blurred
     case clear
     case clearUnderBoard
+    case image
     case none
 
     var id: String { rawValue }
@@ -16,6 +23,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Split Background"
         case .clearUnderBoard:
             return "Through Scoreboard"
+        case .image:
+            return "Photo"
         case .none:
             return "No Background"
         }
@@ -29,6 +38,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Show a clean red-blue split behind the scoreboard."
         case .clearUnderBoard:
             return "Let the red-blue split show through where the board background is normally black."
+        case .image:
+            return "Use a selected photo as the external display background."
         case .none:
             return "Leave the external display background unfilled outside the scoreboard."
         }
@@ -429,5 +440,820 @@ extension ThemePalette {
 private extension Color {
     static func rgb(_ red: Double, _ green: Double, _ blue: Double) -> Color {
         Color(red: red, green: green, blue: blue)
+    }
+}
+
+struct ExternalDisplayBackgroundImage: Codable, Equatable, Sendable {
+    static let minimumScale = 1.0
+    static let maximumScale = 3.0
+    static let minimumOffset = -1.0
+    static let maximumOffset = 1.0
+
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var scale: Double
+    var offsetX: Double
+    var offsetY: Double
+
+    var path: String {
+        Self.path(for: id)
+    }
+
+    var displayName: String {
+        guard let sourceName, !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Custom background"
+        }
+        return sourceName
+    }
+
+    init(
+        id: String,
+        sourceName: String?,
+        mimeType: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval = Date().timeIntervalSince1970,
+        scale: Double = 1.0,
+        offsetX: Double = 0,
+        offsetY: Double = 0
+    ) {
+        self.id = id
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+        self.scale = Self.boundedScale(scale)
+        self.offsetX = Self.boundedOffset(offsetX)
+        self.offsetY = Self.boundedOffset(offsetY)
+    }
+
+    static func path(for id: String) -> String {
+        "/api/v1/display/background-image/\(id).jpg"
+    }
+
+    static func boundedScale(_ value: Double) -> Double {
+        min(maximumScale, max(minimumScale, value))
+    }
+
+    static func boundedOffset(_ value: Double) -> Double {
+        min(maximumOffset, max(minimumOffset, value))
+    }
+}
+
+struct ScoreboardWebAPIBackgroundImage: Codable, Equatable, Sendable {
+    let id: String
+    let sourceName: String?
+    let mimeType: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let byteCount: Int
+    let updatedAtUnixTime: TimeInterval
+    let scale: Double
+    let offsetX: Double
+    let offsetY: Double
+    let path: String
+    let downloadURLs: [String]
+
+    init(image: ExternalDisplayBackgroundImage, downloadURLs: [String]) {
+        id = image.id
+        sourceName = image.sourceName
+        mimeType = image.mimeType
+        pixelWidth = image.pixelWidth
+        pixelHeight = image.pixelHeight
+        byteCount = image.byteCount
+        updatedAtUnixTime = image.updatedAtUnixTime
+        scale = image.scale
+        offsetX = image.offsetX
+        offsetY = image.offsetY
+        path = image.path
+        self.downloadURLs = downloadURLs
+    }
+}
+
+enum ExternalDisplayBackgroundImageError: LocalizedError {
+    case unreadableImage
+    case compressionFailed
+    case storageUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage:
+            return "Choose a valid image file."
+        case .compressionFailed:
+            return "Scoreboard could not prepare that image for display."
+        case .storageUnavailable:
+            return "Scoreboard could not save the background image."
+        }
+    }
+}
+
+enum ExternalDisplayBackgroundImageStorage {
+    private static let directoryName = "ExternalDisplayBackgrounds"
+    private static let maxPixelDimension: CGFloat = 1920
+    private static let jpegQuality: CGFloat = 0.78
+
+    struct ProcessedImage {
+        let data: Data
+        let mimeType: String
+        let pixelWidth: Int
+        let pixelHeight: Int
+    }
+
+    static func makeImage(from sourceData: Data, sourceName: String?) throws -> ExternalDisplayBackgroundImage {
+        let processedImage = try processImageData(sourceData)
+        let id = UUID().uuidString
+        let url = try fileURL(for: id)
+
+        do {
+            try ensureDirectoryExists()
+            try processedImage.data.write(to: url, options: [.atomic])
+        } catch {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+
+        return ExternalDisplayBackgroundImage(
+            id: id,
+            sourceName: sourceName,
+            mimeType: processedImage.mimeType,
+            pixelWidth: processedImage.pixelWidth,
+            pixelHeight: processedImage.pixelHeight,
+            byteCount: processedImage.data.count
+        )
+    }
+
+    static func makeImage(from embeddedImage: ScoreboardGameEmbeddedImage) throws -> ExternalDisplayBackgroundImage {
+        guard embeddedImage.isRestorable(expectedMimeType: "image/jpeg") else {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+
+        let id = UUID().uuidString
+        try restoreImage(id: id, data: embeddedImage.data)
+        return ExternalDisplayBackgroundImage(
+            id: id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType,
+            pixelWidth: embeddedImage.pixelWidth,
+            pixelHeight: embeddedImage.pixelHeight,
+            byteCount: embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime,
+            scale: embeddedImage.scale ?? 1,
+            offsetX: embeddedImage.offsetX ?? 0,
+            offsetY: embeddedImage.offsetY ?? 0
+        )
+    }
+
+    static func imageData(for image: ExternalDisplayBackgroundImage?) -> Data? {
+        guard let image else {
+            return nil
+        }
+        return imageData(forID: image.id)
+    }
+
+    static func imageData(forID id: String) -> Data? {
+        guard isValidImageID(id), let url = try? fileURL(for: id) else {
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    static func removeImage(id: String) {
+        guard isValidImageID(id), let url = try? fileURL(for: id) else {
+            return
+        }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    static func restoreImage(id: String, data: Data) throws {
+        guard isRestorableImage(id: id, data: data) else {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+
+        do {
+            try ensureDirectoryExists()
+            try data.write(to: try fileURL(for: id), options: [.atomic])
+        } catch {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+    }
+
+    static func isRestorableImage(id: String, data: Data) -> Bool {
+        isValidImageID(id) && !data.isEmpty
+    }
+
+    static func removeAllImages(except retainedID: String? = nil) {
+        guard let directoryURL = try? directoryURL() else {
+            return
+        }
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for url in urls {
+            if let retainedID, url.lastPathComponent == "\(retainedID).jpg" {
+                continue
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    static func imageID(fromWebAPIPath path: String) -> String? {
+        let prefix = "/api/v1/display/background-image/"
+        guard path.hasPrefix(prefix), path.hasSuffix(".jpg") else {
+            return nil
+        }
+
+        let start = path.index(path.startIndex, offsetBy: prefix.count)
+        let end = path.index(path.endIndex, offsetBy: -4)
+        let id = String(path[start..<end])
+        return isValidImageID(id) ? id : nil
+    }
+
+    private static func directoryURL() throws -> URL {
+        guard let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+
+        let bundleDirectory = Bundle.main.bundleIdentifier ?? "smartScoreboard"
+        return applicationSupportURL
+            .appendingPathComponent(bundleDirectory, isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func fileURL(for id: String) throws -> URL {
+        guard isValidImageID(id) else {
+            throw ExternalDisplayBackgroundImageError.storageUnavailable
+        }
+        return try directoryURL().appendingPathComponent("\(id).jpg", isDirectory: false)
+    }
+
+    private static func ensureDirectoryExists() throws {
+        try FileManager.default.createDirectory(
+            at: directoryURL(),
+            withIntermediateDirectories: true
+        )
+    }
+
+    private static func isValidImageID(_ id: String) -> Bool {
+        guard !id.isEmpty else {
+            return false
+        }
+        return id.range(of: #"^[A-Za-z0-9-]+$"#, options: .regularExpression) != nil
+    }
+
+    private static func scaledPixelSize(width: Int, height: Int) -> CGSize {
+        let sourceWidth = max(CGFloat(width), 1)
+        let sourceHeight = max(CGFloat(height), 1)
+        let scale = min(1, maxPixelDimension / max(sourceWidth, sourceHeight))
+        return CGSize(
+            width: max(1, (sourceWidth * scale).rounded()),
+            height: max(1, (sourceHeight * scale).rounded())
+        )
+    }
+
+    #if canImport(UIKit)
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        guard let sourceImage = UIImage(data: data) else {
+            throw ExternalDisplayBackgroundImageError.unreadableImage
+        }
+
+        let sourceScale = max(sourceImage.scale, 1)
+        let pixelWidth = Int((sourceImage.size.width * sourceScale).rounded())
+        let pixelHeight = Int((sourceImage.size.height * sourceScale).rounded())
+        let targetSize = scaledPixelSize(width: pixelWidth, height: pixelHeight)
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let renderedImage = renderer.image { _ in
+            sourceImage.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+
+        guard let jpegData = renderedImage.jpegData(compressionQuality: jpegQuality) else {
+            throw ExternalDisplayBackgroundImageError.compressionFailed
+        }
+
+        return ProcessedImage(
+            data: jpegData,
+            mimeType: "image/jpeg",
+            pixelWidth: Int(targetSize.width.rounded()),
+            pixelHeight: Int(targetSize.height.rounded())
+        )
+    }
+    #elseif canImport(AppKit)
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        guard let sourceImage = NSImage(data: data) else {
+            throw ExternalDisplayBackgroundImageError.unreadableImage
+        }
+
+        let representation = sourceImage.representations.max {
+            ($0.pixelsWide * $0.pixelsHigh) < ($1.pixelsWide * $1.pixelsHigh)
+        }
+        let pixelWidth = max(representation?.pixelsWide ?? Int(sourceImage.size.width.rounded()), 1)
+        let pixelHeight = max(representation?.pixelsHigh ?? Int(sourceImage.size.height.rounded()), 1)
+        let targetSize = scaledPixelSize(width: pixelWidth, height: pixelHeight)
+        let renderedImage = NSImage(size: targetSize)
+
+        renderedImage.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        sourceImage.draw(
+            in: NSRect(origin: .zero, size: targetSize),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+        renderedImage.unlockFocus()
+
+        guard
+            let tiffData = renderedImage.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiffData),
+            let jpegData = bitmap.representation(
+                using: .jpeg,
+                properties: [.compressionFactor: jpegQuality]
+            )
+        else {
+            throw ExternalDisplayBackgroundImageError.compressionFailed
+        }
+
+        return ProcessedImage(
+            data: jpegData,
+            mimeType: "image/jpeg",
+            pixelWidth: Int(targetSize.width.rounded()),
+            pixelHeight: Int(targetSize.height.rounded())
+        )
+    }
+    #else
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        _ = data
+        throw ExternalDisplayBackgroundImageError.unreadableImage
+    }
+    #endif
+}
+
+struct ExternalDisplayBackgroundImageView: View {
+    let data: Data?
+    let scale: Double
+    let offsetX: Double
+    let offsetY: Double
+
+    init(data: Data?, scale: Double, offsetX: Double, offsetY: Double) {
+        self.data = data
+        self.scale = ExternalDisplayBackgroundImage.boundedScale(scale)
+        self.offsetX = ExternalDisplayBackgroundImage.boundedOffset(offsetX)
+        self.offsetY = ExternalDisplayBackgroundImage.boundedOffset(offsetY)
+    }
+
+    init(image: ExternalDisplayBackgroundImage?) {
+        self.init(
+            data: ExternalDisplayBackgroundImageStorage.imageData(for: image),
+            scale: image?.scale ?? 1,
+            offsetX: image?.offsetX ?? 0,
+            offsetY: image?.offsetY ?? 0
+        )
+    }
+
+    init(image: ScoreboardWebAPIBackgroundImage?, data: Data?) {
+        self.init(
+            data: data,
+            scale: image?.scale ?? 1,
+            offsetX: image?.offsetX ?? 0,
+            offsetY: image?.offsetY ?? 0
+        )
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if let platformImage = makePlatformImage() {
+                    platformImage
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .scaleEffect(CGFloat(scale), anchor: .center)
+                        .offset(
+                            x: CGFloat(offsetX) * proxy.size.width * 0.5,
+                            y: CGFloat(offsetY) * proxy.size.height * 0.5
+                        )
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+    }
+
+    private func makePlatformImage() -> Image? {
+        guard let data else {
+            return nil
+        }
+
+        #if canImport(UIKit)
+        guard let image = UIImage(data: data) else {
+            return nil
+        }
+        return Image(uiImage: image)
+        #elseif canImport(AppKit)
+        guard let image = NSImage(data: data) else {
+            return nil
+        }
+        return Image(nsImage: image)
+        #else
+        return nil
+        #endif
+    }
+}
+
+struct TeamLogoImage: Codable, Equatable, Sendable {
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+
+    func path(for side: TeamSide) -> String {
+        Self.path(for: side, id: id)
+    }
+
+    var displayName: String {
+        guard let sourceName, !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Team logo"
+        }
+        return sourceName
+    }
+
+    init(
+        id: String,
+        sourceName: String?,
+        mimeType: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        self.id = id
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+    }
+
+    static func path(for side: TeamSide, id: String) -> String {
+        "/api/v1/teams/\(side.rawValue)/logo/\(id).png"
+    }
+}
+
+struct ScoreboardWebAPITeamLogo: Codable, Equatable, Sendable {
+    let id: String
+    let sourceName: String?
+    let mimeType: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let byteCount: Int
+    let updatedAtUnixTime: TimeInterval
+    let path: String
+    let downloadURLs: [String]
+
+    init(side: TeamSide, image: TeamLogoImage, downloadURLs: [String]) {
+        id = image.id
+        sourceName = image.sourceName
+        mimeType = image.mimeType
+        pixelWidth = image.pixelWidth
+        pixelHeight = image.pixelHeight
+        byteCount = image.byteCount
+        updatedAtUnixTime = image.updatedAtUnixTime
+        path = image.path(for: side)
+        self.downloadURLs = downloadURLs
+    }
+}
+
+enum TeamLogoImageError: LocalizedError {
+    case unreadableImage
+    case compressionFailed
+    case storageUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage:
+            return "Choose a valid team logo image."
+        case .compressionFailed:
+            return "Scoreboard could not prepare that logo for display."
+        case .storageUnavailable:
+            return "Scoreboard could not save the team logo."
+        }
+    }
+}
+
+enum TeamLogoImageStorage {
+    private static let directoryName = "TeamLogos"
+    private static let outputPixelSize = 512
+
+    struct ProcessedImage {
+        let data: Data
+        let mimeType: String
+        let pixelWidth: Int
+        let pixelHeight: Int
+    }
+
+    static func makeImage(from sourceData: Data, sourceName: String?) throws -> TeamLogoImage {
+        let processedImage = try processImageData(sourceData)
+        let id = UUID().uuidString
+        let url = try fileURL(for: id)
+
+        do {
+            try ensureDirectoryExists()
+            try processedImage.data.write(to: url, options: [.atomic])
+        } catch {
+            throw TeamLogoImageError.storageUnavailable
+        }
+
+        return TeamLogoImage(
+            id: id,
+            sourceName: sourceName,
+            mimeType: processedImage.mimeType,
+            pixelWidth: processedImage.pixelWidth,
+            pixelHeight: processedImage.pixelHeight,
+            byteCount: processedImage.data.count
+        )
+    }
+
+    static func makeImage(from embeddedImage: ScoreboardGameEmbeddedImage) throws -> TeamLogoImage {
+        guard embeddedImage.isRestorable(expectedMimeType: "image/png") else {
+            throw TeamLogoImageError.storageUnavailable
+        }
+
+        let id = UUID().uuidString
+        try restoreImage(id: id, data: embeddedImage.data)
+        return TeamLogoImage(
+            id: id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType,
+            pixelWidth: embeddedImage.pixelWidth,
+            pixelHeight: embeddedImage.pixelHeight,
+            byteCount: embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime
+        )
+    }
+
+    static func imageData(for image: TeamLogoImage?) -> Data? {
+        guard let image else {
+            return nil
+        }
+        return imageData(forID: image.id)
+    }
+
+    static func imageData(forID id: String) -> Data? {
+        guard isValidImageID(id), let url = try? fileURL(for: id) else {
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    static func removeImage(id: String) {
+        guard isValidImageID(id), let url = try? fileURL(for: id) else {
+            return
+        }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    static func restoreImage(id: String, data: Data) throws {
+        guard isRestorableImage(id: id, data: data) else {
+            throw TeamLogoImageError.storageUnavailable
+        }
+
+        do {
+            try ensureDirectoryExists()
+            try data.write(to: try fileURL(for: id), options: [.atomic])
+        } catch {
+            throw TeamLogoImageError.storageUnavailable
+        }
+    }
+
+    static func isRestorableImage(id: String, data: Data) -> Bool {
+        isValidImageID(id) && !data.isEmpty
+    }
+
+    static func removeAllImages(except retainedIDs: Set<String> = []) {
+        guard let directoryURL = try? directoryURL() else {
+            return
+        }
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for url in urls {
+            if retainedIDs.contains(url.deletingPathExtension().lastPathComponent) {
+                continue
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    static func logoRequest(fromWebAPIPath path: String) -> (side: TeamSide, id: String)? {
+        let prefix = "/api/v1/teams/"
+        let marker = "/logo/"
+        guard path.hasPrefix(prefix), path.hasSuffix(".png") else {
+            return nil
+        }
+
+        let restStart = path.index(path.startIndex, offsetBy: prefix.count)
+        let rest = String(path[restStart...])
+        guard let markerRange = rest.range(of: marker) else {
+            return nil
+        }
+
+        let sideRawValue = String(rest[..<markerRange.lowerBound])
+        let idWithExtension = String(rest[markerRange.upperBound...])
+        let id = String(idWithExtension.dropLast(4))
+        guard let side = TeamSide(rawValue: sideRawValue), isValidImageID(id) else {
+            return nil
+        }
+        return (side, id)
+    }
+
+    private static func directoryURL() throws -> URL {
+        guard let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw TeamLogoImageError.storageUnavailable
+        }
+
+        let bundleDirectory = Bundle.main.bundleIdentifier ?? "smartScoreboard"
+        return applicationSupportURL
+            .appendingPathComponent(bundleDirectory, isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func fileURL(for id: String) throws -> URL {
+        guard isValidImageID(id) else {
+            throw TeamLogoImageError.storageUnavailable
+        }
+        return try directoryURL().appendingPathComponent("\(id).png", isDirectory: false)
+    }
+
+    private static func ensureDirectoryExists() throws {
+        try FileManager.default.createDirectory(
+            at: directoryURL(),
+            withIntermediateDirectories: true
+        )
+    }
+
+    private static func isValidImageID(_ id: String) -> Bool {
+        guard !id.isEmpty else {
+            return false
+        }
+        return id.range(of: #"^[A-Za-z0-9-]+$"#, options: .regularExpression) != nil
+    }
+
+    private static func aspectFitRect(sourceSize: CGSize, in targetSize: CGSize) -> CGRect {
+        let widthRatio = targetSize.width / max(sourceSize.width, 1)
+        let heightRatio = targetSize.height / max(sourceSize.height, 1)
+        let scale = min(widthRatio, heightRatio)
+        let fittedSize = CGSize(
+            width: max(1, sourceSize.width * scale),
+            height: max(1, sourceSize.height * scale)
+        )
+        return CGRect(
+            x: (targetSize.width - fittedSize.width) / 2,
+            y: (targetSize.height - fittedSize.height) / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+    }
+
+    #if canImport(UIKit)
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        guard let sourceImage = UIImage(data: data) else {
+            throw TeamLogoImageError.unreadableImage
+        }
+
+        let targetSize = CGSize(width: outputPixelSize, height: outputPixelSize)
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let renderedImage = renderer.image { _ in
+            sourceImage.draw(in: aspectFitRect(sourceSize: sourceImage.size, in: targetSize))
+        }
+
+        guard let pngData = renderedImage.pngData() else {
+            throw TeamLogoImageError.compressionFailed
+        }
+
+        return ProcessedImage(
+            data: pngData,
+            mimeType: "image/png",
+            pixelWidth: outputPixelSize,
+            pixelHeight: outputPixelSize
+        )
+    }
+    #elseif canImport(AppKit)
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        guard let sourceImage = NSImage(data: data) else {
+            throw TeamLogoImageError.unreadableImage
+        }
+
+        let targetSize = CGSize(width: outputPixelSize, height: outputPixelSize)
+        guard
+            let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: outputPixelSize,
+                pixelsHigh: outputPixelSize,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bitmapFormat: [],
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ),
+            let context = NSGraphicsContext(bitmapImageRep: bitmap)
+        else {
+            throw TeamLogoImageError.compressionFailed
+        }
+
+        bitmap.size = targetSize
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.cgContext.clear(CGRect(origin: .zero, size: targetSize))
+        context.imageInterpolation = .high
+        sourceImage.draw(
+            in: aspectFitRect(sourceSize: sourceImage.size, in: targetSize),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw TeamLogoImageError.compressionFailed
+        }
+
+        return ProcessedImage(
+            data: pngData,
+            mimeType: "image/png",
+            pixelWidth: outputPixelSize,
+            pixelHeight: outputPixelSize
+        )
+    }
+    #else
+    private static func processImageData(_ data: Data) throws -> ProcessedImage {
+        _ = data
+        throw TeamLogoImageError.unreadableImage
+    }
+    #endif
+}
+
+struct TeamLogoImageView: View {
+    let data: Data?
+    var cornerRadius: CGFloat = 10
+
+    var body: some View {
+        ZStack {
+            if let platformImage = makePlatformImage() {
+                platformImage
+                    .resizable()
+                    .scaledToFit()
+                    .padding(6)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private func makePlatformImage() -> Image? {
+        guard let data else {
+            return nil
+        }
+
+        #if canImport(UIKit)
+        guard let image = UIImage(data: data) else {
+            return nil
+        }
+        return Image(uiImage: image)
+        #elseif canImport(AppKit)
+        guard let image = NSImage(data: data) else {
+            return nil
+        }
+        return Image(nsImage: image)
+        #else
+        return nil
+        #endif
     }
 }

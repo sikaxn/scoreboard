@@ -164,6 +164,7 @@ nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
 nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let theme: ScoreboardTheme
     let backgroundMode: ExternalDisplayBackgroundMode
+    let backgroundImage: ScoreboardWebAPIBackgroundImage?
 }
 
 nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
@@ -200,6 +201,7 @@ nonisolated struct ScoreboardWebAPITeam: Codable, Sendable {
     let side: TeamSide
     let name: String
     let roleLabel: String
+    let logo: ScoreboardWebAPITeamLogo?
     let score: Int
     let teamFouls: Int
     let substitutionsAllowed: Int
@@ -578,6 +580,32 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 body: healthDataLocked()
             )
         default:
+            if let logoRequest = TeamLogoImageStorage.logoRequest(fromWebAPIPath: path),
+               let logoData = TeamLogoImageStorage.imageData(forID: logoRequest.id) {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 200,
+                    reason: "OK",
+                    contentType: "image/png",
+                    body: logoData,
+                    cacheControl: "public, max-age=31536000, immutable"
+                )
+                return
+            }
+
+            if let imageID = ExternalDisplayBackgroundImageStorage.imageID(fromWebAPIPath: path),
+               let imageData = ExternalDisplayBackgroundImageStorage.imageData(forID: imageID) {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 200,
+                    reason: "OK",
+                    contentType: "image/jpeg",
+                    body: imageData,
+                    cacheControl: "public, max-age=31536000, immutable"
+                )
+                return
+            }
+
             sendHTTPResponse(
                 connection,
                 statusCode: 404,
@@ -594,13 +622,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         reason: String,
         contentType: String,
         body: Data,
+        cacheControl: String = "no-store",
         extraHeaders: [String] = []
     ) {
         var headers = [
             "HTTP/1.1 \(statusCode) \(reason)",
             "Content-Type: \(contentType)",
             "Content-Length: \(body.count)",
-            "Cache-Control: no-store",
+            "Cache-Control: \(cacheControl)",
             "X-SmartScoreboard-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.version))",
             "X-SmartScoreboard-Build: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.build))",
             "X-SmartScoreboard-API-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.apiVersion))",
@@ -995,6 +1024,42 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 
 @MainActor
 extension ScoreboardStore {
+    private func webAPIBackgroundImageMetadata() -> ScoreboardWebAPIBackgroundImage? {
+        guard let externalDisplayBackgroundImage else {
+            return nil
+        }
+
+        let localAddresses = webAPILocalAddresses.isEmpty
+            ? ScoreboardWebAPIService.localIPv4Addresses()
+            : webAPILocalAddresses
+        let downloadURLs = localAddresses.map {
+            "http://\($0):\(ScoreboardWebAPIService.httpPort)\(externalDisplayBackgroundImage.path)"
+        }
+        return ScoreboardWebAPIBackgroundImage(
+            image: externalDisplayBackgroundImage,
+            downloadURLs: downloadURLs
+        )
+    }
+
+    private func webAPITeamLogoMetadata(for side: TeamSide) -> ScoreboardWebAPITeamLogo? {
+        guard let logoImage = teamLogoImage(for: side) else {
+            return nil
+        }
+
+        let localAddresses = webAPILocalAddresses.isEmpty
+            ? ScoreboardWebAPIService.localIPv4Addresses()
+            : webAPILocalAddresses
+        let path = logoImage.path(for: side)
+        let downloadURLs = localAddresses.map {
+            "http://\($0):\(ScoreboardWebAPIService.httpPort)\(path)"
+        }
+        return ScoreboardWebAPITeamLogo(
+            side: side,
+            image: logoImage,
+            downloadURLs: downloadURLs
+        )
+    }
+
     func currentWebAPIState() -> ScoreboardWebAPIState {
         let now = Date()
         let rules = currentRules
@@ -1014,7 +1079,8 @@ extension ScoreboardStore {
             ),
             display: ScoreboardWebAPIDisplay(
                 theme: theme,
-                backgroundMode: externalDisplayBackgroundMode
+                backgroundMode: externalDisplayBackgroundMode,
+                backgroundImage: webAPIBackgroundImageMetadata()
             ),
             audio: ScoreboardWebAPIAudio(
                 isSoundEnabled: isSoundEnabled,
@@ -1099,6 +1165,7 @@ extension ScoreboardStore {
             side: side,
             name: side == .home ? homeTeamName : guestTeamName,
             roleLabel: sideRoleLabel(for: side),
+            logo: webAPITeamLogoMetadata(for: side),
             score: side == .home ? homeScore : guestScore,
             teamFouls: teamFouls(for: side),
             substitutionsAllowed: substitutionsAllowed(for: side),

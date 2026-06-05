@@ -16,6 +16,16 @@
 				<string>com.ironmaple.smartscoreboard.game</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Scoreboard Backup</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.ironmaple.smartscoreboard.backup</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -44,6 +54,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scoreboard uses the local network to pair Remote Display devices, let trusted production tools read live scoreboard status with Web API, and trigger Bitfocus Companion commands when those integrations are enabled.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Scoreboard lets you choose photos for public display backgrounds and team logos.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -88,6 +100,23 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>scoreboardgame</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Scoreboard Backup</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.ironmaple.smartscoreboard.backup</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>scoreboardbackup</string>
 				</array>
 			</dict>
 		</dict>

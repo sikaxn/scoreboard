@@ -49,8 +49,23 @@
       align-items: center;
       min-height: 64px;
     }
+    .team.has-logo {
+      grid-template-columns: 56px minmax(0, 1fr) 92px;
+    }
     .team + .team {
       border-top: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    .team-logo {
+      width: 42px;
+      height: 42px;
+      justify-self: center;
+      padding: 3px;
+      border-radius: 5px;
+      background-color: rgba(255, 255, 255, 0.08);
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: contain;
+      overflow: hidden;
     }
     .name {
       min-width: 0;
@@ -78,6 +93,9 @@
     }
     .guest .name {
       border-left: 8px solid #f97316;
+    }
+    .hidden {
+      display: none !important;
     }
     .clockbox {
       width: 176px;
@@ -155,10 +173,12 @@
   <main class="scorebug">
     <section class="teams">
       <div class="team home">
+        <div id="homeLogo" class="team-logo hidden" aria-hidden="true"></div>
         <div id="homeName" class="name" data-i18n="home">HOME</div>
         <div id="homeScore" class="score">0</div>
       </div>
       <div class="team guest">
+        <div id="guestLogo" class="team-logo hidden" aria-hidden="true"></div>
         <div id="guestName" class="name" data-i18n="guest">GUEST</div>
         <div id="guestScore" class="score">0</div>
       </div>
@@ -199,6 +219,10 @@
     const wsURL = `ws://${host}:5517/api/v1/ws`;
     let socket;
     let reconnectTimer;
+    let currentLogoIDs = {
+      home: null,
+      guest: null
+    };
 
     const el = id => document.getElementById(id);
 
@@ -241,6 +265,36 @@
       }
     }
 
+    function logoURL(logo) {
+      if (!logo) return '';
+      if (logo.path) return logo.path;
+      if (Array.isArray(logo.downloadURLs) && logo.downloadURLs.length) return logo.downloadURLs[0];
+      return '';
+    }
+
+    function applyTeamLogo(side, team) {
+      const logo = team && team.logo ? team.logo : null;
+      const logoElement = el(`${side}Logo`);
+      const teamElement = logoElement.closest('.team');
+      const url = logoURL(logo);
+
+      if (!logo || !url) {
+        currentLogoIDs[side] = null;
+        logoElement.style.backgroundImage = '';
+        logoElement.classList.add('hidden');
+        teamElement.classList.remove('has-logo');
+        return;
+      }
+
+      if (currentLogoIDs[side] !== logo.id) {
+        logoElement.style.backgroundImage = `url("${url}")`;
+        currentLogoIDs[side] = logo.id;
+      }
+
+      logoElement.classList.remove('hidden');
+      teamElement.classList.add('has-logo');
+    }
+
     function applyState(message) {
       const state = message.payload || message;
       if (!state || !state.teams || !state.clocks) return;
@@ -253,6 +307,8 @@
 
       el('homeName').textContent = text(home.name, t('home'));
       el('guestName').textContent = text(guest.name, t('guest'));
+      applyTeamLogo('home', home);
+      applyTeamLogo('guest', guest);
       el('homeScore').textContent = text(home.score, 0);
       el('guestScore').textContent = text(guest.score, 0);
 
