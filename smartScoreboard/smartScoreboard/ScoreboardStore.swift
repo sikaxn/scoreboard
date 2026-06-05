@@ -474,12 +474,16 @@ final class ScoreboardStore: ObservableObject {
         showsGameClock && isClockRunning
     }
 
-    var isResetInterlockActive: Bool {
+    var isAnyTimerRunning: Bool {
         isClockRunning ||
             isShotClockRunning ||
             isDebatePrepClockRunning ||
             homePenaltyTimers.contains(where: \.isRunning) ||
             guestPenaltyTimers.contains(where: \.isRunning)
+    }
+
+    var isResetInterlockActive: Bool {
+        isAnyTimerRunning
     }
 
     var showsGameClock: Bool {
@@ -3351,6 +3355,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
+        #if !os(tvOS)
+        if isEnabled {
+            stopRemoteDisplayHostService()
+        } else {
+            ScoreboardRemoteDisplayReceiver.shared.stop()
+        }
+        #endif
+
         isRemoteDisplayViewerModeEnabled = isEnabled
         if isEnabled {
             resetRemoteDisplayWarningState()
@@ -3358,12 +3370,26 @@ final class ScoreboardStore: ObservableObject {
         persistState()
     }
 
-    func pairRemoteDisplay(_ source: ScoreboardRemoteDisplaySource, pairingCode: String) {
-        remoteDisplayHostService.pair(with: source, pairingCode: pairingCode)
+    func pairRemoteDisplay(
+        _ source: ScoreboardRemoteDisplaySource,
+        pairingCode: String,
+        takeoverConfirmed: Bool = false
+    ) {
+        remoteDisplayHostService.pair(
+            with: source,
+            pairingCode: pairingCode,
+            takeoverConfirmed: takeoverConfirmed
+        )
     }
 
-    func connectTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) {
-        remoteDisplayHostService.connectTrustedDisplay(source)
+    func connectTrustedRemoteDisplay(
+        _ source: ScoreboardRemoteDisplaySource,
+        takeoverConfirmed: Bool = false
+    ) {
+        remoteDisplayHostService.connectTrustedDisplay(
+            source,
+            takeoverConfirmed: takeoverConfirmed
+        )
     }
 
     func removeRemoteDisplayPairing(displayID: String) {
@@ -3498,6 +3524,13 @@ final class ScoreboardStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        remoteDisplayHostService.$displayInitiatedDisconnectNotice
+            .compactMap { $0 }
+            .sink { [weak self] notice in
+                self?.handleRemoteDisplayInitiatedDisconnect(notice)
+            }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest(
             $isRemoteDisplayHostEnabled.removeDuplicates(),
             $isRemoteDisplayViewerModeEnabled.removeDuplicates()
@@ -3511,6 +3544,15 @@ final class ScoreboardStore: ObservableObject {
             }
         }
         .store(in: &cancellables)
+    }
+
+    private func handleRemoteDisplayInitiatedDisconnect(_ notice: ScoreboardRemoteDisplayDisconnectNotice) {
+        intentionallyDisconnectedRemoteDisplayIDs.insert(notice.displayID)
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: notice.displayID)
+        dismissedRemoteDisplayWarningDisplayIDs.remove(notice.displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(notice.displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
     }
 
     private func handleRemoteDisplayConnectedDisplaysChanged(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) {
@@ -3652,7 +3694,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private var remoteDisplayHostName: String {
-        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Host"
+        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Operator"
     }
 
     private func configurePersistence() {

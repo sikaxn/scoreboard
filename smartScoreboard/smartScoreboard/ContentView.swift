@@ -73,6 +73,7 @@ struct ContentView: View {
     @State private var showsRosterCSVImporter = false
     @State private var exportSharePayload: ExportSharePayload?
     @State private var fileOperationError: FileOperationAlert?
+    @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
     @State private var dashboardPage: DashboardPage = .main
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingBackupRestore: PendingBackupRestore?
@@ -391,6 +392,18 @@ struct ContentView: View {
                     },
                     secondaryButton: .cancel {
                         pendingBackupRestore = nil
+                    }
+                )
+            case .remoteDisplayTakeover(let takeover):
+                return Alert(
+                    title: Text("Replace Remote Display Operator?"),
+                    message: Text(remoteDisplayTakeoverMessage(for: takeover)),
+                    primaryButton: .destructive(Text("Replace")) {
+                        pendingRemoteDisplayTakeover = nil
+                        performRemoteDisplayTakeover(takeover)
+                    },
+                    secondaryButton: .cancel {
+                        pendingRemoteDisplayTakeover = nil
                     }
                 )
             case .logDeletion(let session):
@@ -1312,20 +1325,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private func settingsRosterSections(layout: InterfaceLayout) -> some View {
-        if layout.settingsTwoColumnUsesVerticalFlow {
-            VStack(alignment: .leading, spacing: 22) {
-                settingsRosterSection(side: .home, layout: layout, footer: "Edit player number, display name, and active lineup status for the first side.")
-                settingsRosterSection(side: .guest, layout: layout, footer: "Edit player number, display name, and active lineup status for the second side.")
-            }
-        } else {
-            HStack(alignment: .top, spacing: 22) {
-                settingsRosterSection(side: .home, layout: layout, footer: "Edit player number, display name, and active lineup status for the first side.")
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                settingsRosterSection(side: .guest, layout: layout, footer: "Edit player number, display name, and active lineup status for the second side.")
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+        settingsTwoColumnLayout(layout: layout, usesBalancedColumns: true) {
+            settingsRosterSection(side: .home, layout: layout, footer: "Edit player number, display name, and active lineup status for the first side.")
+        } right: {
+            settingsRosterSection(side: .guest, layout: layout, footer: "Edit player number, display name, and active lineup status for the second side.")
         }
     }
 
@@ -1558,20 +1561,22 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
             settingsBackupSection()
 
-            HStack(alignment: .top, spacing: 18) {
+            settingsTwoColumnLayout(
+                layout: layout,
+                primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
+                fillsHeight: true
+            ) {
                 settingsFileManagerPanel(title: "Game Files") {
                     settingsGameFileManagerToolbar
                 } content: {
                     settingsGameFileManagerList
                 }
-                .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
-
+            } right: {
                 settingsFileManagerPanel(title: "Details") {
                     settingsSelectedGameFileToolbar
                 } content: {
                     settingsGameFileDetailPane
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }
@@ -1623,20 +1628,22 @@ struct ContentView: View {
     }
 
     private func settingsLogsPane(layout: InterfaceLayout) -> some View {
-        HStack(alignment: .top, spacing: 18) {
+        settingsTwoColumnLayout(
+            layout: layout,
+            primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
+            fillsHeight: true
+        ) {
             settingsFileManagerPanel(title: "Sessions") {
                 settingsLogSessionManagerToolbar
             } content: {
                 settingsLogSessionManagerList
             }
-            .frame(width: layout.settingsFileManagerPrimaryColumnWidth, alignment: .topLeading)
-
+        } right: {
             settingsFileManagerPanel(title: "Playback") {
                 settingsLogPlaybackToolbar
             } content: {
                 settingsLogPlaybackDetailPane
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -1649,7 +1656,7 @@ struct ContentView: View {
             case .webAPI:
                 settingsWebAPIPane()
             case .remoteDisplay:
-                settingsRemoteDisplayPane()
+                settingsRemoteDisplayPane(layout: layout)
             case .bitfocusCompanion:
                 settingsBitfocusCompanionPane(layout: layout)
             }
@@ -1784,72 +1791,89 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsRemoteDisplayPane() -> some View {
+    private func settingsRemoteDisplayPane(layout: InterfaceLayout) -> some View {
         let displayRows = remoteDisplaySettingsRows
 
-        return VStack(alignment: .leading, spacing: 22) {
-            #if !os(tvOS)
-            settingsSection(title: "This Device", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
-                settingsButtonRow(
-                    title: "Use This Device as Remote Display",
-                    buttonTitle: "Enter",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText
-                ) {
-                    store.setRemoteDisplayViewerModeEnabled(true)
-                }
+        return settingsTwoColumnLayout(layout: layout) {
+            VStack(alignment: .leading, spacing: 22) {
+                settingsRemoteDisplayThisDeviceSection()
+                settingsRemoteDisplayAboutSection()
+                settingsRemoteDisplayBroadcastSection()
+            }
+        } right: {
+            settingsRemoteDisplayDisplaysSection(displayRows)
+        }
+    }
 
-                #if os(macOS)
-                settingsDivider()
-                settingsButtonRow(
-                    title: "Scoreboard Window",
-                    buttonTitle: "Open",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText
-                ) {
-                    store.setRemoteDisplayViewerModeEnabled(true)
-                    showPublicBoardWindow()
-                }
-                #endif
+    @ViewBuilder
+    private func settingsRemoteDisplayThisDeviceSection() -> some View {
+        #if !os(tvOS)
+        settingsSection(title: "This Device", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
+            settingsButtonRow(
+                title: "Use This Device as Remote Display",
+                buttonTitle: "Enter",
+                tint: settingsPalette.accent,
+                foreground: settingsPalette.accentText
+            ) {
+                store.setRemoteDisplayViewerModeEnabled(true)
+            }
+
+            #if os(macOS)
+            settingsDivider()
+            settingsButtonRow(
+                title: "Scoreboard Window",
+                buttonTitle: "Open",
+                tint: settingsPalette.accent,
+                foreground: settingsPalette.accentText
+            ) {
+                store.setRemoteDisplayViewerModeEnabled(true)
+                showPublicBoardWindow()
             }
             #endif
+        }
+        #endif
+    }
 
-            settingsSection(title: "About Remote Display") {
-                Text("Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings.")
-                    .font(.body)
-                    .foregroundStyle(settingsPalette.primaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 10)
-            }
+    private func settingsRemoteDisplayAboutSection() -> some View {
+        settingsSection(title: "About Remote Display") {
+            Text("Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings.")
+                .font(.body)
+                .foregroundStyle(settingsPalette.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+        }
+    }
 
-            settingsSection(title: "Operator Broadcast", footer: "Turn this on from the operator device. Nearby displays in Remote Display Mode appear below by device name.") {
-                settingsToggleRow(title: "Enable Remote Display Pairing", isOn: Binding(
-                    get: { store.isRemoteDisplayHostEnabled },
-                    set: { store.setRemoteDisplayHostEnabled($0) }
-                ))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
-                settingsDivider()
-                settingsSummaryValueRow(title: "Connected Displays", value: remoteDisplayConnectedDisplayCountLabel)
-                settingsDivider()
-                Text(remoteDisplayHostStatusDetail)
-                    .font(.subheadline)
-                    .foregroundStyle(store.remoteDisplayHostStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 10)
-            }
+    private func settingsRemoteDisplayBroadcastSection() -> some View {
+        settingsSection(title: "Operator Broadcast", footer: "Turn this on from the operator device. Nearby displays in Remote Display Mode appear by device name.") {
+            settingsToggleRow(title: "Enable Remote Display Pairing", isOn: Binding(
+                get: { store.isRemoteDisplayHostEnabled },
+                set: { store.setRemoteDisplayHostEnabled($0) }
+            ))
+            settingsDivider()
+            settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
+            settingsDivider()
+            settingsSummaryValueRow(title: "Connected Displays", value: remoteDisplayConnectedDisplayCountLabel)
+            settingsDivider()
+            Text(remoteDisplayHostStatusDetail)
+                .font(.subheadline)
+                .foregroundStyle(store.remoteDisplayHostStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+        }
+    }
 
-            settingsSection(title: "Displays", footer: "Connected, saved, and nearby displays appear together. Saved displays can connect without another code; new displays need the 4-digit code shown on that display.") {
-                if !store.isRemoteDisplayHostEnabled {
-                    settingsSummaryValueRow(title: "Displays", value: localizedAppString("Enable Remote Display Pairing first"))
-                } else if displayRows.isEmpty {
-                    settingsSummaryValueRow(title: "Displays", value: localizedAppString("No displays found or saved"))
-                } else {
-                    ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
-                        settingsRemoteDisplayRow(row)
-                        if index < displayRows.count - 1 {
-                            settingsDivider()
-                        }
+    private func settingsRemoteDisplayDisplaysSection(_ displayRows: [RemoteDisplaySettingsRow]) -> some View {
+        settingsSection(title: "Displays", footer: "Connected, saved, and nearby displays appear together. Saved displays can connect without another code; new displays need the 4-digit code shown on that display.") {
+            if !store.isRemoteDisplayHostEnabled {
+                settingsSummaryValueRow(title: "Displays", value: localizedAppString("Enable Remote Display Pairing first"))
+            } else if displayRows.isEmpty {
+                settingsSummaryValueRow(title: "Displays", value: localizedAppString("No displays found or saved"))
+            } else {
+                ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
+                    settingsRemoteDisplayRow(row)
+                    if index < displayRows.count - 1 {
+                        settingsDivider()
                     }
                 }
             }
@@ -1888,9 +1912,9 @@ struct ContentView: View {
             return localizedAppString("Remote Display pairing is off.")
         case .browsing(let displayCount, let pairedCount):
             if displayCount == 1 {
-                return localizedAppFormat("Found %d display, %d paired.", displayCount, pairedCount)
+                return localizedAppFormat("Found %d display, %d connected.", displayCount, pairedCount)
             }
-            return localizedAppFormat("Found %d displays, %d paired.", displayCount, pairedCount)
+            return localizedAppFormat("Found %d displays, %d connected.", displayCount, pairedCount)
         case .failed(let message):
             return message
         }
@@ -1951,18 +1975,80 @@ struct ContentView: View {
         }
     }
 
+    private func requestPairRemoteDisplay(_ source: ScoreboardRemoteDisplaySource, pairingCode: String) {
+        if source.needsTakeoverConfirmation(currentOperatorID: store.remoteDisplayHostID) {
+            pendingRemoteDisplayTakeover = PendingRemoteDisplayTakeover(
+                source: source,
+                action: .pair(code: pairingCode)
+            )
+            return
+        }
+
+        store.pairRemoteDisplay(source, pairingCode: pairingCode)
+    }
+
+    private func requestConnectTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) {
+        if source.needsTakeoverConfirmation(currentOperatorID: store.remoteDisplayHostID) {
+            pendingRemoteDisplayTakeover = PendingRemoteDisplayTakeover(
+                source: source,
+                action: .connectTrusted
+            )
+            return
+        }
+
+        store.connectTrustedRemoteDisplay(source)
+    }
+
+    private func performRemoteDisplayTakeover(_ takeover: PendingRemoteDisplayTakeover) {
+        switch takeover.action {
+        case .pair(let code):
+            store.pairRemoteDisplay(
+                takeover.source,
+                pairingCode: code,
+                takeoverConfirmed: true
+            )
+        case .connectTrusted:
+            store.connectTrustedRemoteDisplay(
+                takeover.source,
+                takeoverConfirmed: true
+            )
+        }
+    }
+
+    private func remoteDisplayTakeoverMessage(for takeover: PendingRemoteDisplayTakeover) -> String {
+        let source = takeover.source
+        let operatorName = source.activeOperatorName
+            ?? source.lastActiveOperatorName
+            ?? localizedAppString("another operator device")
+        if source.receiverState == .runningPairing {
+            return localizedAppFormat(
+                "%@ is currently showing the pair screen while connected to %@. Replacing it will move the live Remote Display session to this operator device.",
+                source.name,
+                operatorName
+            )
+        }
+        return localizedAppFormat(
+            "%@ was previously connected to %@. Replacing it will allow this operator device to run that Remote Display.",
+            source.name,
+            operatorName
+        )
+    }
+
     private func settingsRemoteDisplayRow(_ row: RemoteDisplaySettingsRow) -> some View {
         let versionWarning = row.isOffline ? nil : remoteDisplayVersionWarningText(row.appVersion)
-        let isInUseByOtherBoard = row.source?.isInUseByOtherBoard(currentHostID: store.remoteDisplayHostID) == true
+        let isInUseByOtherBoard = row.source?.isInUseByOtherOperator(currentOperatorID: store.remoteDisplayHostID) == true
         let enteredCode = row.source.map { remoteDisplayPairingCodes[$0.id] ?? "" } ?? ""
+        let allowsSourceAction = row.source?.allowsNewPairing ?? false
         let canConnect = row.source != nil
             && row.isTrusted
             && !row.isConnected
             && !isInUseByOtherBoard
+            && allowsSourceAction
         let canPair = row.source != nil
             && !row.isTrusted
             && !row.isConnected
             && !isInUseByOtherBoard
+            && allowsSourceAction
             && enteredCode.count == ScoreboardRemoteDisplayHostService.pairingCodeLength
         let canTestSound = row.isConnected && !row.isMuted
 
@@ -2006,7 +2092,7 @@ struct ContentView: View {
             if let connection = row.connection {
                 remoteDisplayConnectionQualityBadge(connection.quality)
             } else if row.isTrusted {
-                remoteDisplayStatusBadge(row.isOffline ? "Offline" : "Ready")
+                remoteDisplayStatusBadge(remoteDisplayRowBadgeTitle(row, isInUseByOtherBoard: isInUseByOtherBoard))
             }
 
             if row.isTrusted || row.isConnected {
@@ -2047,7 +2133,7 @@ struct ContentView: View {
                     foreground: settingsPalette.accentText,
                     isEnabled: canConnect
                 ) {
-                    store.connectTrustedRemoteDisplay(source)
+                    requestConnectTrustedRemoteDisplay(source)
                 }
             } else if let source = row.source {
                 TextField(
@@ -2069,7 +2155,7 @@ struct ContentView: View {
                 )
                 .onSubmit {
                     guard canPair else { return }
-                    store.pairRemoteDisplay(source, pairingCode: enteredCode)
+                    requestPairRemoteDisplay(source, pairingCode: enteredCode)
                 }
                 .disabled(isInUseByOtherBoard)
 
@@ -2080,7 +2166,7 @@ struct ContentView: View {
                     foreground: settingsPalette.accentText,
                     isEnabled: canPair
                 ) {
-                    store.pairRemoteDisplay(source, pairingCode: enteredCode)
+                    requestPairRemoteDisplay(source, pairingCode: enteredCode)
                 }
             }
 
@@ -2180,7 +2266,25 @@ struct ContentView: View {
             return "\(remoteDisplayConnectionDetail(connection)) · \(soundState)"
         }
         if isInUseByOtherBoard, let source = row.source {
-            return localizedAppFormat("In use by %@", source.activeHostName ?? localizedAppString("another board"))
+            return localizedAppFormat("In use by %@", source.activeOperatorName ?? localizedAppString("another operator device"))
+        }
+        if let source = row.source, source.needsTakeoverConfirmation(currentOperatorID: store.remoteDisplayHostID) {
+            let operatorName = source.activeOperatorName
+                ?? source.lastActiveOperatorName
+                ?? localizedAppString("another operator device")
+            switch source.receiverState {
+            case .runningPairing:
+                return localizedAppFormat("Pair screen is open. Replacing %@ requires confirmation.", operatorName)
+            case .awaitingReconnect, .disconnecting:
+                return localizedAppFormat("Waiting for %@ to reconnect. Replacing it requires confirmation.", operatorName)
+            case .waitingPaired:
+                return localizedAppFormat("Previously paired with %@. Replacing it requires confirmation.", operatorName)
+            case .waitingUnpaired, .running:
+                break
+            }
+        }
+        if let source = row.source, source.lastActiveOperatorID == store.remoteDisplayHostID, !row.isConnected {
+            return localizedAppString("Saved. This operator device can reconnect automatically.")
         }
         if row.isTrusted, row.source != nil {
             return localizedAppString("Saved. Use Connect without a code.")
@@ -2189,6 +2293,35 @@ struct ContentView: View {
             return localizedAppString("Offline. Saved display can reconnect when it is in Remote Display Mode.")
         }
         return row.source?.detail ?? localizedAppString("Waiting for Remote Display")
+    }
+
+    private func remoteDisplayRowBadgeTitle(
+        _ row: RemoteDisplaySettingsRow,
+        isInUseByOtherBoard: Bool
+    ) -> String {
+        if row.isOffline {
+            return "Offline"
+        }
+        if isInUseByOtherBoard {
+            return "In Use"
+        }
+        guard let source = row.source else {
+            return "Ready"
+        }
+        switch source.receiverState {
+        case .waitingUnpaired:
+            return "Ready"
+        case .waitingPaired:
+            return "Saved"
+        case .running:
+            return "In Use"
+        case .runningPairing:
+            return "Pairing"
+        case .awaitingReconnect:
+            return "Reconnect"
+        case .disconnecting:
+            return "Disconnecting"
+        }
     }
 
     private func remoteDisplayConnectionQualityBadge(_ quality: ScoreboardRemoteDisplayConnectionQuality) -> some View {
@@ -2230,7 +2363,7 @@ struct ContentView: View {
     private func remoteDisplayVersionWarningText(_ version: ScoreboardRemoteDisplayAppVersion?) -> String? {
         guard let version else {
             return localizedAppFormat(
-                "Version unknown on display, master %@",
+                "Version unknown on display, operator device %@",
                 ScoreboardRemoteDisplayAppVersion.current.displayText
             )
         }
@@ -2238,7 +2371,7 @@ struct ContentView: View {
             return nil
         }
         return localizedAppFormat(
-            "Version mismatch: display %@, master %@",
+            "Version mismatch: display %@, operator device %@",
             version.displayText,
             ScoreboardRemoteDisplayAppVersion.current.displayText
         )
@@ -3429,6 +3562,9 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsTwoColumnLayout<Left: View, Right: View>(
         layout: InterfaceLayout,
+        primaryColumnWidth: CGFloat? = nil,
+        usesBalancedColumns: Bool = false,
+        fillsHeight: Bool = false,
         @ViewBuilder left: () -> Left,
         @ViewBuilder right: () -> Right
     ) -> some View {
@@ -3437,15 +3573,18 @@ struct ContentView: View {
                 left()
                 right()
             }
+            .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
         } else {
+            let resolvedPrimaryColumnWidth = primaryColumnWidth ?? layout.settingsPrimaryColumnWidth
             HStack(alignment: .top, spacing: 22) {
                 left()
-                    .frame(width: layout.settingsPrimaryColumnWidth, alignment: .topLeading)
+                    .frame(width: usesBalancedColumns ? nil : resolvedPrimaryColumnWidth, alignment: .topLeading)
+                    .frame(maxWidth: usesBalancedColumns ? .infinity : nil, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
 
                 right()
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
         }
     }
 
@@ -8290,6 +8429,9 @@ struct ContentView: View {
                 if let backupRestore = pendingBackupRestore {
                     return .backupRestore(backupRestore)
                 }
+                if let takeover = pendingRemoteDisplayTakeover {
+                    return .remoteDisplayTakeover(takeover)
+                }
                 if let session = pendingLogDeletion {
                     return .logDeletion(session)
                 }
@@ -8304,36 +8446,49 @@ struct ContentView: View {
                     fileOperationError = nil
                     pendingGameConfirmation = nil
                     pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = nil
                     pendingLogDeletion = nil
                     isFactoryDefaultConfirmationPresented = false
                 case .some(.fileOperation(let error)):
                     fileOperationError = error
                     pendingGameConfirmation = nil
                     pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = nil
                     pendingLogDeletion = nil
                     isFactoryDefaultConfirmationPresented = false
                 case .some(.gameConfirmation(let action)):
                     fileOperationError = nil
                     pendingGameConfirmation = action
                     pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = nil
                     pendingLogDeletion = nil
                     isFactoryDefaultConfirmationPresented = false
                 case .some(.backupRestore(let backupRestore)):
                     fileOperationError = nil
                     pendingGameConfirmation = nil
                     pendingBackupRestore = backupRestore
+                    pendingRemoteDisplayTakeover = nil
+                    pendingLogDeletion = nil
+                    isFactoryDefaultConfirmationPresented = false
+                case .some(.remoteDisplayTakeover(let takeover)):
+                    fileOperationError = nil
+                    pendingGameConfirmation = nil
+                    pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = takeover
                     pendingLogDeletion = nil
                     isFactoryDefaultConfirmationPresented = false
                 case .some(.logDeletion(let session)):
                     fileOperationError = nil
                     pendingGameConfirmation = nil
                     pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = nil
                     pendingLogDeletion = session
                     isFactoryDefaultConfirmationPresented = false
                 case .some(.factoryDefault):
                     fileOperationError = nil
                     pendingGameConfirmation = nil
                     pendingBackupRestore = nil
+                    pendingRemoteDisplayTakeover = nil
                     pendingLogDeletion = nil
                     isFactoryDefaultConfirmationPresented = true
                 }
@@ -8343,7 +8498,7 @@ struct ContentView: View {
 
     private func updateIdleTimer(for phase: ScenePhase) {
         #if os(iOS)
-        UIApplication.shared.isIdleTimerDisabled = phase == .active
+        AppSleepPrevention.setSceneActive(phase == .active)
         #endif
     }
 
@@ -8605,6 +8760,17 @@ private struct PendingBackupRestore: Identifiable {
     let sourceFilename: String
 }
 
+private struct PendingRemoteDisplayTakeover: Identifiable {
+    enum Action {
+        case pair(code: String)
+        case connectTrusted
+    }
+
+    let id = UUID()
+    let source: ScoreboardRemoteDisplaySource
+    let action: Action
+}
+
 private struct RemoteDisplaySettingsRow: Identifiable {
     let id: String
     let name: String
@@ -8645,6 +8811,7 @@ private enum ActiveAlert: Identifiable {
     case fileOperation(FileOperationAlert)
     case gameConfirmation(GameConfirmationAction)
     case backupRestore(PendingBackupRestore)
+    case remoteDisplayTakeover(PendingRemoteDisplayTakeover)
     case logDeletion(StoredLogSession)
     case factoryDefault
 
@@ -8656,6 +8823,8 @@ private enum ActiveAlert: Identifiable {
             return "game-\(action.id)"
         case .backupRestore(let backupRestore):
             return "backup-\(backupRestore.id.uuidString)"
+        case .remoteDisplayTakeover(let takeover):
+            return "remoteDisplay-\(takeover.id.uuidString)"
         case .logDeletion(let session):
             return "log-\(session.id)"
         case .factoryDefault:

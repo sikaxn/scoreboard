@@ -38,7 +38,7 @@ nonisolated enum ScoreboardRemoteDisplayHostStatus: Equatable, Sendable {
         case .off:
             return "Remote Display pairing is off."
         case .browsing(let displayCount, let pairedCount):
-            return "Found \(displayCount) display\(displayCount == 1 ? "" : "s"), \(pairedCount) paired."
+            return "Found \(displayCount) display\(displayCount == 1 ? "" : "s"), \(pairedCount) connected."
         case .failed(let message):
             return message
         }
@@ -74,7 +74,7 @@ nonisolated enum ScoreboardRemoteDisplayReceiverStatus: Equatable, Sendable {
     var detail: String {
         switch self {
         case .waiting:
-            return "Open Scoreboard settings on the operator device and pair this display."
+            return "On the operator device, open Settings > Integration > Remote Display, then enter this display's pairing code."
         case .paired(let name):
             return "Receiving live scoreboard updates from \(name)."
         case .disconnected(let message), .failed(let message):
@@ -87,6 +87,33 @@ nonisolated enum ScoreboardRemoteDisplayReceiverStatus: Equatable, Sendable {
             return true
         }
         return false
+    }
+}
+
+nonisolated enum ScoreboardRemoteDisplayReceiverAdvertisedState: String, Equatable, Sendable {
+    case waitingUnpaired
+    case waitingPaired
+    case running
+    case runningPairing
+    case awaitingReconnect
+    case disconnecting
+
+    var allowsNewPairing: Bool {
+        switch self {
+        case .waitingUnpaired, .waitingPaired, .runningPairing, .awaitingReconnect, .disconnecting:
+            return true
+        case .running:
+            return false
+        }
+    }
+
+    var requiresTakeoverWarning: Bool {
+        switch self {
+        case .waitingPaired, .runningPairing, .awaitingReconnect, .disconnecting:
+            return true
+        case .waitingUnpaired, .running:
+            return false
+        }
     }
 }
 
@@ -171,17 +198,71 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
             build: discoveryInfo?["appBuild"]
         )
     }
-    var activeHostID: String? { discoveryInfo?["activeHostID"] ?? discoveryInfo?["pairedHostID"] }
-    var activeHostName: String? { discoveryInfo?["activeHostName"] ?? discoveryInfo?["pairedHostName"] }
-    var pairedHostID: String? { discoveryInfo?["pairedHostID"] }
-    var pairedHostName: String? { discoveryInfo?["pairedHostName"] }
+    var receiverState: ScoreboardRemoteDisplayReceiverAdvertisedState {
+        if let rawState = discoveryInfo?["receiverState"],
+           let state = ScoreboardRemoteDisplayReceiverAdvertisedState(rawValue: rawState) {
+            return state
+        }
+        if activeOperatorID != nil {
+            return .running
+        }
+        if lastActiveOperatorID != nil {
+            return .waitingPaired
+        }
+        return .waitingUnpaired
+    }
+    var activeOperatorID: String? { discoveryInfo?["activeOperatorID"] ?? discoveryInfo?["activeHostID"] }
+    var activeOperatorName: String? { discoveryInfo?["activeOperatorName"] ?? discoveryInfo?["activeHostName"] }
+    var lastActiveOperatorID: String? {
+        discoveryInfo?["lastActiveOperatorID"]
+            ?? discoveryInfo?["pairedOperatorID"]
+            ?? discoveryInfo?["pairedHostID"]
+    }
+    var lastActiveOperatorName: String? {
+        discoveryInfo?["lastActiveOperatorName"]
+            ?? discoveryInfo?["pairedOperatorName"]
+            ?? discoveryInfo?["pairedHostName"]
+    }
+    var activeHostID: String? { activeOperatorID }
+    var activeHostName: String? { activeOperatorName }
+    var pairedHostID: String? { lastActiveOperatorID }
+    var pairedHostName: String? { lastActiveOperatorName }
     var pairingSetID: String? { discoveryInfo?["pairingSetID"] }
+    var allowsNewPairing: Bool {
+        if let rawValue = discoveryInfo?["allowsNewPairing"] {
+            return rawValue == "true"
+        }
+        return receiverState.allowsNewPairing
+    }
+    var requiresTakeoverWarning: Bool {
+        if let rawValue = discoveryInfo?["requiresTakeoverWarning"] {
+            return rawValue == "true"
+        }
+        return receiverState.requiresTakeoverWarning
+    }
 
     func isInUseByOtherBoard(currentHostID: String) -> Bool {
-        guard let activeHostID, !activeHostID.isEmpty else {
+        isInUseByOtherOperator(currentOperatorID: currentHostID)
+    }
+
+    func isInUseByOtherOperator(currentOperatorID: String) -> Bool {
+        guard receiverState == .running, let activeOperatorID, !activeOperatorID.isEmpty else {
             return false
         }
-        return activeHostID != currentHostID
+        return activeOperatorID != currentOperatorID
+    }
+
+    func needsTakeoverConfirmation(currentOperatorID: String) -> Bool {
+        guard allowsNewPairing, requiresTakeoverWarning else {
+            return false
+        }
+        if let activeOperatorID, activeOperatorID == currentOperatorID {
+            return false
+        }
+        if let lastActiveOperatorID, lastActiveOperatorID == currentOperatorID {
+            return false
+        }
+        return true
     }
 }
 
@@ -196,25 +277,36 @@ nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, S
     let isMuted: Bool
 }
 
+nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equatable, Sendable {
+    let sequence: UInt64
+    let displayID: String
+    let displayName: String
+
+    var id: String { "\(displayID)-\(sequence)" }
+}
+
 nonisolated struct ScoreboardRemoteDisplayPairingRequest: Codable, Sendable {
     let pairingCode: String?
     let hostID: String
     let hostName: String
     let displayID: String?
     let trustedReconnect: Bool
+    let takeoverConfirmed: Bool
 
     init(
         pairingCode: String?,
         hostID: String,
         hostName: String,
         displayID: String?,
-        trustedReconnect: Bool
+        trustedReconnect: Bool,
+        takeoverConfirmed: Bool
     ) {
         self.pairingCode = pairingCode
         self.hostID = hostID
         self.hostName = hostName
         self.displayID = displayID
         self.trustedReconnect = trustedReconnect
+        self.takeoverConfirmed = takeoverConfirmed
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -223,6 +315,7 @@ nonisolated struct ScoreboardRemoteDisplayPairingRequest: Codable, Sendable {
         case hostName
         case displayID
         case trustedReconnect
+        case takeoverConfirmed
     }
 
     init(from decoder: Decoder) throws {
@@ -232,6 +325,7 @@ nonisolated struct ScoreboardRemoteDisplayPairingRequest: Codable, Sendable {
         hostName = try container.decode(String.self, forKey: .hostName)
         displayID = try container.decodeIfPresent(String.self, forKey: .displayID)
         trustedReconnect = try container.decodeIfPresent(Bool.self, forKey: .trustedReconnect) ?? false
+        takeoverConfirmed = try container.decodeIfPresent(Bool.self, forKey: .takeoverConfirmed) ?? false
     }
 }
 
@@ -398,6 +492,7 @@ private enum ScoreboardRemoteDisplayPairingStore {
     private static let trustedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedDisplays"
     private static let trustedHostsKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedHosts"
     private static let mutedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayMutedDisplays"
+    private static let lastActiveOperatorKey = "com.ironmaple.smartscoreboard.remoteDisplayLastActiveOperator"
 
     static func trustedDisplays() -> [ScoreboardRemoteDisplayTrustedPeer] {
         load(key: trustedDisplaysKey)
@@ -413,6 +508,18 @@ private enum ScoreboardRemoteDisplayPairingStore {
 
     static func saveTrustedHosts(_ peers: [ScoreboardRemoteDisplayTrustedPeer]) {
         save(peers, key: trustedHostsKey)
+    }
+
+    static func lastActiveOperator() -> ScoreboardRemoteDisplayTrustedPeer? {
+        load(key: lastActiveOperatorKey).first
+    }
+
+    static func saveLastActiveOperator(_ peer: ScoreboardRemoteDisplayTrustedPeer?) {
+        guard let peer else {
+            UserDefaults.standard.removeObject(forKey: lastActiveOperatorKey)
+            return
+        }
+        save([peer], key: lastActiveOperatorKey)
     }
 
     static func mutedDisplayIDs() -> Set<String> {
@@ -455,9 +562,11 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     @Published private(set) var connectedDisplays: [ScoreboardRemoteDisplayConnection] = []
     @Published private(set) var trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = ScoreboardRemoteDisplayPairingStore.trustedDisplays()
     @Published private(set) var mutedDisplayIDs: Set<String> = ScoreboardRemoteDisplayPairingStore.mutedDisplayIDs()
+    @Published private(set) var displayInitiatedDisconnectNotice: ScoreboardRemoteDisplayDisconnectNotice?
 
     let hostID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayHostID")
 
+    private let localDisplayID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayID")
     private var peerID: MCPeerID?
     private var session: MCSession?
     private var browser: MCNearbyServiceBrowser?
@@ -471,6 +580,8 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     private var currentStateProvider: (() -> Data)?
     private var lastPeriodicStateSyncAt: Date?
     private var peerNamesResettingPairing = Set<String>()
+    private var operatorDisconnectedDisplayIDs = Set<String>()
+    private var displayInitiatedDisconnectSequence: UInt64 = 0
 
     func start(initialState: Data, displayName: String, currentStateProvider: (() -> Data)? = nil) {
         stop()
@@ -518,20 +629,36 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         currentStateProvider = nil
         lastPeriodicStateSyncAt = nil
         peerNamesResettingPairing.removeAll()
+        operatorDisconnectedDisplayIDs.removeAll()
+        displayInitiatedDisconnectNotice = nil
+        displayInitiatedDisconnectSequence = 0
         status = .off
     }
 
-    func pair(with source: ScoreboardRemoteDisplaySource, pairingCode: String) {
+    func pair(
+        with source: ScoreboardRemoteDisplaySource,
+        pairingCode: String,
+        takeoverConfirmed: Bool = false
+    ) {
         guard let browser, let session else {
             status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
 
-        guard !source.isInUseByOtherBoard(currentHostID: hostID) else {
+        guard !source.isInUseByOtherOperator(currentOperatorID: hostID) else {
             status = .failed(localizedRemoteDisplayFormat(
                 "%@ is in use by %@.",
                 source.name,
-                source.activeHostName ?? localizedRemoteDisplayString("another board")
+                source.activeOperatorName ?? localizedRemoteDisplayString("another operator device")
+            ))
+            return
+        }
+
+        guard !source.needsTakeoverConfirmation(currentOperatorID: hostID) || takeoverConfirmed else {
+            status = .failed(localizedRemoteDisplayFormat(
+                "Confirm before replacing %@ on %@.",
+                source.activeOperatorName ?? source.lastActiveOperatorName ?? localizedRemoteDisplayString("another operator device"),
+                source.name
             ))
             return
         }
@@ -546,13 +673,15 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             return
         }
 
+        operatorDisconnectedDisplayIDs.remove(source.id)
         invitedPeerIDs.insert(source.id)
         let request = ScoreboardRemoteDisplayPairingRequest(
             pairingCode: sanitizedCode,
             hostID: hostID,
             hostName: peerID?.displayName ?? Self.defaultHostName,
             displayID: source.id,
-            trustedReconnect: false
+            trustedReconnect: false,
+            takeoverConfirmed: takeoverConfirmed
         )
         pendingTrustedDisplaysByPeerName[source.peerID.displayName] = ScoreboardRemoteDisplayTrustedPeer(
             id: source.id,
@@ -566,12 +695,15 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         updateBrowsingStatus()
     }
 
-    func connectTrustedDisplay(_ source: ScoreboardRemoteDisplaySource) {
-        guard !source.isInUseByOtherBoard(currentHostID: hostID) else {
+    func connectTrustedDisplay(
+        _ source: ScoreboardRemoteDisplaySource,
+        takeoverConfirmed: Bool = false
+    ) {
+        guard !source.isInUseByOtherOperator(currentOperatorID: hostID) else {
             status = .failed(localizedRemoteDisplayFormat(
                 "%@ is in use by %@.",
                 source.name,
-                source.activeHostName ?? localizedRemoteDisplayString("another board")
+                source.activeOperatorName ?? localizedRemoteDisplayString("another operator device")
             ))
             return
         }
@@ -581,7 +713,17 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             return
         }
 
-        inviteTrustedDisplayIfNeeded(source, force: true)
+        guard !source.needsTakeoverConfirmation(currentOperatorID: hostID) || takeoverConfirmed else {
+            status = .failed(localizedRemoteDisplayFormat(
+                "Confirm before replacing %@ on %@.",
+                source.activeOperatorName ?? source.lastActiveOperatorName ?? localizedRemoteDisplayString("another operator device"),
+                source.name
+            ))
+            return
+        }
+
+        operatorDisconnectedDisplayIDs.remove(source.id)
+        inviteTrustedDisplayIfNeeded(source, force: true, takeoverConfirmed: takeoverConfirmed)
     }
 
     func removeTrustedDisplay(id displayID: String) {
@@ -589,6 +731,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
         mutedDisplayIDs.remove(displayID)
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        operatorDisconnectedDisplayIDs.remove(displayID)
 
         if let peer = connectedPeer(forDisplayID: displayID) {
             let message = ScoreboardRemoteDisplayControlMessage(
@@ -611,6 +754,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             return
         }
 
+        operatorDisconnectedDisplayIDs.insert(displayID)
         let message = ScoreboardRemoteDisplayControlMessage(
             kind: .disconnect,
             sequence: heartbeatSequence,
@@ -700,12 +844,19 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         trustedDisplays.contains { $0.id == displayID }
     }
 
-    private func inviteTrustedDisplayIfNeeded(_ source: ScoreboardRemoteDisplaySource, force: Bool = false) {
+    private func inviteTrustedDisplayIfNeeded(
+        _ source: ScoreboardRemoteDisplaySource,
+        force: Bool = false,
+        takeoverConfirmed: Bool = false
+    ) {
         guard let browser, let session else {
             status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
-        guard isTrustedDisplay(source), !source.isInUseByOtherBoard(currentHostID: hostID) else {
+        guard isTrustedDisplay(source), !source.isInUseByOtherOperator(currentOperatorID: hostID) else {
+            return
+        }
+        guard !source.needsTakeoverConfirmation(currentOperatorID: hostID) || takeoverConfirmed else {
             return
         }
         guard !isConnected(to: source) else {
@@ -720,7 +871,8 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             hostID: hostID,
             hostName: peerID?.displayName ?? Self.defaultHostName,
             displayID: source.id,
-            trustedReconnect: true
+            trustedReconnect: true,
+            takeoverConfirmed: takeoverConfirmed
         )
         guard let context = try? JSONEncoder().encode(request) else {
             return
@@ -739,6 +891,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             return
         }
 
+        operatorDisconnectedDisplayIDs.formUnion(connectedDisplays.map(\.id))
         session?.disconnect()
         invitedPeerIDs.removeAll()
         connectedDisplays.removeAll()
@@ -804,6 +957,10 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             handleDisplayRemovedPairing(message, from: peerID)
             return
         }
+        if message.kind == .disconnect {
+            handleDisplayInitiatedDisconnect(message, from: peerID)
+            return
+        }
 
         guard message.kind == .heartbeatAck else {
             return
@@ -851,6 +1008,24 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         updateBrowsingStatus()
     }
 
+    private func handleDisplayInitiatedDisconnect(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
+        let displayID = message.displayID
+            ?? peerHandshakeMetricsByID[peerID.displayName]?.displayID
+            ?? sourceID(for: peerID)
+        let displayName = message.displayName
+            ?? peerHandshakeMetricsByID[peerID.displayName]?.displayName
+            ?? peerID.displayName
+
+        operatorDisconnectedDisplayIDs.insert(displayID)
+        displayInitiatedDisconnectSequence &+= 1
+        displayInitiatedDisconnectNotice = ScoreboardRemoteDisplayDisconnectNotice(
+            sequence: displayInitiatedDisconnectSequence,
+            displayID: displayID,
+            displayName: displayName
+        )
+        updateBrowsingStatus()
+    }
+
     private func handleDisplayRemovedPairing(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
         let displayID = message.displayID
             ?? peerHandshakeMetricsByID[peerID.displayName]?.displayID
@@ -893,6 +1068,11 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     }
 
     private func handleFoundPeer(_ peerID: MCPeerID, discoveryInfo: [String: String]?) {
+        guard !isLocalReceiverAdvertisement(discoveryInfo: discoveryInfo) else {
+            removeLocalReceiverSource(peerID: peerID, discoveryInfo: discoveryInfo)
+            return
+        }
+
         let source = ScoreboardRemoteDisplaySource(peerID: peerID, discoveryInfo: discoveryInfo)
         removeResetTrustedDisplayIfNeeded(source)
         if let existingIndex = sources.firstIndex(where: { $0.id == source.id || $0.peerID == peerID }) {
@@ -901,6 +1081,25 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             sources.append(source)
         }
         sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        updateBrowsingStatus()
+        autoReconnectTrustedDisplayIfNeeded(source)
+    }
+
+    private func isLocalReceiverAdvertisement(discoveryInfo: [String: String]?) -> Bool {
+        guard discoveryInfo?["role"] == "display" else {
+            return false
+        }
+        return discoveryInfo?["displayID"] == localDisplayID
+    }
+
+    private func removeLocalReceiverSource(peerID: MCPeerID, discoveryInfo: [String: String]?) {
+        let displayID = discoveryInfo?["displayID"] ?? localDisplayID
+        sources.removeAll { $0.peerID == peerID || $0.id == displayID }
+        invitedPeerIDs.remove(displayID)
+        invitedPeerIDs.remove(peerID.displayName)
+        pendingTrustedDisplaysByPeerName.removeValue(forKey: peerID.displayName)
+        lastTrustedInviteAttemptByID.removeValue(forKey: displayID)
+        peerHandshakeMetricsByID.removeValue(forKey: peerID.displayName)
         updateBrowsingStatus()
     }
 
@@ -975,6 +1174,20 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             || connectedDisplays.contains { $0.id == source.id }
     }
 
+    private func autoReconnectTrustedDisplayIfNeeded(_ source: ScoreboardRemoteDisplaySource) {
+        guard
+            isTrustedDisplay(source),
+            source.lastActiveOperatorID == hostID,
+            !source.isInUseByOtherOperator(currentOperatorID: hostID),
+            !source.needsTakeoverConfirmation(currentOperatorID: hostID),
+            !operatorDisconnectedDisplayIDs.contains(source.id)
+        else {
+            return
+        }
+
+        inviteTrustedDisplayIfNeeded(source)
+    }
+
     private func updateSourceAfterDisplayReset(
         _ peerID: MCPeerID,
         displayID: String,
@@ -1017,6 +1230,13 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         discoveryInfo.removeValue(forKey: "activeHostName")
         discoveryInfo.removeValue(forKey: "pairedHostID")
         discoveryInfo.removeValue(forKey: "pairedHostName")
+        discoveryInfo.removeValue(forKey: "activeOperatorID")
+        discoveryInfo.removeValue(forKey: "activeOperatorName")
+        discoveryInfo.removeValue(forKey: "lastActiveOperatorID")
+        discoveryInfo.removeValue(forKey: "lastActiveOperatorName")
+        discoveryInfo["receiverState"] = ScoreboardRemoteDisplayReceiverAdvertisedState.waitingUnpaired.rawValue
+        discoveryInfo["allowsNewPairing"] = "true"
+        discoveryInfo["requiresTakeoverWarning"] = "false"
 
         let source = ScoreboardRemoteDisplaySource(peerID: peerID, discoveryInfo: discoveryInfo)
         if let index = sources.firstIndex(where: { $0.peerID == peerID || $0.id == displayID }) {
@@ -1129,7 +1349,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     }
 
     private static var defaultHostName: String {
-        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Host"
+        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Operator"
     }
 
     private static func sanitizedPairingCode(_ value: String) -> String {
@@ -1238,6 +1458,10 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
 
     let displayID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayID")
 
+    var canDisconnectFromOperator: Bool {
+        pairedHostID != nil || lastActiveOperatorID != nil
+    }
+
     private var peerID: MCPeerID?
     private var session: MCSession?
     private var advertiser: MCNearbyServiceAdvertiser?
@@ -1247,6 +1471,11 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     private var pairingSetID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayPairingSetID")
     private var pairedHostID: String?
     private var pairedHostName: String?
+    private var pairedPeerName: String?
+    private var lastActiveOperatorID: String?
+    private var lastActiveOperatorName: String?
+    private var isPairingScreenVisible = false
+    private var isDisconnectingFromOperator = false
     private var isForgettingTrustedHosts = false
     private let soundTestPlayer = BuzzerPlayer()
 
@@ -1268,9 +1497,16 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         }
 
         pairingCode = Self.makePairingCode()
-        status = .waiting
+        let lastActiveOperator = ScoreboardRemoteDisplayPairingStore.lastActiveOperator()
+        lastActiveOperatorID = lastActiveOperator?.id
+        lastActiveOperatorName = lastActiveOperator?.name
+        status = lastActiveOperator.map {
+            .disconnected(localizedRemoteDisplayFormat("Waiting for %@ to reconnect.", $0.name))
+        } ?? .waiting
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
 
@@ -1308,14 +1544,56 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         peerID = nil
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
         status = .disconnected(statusMessage)
     }
 
+    func setPairingScreenVisible(_ isVisible: Bool) {
+        guard isPairingScreenVisible != isVisible else {
+            return
+        }
+        isPairingScreenVisible = isVisible
+        startOrRefreshAdvertiser()
+    }
+
     func resetPairingCode() {
         pairingCode = Self.makePairingCode()
         startPairingCodeTimer()
+    }
+
+    func disconnectFromOperator() {
+        let operatorName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
+        let message = ScoreboardRemoteDisplayControlMessage(
+            kind: .disconnect,
+            sequence: 0,
+            sentAt: Date().timeIntervalSince1970,
+            hostID: pairedHostID,
+            hostName: pairedHostName,
+            displayID: displayID,
+            displayName: peerID?.displayName,
+            pairingSetID: pairingSetID,
+            appVersion: ScoreboardRemoteDisplayAppVersion.current.version,
+            appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
+            deviceType: ScoreboardRemoteDisplayDeviceType.current
+        )
+        sendControlMessage(message, mode: .reliable)
+
+        pairedHostID = nil
+        pairedHostName = nil
+        pairedPeerName = nil
+        isDisconnectingFromOperator = true
+        lastHeartbeatAt = nil
+        masterClockOffset = nil
+        status = .disconnected(localizedRemoteDisplayFormat("Disconnected from %@.", operatorName))
+        startOrRefreshAdvertiser()
+
+        let sessionToDisconnect = session
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak sessionToDisconnect] in
+            sessionToDisconnect?.disconnect()
+        }
     }
 
     func forgetTrustedHosts() {
@@ -1324,8 +1602,13 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         notifyConnectedHostsBeforeForgetting()
         trustedHosts.removeAll()
         ScoreboardRemoteDisplayPairingStore.saveTrustedHosts(trustedHosts)
+        ScoreboardRemoteDisplayPairingStore.saveLastActiveOperator(nil)
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        lastActiveOperatorID = nil
+        lastActiveOperatorName = nil
+        isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         lastReceivedAt = nil
         masterClockOffset = nil
@@ -1403,13 +1686,31 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             return
         }
 
-        let staleHostName = pairedHostName ?? localizedRemoteDisplayString("Remote Display host")
+        let staleHostName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        isDisconnectingFromOperator = false
         self.lastHeartbeatAt = nil
         masterClockOffset = nil
         status = .disconnected(localizedRemoteDisplayFormat("%@ stopped responding. Waiting for reconnect.", staleHostName))
         startOrRefreshAdvertiser()
+    }
+
+    private var advertisedState: ScoreboardRemoteDisplayReceiverAdvertisedState {
+        if pairedHostID != nil {
+            return isPairingScreenVisible ? .runningPairing : .running
+        }
+        if isDisconnectingFromOperator, lastActiveOperatorID != nil {
+            return .disconnecting
+        }
+        if state != nil, lastActiveOperatorID != nil {
+            return .awaitingReconnect
+        }
+        if lastActiveOperatorID != nil || !trustedHosts.isEmpty {
+            return .waitingPaired
+        }
+        return .waitingUnpaired
     }
 
     private func startOrRefreshAdvertiser() {
@@ -1430,11 +1731,23 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             "appBuild": ScoreboardRemoteDisplayAppVersion.current.build,
             "deviceType": ScoreboardRemoteDisplayDeviceType.current.rawValue
         ]
+        let currentAdvertisedState = advertisedState
+        discoveryInfo["receiverState"] = currentAdvertisedState.rawValue
+        discoveryInfo["allowsNewPairing"] = currentAdvertisedState.allowsNewPairing ? "true" : "false"
+        discoveryInfo["requiresTakeoverWarning"] = currentAdvertisedState.requiresTakeoverWarning ? "true" : "false"
         if let pairedHostID, let pairedHostName {
+            discoveryInfo["activeOperatorID"] = pairedHostID
+            discoveryInfo["activeOperatorName"] = pairedHostName
             discoveryInfo["activeHostID"] = pairedHostID
             discoveryInfo["activeHostName"] = pairedHostName
-            discoveryInfo["pairedHostID"] = pairedHostID
-            discoveryInfo["pairedHostName"] = pairedHostName
+        }
+        if let lastActiveOperatorID, let lastActiveOperatorName {
+            discoveryInfo["lastActiveOperatorID"] = lastActiveOperatorID
+            discoveryInfo["lastActiveOperatorName"] = lastActiveOperatorName
+            discoveryInfo["pairedOperatorID"] = lastActiveOperatorID
+            discoveryInfo["pairedOperatorName"] = lastActiveOperatorName
+            discoveryInfo["pairedHostID"] = lastActiveOperatorID
+            discoveryInfo["pairedHostName"] = lastActiveOperatorName
         }
 
         let advertiser = MCNearbyServiceAdvertiser(
@@ -1450,14 +1763,21 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     private func handlePeerStateChanged(_ peerID: MCPeerID, state: MCSessionState) {
         switch state {
         case .connected:
+            pairedPeerName = peerID.displayName
             pairedHostName = peerID.displayName
+            if let pairedHostID {
+                setLastActiveOperator(id: pairedHostID, name: pairedHostName ?? peerID.displayName)
+            }
+            isDisconnectingFromOperator = false
             status = .paired(peerID.displayName)
             startOrRefreshAdvertiser()
         case .connecting:
             break
         case .notConnected:
+            let previousHostName = pairedHostName ?? lastActiveOperatorName ?? peerID.displayName
             pairedHostID = nil
             pairedHostName = nil
+            pairedPeerName = nil
             lastHeartbeatAt = nil
             masterClockOffset = nil
             startOrRefreshAdvertiser()
@@ -1465,11 +1785,13 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
                 isForgettingTrustedHosts = false
                 status = .waiting
             } else if self.state == nil {
-                status = .waiting
+                status = lastActiveOperatorName.map {
+                    .disconnected(localizedRemoteDisplayFormat("Waiting for %@ to reconnect.", $0))
+                } ?? .waiting
             } else {
                 status = .disconnected(localizedRemoteDisplayFormat(
-                    "%@ disconnected. Waiting for Remote Display to reconnect.",
-                    peerID.displayName
+                    "%@ disconnected. Waiting for reconnect.",
+                    previousHostName
                 ))
             }
         @unknown default:
@@ -1490,6 +1812,10 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         let decoder = JSONDecoder()
         guard let decodedState = try? decoder.decode(ScoreboardWebAPIState.self, from: data) else {
             status = .failed(localizedRemoteDisplayString("Received an unreadable Remote Display update."))
+            return
+        }
+
+        guard acceptsStateUpdate(from: peerID) else {
             return
         }
 
@@ -1527,6 +1853,10 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             return
         }
 
+        guard acceptsHeartbeat(message, from: peerID) else {
+            return
+        }
+
         let receivedAt = Date()
         lastHeartbeatAt = receivedAt
         updateMasterClockOffset(from: message, receivedAt: receivedAt)
@@ -1534,9 +1864,13 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         let previousHostName = pairedHostName
         pairedHostID = message.hostID
         pairedHostName = message.hostName ?? peerID.displayName
+        pairedPeerName = peerID.displayName
         if let hostID = message.hostID {
-            trustHost(id: hostID, name: pairedHostName ?? peerID.displayName)
+            let hostName = pairedHostName ?? peerID.displayName
+            trustHost(id: hostID, name: hostName)
+            setLastActiveOperator(id: hostID, name: hostName)
         }
+        isDisconnectingFromOperator = false
         status = .paired(pairedHostName ?? peerID.displayName)
         if previousHostID != pairedHostID || previousHostName != pairedHostName {
             startOrRefreshAdvertiser()
@@ -1565,6 +1899,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         let hostName = message.hostName ?? pairedHostName ?? peerID.displayName
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        isDisconnectingFromOperator = true
         lastHeartbeatAt = nil
         masterClockOffset = nil
         status = .disconnected(localizedRemoteDisplayFormat("%@ disconnected this Remote Display.", hostName))
@@ -1606,12 +1942,34 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     }
 
     private func acceptsControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) -> Bool {
-        let isTrustedSender = message.hostID.map { hostID in
-            trustedHosts.contains { $0.id == hostID }
-        } ?? false
-        let isCurrentHost = message.hostID == nil || message.hostID == pairedHostID || isTrustedSender
+        let isCurrentHost = message.hostID == nil || message.hostID == pairedHostID
+        let isCurrentPeer = pairedPeerName == nil || pairedPeerName == peerID.displayName
         let isThisDisplay = message.displayID == nil || message.displayID == displayID
-        return isCurrentHost && isThisDisplay
+        return isCurrentHost && isCurrentPeer && isThisDisplay
+    }
+
+    private func acceptsHeartbeat(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) -> Bool {
+        let isThisDisplay = message.displayID == nil || message.displayID == displayID
+        guard isThisDisplay else {
+            return false
+        }
+        guard let hostID = message.hostID else {
+            return pairedHostID == nil || pairedHostName == peerID.displayName
+        }
+        if let pairedHostID {
+            return hostID == pairedHostID && (pairedPeerName == nil || pairedPeerName == peerID.displayName)
+        }
+        if let lastActiveOperatorID {
+            return hostID == lastActiveOperatorID && trustedHosts.contains { $0.id == hostID }
+        }
+        return trustedHosts.contains { $0.id == hostID }
+    }
+
+    private func acceptsStateUpdate(from peerID: MCPeerID) -> Bool {
+        guard pairedHostID != nil else {
+            return false
+        }
+        return pairedPeerName == peerID.displayName && session?.connectedPeers.contains(peerID) == true
     }
 
     private func handleRemovePairing(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
@@ -1633,6 +1991,13 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         }
         pairedHostID = nil
         pairedHostName = nil
+        pairedPeerName = nil
+        if message.hostID == lastActiveOperatorID {
+            lastActiveOperatorID = nil
+            lastActiveOperatorName = nil
+            ScoreboardRemoteDisplayPairingStore.saveLastActiveOperator(nil)
+        }
+        isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         lastReceivedAt = nil
         masterClockOffset = nil
@@ -1702,6 +2067,63 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         trustedHosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         ScoreboardRemoteDisplayPairingStore.saveTrustedHosts(trustedHosts)
     }
+
+    private func setLastActiveOperator(id operatorID: String, name operatorName: String) {
+        guard !operatorID.isEmpty else {
+            return
+        }
+
+        lastActiveOperatorID = operatorID
+        lastActiveOperatorName = operatorName
+        ScoreboardRemoteDisplayPairingStore.saveLastActiveOperator(
+            ScoreboardRemoteDisplayTrustedPeer(id: operatorID, name: operatorName)
+        )
+    }
+
+    private func canAcceptTrustedReconnect(
+        receiverState: ScoreboardRemoteDisplayReceiverAdvertisedState,
+        isDisplayMatch: Bool,
+        isTrustedHost: Bool,
+        isCurrentOperator: Bool,
+        isLastActiveOperator: Bool,
+        hasTakeoverConfirmation: Bool
+    ) -> Bool {
+        guard isDisplayMatch, isTrustedHost else {
+            return false
+        }
+        switch receiverState {
+        case .running:
+            return isCurrentOperator
+        case .runningPairing:
+            return isCurrentOperator || hasTakeoverConfirmation
+        case .waitingUnpaired:
+            return true
+        case .waitingPaired, .awaitingReconnect, .disconnecting:
+            return isLastActiveOperator || hasTakeoverConfirmation
+        }
+    }
+
+    private func canAcceptCodePairing(
+        receiverState: ScoreboardRemoteDisplayReceiverAdvertisedState,
+        isCodePairing: Bool,
+        isCurrentOperator: Bool,
+        isLastActiveOperator: Bool,
+        hasTakeoverConfirmation: Bool
+    ) -> Bool {
+        guard isCodePairing else {
+            return false
+        }
+        switch receiverState {
+        case .running:
+            return isCurrentOperator
+        case .runningPairing:
+            return isCurrentOperator || hasTakeoverConfirmation
+        case .waitingUnpaired:
+            return true
+        case .waitingPaired, .awaitingReconnect, .disconnecting:
+            return isLastActiveOperator || hasTakeoverConfirmation
+        }
+    }
 }
 
 extension ScoreboardRemoteDisplayReceiver: MCNearbyServiceAdvertiserDelegate {
@@ -1720,28 +2142,46 @@ extension ScoreboardRemoteDisplayReceiver: MCNearbyServiceAdvertiserDelegate {
             let request = self.pairingRequest(from: context)
             let receivedCode = request?.pairingCode ?? context.flatMap { String(data: $0, encoding: .utf8) }
             let requesterHostID = request?.hostID
-            let isAlreadyPairedByOtherHost = self.pairedHostID != nil
-                && requesterHostID != self.pairedHostID
             let isDisplayMatch = request?.displayID == nil || request?.displayID == self.displayID
             let isTrustedHost = requesterHostID.map { hostID in
                 self.trustedHosts.contains { $0.id == hostID }
             } ?? false
-            let isTrustedReconnect = request?.trustedReconnect == true
-                && isDisplayMatch
-                && isTrustedHost
+            let receiverState = self.advertisedState
+            let isCurrentOperator = requesterHostID == self.pairedHostID
+            let isLastActiveOperator = requesterHostID == self.lastActiveOperatorID
+            let hasTakeoverConfirmation = request?.takeoverConfirmed == true
+            let isTrustedReconnect = self.canAcceptTrustedReconnect(
+                receiverState: receiverState,
+                isDisplayMatch: isDisplayMatch,
+                isTrustedHost: isTrustedHost,
+                isCurrentOperator: isCurrentOperator,
+                isLastActiveOperator: isLastActiveOperator,
+                hasTakeoverConfirmation: hasTakeoverConfirmation
+            )
             let isCodePairing = isDisplayMatch && receivedCode == self.pairingCode
+            let canAcceptCodePairing = self.canAcceptCodePairing(
+                receiverState: receiverState,
+                isCodePairing: isCodePairing,
+                isCurrentOperator: isCurrentOperator,
+                isLastActiveOperator: isLastActiveOperator,
+                hasTakeoverConfirmation: hasTakeoverConfirmation
+            )
 
-            guard (isCodePairing || isTrustedReconnect), !isAlreadyPairedByOtherHost else {
+            guard canAcceptCodePairing || isTrustedReconnect else {
                 invitationHandler(false, nil)
                 return
             }
 
             self.pairedHostID = requesterHostID
             self.pairedHostName = request?.hostName ?? peerID.displayName
+            self.pairedPeerName = peerID.displayName
+            self.isDisconnectingFromOperator = false
             if let requesterHostID {
-                self.trustHost(id: requesterHostID, name: self.pairedHostName ?? peerID.displayName)
+                let hostName = self.pairedHostName ?? peerID.displayName
+                self.trustHost(id: requesterHostID, name: hostName)
+                self.setLastActiveOperator(id: requesterHostID, name: hostName)
             }
-            if isCodePairing {
+            if canAcceptCodePairing {
                 self.pairingCode = Self.makePairingCode()
             }
             self.startOrRefreshAdvertiser()

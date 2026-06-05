@@ -11,12 +11,17 @@ struct SmartScoreboardApp: App {
         #if os(tvOS)
         WindowGroup {
             RemoteScoreboardView()
+                .reportsSceneActivityForSleepPolicy()
+                .reportsExternalDisplaysForSleepPolicy()
         }
         #elseif os(macOS)
         Window("Control Board", id: "control-board") {
             MacControlBoardRootView()
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
+                .reportsSceneActivityForSleepPolicy()
+                .reportsExternalDisplaysForSleepPolicy()
+                .reportsScoreboardSleepPolicy(store: store, publicBoardState: publicBoardState)
         }
         .defaultSize(width: 1280, height: 820)
 
@@ -36,15 +41,20 @@ struct SmartScoreboardApp: App {
         .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup {
-            if store.isRemoteDisplayViewerModeEnabled {
-                RemoteScoreboardView(exitRemoteDisplayMode: {
-                    store.setRemoteDisplayViewerModeEnabled(false)
-                })
-            } else {
-                ContentView()
-                    .environmentObject(store)
-                    .environmentObject(publicBoardState)
+            Group {
+                if store.isRemoteDisplayViewerModeEnabled {
+                    RemoteScoreboardView(exitRemoteDisplayMode: {
+                        store.setRemoteDisplayViewerModeEnabled(false)
+                    })
+                } else {
+                    ContentView()
+                        .environmentObject(store)
+                        .environmentObject(publicBoardState)
+                }
             }
+            .reportsSceneActivityForSleepPolicy()
+            .reportsExternalDisplaysForSleepPolicy()
+            .reportsScoreboardSleepPolicy(store: store, publicBoardState: publicBoardState)
         }
         #endif
     }

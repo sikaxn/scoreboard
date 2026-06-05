@@ -18,6 +18,7 @@ struct RemoteScoreboardView: View {
     @ObservedObject private var receiver: ScoreboardRemoteDisplayReceiver
     @State private var showsConfiguration = false
     @State private var hasAcquiredReceiver = false
+    @State private var sleepPolicyViewID = UUID()
 
     @MainActor
     init(
@@ -91,9 +92,27 @@ struct RemoteScoreboardView: View {
         }
         .onAppear {
             acquireReceiverIfNeeded()
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
         }
         .onDisappear {
+            receiver.setPairingScreenVisible(false)
+            clearSleepPolicy()
             releaseReceiverIfNeeded()
+        }
+        .onChange(of: showsConfiguration) { _, _ in
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
+        }
+        .onChange(of: receiver.state != nil) { _, _ in
+            handleReceiverPresentationStateChange()
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
+        }
+        .onChange(of: receiver.status) { _, _ in
+            handleReceiverPresentationStateChange()
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
         }
         .onChange(of: scenePhase) { _, newPhase in
             handleScenePhaseChange(newPhase)
@@ -124,6 +143,27 @@ struct RemoteScoreboardView: View {
         #else
         _ = newPhase
         #endif
+    }
+
+    private func updatePairingScreenVisibility() {
+        receiver.setPairingScreenVisible(showsPairingControls && (receiver.state == nil || showsConfiguration))
+    }
+
+    private func handleReceiverPresentationStateChange() {
+        guard receiver.status.isLive, receiver.state != nil else {
+            return
+        }
+        showsConfiguration = false
+    }
+
+    private func updateSleepPolicy() {
+        AppSleepPrevention.setReason(.receiverRemoteDisplayConnected(sleepPolicyViewID), active: receiver.status.isLive)
+        AppSleepPrevention.setReason(.remoteScoreboardVisible(sleepPolicyViewID), active: receiver.state != nil && !showsConfiguration)
+    }
+
+    private func clearSleepPolicy() {
+        AppSleepPrevention.setReason(.receiverRemoteDisplayConnected(sleepPolicyViewID), active: false)
+        AppSleepPrevention.setReason(.remoteScoreboardVisible(sleepPolicyViewID), active: false)
     }
 }
 
@@ -558,6 +598,16 @@ private enum RemoteDisplayConnectionHealth: Equatable {
     }
 }
 
+private enum RemoteDisplayControlID: Hashable {
+    case returnToLive
+    case newCode
+    case disconnect
+    case openScoreboard
+    case exitDisplayMode
+    case about
+    case forgetPairedDevices
+}
+
 private struct RemoteDisplayConfigurationView: View {
     @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
     let hasLiveState: Bool
@@ -566,22 +616,39 @@ private struct RemoteDisplayConfigurationView: View {
     let openScoreboardWindow: (() -> Void)?
     let showsPairingControls: Bool
     @State private var isForgetPairingConfirmationPresented = false
+    #if os(tvOS)
+    @State private var isAboutPresented = false
+    @FocusState private var focusedControl: RemoteDisplayControlID?
+    #endif
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.03, blue: 0.05),
-                    Color(red: 0.08, green: 0.09, blue: 0.14),
-                    .black
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+        #if os(tvOS)
+        if isAboutPresented {
+            RemoteDisplayAppleTVAboutView(
+                close: {
+                    isAboutPresented = false
+                    updateFocusedControl(force: true)
+                },
+                factoryDefault: {
+                    receiver.forgetTrustedHosts()
+                    isAboutPresented = false
+                    updateFocusedControl(force: true)
+                }
             )
-            .ignoresSafeArea()
+        } else {
+            configurationBody
+        }
+        #else
+        configurationBody
+        #endif
+    }
+
+    private var configurationBody: some View {
+        ZStack {
+            RemoteDisplayConnectionBackground(status: receiver.status)
 
             GeometryReader { proxy in
-                let usesStackedLayout = proxy.size.width < 840
+                let usesStackedLayout = proxy.size.width < stackedLayoutBreakpoint
 
                 Group {
                     if usesStackedLayout {
@@ -590,21 +657,83 @@ private struct RemoteDisplayConfigurationView: View {
                             pairingPanel
                         }
                     } else {
-                        HStack(alignment: .center, spacing: 44) {
+                        HStack(alignment: .center, spacing: horizontalSpacing) {
                             RemoteDisplayAboutHeader()
-                                .frame(maxWidth: 720, alignment: .leading)
+                                .frame(maxWidth: aboutHeaderMaxWidth, alignment: .leading)
 
                             pairingPanel
-                                .frame(width: min(max(proxy.size.width * 0.34, 360), 520))
+                                .frame(width: pairingPanelWidth(in: proxy.size.width))
                         }
                     }
                 }
-                .padding(60)
+                .padding(configurationPadding)
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: receiver.status)
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: receiver.pairingCode)
             }
         }
+        #if os(tvOS)
+        .onAppear {
+            updateFocusedControl(force: true)
+        }
+        .onChange(of: hasLiveState) { _, _ in
+            updateFocusedControl()
+        }
+        .onChange(of: receiver.status) { _, _ in
+            updateFocusedControl()
+        }
+        .onChange(of: receiver.canDisconnectFromOperator) { _, _ in
+            updateFocusedControl()
+        }
+        .onChange(of: receiver.trustedHosts.count) { _, _ in
+            updateFocusedControl()
+        }
+        .onExitCommand {
+            if hasLiveState {
+                returnToLive()
+            }
+        }
+        #endif
+    }
+
+    private var stackedLayoutBreakpoint: CGFloat {
+        #if os(tvOS)
+        980
+        #else
+        840
+        #endif
+    }
+
+    private var configurationPadding: CGFloat {
+        #if os(tvOS)
+        48
+        #else
+        60
+        #endif
+    }
+
+    private var horizontalSpacing: CGFloat {
+        #if os(tvOS)
+        56
+        #else
+        44
+        #endif
+    }
+
+    private var aboutHeaderMaxWidth: CGFloat {
+        #if os(tvOS)
+        860
+        #else
+        720
+        #endif
+    }
+
+    private func pairingPanelWidth(in availableWidth: CGFloat) -> CGFloat {
+        #if os(tvOS)
+        min(max(availableWidth * 0.36, 430), 620)
+        #else
+        min(max(availableWidth * 0.34, 360), 520)
+        #endif
     }
 
     private var pairingPanel: some View {
@@ -644,7 +773,7 @@ private struct RemoteDisplayConfigurationView: View {
                                 .stroke(.white.opacity(0.18), lineWidth: 1)
                         )
 
-                    Text("Enter this code on the operator device. The code refreshes automatically while waiting to pair.")
+                    Text("On the operator device, go to Settings > Integration > Remote Display and enter this code. The code refreshes automatically while waiting to pair.")
                         .font(.footnote.weight(.medium))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.54))
@@ -663,48 +792,7 @@ private struct RemoteDisplayConfigurationView: View {
             }
 
             if showsPairingControls {
-                VStack(spacing: 12) {
-                    HStack(spacing: 14) {
-                        Button {
-                            receiver.resetPairingCode()
-                        } label: {
-                            Label("New Code", systemImage: "arrow.clockwise")
-                        }
-
-                        if hasLiveState {
-                            Button {
-                                returnToLive()
-                            } label: {
-                                Label("Return to Live", systemImage: "play.rectangle.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-
-                        if let openScoreboardWindow {
-                            Button {
-                                openScoreboardWindow()
-                            } label: {
-                                Label("Open Scoreboard Window", systemImage: "rectangle.on.rectangle")
-                            }
-                        }
-
-                        if let exitRemoteDisplayMode {
-                            Button {
-                                exitRemoteDisplayMode()
-                            } label: {
-                                Label("Exit Display Mode", systemImage: "rectangle.portrait.and.arrow.right")
-                            }
-                        }
-                    }
-
-                    Button(role: .destructive) {
-                        isForgetPairingConfirmationPresented = true
-                    } label: {
-                        Label("Forget Paired Devices", systemImage: "trash")
-                    }
-                    .disabled(receiver.trustedHosts.isEmpty)
-                    .opacity(receiver.trustedHosts.isEmpty ? 0.48 : 1)
-                }
+                actionControls
             }
         }
         .padding(.horizontal, 34)
@@ -725,12 +813,227 @@ private struct RemoteDisplayConfigurationView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This Remote Display will remove all saved operator devices. Each master will need to pair again with a 4-digit code.")
+            Text("This Remote Display will remove all saved operator devices. Each operator device will need to pair again with a 4-digit code.")
         }
     }
 
+    private var actionButtonColumns: [GridItem] {
+        [
+            GridItem(
+                .adaptive(minimum: actionButtonMinimumWidth),
+                spacing: actionButtonSpacing
+            )
+        ]
+    }
+
+    private var actionButtonMinimumWidth: CGFloat {
+        #if os(tvOS)
+        220
+        #else
+        210
+        #endif
+    }
+
+    private var actionButtonSpacing: CGFloat {
+        #if os(tvOS)
+        14
+        #else
+        12
+        #endif
+    }
+
+    private var forgetButtonMaxWidth: CGFloat {
+        #if os(tvOS)
+        440
+        #else
+        360
+        #endif
+    }
+
+    private var actionControls: some View {
+        VStack(spacing: actionButtonSpacing) {
+            #if os(tvOS)
+            VStack(spacing: actionButtonSpacing) {
+                orderedActionButtons
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.12))
+                .frame(height: 1)
+                .padding(.vertical, 4)
+
+            forgetPairedDevicesButton
+            #else
+            LazyVGrid(
+                columns: actionButtonColumns,
+                spacing: actionButtonSpacing
+            ) {
+                orderedActionButtons
+            }
+
+            forgetPairedDevicesButton
+                .frame(maxWidth: forgetButtonMaxWidth)
+            #endif
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var orderedActionButtons: some View {
+        if hasLiveState {
+            remoteDisplayActionButton(
+                .returnToLive,
+                title: "Return to Live",
+                systemImage: "play.rectangle.fill",
+                tone: .primary
+            ) {
+                returnToLive()
+            }
+        }
+
+        remoteDisplayActionButton(
+            .newCode,
+            title: "New Code",
+            systemImage: "arrow.clockwise",
+            tone: .neutral
+        ) {
+            receiver.resetPairingCode()
+        }
+
+        if receiver.canDisconnectFromOperator {
+            remoteDisplayActionButton(
+                .disconnect,
+                title: "Disconnect",
+                systemImage: "xmark.circle",
+                tone: .destructive
+            ) {
+                receiver.disconnectFromOperator()
+            }
+        }
+
+        if let openScoreboardWindow {
+            remoteDisplayActionButton(
+                .openScoreboard,
+                title: "Open Scoreboard",
+                systemImage: "rectangle.on.rectangle",
+                tone: .neutral
+            ) {
+                openScoreboardWindow()
+            }
+        }
+
+        if let exitRemoteDisplayMode {
+            remoteDisplayActionButton(
+                .exitDisplayMode,
+                title: "Exit Display Mode",
+                systemImage: "rectangle.portrait.and.arrow.right",
+                tone: .neutral
+            ) {
+                exitRemoteDisplayMode()
+            }
+        }
+
+        #if os(tvOS)
+        remoteDisplayActionButton(
+            .about,
+            title: "About",
+            systemImage: "info.circle",
+            tone: .neutral
+        ) {
+            isAboutPresented = true
+        }
+        #endif
+    }
+
+    private var forgetPairedDevicesButton: some View {
+        remoteDisplayActionButton(
+            .forgetPairedDevices,
+            title: "Forget Paired Devices",
+            systemImage: "trash",
+            tone: .destructive,
+            isDisabled: receiver.trustedHosts.isEmpty
+        ) {
+            isForgetPairingConfirmationPresented = true
+        }
+    }
+
+    @ViewBuilder
+    private func remoteDisplayActionButton(
+        _ id: RemoteDisplayControlID,
+        title: String,
+        systemImage: String,
+        tone: RemoteDisplayControlButtonTone,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        #if os(tvOS)
+        RemoteDisplayControlButton(
+            title: title,
+            systemImage: systemImage,
+            tone: tone,
+            isDisabled: isDisabled,
+            isFocused: focusedControl == id,
+            action: action
+        )
+        .focused($focusedControl, equals: id)
+        #else
+        RemoteDisplayControlButton(
+            title: title,
+            systemImage: systemImage,
+            tone: tone,
+            isDisabled: isDisabled,
+            action: action
+        )
+        #endif
+    }
+
+    #if os(tvOS)
+    private var availableFocusedControls: [RemoteDisplayControlID] {
+        var controls: [RemoteDisplayControlID] = []
+
+        if hasLiveState {
+            controls.append(.returnToLive)
+        }
+        controls.append(.newCode)
+        if receiver.canDisconnectFromOperator {
+            controls.append(.disconnect)
+        }
+        if openScoreboardWindow != nil {
+            controls.append(.openScoreboard)
+        }
+        if exitRemoteDisplayMode != nil {
+            controls.append(.exitDisplayMode)
+        }
+        controls.append(.about)
+        if !receiver.trustedHosts.isEmpty {
+            controls.append(.forgetPairedDevices)
+        }
+
+        return controls
+    }
+
+    private var preferredFocusedControl: RemoteDisplayControlID? {
+        if hasLiveState {
+            return .returnToLive
+        }
+        return .newCode
+    }
+
+    private func updateFocusedControl(force: Bool = false) {
+        let controls = availableFocusedControls
+        guard !controls.isEmpty else {
+            focusedControl = nil
+            return
+        }
+
+        if force || focusedControl.map({ !controls.contains($0) }) != false {
+            focusedControl = preferredFocusedControl.flatMap { controls.contains($0) ? $0 : nil } ?? controls[0]
+        }
+    }
+    #endif
+
     private var passiveDisplayDetail: String {
-        localizedRemoteDisplayString("This screen mirrors the Remote Display output. Use the main Smart Scoreboard window on this device to pair.")
+        localizedRemoteDisplayString("This screen mirrors the Remote Display output. On the main Smart Scoreboard window, go to Settings > Integration > Remote Display to pair.")
     }
 
     private var savedPairingDetail: String {
@@ -760,7 +1063,7 @@ private struct RemoteDisplayConfigurationView: View {
     private func localizedRemoteDisplayReceiverStatusDetail(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
         switch status {
         case .waiting:
-            return localizedRemoteDisplayString("Open Scoreboard settings on the operator device and pair this display.")
+            return localizedRemoteDisplayString("On the operator device, open Settings > Integration > Remote Display, then enter this display's pairing code.")
         case .paired(let name):
             return localizedRemoteDisplayFormat("Receiving live scoreboard updates from %@.", name)
         case .disconnected(let message), .failed(let message):
@@ -778,7 +1081,7 @@ private struct RemoteDisplayConfigurationView: View {
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.white)
 
-            Text("Pairing controls are available on the primary screen.")
+            Text("Use the primary screen: Settings > Integration > Remote Display.")
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.58))
@@ -795,6 +1098,367 @@ private struct RemoteDisplayConfigurationView: View {
                 .animation(.easeInOut(duration: 0.8), value: timeline.date)
         }
         .frame(width: 12, height: 12)
+    }
+}
+
+private struct RemoteDisplayConnectionBackground: View {
+    let status: ScoreboardRemoteDisplayReceiverStatus
+
+    private var accentColor: Color {
+        switch status {
+        case .waiting:
+            return Color(red: 0.16, green: 0.58, blue: 1.0)
+        case .paired:
+            return Color(red: 0.18, green: 0.82, blue: 0.42)
+        case .disconnected:
+            return Color(red: 1.0, green: 0.58, blue: 0.20)
+        case .failed:
+            return Color(red: 1.0, green: 0.28, blue: 0.34)
+        }
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: Date(), by: 1.0 / 30.0)) { timeline in
+            GeometryReader { proxy in
+                let phase = timeline.date.timeIntervalSinceReferenceDate
+                let pulse = 0.62 + (sin(phase * 0.72) * 0.18)
+
+                ZStack {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.02, green: 0.03, blue: 0.05),
+                            Color(red: 0.08, green: 0.09, blue: 0.14),
+                            .black
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    LinearGradient(
+                        colors: [
+                            accentColor.opacity(0.16 * pulse),
+                            .clear,
+                            accentColor.opacity(0.10 * pulse)
+                        ],
+                        startPoint: animatedStartPoint(phase: phase),
+                        endPoint: animatedEndPoint(phase: phase)
+                    )
+                    .blendMode(.screen)
+
+                    RemoteDisplayConnectionGrid(accentColor: accentColor, phase: phase)
+                        .opacity(0.68)
+
+                    ForEach(0..<4, id: \.self) { index in
+                        RemoteDisplayConnectionSweep(
+                            accentColor: accentColor,
+                            phase: phase,
+                            index: index,
+                            size: proxy.size
+                        )
+                    }
+
+                    LinearGradient(
+                        colors: [
+                            .black.opacity(0.12),
+                            .clear,
+                            .black.opacity(0.42)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private func animatedStartPoint(phase: TimeInterval) -> UnitPoint {
+        UnitPoint(
+            x: 0.18 + (0.08 * sin(phase * 0.10)),
+            y: 0.06 + (0.12 * cos(phase * 0.08))
+        )
+    }
+
+    private func animatedEndPoint(phase: TimeInterval) -> UnitPoint {
+        UnitPoint(
+            x: 0.86 + (0.08 * cos(phase * 0.09)),
+            y: 0.92 + (0.10 * sin(phase * 0.11))
+        )
+    }
+}
+
+private struct RemoteDisplayConnectionGrid: View {
+    let accentColor: Color
+    let phase: TimeInterval
+
+    var body: some View {
+        Canvas { context, size in
+            let spacing = max(CGFloat(44), min(size.width, size.height) / 12)
+            let offset = CGFloat(phase.truncatingRemainder(dividingBy: 4) / 4) * spacing
+            let diagonalShift = size.height * 0.18
+            var path = Path()
+
+            var x = -spacing + offset
+            while x < size.width + spacing {
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x + diagonalShift, y: size.height))
+                x += spacing
+            }
+
+            var y = -spacing + offset
+            while y < size.height + spacing {
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y - diagonalShift))
+                y += spacing
+            }
+
+            context.stroke(path, with: .color(accentColor.opacity(0.12)), lineWidth: 1)
+        }
+    }
+}
+
+private struct RemoteDisplayConnectionSweep: View {
+    let accentColor: Color
+    let phase: TimeInterval
+    let index: Int
+    let size: CGSize
+
+    var body: some View {
+        let largestDimension = max(size.width, size.height)
+        let bandWidth = max(CGFloat(180), largestDimension * 0.22)
+        let travel = size.width + (bandWidth * 2)
+        let duration = Double(7 + index)
+        let progress = (phase / duration + Double(index) * 0.27).truncatingRemainder(dividingBy: 1)
+        let xPosition = -bandWidth + (CGFloat(progress) * travel)
+        let opacity = 0.08 + (0.03 * sin(phase * 0.7 + Double(index)))
+
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        accentColor.opacity(opacity),
+                        .clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(width: bandWidth, height: largestDimension * 1.85)
+            .rotationEffect(.degrees(-18))
+            .position(x: xPosition, y: size.height / 2)
+            .blendMode(.screen)
+    }
+}
+
+private enum RemoteDisplayControlButtonTone {
+    case neutral
+    case primary
+    case destructive
+
+    var background: Color {
+        switch self {
+        case .neutral:
+            return .white.opacity(0.18)
+        case .primary:
+            return Color(red: 0.0, green: 0.44, blue: 0.95)
+        case .destructive:
+            return Color(red: 1.0, green: 0.24, blue: 0.30)
+        }
+    }
+
+    var pressedBackground: Color {
+        switch self {
+        case .neutral:
+            return .white.opacity(0.26)
+        case .primary:
+            return Color(red: 0.0, green: 0.36, blue: 0.78)
+        case .destructive:
+            return Color(red: 0.86, green: 0.16, blue: 0.22)
+        }
+    }
+
+    var focusedBackground: Color {
+        switch self {
+        case .neutral:
+            return .white
+        case .primary:
+            return Color(red: 0.0, green: 0.48, blue: 1.0)
+        case .destructive:
+            return Color(red: 1.0, green: 0.28, blue: 0.34)
+        }
+    }
+
+    var foreground: Color {
+        switch self {
+        case .neutral, .primary, .destructive:
+            return .white
+        }
+    }
+
+    var focusedForeground: Color {
+        switch self {
+        case .neutral:
+            return Color(red: 0.04, green: 0.05, blue: 0.08)
+        case .primary, .destructive:
+            return .white
+        }
+    }
+
+    var stroke: Color {
+        switch self {
+        case .neutral:
+            return .white.opacity(0.22)
+        case .primary, .destructive:
+            return .white.opacity(0.26)
+        }
+    }
+
+    var focusedStroke: Color {
+        switch self {
+        case .neutral:
+            return .white.opacity(0.95)
+        case .primary, .destructive:
+            return .white.opacity(0.72)
+        }
+    }
+}
+
+private struct RemoteDisplayControlButton: View {
+    let title: String
+    let systemImage: String
+    let tone: RemoteDisplayControlButtonTone
+    var isDisabled = false
+    var isFocused = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: iconWidth)
+
+                Text(localizedRemoteDisplayString(title))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(localizedRemoteDisplayString(title))
+        }
+        .buttonStyle(RemoteDisplayControlButtonStyle(tone: tone, isFocused: isFocused))
+        .disabled(isDisabled)
+    }
+
+    private var iconWidth: CGFloat {
+        #if os(tvOS)
+        30
+        #else
+        22
+        #endif
+    }
+}
+
+private struct RemoteDisplayControlButtonStyle: ButtonStyle {
+    let tone: RemoteDisplayControlButtonTone
+    let isFocused: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(buttonFont)
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, horizontalPadding)
+            .frame(maxWidth: .infinity, minHeight: minHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(backgroundColor(configuration: configuration))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(strokeColor, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .shadow(
+                color: focusShadowColor,
+                radius: isEnabled && isFocused ? 18 : 0,
+                y: isEnabled && isFocused ? 8 : 0
+            )
+            .scaleEffect(scale(configuration: configuration))
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: isFocused)
+    }
+
+    private var buttonFont: Font {
+        #if os(tvOS)
+        .system(size: 25, weight: .bold, design: .rounded)
+        #else
+        .headline.weight(.bold)
+        #endif
+    }
+
+    private var minHeight: CGFloat {
+        #if os(tvOS)
+        76
+        #else
+        50
+        #endif
+    }
+
+    private var horizontalPadding: CGFloat {
+        #if os(tvOS)
+        22
+        #else
+        16
+        #endif
+    }
+
+    private var foregroundColor: Color {
+        if isEnabled && isFocused {
+            return tone.focusedForeground
+        }
+        return isEnabled ? tone.foreground : .white.opacity(0.38)
+    }
+
+    private var strokeColor: Color {
+        if isEnabled && isFocused {
+            return tone.focusedStroke
+        }
+        return isEnabled ? tone.stroke : .white.opacity(0.12)
+    }
+
+    private var focusShadowColor: Color {
+        guard isEnabled && isFocused else {
+            return .clear
+        }
+        switch tone {
+        case .neutral:
+            return .white.opacity(0.28)
+        case .primary:
+            return Color(red: 0.0, green: 0.48, blue: 1.0).opacity(0.34)
+        case .destructive:
+            return Color(red: 1.0, green: 0.28, blue: 0.34).opacity(0.34)
+        }
+    }
+
+    private func backgroundColor(configuration: Configuration) -> Color {
+        guard isEnabled else {
+            return .white.opacity(0.08)
+        }
+        if configuration.isPressed {
+            return tone.pressedBackground
+        }
+        return isFocused ? tone.focusedBackground : tone.background
+    }
+
+    private func scale(configuration: Configuration) -> CGFloat {
+        guard isEnabled else {
+            return 1
+        }
+        if configuration.isPressed {
+            return isFocused ? 1.02 : 0.97
+        }
+        return isFocused ? 1.045 : 1
     }
 }
 
@@ -843,16 +1507,317 @@ private struct RemoteDisplayAboutHeader: View {
                     .foregroundStyle(.white.opacity(0.84))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("This device is a Remote Display. Open Smart Scoreboard on a tablet or computer, enable Remote Display Pairing, then enter the code below from that operator device.")
+                Text("This device is a Remote Display. On the tablet or computer running Smart Scoreboard, go to Settings > Integration > Remote Display, then enter the code below.")
                     .font(.body.weight(.medium))
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
+
+                #if os(tvOS)
+                Text("Apple TV can only act as a Remote Display. It requires the full Smart Scoreboard app on macOS or iPad to pair, control, and run the scoreboard.")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.64))
+                    .fixedSize(horizontal: false, vertical: true)
+                #endif
             }
             .frame(maxWidth: 820, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
     }
 }
+
+#if os(tvOS)
+private enum RemoteDisplayAppleTVAboutControlID: Hashable {
+    case back
+    case factoryDefault
+}
+
+private struct RemoteDisplayAppleTVAboutView: View {
+    let close: () -> Void
+    let factoryDefault: () -> Void
+
+    @State private var isFactoryDefaultConfirmationPresented = false
+    @FocusState private var focusedControl: RemoteDisplayAppleTVAboutControlID?
+
+    private var appVersionLine: String {
+        localizedRemoteDisplayFormat("Version %@", ScoreboardRemoteDisplayAppVersion.current.displayText)
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.03, blue: 0.05),
+                    Color(red: 0.08, green: 0.09, blue: 0.14),
+                    .black
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            GeometryReader { proxy in
+                HStack(alignment: .top, spacing: 58) {
+                    aboutSidebar
+                        .frame(width: min(max(proxy.size.width * 0.28, 380), 500), alignment: .topLeading)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            aboutApplicationSection
+                            aboutFactoryDefaultSection
+                            aboutLicenseSection
+                            aboutThirdPartySection
+                            aboutTrademarksSection
+                            aboutLinksSection
+                            aboutBugReportsSection
+                            aboutPrivacySection
+                        }
+                        .padding(.trailing, 24)
+                        .padding(.bottom, 70)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(.horizontal, 72)
+                .padding(.vertical, 62)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        }
+        .onAppear {
+            focusedControl = .back
+        }
+        .onExitCommand {
+            close()
+        }
+        .alert("Factory Default App", isPresented: $isFactoryDefaultConfirmationPresented) {
+            Button("Factory Default", role: .destructive) {
+                factoryDefault()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete saved operator devices, disconnect the current Remote Display session, and return this Apple TV display app to first-launch pairing defaults.")
+        }
+    }
+
+    private var aboutSidebar: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Image("ScoreboardIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 146, height: 146)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("About")
+                    .font(.title2.weight(.black))
+                    .foregroundStyle(.white.opacity(0.58))
+
+                Text("Smart Scoreboard")
+                    .font(.system(size: 54, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
+
+                Text(appVersionLine)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.66))
+
+                Text("Apple TV can only act as a Remote Display. Use the full Smart Scoreboard app on macOS or iPad to pair this Apple TV, control the scoreboard, and send live updates.")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            RemoteDisplayControlButton(
+                title: "Back",
+                systemImage: "chevron.left",
+                tone: .primary,
+                isFocused: focusedControl == .back,
+                action: close
+            )
+            .focused($focusedControl, equals: .back)
+
+            RemoteDisplayControlButton(
+                title: "Factory Default",
+                systemImage: "trash",
+                tone: .destructive,
+                isFocused: focusedControl == .factoryDefault
+            ) {
+                isFactoryDefaultConfirmationPresented = true
+            }
+            .focused($focusedControl, equals: .factoryDefault)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var aboutApplicationSection: some View {
+        aboutSection("Application") {
+            aboutValueRow(title: "Name", value: "Smart Scoreboard")
+            aboutDivider
+            aboutValueRow(title: "Version", value: ScoreboardRemoteDisplayAppVersion.current.displayText)
+            aboutDivider
+            aboutParagraph("A live scoreboard app for sports, debate, chess, and custom game displays.")
+        }
+    }
+
+    private var aboutFactoryDefaultSection: some View {
+        aboutSection("Factory Default") {
+            aboutParagraph("Deletes local Remote Display pairing data and returns this Apple TV display app to first-launch defaults.")
+        }
+    }
+
+    private var aboutLicenseSection: some View {
+        aboutSection("License") {
+            aboutValueRow(title: "License", value: "GNU General Public License v3.0", localizesValue: true)
+            aboutDivider
+            aboutParagraph("This software is free software released under the GNU General Public License version 3. You may redistribute and modify it under those terms.")
+            aboutDivider
+            aboutParagraph("Distributed without warranty.", isEmphasized: true)
+            aboutDivider
+            aboutParagraph("See LICENSE.md in the repository for the full GNU General Public License text.")
+        }
+    }
+
+    private var aboutThirdPartySection: some View {
+        aboutSection("Third-Party Licenses") {
+            aboutParagraph("The Web API demo pages use bundled first-party HTML, CSS, and JavaScript only. No third-party web libraries are included for these integrations.")
+        }
+    }
+
+    private var aboutTrademarksSection: some View {
+        aboutSection("Trademarks") {
+            aboutParagraph("Bitfocus Companion is a trademark of its respective owner. SmartScoreboard is not affiliated with or endorsed by Bitfocus.")
+        }
+    }
+
+    private var aboutLinksSection: some View {
+        aboutSection("Links") {
+            aboutLinkRow(
+                title: "Source Code",
+                subtitle: "github.com/sikaxn/scoreboard",
+                systemImage: "chevron.left.forwardslash.chevron.right",
+                urlString: "https://github.com/sikaxn/scoreboard"
+            )
+            aboutDivider
+            aboutLinkRow(
+                title: "Privacy Policy",
+                subtitle: "studenttechsupport.com/privacy",
+                systemImage: "hand.raised",
+                urlString: "https://studenttechsupport.com/privacy"
+            )
+            aboutDivider
+            aboutLinkRow(
+                title: "Bug Reports",
+                subtitle: "Open a GitHub issue",
+                systemImage: "exclamationmark.bubble",
+                urlString: "https://github.com/sikaxn/scoreboard/issues/new"
+            )
+        }
+    }
+
+    private var aboutBugReportsSection: some View {
+        aboutSection("Bug Reports") {
+            aboutParagraph("To report a bug, open a GitHub issue in the scoreboard repository and include the sport, device, OS version, and steps to reproduce.")
+        }
+    }
+
+    private var aboutPrivacySection: some View {
+        aboutSection("Privacy") {
+            aboutParagraph("This app does not collect any data and does not phone any third-party server.")
+        }
+    }
+
+    private func aboutSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(localizedRemoteDisplayString(title))
+                .font(.title3.weight(.black))
+                .foregroundStyle(.white.opacity(0.92))
+                .textCase(.uppercase)
+
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+    }
+
+    private func aboutValueRow(title: String, value: String, localizesValue: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
+            Text(localizedRemoteDisplayString(title))
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white.opacity(0.74))
+
+            Spacer(minLength: 0)
+
+            Text(localizesValue ? localizedRemoteDisplayString(value) : value)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func aboutParagraph(_ text: String, isEmphasized: Bool = false) -> some View {
+        Text(localizedRemoteDisplayString(text))
+            .font(isEmphasized ? .body.weight(.bold) : .body.weight(.medium))
+            .foregroundStyle(isEmphasized ? .white.opacity(0.78) : .white.opacity(0.84))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+    }
+
+    private func aboutLinkRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        urlString: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white.opacity(0.84))
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(localizedRemoteDisplayString(title))
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Text(localizedRemoteDisplayString(subtitle))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.66))
+
+                Text(urlString)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.white.opacity(0.58))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var aboutDivider: some View {
+        Rectangle()
+            .fill(.white.opacity(0.12))
+            .frame(height: 1)
+    }
+}
+#endif
 
 private struct RemoteDisplayLiveBadge: View {
     let health: RemoteDisplayConnectionHealth
