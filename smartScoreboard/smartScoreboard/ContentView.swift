@@ -1791,18 +1791,16 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsRemoteDisplayPane(layout: InterfaceLayout) -> some View {
+    private func settingsRemoteDisplayPane(layout _: InterfaceLayout) -> some View {
         let displayRows = remoteDisplaySettingsRows
 
-        return settingsTwoColumnLayout(layout: layout) {
-            VStack(alignment: .leading, spacing: 22) {
-                settingsRemoteDisplayThisDeviceSection()
-                settingsRemoteDisplayAboutSection()
-                settingsRemoteDisplayBroadcastSection()
-            }
-        } right: {
+        return VStack(alignment: .leading, spacing: 22) {
+            settingsRemoteDisplayThisDeviceSection()
+            settingsRemoteDisplayAboutSection()
+            settingsRemoteDisplayBroadcastSection()
             settingsRemoteDisplayDisplaysSection(displayRows)
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
