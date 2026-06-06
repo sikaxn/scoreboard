@@ -33,6 +33,7 @@ struct ContentView: View {
 
     @State private var homeTeamDraft = ""
     @State private var guestTeamDraft = ""
+    @State private var eventNameDraft = ""
     @State private var setupSport: SportType = .simple
     @State private var setupPeriod = 1
     @State private var setupClockSeconds = 10 * 60
@@ -90,9 +91,11 @@ struct ContentView: View {
     @State private var showsExternalBackgroundPhotoPicker = false
     @State private var showsHomeLogoPhotoPicker = false
     @State private var showsGuestLogoPhotoPicker = false
+    @State private var showsEventLogoPhotoPicker = false
     @State private var selectedExternalBackgroundPhotoItem: PhotosPickerItem?
     @State private var selectedHomeLogoPhotoItem: PhotosPickerItem?
     @State private var selectedGuestLogoPhotoItem: PhotosPickerItem?
+    @State private var selectedEventLogoPhotoItem: PhotosPickerItem?
     #endif
 
     private var themePalette: ThemePalette { store.theme.palette }
@@ -175,6 +178,7 @@ struct ContentView: View {
         rootView
         .onReceive(store.$homeTeamName) { homeTeamDraft = $0 }
         .onReceive(store.$guestTeamName) { guestTeamDraft = $0 }
+        .onReceive(store.$eventName) { eventNameDraft = $0 }
         .onReceive(store.$homeScore) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestScore) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$period) { _ in autosaveSelectedGameFile() }
@@ -223,6 +227,7 @@ struct ContentView: View {
         .onReceive(store.$playerLineupFadePageSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$playerLineupScrollSpeed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$playerLineupScrollDirection) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$playerViewRosterScope) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$playerFoulHighlightColor) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isGameClockRedEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
@@ -242,12 +247,15 @@ struct ContentView: View {
         .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$showsEventLogo) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$eventLogoImage) { _ in autosaveSelectedGameFile() }
     }
 
     private var basicSetupDraftConfiguredRootView: some View {
         synchronizedRootView
         .onChange(of: homeTeamDraft) { _, _ in handleSetupDraftChanged() }
         .onChange(of: guestTeamDraft) { _, _ in handleSetupDraftChanged() }
+        .onChange(of: eventNameDraft) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupSport) { _, newValue in
             guard !isSetupDraftUpdateSuppressed else { return }
             applySetupSportDefaults(newValue)
@@ -389,6 +397,12 @@ struct ContentView: View {
             matching: .images,
             photoLibrary: .shared()
         )
+        .photosPicker(
+            isPresented: $showsEventLogoPhotoPicker,
+            selection: $selectedEventLogoPhotoItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
         .onChange(of: selectedExternalBackgroundPhotoItem) { _, item in
             guard let item else { return }
             Task {
@@ -413,6 +427,15 @@ struct ContentView: View {
                 await importTeamLogoPhoto(item, for: .guest)
                 await MainActor.run {
                     selectedGuestLogoPhotoItem = nil
+                }
+            }
+        }
+        .onChange(of: selectedEventLogoPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await importEventLogoPhoto(item)
+                await MainActor.run {
+                    selectedEventLogoPhotoItem = nil
                 }
             }
         }
@@ -700,6 +723,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Sport", footer: "Choose the scoreboard mode before editing teams, clocks, and tracking rules.") {
                 sportSelectionGrid(layout: layout)
+            }
+
+            settingsSection(title: "Event") {
+                settingsPlainTextEntryRow(title: "Event Name", text: $eventNameDraft)
             }
 
             settingsSection(title: "Teams") {
@@ -1466,7 +1493,7 @@ struct ContentView: View {
                 )
                 settingsDivider()
                 settingsPickerRow(
-                    title: "Scroll Direction",
+                    title: "Scroll Mode",
                     selection: Binding(
                         get: { store.playerLineupScrollDirection },
                         set: { store.playerLineupScrollDirection = $0 }
@@ -1478,6 +1505,7 @@ struct ContentView: View {
             }
 
             settingsTeamLogoSection()
+            settingsEventLogoSection()
 
             if store.supportsFouls {
                 settingsSection(title: "Foul Highlight") {
@@ -1543,6 +1571,17 @@ struct ContentView: View {
             teamLogoSettingsRow(for: .home)
             settingsDivider()
             teamLogoSettingsRow(for: .guest)
+        }
+    }
+
+    private func settingsEventLogoSection() -> some View {
+        settingsSection(title: "Event Logo", footer: "Shown in the scoreboard center box and Event Logo display mode on public, external, and remote displays.") {
+            settingsToggleRow(title: "Show Event Logo", isOn: Binding(
+                get: { store.showsEventLogo },
+                set: { store.showsEventLogo = $0 }
+            ))
+            settingsDivider()
+            eventLogoSettingsRow()
         }
     }
 
@@ -3352,6 +3391,7 @@ struct ContentView: View {
     private var settingsCurrentGameSummaryDetailRows: [SettingsDetailRow] {
         var rows: [SettingsDetailRow] = [
             SettingsDetailRow(id: "workingFile", title: "Working File", value: selectedStoredGameFile?.displayName ?? localizedAppString("Auto-created")),
+            SettingsDetailRow(id: "event", title: "Event", value: eventNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? localizedAppString("Not Set") : eventNameDraft),
             SettingsDetailRow(id: "homeTeam", title: "Home Team", value: displayTeamName(homeTeamDraft)),
             SettingsDetailRow(id: "guestTeam", title: "Guest Team", value: displayTeamName(guestTeamDraft)),
             SettingsDetailRow(id: "sport", title: "Sport", value: localizedAppString(setupSport.title))
@@ -4629,6 +4669,47 @@ struct ContentView: View {
         .padding(.vertical, 12)
     }
 
+    private func eventLogoSettingsRow() -> some View {
+        let logo = store.eventLogoImage
+
+        return HStack(alignment: .center, spacing: 14) {
+            eventLogoSettingsPreview()
+                .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText("Event Logo")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(logo.map { "\($0.displayName) · \($0.pixelWidth)x\($0.pixelHeight)" } ?? localizedAppString("Optional event image for Event Logo display mode."))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                #if os(iOS)
+                settingsCompactIconButton("Choose", systemImage: "photo.badge.plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    showsEventLogoPhotoPicker = true
+                }
+                #else
+                settingsCompactIconButton("Choose", systemImage: "photo.badge.plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    beginEventLogoImageImport()
+                }
+                #endif
+
+                if logo != nil {
+                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                        store.clearEventLogoImage()
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
     @ViewBuilder
     private func teamLogoSettingsPreview(for side: TeamSide) -> some View {
         if let logo = store.teamLogoImage(for: side) {
@@ -4644,6 +4725,29 @@ struct ContentView: View {
                     Image(systemName: side == .home ? "h.circle" : "g.circle")
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(side == .home ? homeTint : guestTint)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func eventLogoSettingsPreview() -> some View {
+        if let logo = store.eventLogoImage {
+            TeamLogoImageView(data: logo.data, cornerRadius: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(settingsPalette.fieldBackground)
+                .overlay(
+                    Image(systemName: "seal")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accent)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -4748,6 +4852,13 @@ struct ContentView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                )
+        } else if mode == .smartScoreboard {
+            SmartScoreboardBackgroundView()
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
@@ -5013,8 +5124,6 @@ struct ContentView: View {
                 .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.4)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: store.formattedShotClock)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
@@ -5131,6 +5240,9 @@ struct ContentView: View {
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
 
+                displayPresetPanel(layout: layout)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+
                 previewPanel(
                     title: "External Scoreboard",
                     caption: currentPreviewModeTitle,
@@ -5143,6 +5255,64 @@ struct ContentView: View {
             }
             .padding(.bottom, layout.sectionSpacing)
         }
+    }
+
+    private func displayPresetPanel(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Display")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text(store.publicDisplayViewMode.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 10),
+                    count: layout.isCompactWidth ? 2 : 3
+                ),
+                spacing: 10
+            ) {
+                ForEach(ScoreboardDisplayViewMode.allCases) { mode in
+                    displayPresetButton(mode, layout: layout)
+                }
+            }
+        }
+        .padding(.horizontal, layout.controlCardPadding)
+        .padding(.vertical, layout.controlCardPadding)
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder)
+        )
+    }
+
+    private func displayPresetButton(_ mode: ScoreboardDisplayViewMode, layout: InterfaceLayout) -> some View {
+        let isSelected = store.publicDisplayViewMode == mode
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                store.publicDisplayViewMode = mode
+            }
+        } label: {
+            Label(mode.title, systemImage: isSelected ? "checkmark.circle.fill" : mode.systemImage)
+                .font(.headline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundStyle(isSelected ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, layout.denseControls ? 12 : 14)
+                .background(
+                    isSelected ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func dashboardControlStack(layout: InterfaceLayout) -> some View {
@@ -5418,7 +5588,7 @@ struct ContentView: View {
                 spacing: 10
             ) {
                 if store.supportsShotClock {
-                    gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, layout: layout)
+                    gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, animatesValue: false, layout: layout)
                 }
                 if store.supportsPeriod {
                     gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
@@ -5590,6 +5760,7 @@ struct ContentView: View {
         title: String,
         value: String,
         monospaced: Bool = false,
+        animatesValue: Bool = true,
         layout: InterfaceLayout
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -5598,13 +5769,7 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardSubtleText)
 
-            Text(value)
-                .font(.system(size: layout.centerMetricValueSize, weight: .black, design: .rounded))
-                .monospacedDigitIfNeeded(monospaced)
-                .singleLineFitted(minScale: 0.4)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
+            gameMetricValueText(value, monospaced: monospaced, animatesValue: animatesValue, layout: layout)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
@@ -5614,6 +5779,28 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
         )
+    }
+
+    @ViewBuilder
+    private func gameMetricValueText(
+        _ value: String,
+        monospaced: Bool,
+        animatesValue: Bool,
+        layout: InterfaceLayout
+    ) -> some View {
+        let text = Text(value)
+            .font(.system(size: layout.centerMetricValueSize, weight: .black, design: .rounded))
+            .monospacedDigitIfNeeded(monospaced)
+            .singleLineFitted(minScale: 0.4)
+            .foregroundStyle(themePalette.dashboardPrimaryText)
+
+        if animatesValue {
+            text
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
+        } else {
+            text
+        }
     }
 
     private func teamControls(
@@ -7056,6 +7243,7 @@ struct ContentView: View {
     private func resetSetupDraftsToDefaults() {
         homeTeamDraft = ""
         guestTeamDraft = ""
+        eventNameDraft = ""
         setupSport = .simple
         setupPeriod = 1
         setupClockSeconds = 10 * 60
@@ -7132,7 +7320,7 @@ struct ContentView: View {
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 7,
+            fileVersion: 9,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -7140,6 +7328,7 @@ struct ContentView: View {
                 : nil,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
+            eventName: eventNameDraft,
             homeScore: 0,
             guestScore: 0,
             period: setupPeriod,
@@ -7196,8 +7385,11 @@ struct ContentView: View {
             externalDisplayBackgroundMode: store.externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: store.currentGameSnapshot().externalDisplayBackgroundImage,
             showsTeamLogos: store.showsTeamLogos,
+            showsEventLogo: store.showsEventLogo,
+            playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: store.currentGameSnapshot().homeTeamLogoImage,
-            guestTeamLogoImage: store.currentGameSnapshot().guestTeamLogoImage
+            guestTeamLogoImage: store.currentGameSnapshot().guestTeamLogoImage,
+            eventLogoImage: store.currentGameSnapshot().eventLogoImage
         )
     }
 
@@ -7518,6 +7710,23 @@ struct ContentView: View {
         #endif
     }
 
+    private func beginEventLogoImageImport() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = macOSImageImportContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.urls.first else {
+                return
+            }
+
+            importEventLogoImageFile(url)
+        }
+        #endif
+    }
+
     #if os(macOS)
     private func importExternalBackgroundImageFile(_ sourceURL: URL) {
         do {
@@ -7550,6 +7759,22 @@ struct ContentView: View {
             presentFileOperationError(error)
         }
     }
+
+    private func importEventLogoImageFile(_ sourceURL: URL) {
+        do {
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try readImportedFileData(from: sourceURL)
+            applyEventLogoImageData(data, sourceName: sourceURL.lastPathComponent)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
     #endif
 
     #if os(iOS)
@@ -7578,6 +7803,19 @@ struct ContentView: View {
             presentFileOperationError(error)
         }
     }
+
+    @MainActor
+    private func importEventLogoPhoto(_ item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw ScoreboardDisplayImageError.unreadableImage
+            }
+
+            applyEventLogoImageData(data, sourceName: item.itemIdentifier)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
     #endif
 
     private func applyExternalBackgroundImageData(_ data: Data, sourceName: String?) {
@@ -7595,6 +7833,16 @@ struct ContentView: View {
         do {
             let image = try ScoreboardDisplayImageProcessor.makeTeamLogo(from: data, sourceName: sourceName)
             store.setTeamLogoImage(image, for: side)
+            autosaveSelectedGameFile(refreshSelection: true)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+
+    private func applyEventLogoImageData(_ data: Data, sourceName: String?) {
+        do {
+            let image = try ScoreboardDisplayImageProcessor.makeEventLogo(from: data, sourceName: sourceName)
+            store.setEventLogoImage(image)
             autosaveSelectedGameFile(refreshSelection: true)
         } catch {
             presentFileOperationError(error)
@@ -7998,6 +8246,7 @@ struct ContentView: View {
         }
         homeTeamDraft = store.homeTeamName
         guestTeamDraft = store.guestTeamName
+        eventNameDraft = store.eventName
         setupSport = store.selectedSport
         selectedSoundSettingsSport = store.selectedSport
         selectedCompanionSettingsSport = store.selectedSport
@@ -8591,7 +8840,7 @@ struct ContentView: View {
             : currentSnapshot.guestChessClockSeconds
 
         return ScoreboardGameSnapshot(
-            fileVersion: 7,
+            fileVersion: 9,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -8599,6 +8848,7 @@ struct ContentView: View {
                 : currentSnapshot.customDebatePreset,
             homeTeamName: homeTeamDraft,
             guestTeamName: guestTeamDraft,
+            eventName: eventNameDraft,
             homeScore: currentSnapshot.homeScore,
             guestScore: currentSnapshot.guestScore,
             period: setupPeriod,
@@ -8655,8 +8905,11 @@ struct ContentView: View {
             externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
             showsTeamLogos: currentSnapshot.showsTeamLogos,
+            showsEventLogo: currentSnapshot.showsEventLogo,
+            playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
-            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage
+            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage,
+            eventLogoImage: currentSnapshot.eventLogoImage
         )
     }
 
@@ -8691,12 +8944,13 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 7,
+                    fileVersion: 9,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
                     homeTeamName: preset.homeTeamName,
                     guestTeamName: preset.guestTeamName,
+                    eventName: "",
                     homeScore: 0,
                     guestScore: 0,
                     period: preset.period,
@@ -8844,16 +9098,21 @@ struct ContentView: View {
     }
 
     private func currentPreviewBoard(layout: InterfaceLayout) -> some View {
-        ScoreboardFaceView(
+        PublicScoreboardDisplayView(
+            viewMode: store.publicDisplayViewMode,
+            playerViewRosterScope: .fullRoster,
             theme: store.theme,
-            backgroundStyle: currentPreviewBoardBackgroundStyle,
+            backgroundMode: store.externalDisplayBackgroundMode,
+            backgroundImage: store.externalDisplayBackgroundImage.map(PublicScoreboardBackgroundImage.init(image:)),
             sport: store.selectedSport,
             rules: store.currentRules,
             showsScore: store.supportsScore,
             homeTeamName: store.homeTeamName,
             guestTeamName: store.guestTeamName,
+            eventName: store.eventName,
             homeTeamLogoData: store.showsTeamLogos ? store.homeTeamLogoImage?.data : nil,
             guestTeamLogoData: store.showsTeamLogos ? store.guestTeamLogoImage?.data : nil,
+            eventLogoData: store.showsEventLogo ? store.eventLogoImage?.data : nil,
             playerLineupOverflowMode: store.playerLineupOverflowMode,
             playerLineupOverflowLogoOverride: store.playerLineupOverflowLogoOverride,
             playerLineupOverflowNoLogoOverride: store.playerLineupOverflowNoLogoOverride,
@@ -8893,40 +9152,31 @@ struct ContentView: View {
             guestTeamFouls: store.guestTeamFouls,
             homePenaltyTimers: store.homePenaltyTimers,
             guestPenaltyTimers: store.guestPenaltyTimers,
-            homePlayers: store.displayedHomePlayers,
-            guestPlayers: store.displayedGuestPlayers,
-            compact: layout.previewUsesCompactBoard
+            homeDisplayedPlayers: store.displayedHomePlayers,
+            guestDisplayedPlayers: store.displayedGuestPlayers,
+            homeRosterPlayers: store.homeRoster.players,
+            guestRosterPlayers: store.guestRoster.players
         )
     }
 
     private var currentPreviewModeTitle: String {
+        let displayModeTitle = store.publicDisplayViewMode.title
+        let backgroundTitle: String
         switch store.externalDisplayBackgroundMode {
         case .blurred:
-            return "Blurred Background"
+            backgroundTitle = "Blurred Background"
         case .clear:
-            return "Clear Background"
+            backgroundTitle = "Clear Background"
         case .clearUnderBoard:
-            return "Transparent Board"
+            backgroundTitle = "Transparent Board"
+        case .smartScoreboard:
+            backgroundTitle = "Smart Scoreboard Background"
         case .image:
-            return "Photo Background"
+            backgroundTitle = "Photo Background"
         case .none:
-            return "No Background"
+            backgroundTitle = "No Background"
         }
-    }
-
-    private var currentPreviewBoardBackgroundStyle: ScoreboardFaceView.BackgroundStyle {
-        switch store.externalDisplayBackgroundMode {
-        case .blurred:
-            return .blurred
-        case .clear:
-            return .clear
-        case .clearUnderBoard:
-            return .transparent
-        case .image:
-            return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
-        case .none:
-            return .clear
-        }
+        return "\(displayModeTitle) / \(backgroundTitle)"
     }
 
     private var setupDescription: String {

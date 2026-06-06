@@ -175,6 +175,7 @@
         <tr><th data-i18n="endpointColumn">Endpoint</th><th data-i18n="useColumn">Use</th></tr>
         <tr><td><code>GET /api/v1/state</code></td><td data-i18n="stateUse">Latest raw scoreboard state JSON.</td></tr>
         <tr><td><code>GET /api/v1/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. The state JSON only provides metadata and URLs.</td></tr>
+        <tr><td><code>GET /api/v1/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. Use display.showsEventLogo to decide whether to show it.</td></tr>
         <tr><td><code>GET /api/v1/teams/{home|guest}/logo</code></td><td data-i18n="teamLogoUse">Current team logo binary with alpha preserved. Use display.showsTeamLogos to decide whether to show it.</td></tr>
         <tr><td><code>GET /api/v1/health</code></td><td data-i18n="healthUse">Service status, fixed ports, and connected WebSocket client count.</td></tr>
         <tr><td><code>WS /api/v1/ws</code></td><td data-i18n-html="wsUse">Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.</td></tr>
@@ -202,8 +203,9 @@
         docsTitle: 'API Docs',
         endpointColumn: 'Endpoint',
         useColumn: 'Use',
-        stateUse: 'Latest raw scoreboard state JSON. Image fields are metadata and URLs only; no image payloads are embedded. Player fields include lineup overflow mode, page timing, scroll speed, and scroll direction metadata.',
+        stateUse: 'Latest raw scoreboard state JSON. Image fields are metadata and URLs only; no image payloads are embedded. display.viewMode selects scoreboard, black screen, background-only, team, player, or event-logo output; player view uses the full roster.',
         backgroundImageUse: 'Current external display background image binary. Use the response Content-Type; clients do not need to know the ID or file extension.',
+        eventLogoUse: 'Current event logo binary with alpha preserved. Use the response Content-Type; display.showsEventLogo controls whether display.eventLogo metadata appears in state.',
         teamLogoUse: 'Current team logo binary with alpha preserved. Use the response Content-Type; display.showsTeamLogos controls whether logo metadata appears in state.',
         healthUse: 'Service status, fixed ports, and connected WebSocket client count.',
         wsUse: 'Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.'
@@ -226,8 +228,9 @@
         docsTitle: 'API 文档',
         endpointColumn: '端点',
         useColumn: '用途',
-        stateUse: '最新原始记分牌状态 JSON。图片字段只包含元数据和 URL，不嵌入图片内容。球员字段包含阵容溢出模式、翻页时间、滚动速度和滚动方向元数据。',
+        stateUse: '最新原始记分牌状态 JSON。图片字段只包含元数据和 URL，不嵌入图片内容。display.viewMode 选择记分牌、黑屏、仅背景、队伍、球员或赛事标志输出；球员视图使用完整名单。',
         backgroundImageUse: '当前外接显示背景图片二进制内容。请使用响应 Content-Type；客户端不需要知道 ID 或文件扩展名。',
+        eventLogoUse: '当前赛事标志图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsEventLogo 控制状态中是否显示 display.eventLogo 元数据。',
         teamLogoUse: '当前队标图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsTeamLogos 控制状态中是否显示队标元数据。',
         healthUse: '服务状态、固定端口和已连接的 WebSocket 客户端数量。',
         wsUse: '状态变化时接收 <code>scoreboard.state</code> 消息。固定间隔模式会合并到每秒最多 10 次更新；实时推送模式会发送每一次状态变化。发送 <code>{"type":"get"}</code> 可请求最新状态。'

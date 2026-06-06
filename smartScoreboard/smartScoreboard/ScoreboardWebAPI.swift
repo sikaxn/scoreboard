@@ -166,6 +166,10 @@ nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let backgroundMode: ExternalDisplayBackgroundMode
     let backgroundImage: ScoreboardWebAPIBackgroundImage?
     let showsTeamLogos: Bool?
+    let showsEventLogo: Bool?
+    let eventLogo: ScoreboardWebAPIEventLogo?
+    let viewMode: ScoreboardDisplayViewMode?
+    let playerViewRosterScope: PlayerViewRosterScope?
 }
 
 nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
@@ -229,6 +233,15 @@ nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
     let activeChessClockSide: TeamSide?
 }
 
+nonisolated enum ScoreboardWebAPILegacyScrollDirection: String, Codable, Sendable {
+    case up
+    case down
+
+    var resolvedScrollMode: PlayerLineupScrollDirection {
+        .bounce
+    }
+}
+
 nonisolated struct ScoreboardWebAPIPlayers: Codable, Sendable {
     let isPlayerTrackingEnabled: Bool
     let isPlayerOverlayPaused: Bool
@@ -239,7 +252,8 @@ nonisolated struct ScoreboardWebAPIPlayers: Codable, Sendable {
     let lineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
     let lineupFadePageSeconds: Int?
     let lineupScrollSpeed: Int?
-    let lineupScrollDirection: PlayerLineupScrollDirection?
+    let lineupScrollMode: PlayerLineupScrollDirection?
+    let lineupScrollDirection: ScoreboardWebAPILegacyScrollDirection?
     let foulHighlightColor: PlayerFoulHighlightColor
     let homeDisplayed: [TrackedPlayer]
     let guestDisplayed: [TrackedPlayer]
@@ -274,7 +288,9 @@ nonisolated struct ScoreboardWebAPIImageResponse: Sendable {
 
 extension ScoreboardWebAPIState {
     var remoteDisplayPayload: ScoreboardWebAPIState {
-        ScoreboardWebAPIState(
+        let shouldIncludeFullRoster = display?.resolvedViewMode == .playerView
+
+        return ScoreboardWebAPIState(
             schemaVersion: schemaVersion,
             generatedAt: generatedAt,
             generatedAtUnixTime: generatedAtUnixTime,
@@ -286,9 +302,23 @@ extension ScoreboardWebAPIState {
             rules: rules,
             teams: teams,
             clocks: clocks,
-            players: players.remoteDisplayPayload,
+            players: shouldIncludeFullRoster ? players : players.remoteDisplayPayload,
             debate: debate
         )
+    }
+}
+
+extension ScoreboardWebAPIDisplay {
+    var resolvedViewMode: ScoreboardDisplayViewMode {
+        viewMode ?? .scoreboard
+    }
+
+    var resolvedPlayerViewRosterScope: PlayerViewRosterScope {
+        playerViewRosterScope ?? .fullRoster
+    }
+
+    var resolvedShowsEventLogo: Bool {
+        showsEventLogo ?? true
     }
 }
 
@@ -304,6 +334,7 @@ extension ScoreboardWebAPIPlayers {
             lineupOverflowNoLogoOverride: lineupOverflowNoLogoOverride,
             lineupFadePageSeconds: lineupFadePageSeconds,
             lineupScrollSpeed: lineupScrollSpeed,
+            lineupScrollMode: lineupScrollMode,
             lineupScrollDirection: lineupScrollDirection,
             foulHighlightColor: foulHighlightColor,
             homeDisplayed: homeDisplayed,
@@ -311,6 +342,17 @@ extension ScoreboardWebAPIPlayers {
             homeRoster: TeamRoster(players: []),
             guestRoster: TeamRoster(players: [])
         )
+    }
+}
+
+private extension PlayerLineupScrollDirection {
+    var legacyWebAPIScrollDirection: ScoreboardWebAPILegacyScrollDirection {
+        switch self {
+        case .continuousDown, .throughDown:
+            return .down
+        case .continuousUp, .throughUp, .bounce:
+            return .up
+        }
     }
 }
 
@@ -1085,7 +1127,11 @@ extension ScoreboardStore {
                 theme: theme,
                 backgroundMode: externalDisplayBackgroundMode,
                 backgroundImage: webAPIBackgroundImageMetadata(),
-                showsTeamLogos: showsTeamLogos
+                showsTeamLogos: showsTeamLogos,
+                showsEventLogo: showsEventLogo,
+                eventLogo: webAPIEventLogoMetadata(),
+                viewMode: publicDisplayViewMode,
+                playerViewRosterScope: .fullRoster
             ),
             audio: ScoreboardWebAPIAudio(
                 isSoundEnabled: isSoundEnabled,
@@ -1142,7 +1188,8 @@ extension ScoreboardStore {
                 lineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
                 lineupFadePageSeconds: playerLineupFadePageSeconds,
                 lineupScrollSpeed: playerLineupScrollSpeed,
-                lineupScrollDirection: playerLineupScrollDirection,
+                lineupScrollMode: playerLineupScrollDirection,
+                lineupScrollDirection: playerLineupScrollDirection.legacyWebAPIScrollDirection,
                 foulHighlightColor: playerFoulHighlightColor,
                 homeDisplayed: displayedHomePlayers,
                 guestDisplayed: displayedGuestPlayers,
@@ -1214,6 +1261,15 @@ extension ScoreboardStore {
             responses[logo.versionedPath(for: .guest)] = response
             responses[logo.legacyVersionedPath(for: .guest)] = response
         }
+        if let logo = eventLogoImage {
+            let response = ScoreboardWebAPIImageResponse(
+                contentType: logo.mimeType,
+                body: logo.data
+            )
+            responses[logo.path] = response
+            responses[logo.versionedPath] = response
+            responses[logo.legacyVersionedPath] = response
+        }
         return responses
     }
 
@@ -1250,6 +1306,27 @@ extension ScoreboardStore {
 
         let path = logo.path(for: side)
         return ScoreboardWebAPITeamLogo(
+            id: logo.id,
+            mimeType: logo.mimeType,
+            pixelWidth: logo.pixelWidth,
+            pixelHeight: logo.pixelHeight,
+            byteCount: logo.byteCount,
+            updatedAtUnixTime: logo.updatedAtUnixTime,
+            path: path,
+            downloadURLs: webAPIAbsoluteURLs(for: path)
+        )
+    }
+
+    private func webAPIEventLogoMetadata() -> ScoreboardWebAPIEventLogo? {
+        guard showsEventLogo else {
+            return nil
+        }
+        guard let logo = eventLogoImage else {
+            return nil
+        }
+
+        let path = logo.path
+        return ScoreboardWebAPIEventLogo(
             id: logo.id,
             mimeType: logo.mimeType,
             pixelWidth: logo.pixelWidth,

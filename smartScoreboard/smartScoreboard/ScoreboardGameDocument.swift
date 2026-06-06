@@ -21,12 +21,13 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 7
+    var fileVersion = 9
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
     var homeTeamName: String
     var guestTeamName: String
+    var eventName: String = ""
     var homeScore: Int
     var guestScore: Int
     var period: Int
@@ -83,8 +84,11 @@ struct ScoreboardGameSnapshot: Sendable {
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode? = nil
     var externalDisplayBackgroundImage: ScoreboardGameEmbeddedImage? = nil
     var showsTeamLogos: Bool? = nil
+    var showsEventLogo: Bool? = nil
+    var playerViewRosterScope: PlayerViewRosterScope? = nil
     var homeTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
     var guestTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
+    var eventLogoImage: ScoreboardGameEmbeddedImage? = nil
 
     static let empty = ScoreboardGameSnapshot(
         sport: .simple,
@@ -112,7 +116,7 @@ struct ScoreboardGameSnapshot: Sendable {
         playerLineupOverflowNoLogoOverride: nil,
         playerLineupFadePageSeconds: ScoreboardStore.defaultPlayerLineupFadePageSeconds,
         playerLineupScrollSpeed: ScoreboardStore.defaultPlayerLineupScrollSpeed,
-        playerLineupScrollDirection: .up,
+        playerLineupScrollDirection: .continuousUp,
         playerFoulHighlightColor: .yellow,
         isGameClockRedEnabled: false,
         gameClockRedThresholdSeconds: 60,
@@ -152,6 +156,7 @@ struct ScoreboardGameSnapshot: Sendable {
         snapshot.externalDisplayBackgroundImage = nil
         snapshot.homeTeamLogoImage = nil
         snapshot.guestTeamLogoImage = nil
+        snapshot.eventLogoImage = nil
         return snapshot
     }
 
@@ -171,6 +176,7 @@ extension ScoreboardGameSnapshot: Codable {
         case customDebatePreset
         case homeTeamName
         case guestTeamName
+        case eventName
         case homeScore
         case guestScore
         case period
@@ -227,8 +233,11 @@ extension ScoreboardGameSnapshot: Codable {
         case externalDisplayBackgroundMode
         case externalDisplayBackgroundImage
         case showsTeamLogos
+        case showsEventLogo
+        case playerViewRosterScope
         case homeTeamLogoImage
         case guestTeamLogoImage
+        case eventLogoImage
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -239,6 +248,7 @@ extension ScoreboardGameSnapshot: Codable {
         customDebatePreset = try container.decodeIfPresent(DebatePreset.self, forKey: .customDebatePreset)
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
+        eventName = try container.decodeIfPresent(String.self, forKey: .eventName) ?? ""
         homeScore = try container.decode(Int.self, forKey: .homeScore)
         guestScore = try container.decode(Int.self, forKey: .guestScore)
         period = try container.decode(Int.self, forKey: .period)
@@ -295,8 +305,11 @@ extension ScoreboardGameSnapshot: Codable {
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode)
         externalDisplayBackgroundImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .externalDisplayBackgroundImage)
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos)
+        showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo)
+        playerViewRosterScope = try container.decodeIfPresent(PlayerViewRosterScope.self, forKey: .playerViewRosterScope)
         homeTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .homeTeamLogoImage)
         guestTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .guestTeamLogoImage)
+        eventLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .eventLogoImage)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -307,6 +320,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(customDebatePreset, forKey: .customDebatePreset)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
+        try container.encode(eventName, forKey: .eventName)
         try container.encode(homeScore, forKey: .homeScore)
         try container.encode(guestScore, forKey: .guestScore)
         try container.encode(period, forKey: .period)
@@ -363,8 +377,11 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
         try container.encodeIfPresent(showsTeamLogos, forKey: .showsTeamLogos)
+        try container.encodeIfPresent(showsEventLogo, forKey: .showsEventLogo)
+        try container.encodeIfPresent(playerViewRosterScope, forKey: .playerViewRosterScope)
         try container.encodeIfPresent(homeTeamLogoImage, forKey: .homeTeamLogoImage)
         try container.encodeIfPresent(guestTeamLogoImage, forKey: .guestTeamLogoImage)
+        try container.encodeIfPresent(eventLogoImage, forKey: .eventLogoImage)
     }
 }
 
@@ -396,6 +413,20 @@ extension ScoreboardGameEmbeddedImage {
         offsetY = nil
         data = teamLogoImage.data
     }
+
+    init(eventLogoImage: EventLogoImage) {
+        id = eventLogoImage.id
+        sourceName = eventLogoImage.sourceName
+        mimeType = eventLogoImage.mimeType
+        pixelWidth = eventLogoImage.pixelWidth
+        pixelHeight = eventLogoImage.pixelHeight
+        byteCount = eventLogoImage.byteCount
+        updatedAtUnixTime = eventLogoImage.updatedAtUnixTime
+        scale = nil
+        offsetX = nil
+        offsetY = nil
+        data = eventLogoImage.data
+    }
 }
 
 extension ExternalDisplayBackgroundImage {
@@ -421,6 +452,25 @@ extension ExternalDisplayBackgroundImage {
 }
 
 extension TeamLogoImage {
+    init?(embeddedImage: ScoreboardGameEmbeddedImage) {
+        guard !embeddedImage.data.isEmpty else {
+            return nil
+        }
+
+        self.init(
+            id: embeddedImage.id.isEmpty ? UUID().uuidString : embeddedImage.id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType.isEmpty ? "image/png" : embeddedImage.mimeType,
+            pixelWidth: max(1, embeddedImage.pixelWidth),
+            pixelHeight: max(1, embeddedImage.pixelHeight),
+            byteCount: embeddedImage.byteCount > 0 ? embeddedImage.byteCount : embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime,
+            data: embeddedImage.data
+        )
+    }
+}
+
+extension EventLogoImage {
     init?(embeddedImage: ScoreboardGameEmbeddedImage) {
         guard !embeddedImage.data.isEmpty else {
             return nil

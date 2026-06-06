@@ -57,6 +57,10 @@ struct RemoteScoreboardView: View {
                     ZStack(alignment: .topTrailing) {
                         RemoteScoreboardFace(
                             state: state,
+                            backgroundImageData: receiver.imageData(for: state.display?.backgroundImage?.id),
+                            homeLogoData: receiver.imageData(for: state.teams.home.logo?.id),
+                            guestLogoData: receiver.imageData(for: state.teams.guest.logo?.id),
+                            eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
                             lastReceivedAt: receiver.lastReceivedAt,
                             masterClockOffset: receiver.masterClockOffset,
                             now: timeline.date
@@ -169,15 +173,13 @@ struct RemoteScoreboardView: View {
 
 private struct RemoteScoreboardFace: View {
     let state: ScoreboardWebAPIState
+    let backgroundImageData: Data?
+    let homeLogoData: Data?
+    let guestLogoData: Data?
+    let eventLogoData: Data?
     let lastReceivedAt: Date?
     let masterClockOffset: TimeInterval?
     let now: Date
-    @State private var cachedBackgroundImageID: String?
-    @State private var cachedBackgroundImageData: Data?
-    @State private var cachedHomeLogoID: String?
-    @State private var cachedHomeLogoData: Data?
-    @State private var cachedGuestLogoID: String?
-    @State private var cachedGuestLogoData: Data?
 
     private var theme: ScoreboardTheme {
         state.display?.theme ?? .classic
@@ -191,126 +193,88 @@ private struct RemoteScoreboardFace: View {
         state.display?.showsTeamLogos ?? true
     }
 
+    private var displaysEventLogo: Bool {
+        state.display?.resolvedShowsEventLogo ?? true
+    }
+
     private var palette: ThemePalette {
         theme.palette
     }
 
-    private var backgroundImageFetchSignature: String {
-        guard backgroundMode == .image, let image = state.display?.backgroundImage else {
-            return "background:none"
-        }
-        return "background:\(image.id):\(image.downloadURLs.joined(separator: "|"))"
-    }
-
-    private var homeLogoFetchSignature: String {
-        guard displaysTeamLogos else {
-            return "home:hidden"
-        }
-        guard let logo = state.teams.home.logo else {
-            return "home:none"
-        }
-        return "home:\(logo.id):\(logo.downloadURLs.joined(separator: "|"))"
-    }
-
-    private var guestLogoFetchSignature: String {
-        guard displaysTeamLogos else {
-            return "guest:hidden"
-        }
-        guard let logo = state.teams.guest.logo else {
-            return "guest:none"
-        }
-        return "guest:\(logo.id):\(logo.downloadURLs.joined(separator: "|"))"
-    }
-
-    private var remoteImageRefreshSignature: String {
-        "\(backgroundImageFetchSignature):\(homeLogoFetchSignature):\(guestLogoFetchSignature)"
-    }
-
     var body: some View {
-        GeometryReader { proxy in
-            let displaySize = proxy.size
-            let boardSize = fittedBoardSize(in: displaySize)
-            let usesCompactBoard = boardSize.width < 1320 || boardSize.height < 760
-            let projection = RemoteScoreboardProjection(
-                state: state,
-                lastReceivedAt: lastReceivedAt,
-                masterClockOffset: masterClockOffset,
-                now: now
-            )
+        let projection = RemoteScoreboardProjection(
+            state: state,
+            lastReceivedAt: lastReceivedAt,
+            masterClockOffset: masterClockOffset,
+            now: now
+        )
 
-            ZStack {
-                externalBackgroundView()
-                    .ignoresSafeArea()
+        PublicScoreboardDisplayView(
+            viewMode: state.display?.resolvedViewMode ?? .scoreboard,
+            playerViewRosterScope: .fullRoster,
+            theme: theme,
+            backgroundMode: backgroundMode,
+            backgroundImage: publicBackgroundImage,
+            sport: state.rules.sport,
+            rules: sportRules(),
+            showsScore: state.rules.supportsScore,
+            homeTeamName: state.teams.home.name,
+            guestTeamName: state.teams.guest.name,
+            eventName: state.game.eventName,
+            homeTeamLogoData: displaysTeamLogos ? homeLogoData : nil,
+            guestTeamLogoData: displaysTeamLogos ? guestLogoData : nil,
+            eventLogoData: displaysEventLogo ? eventLogoData : nil,
+            playerLineupOverflowMode: state.players.lineupOverflowMode ?? .scroll,
+            playerLineupOverflowLogoOverride: state.players.lineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: state.players.lineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: state.players.lineupFadePageSeconds ?? ScoreboardStore.defaultPlayerLineupFadePageSeconds,
+            playerLineupScrollSpeed: state.players.lineupScrollSpeed ?? ScoreboardStore.defaultPlayerLineupScrollSpeed,
+            playerLineupScrollDirection: state.players.lineupScrollMode ?? state.players.lineupScrollDirection?.resolvedScrollMode ?? .continuousUp,
+            homeScore: state.teams.home.score,
+            guestScore: state.teams.guest.score,
+            period: state.game.period,
+            formattedClock: projection.formattedGameClock,
+            showsGameClock: state.clocks.showsGameClock,
+            showsDualClocks: state.rules.usesChessClocks,
+            formattedHomeChessClock: projection.formattedHomeChessClock,
+            formattedGuestChessClock: projection.formattedGuestChessClock,
+            activeChessClockSide: state.clocks.activeChessClockSide,
+            debateHomeSideLabel: state.debate?.homeSideLabel,
+            debateGuestSideLabel: state.debate?.guestSideLabel,
+            debateSegmentTitle: state.debate?.segmentTitle,
+            debateActiveTimer: state.debate?.activeTimer,
+            showsDebatePrepTime: state.debate?.prepTimeEnabled ?? false,
+            formattedDebatePrepHomeClock: projection.formattedDebatePrepHomeClock,
+            formattedDebatePrepGuestClock: projection.formattedDebatePrepGuestClock,
+            formattedShotClock: projection.formattedShotClock,
+            possessionDirection: state.runtime.possessionDirection,
+            areSidesSwapped: state.runtime.areSidesSwapped,
+            isClockRunning: projection.isClockRunning,
+            isPlayerTrackingEnabled: state.players.isPlayerTrackingEnabled,
+            isPlayerOverlayPaused: state.players.isPlayerOverlayPaused,
+            playerFoulHighlightColor: state.players.foulHighlightColor,
+            isDisplayGameClockAlertActive: isDisplayGameClockAlertActive(gameClockSeconds: projection.gameClockSeconds),
+            isDisplayShotClockAlertActive: isDisplayShotClockAlertActive(shotClockMilliseconds: projection.shotClockMilliseconds),
+            homeSubstitutionsAllowed: state.teams.home.substitutionsAllowed,
+            guestSubstitutionsAllowed: state.teams.guest.substitutionsAllowed,
+            homeSubstitutionsUsed: state.teams.home.substitutionsUsed,
+            guestSubstitutionsUsed: state.teams.guest.substitutionsUsed,
+            homeTeamFouls: state.teams.home.teamFouls,
+            guestTeamFouls: state.teams.guest.teamFouls,
+            homePenaltyTimers: projection.homePenaltyTimers,
+            guestPenaltyTimers: projection.guestPenaltyTimers,
+            homeDisplayedPlayers: state.players.homeDisplayed,
+            guestDisplayedPlayers: state.players.guestDisplayed,
+            homeRosterPlayers: state.players.homeRoster.players,
+            guestRosterPlayers: state.players.guestRoster.players
+        )
+    }
 
-                ScoreboardFaceView(
-                    theme: theme,
-                    backgroundStyle: boardBackgroundStyle(),
-                    sport: state.rules.sport,
-                    rules: sportRules(),
-                    showsScore: state.rules.supportsScore,
-                    homeTeamName: state.teams.home.name,
-                    guestTeamName: state.teams.guest.name,
-                    homeTeamLogoData: displaysTeamLogos ? cachedHomeLogoData : nil,
-                    guestTeamLogoData: displaysTeamLogos ? cachedGuestLogoData : nil,
-                    playerLineupOverflowMode: state.players.lineupOverflowMode ?? .scroll,
-                    playerLineupOverflowLogoOverride: state.players.lineupOverflowLogoOverride,
-                    playerLineupOverflowNoLogoOverride: state.players.lineupOverflowNoLogoOverride,
-                    playerLineupFadePageSeconds: state.players.lineupFadePageSeconds ?? ScoreboardStore.defaultPlayerLineupFadePageSeconds,
-                    playerLineupScrollSpeed: state.players.lineupScrollSpeed ?? ScoreboardStore.defaultPlayerLineupScrollSpeed,
-                    playerLineupScrollDirection: state.players.lineupScrollDirection ?? .up,
-                    homeScore: state.teams.home.score,
-                    guestScore: state.teams.guest.score,
-                    period: state.game.period,
-                    formattedClock: projection.formattedGameClock,
-                    showsGameClock: state.clocks.showsGameClock,
-                    showsDualClocks: state.rules.usesChessClocks,
-                    formattedHomeChessClock: projection.formattedHomeChessClock,
-                    formattedGuestChessClock: projection.formattedGuestChessClock,
-                    activeChessClockSide: state.clocks.activeChessClockSide,
-                    debateHomeSideLabel: state.debate?.homeSideLabel,
-                    debateGuestSideLabel: state.debate?.guestSideLabel,
-                    debateSegmentTitle: state.debate?.segmentTitle,
-                    debateActiveTimer: state.debate?.activeTimer,
-                    showsDebatePrepTime: state.debate?.prepTimeEnabled ?? false,
-                    formattedDebatePrepHomeClock: projection.formattedDebatePrepHomeClock,
-                    formattedDebatePrepGuestClock: projection.formattedDebatePrepGuestClock,
-                    formattedShotClock: projection.formattedShotClock,
-                    possessionDirection: state.runtime.possessionDirection,
-                    areSidesSwapped: state.runtime.areSidesSwapped,
-                    isClockRunning: projection.isClockRunning,
-                    isPlayerTrackingEnabled: state.players.isPlayerTrackingEnabled,
-                    isPlayerOverlayPaused: state.players.isPlayerOverlayPaused,
-                    playerFoulHighlightColor: state.players.foulHighlightColor,
-                    isDisplayGameClockAlertActive: isDisplayGameClockAlertActive(
-                        gameClockSeconds: projection.gameClockSeconds
-                    ),
-                    isDisplayShotClockAlertActive: isDisplayShotClockAlertActive(
-                        shotClockMilliseconds: projection.shotClockMilliseconds
-                    ),
-                    homeSubstitutionsAllowed: state.teams.home.substitutionsAllowed,
-                    guestSubstitutionsAllowed: state.teams.guest.substitutionsAllowed,
-                    homeSubstitutionsUsed: state.teams.home.substitutionsUsed,
-                    guestSubstitutionsUsed: state.teams.guest.substitutionsUsed,
-                    homeTeamFouls: state.teams.home.teamFouls,
-                    guestTeamFouls: state.teams.guest.teamFouls,
-                    homePenaltyTimers: projection.homePenaltyTimers,
-                    guestPenaltyTimers: projection.guestPenaltyTimers,
-                    homePlayers: state.players.homeDisplayed,
-                    guestPlayers: state.players.guestDisplayed,
-                    compact: usesCompactBoard
-                )
-                .frame(width: boardSize.width, height: boardSize.height)
-                .clipped()
-                .position(x: displaySize.width / 2, y: displaySize.height / 2)
-            }
-            .frame(width: displaySize.width, height: displaySize.height)
+    private var publicBackgroundImage: PublicScoreboardBackgroundImage? {
+        guard let backgroundImageData, let metadata = state.display?.backgroundImage else {
+            return nil
         }
-        .background(externalBackgroundView().ignoresSafeArea())
-        .task(id: remoteImageRefreshSignature) {
-            await updateBackgroundImageCache()
-            await updateTeamLogoCache(for: .home)
-            await updateTeamLogoCache(for: .guest)
-        }
+        return PublicScoreboardBackgroundImage(data: backgroundImageData, metadata: metadata)
     }
 
     private func fittedBoardSize(in availableSize: CGSize) -> CGSize {
@@ -327,8 +291,10 @@ private struct RemoteScoreboardFace: View {
                 palette.homeAccent
                 palette.guestAccent
             }
+        case .smartScoreboard:
+            SmartScoreboardBackgroundView()
         case .image:
-            if let data = cachedBackgroundImageData, let metadata = state.display?.backgroundImage {
+            if let data = backgroundImageData, let metadata = state.display?.backgroundImage {
                 ExternalDisplayBackgroundImageView(
                     data: data,
                     scale: metadata.placement.scale,
@@ -351,97 +317,13 @@ private struct RemoteScoreboardFace: View {
             return .clear
         case .clearUnderBoard:
             return .transparent
+        case .smartScoreboard:
+            return .transparent
         case .image:
-            return cachedBackgroundImageData == nil ? .blurred : .transparent
+            return backgroundImageData == nil ? .blurred : .transparent
         case .none:
             return .clear
         }
-    }
-
-    @MainActor
-    private func updateBackgroundImageCache() async {
-        guard backgroundMode == .image, let image = state.display?.backgroundImage else {
-            cachedBackgroundImageID = nil
-            cachedBackgroundImageData = nil
-            return
-        }
-
-        guard cachedBackgroundImageID != image.id || cachedBackgroundImageData == nil else {
-            return
-        }
-
-        cachedBackgroundImageID = image.id
-        cachedBackgroundImageData = nil
-        cachedBackgroundImageData = await fetchRemoteImageData(from: image.downloadURLs)
-    }
-
-    @MainActor
-    private func updateTeamLogoCache(for side: TeamSide) async {
-        guard displaysTeamLogos else {
-            switch side {
-            case .home:
-                cachedHomeLogoID = nil
-                cachedHomeLogoData = nil
-            case .guest:
-                cachedGuestLogoID = nil
-                cachedGuestLogoData = nil
-            }
-            return
-        }
-
-        let logo = side == .home ? state.teams.home.logo : state.teams.guest.logo
-        guard let logo else {
-            switch side {
-            case .home:
-                cachedHomeLogoID = nil
-                cachedHomeLogoData = nil
-            case .guest:
-                cachedGuestLogoID = nil
-                cachedGuestLogoData = nil
-            }
-            return
-        }
-
-        switch side {
-        case .home:
-            guard cachedHomeLogoID != logo.id || cachedHomeLogoData == nil else {
-                return
-            }
-            cachedHomeLogoID = logo.id
-            cachedHomeLogoData = nil
-            cachedHomeLogoData = await fetchRemoteImageData(from: logo.downloadURLs)
-        case .guest:
-            guard cachedGuestLogoID != logo.id || cachedGuestLogoData == nil else {
-                return
-            }
-            cachedGuestLogoID = logo.id
-            cachedGuestLogoData = nil
-            cachedGuestLogoData = await fetchRemoteImageData(from: logo.downloadURLs)
-        }
-    }
-
-    private func fetchRemoteImageData(from downloadURLs: [String]) async -> Data? {
-        for value in downloadURLs {
-            guard let url = URL(string: value) else {
-                continue
-            }
-
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard
-                    let httpResponse = response as? HTTPURLResponse,
-                    (200..<300).contains(httpResponse.statusCode),
-                    !data.isEmpty
-                else {
-                    continue
-                }
-                return data
-            } catch {
-                continue
-            }
-        }
-
-        return nil
     }
 
     private func sportRules() -> SportRules {

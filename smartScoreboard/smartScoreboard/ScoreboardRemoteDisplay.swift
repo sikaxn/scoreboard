@@ -333,6 +333,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     enum Kind: String, Codable, Sendable {
         case heartbeat
         case heartbeatAck
+        case imageRequest
         case soundTest
         case soundEffect
         case setMuted
@@ -353,6 +354,8 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let deviceType: String?
     let isMuted: Bool?
     let soundEffect: String?
+    let imageID: String?
+    let imagePath: String?
 
     init(
         kind: Kind,
@@ -367,7 +370,9 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         appBuild: String? = nil,
         deviceType: ScoreboardRemoteDisplayDeviceType? = nil,
         isMuted: Bool? = nil,
-        soundEffect: ScoreboardSoundEffect? = nil
+        soundEffect: ScoreboardSoundEffect? = nil,
+        imageID: String? = nil,
+        imagePath: String? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -382,6 +387,84 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.deviceType = deviceType?.rawValue
         self.isMuted = isMuted
         self.soundEffect = soundEffect?.rawValue
+        self.imageID = imageID
+        self.imagePath = imagePath
+    }
+}
+
+nonisolated struct ScoreboardRemoteDisplayImageAsset: Equatable, Sendable {
+    let id: String
+    let path: String
+    let mimeType: String
+    let data: Data
+}
+
+private struct ScoreboardRemoteDisplayImageAssetHeader: Codable, Sendable {
+    let id: String
+    let path: String
+    let mimeType: String
+    let byteCount: Int
+}
+
+private enum ScoreboardRemoteDisplayImageAssetCodec {
+    private static let magic = Data("SSRDIMG1".utf8)
+
+    static func encode(id: String, path: String, mimeType: String, data: Data) -> Data? {
+        let header = ScoreboardRemoteDisplayImageAssetHeader(
+            id: id,
+            path: path,
+            mimeType: mimeType,
+            byteCount: data.count
+        )
+        guard let headerData = try? JSONEncoder().encode(header) else {
+            return nil
+        }
+
+        var headerLength = UInt32(headerData.count).bigEndian
+        var payload = Data()
+        payload.append(magic)
+        withUnsafeBytes(of: &headerLength) { bytes in
+            payload.append(contentsOf: bytes)
+        }
+        payload.append(headerData)
+        payload.append(data)
+        return payload
+    }
+
+    static func decode(_ payload: Data) -> ScoreboardRemoteDisplayImageAsset? {
+        let minimumLength = magic.count + 4
+        guard payload.count >= minimumLength, payload.prefix(magic.count) == magic else {
+            return nil
+        }
+
+        let lengthStart = magic.count
+        let lengthBytes = payload[lengthStart..<(lengthStart + 4)]
+        let headerLength = lengthBytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let headerStart = lengthStart + 4
+        let headerEnd = headerStart + Int(headerLength)
+        guard headerLength > 0, payload.count >= headerEnd else {
+            return nil
+        }
+
+        let headerData = payload[headerStart..<headerEnd]
+        guard
+            let header = try? JSONDecoder().decode(ScoreboardRemoteDisplayImageAssetHeader.self, from: Data(headerData)),
+            header.byteCount >= 0
+        else {
+            return nil
+        }
+
+        let imageData = payload[headerEnd..<payload.endIndex]
+        guard imageData.count == header.byteCount, !imageData.isEmpty else {
+            return nil
+        }
+
+        return ScoreboardRemoteDisplayImageAsset(
+            id: header.id,
+            path: header.path,
+            mimeType: header.mimeType,
+            data: Data(imageData)
+        )
     }
 }
 
@@ -578,14 +661,21 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     private var pendingTrustedDisplaysByPeerName: [String: ScoreboardRemoteDisplayTrustedPeer] = [:]
     private var lastTrustedInviteAttemptByID: [String: Date] = [:]
     private var currentStateProvider: (() -> Data)?
+    private var currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
     private var lastPeriodicStateSyncAt: Date?
     private var peerNamesResettingPairing = Set<String>()
     private var operatorDisconnectedDisplayIDs = Set<String>()
     private var displayInitiatedDisconnectSequence: UInt64 = 0
 
-    func start(initialState: Data, displayName: String, currentStateProvider: (() -> Data)? = nil) {
+    func start(
+        initialState: Data,
+        displayName: String,
+        currentStateProvider: (() -> Data)? = nil,
+        currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])? = nil
+    ) {
         stop()
         self.currentStateProvider = currentStateProvider
+        self.currentImageResponsesProvider = currentImageResponsesProvider
         latestStateData = currentStateProvider?() ?? initialState
 
         let peerID = MCPeerID(displayName: displayName)
@@ -627,6 +717,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         pendingTrustedDisplaysByPeerName.removeAll()
         lastTrustedInviteAttemptByID.removeAll()
         currentStateProvider = nil
+        currentImageResponsesProvider = nil
         lastPeriodicStateSyncAt = nil
         peerNamesResettingPairing.removeAll()
         operatorDisconnectedDisplayIDs.removeAll()
@@ -961,6 +1052,10 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
             handleDisplayInitiatedDisconnect(message, from: peerID)
             return
         }
+        if message.kind == .imageRequest {
+            handleImageRequest(message, from: peerID)
+            return
+        }
 
         guard message.kind == .heartbeatAck else {
             return
@@ -1006,6 +1101,29 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         }
         sendMuteState(to: [peerID], displayID: displayID)
         updateBrowsingStatus()
+    }
+
+    private func handleImageRequest(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
+        guard
+            message.hostID == nil || message.hostID == hostID,
+            let session,
+            session.connectedPeers.contains(peerID),
+            let imageID = message.imageID,
+            !imageID.isEmpty,
+            let imagePath = message.imagePath,
+            !imagePath.isEmpty,
+            let imageResponse = currentImageResponsesProvider?()[imagePath],
+            let payload = ScoreboardRemoteDisplayImageAssetCodec.encode(
+                id: imageID,
+                path: imagePath,
+                mimeType: imageResponse.contentType,
+                data: imageResponse.body
+            )
+        else {
+            return
+        }
+
+        sendData(payload, to: [peerID], mode: .reliable)
     }
 
     private func handleDisplayInitiatedDisconnect(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
@@ -1455,11 +1573,19 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     @Published private(set) var pairingCode: String = ScoreboardRemoteDisplayReceiver.makePairingCode()
     @Published private(set) var trustedHosts: [ScoreboardRemoteDisplayTrustedPeer] = ScoreboardRemoteDisplayPairingStore.trustedHosts()
     @Published private(set) var isMuted = false
+    @Published private(set) var imageAssetsByID: [String: ScoreboardRemoteDisplayImageAsset] = [:]
 
     let displayID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayID")
 
     var canDisconnectFromOperator: Bool {
         pairedHostID != nil || lastActiveOperatorID != nil
+    }
+
+    func imageData(for id: String?) -> Data? {
+        guard let id else {
+            return nil
+        }
+        return imageAssetsByID[id]?.data
     }
 
     private var peerID: MCPeerID?
@@ -1477,6 +1603,7 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     private var isPairingScreenVisible = false
     private var isDisconnectingFromOperator = false
     private var isForgettingTrustedHosts = false
+    private var requestedImageAssetIDs = Set<String>()
     private let soundTestPlayer = BuzzerPlayer()
 
     func acquire(displayName: String? = nil) {
@@ -1548,6 +1675,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        imageAssetsByID.removeAll()
+        requestedImageAssetIDs.removeAll()
         status = .disconnected(statusMessage)
     }
 
@@ -1615,6 +1744,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         state = nil
         pairingCode = Self.makePairingCode()
         isMuted = false
+        imageAssetsByID.removeAll()
+        requestedImageAssetIDs.removeAll()
         soundTestPlayer.stop()
         status = .waiting
         startPairingCodeTimer()
@@ -1804,6 +1935,11 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             return
         }
 
+        if let imageAsset = ScoreboardRemoteDisplayImageAssetCodec.decode(data) {
+            handleImageAsset(imageAsset)
+            return
+        }
+
         if let message = try? JSONDecoder().decode(ScoreboardRemoteDisplayControlMessage.self, from: data) {
             handleControlMessage(message, from: peerID)
             return
@@ -1824,6 +1960,58 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             lastReceivedAt = Date()
             status = .paired(peerID.displayName)
         }
+        requestMissingImagesIfNeeded(for: decodedState, from: peerID)
+    }
+
+    private func handleImageAsset(_ asset: ScoreboardRemoteDisplayImageAsset) {
+        guard !asset.id.isEmpty, !asset.data.isEmpty else {
+            return
+        }
+
+        imageAssetsByID[asset.id] = asset
+        requestedImageAssetIDs.remove(asset.id)
+    }
+
+    private func requestMissingImagesIfNeeded(for state: ScoreboardWebAPIState, from peerID: MCPeerID) {
+        if state.display?.backgroundMode == .image, let image = state.display?.backgroundImage {
+            requestImageIfNeeded(id: image.id, path: image.path, from: peerID)
+        }
+
+        let viewMode = state.display?.resolvedViewMode ?? .scoreboard
+        if (viewMode == .scoreboard || viewMode == .eventLogo), let logo = state.display?.eventLogo {
+            requestImageIfNeeded(id: logo.id, path: logo.path, from: peerID)
+        }
+
+        guard state.display?.showsTeamLogos ?? true else {
+            return
+        }
+
+        if let logo = state.teams.home.logo {
+            requestImageIfNeeded(id: logo.id, path: logo.path, from: peerID)
+        }
+        if let logo = state.teams.guest.logo {
+            requestImageIfNeeded(id: logo.id, path: logo.path, from: peerID)
+        }
+    }
+
+    private func requestImageIfNeeded(id: String, path: String, from peerID: MCPeerID) {
+        guard !id.isEmpty, !path.isEmpty, imageAssetsByID[id] == nil, !requestedImageAssetIDs.contains(id) else {
+            return
+        }
+
+        requestedImageAssetIDs.insert(id)
+        let message = ScoreboardRemoteDisplayControlMessage(
+            kind: .imageRequest,
+            sequence: 0,
+            sentAt: Date().timeIntervalSince1970,
+            hostID: pairedHostID,
+            hostName: pairedHostName,
+            displayID: displayID,
+            displayName: self.peerID?.displayName,
+            imageID: id,
+            imagePath: path
+        )
+        sendControlMessage(message, to: [peerID], mode: .reliable)
     }
 
     private func handleControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
@@ -1846,6 +2034,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
             return
         case .soundEffect:
             handleSoundEffect(message, from: peerID)
+            return
+        case .imageRequest:
             return
         case .heartbeat:
             break
@@ -2003,6 +2193,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
         masterClockOffset = nil
         state = nil
         isMuted = false
+        imageAssetsByID.removeAll()
+        requestedImageAssetIDs.removeAll()
         soundTestPlayer.stop()
         status = .disconnected(localizedRemoteDisplayFormat(
             "%@ removed this display. Pair again to reconnect.",

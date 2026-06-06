@@ -8,6 +8,7 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
     case blurred
     case clear
     case clearUnderBoard
+    case smartScoreboard
     case image
     case none
 
@@ -21,6 +22,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Split Background"
         case .clearUnderBoard:
             return "Through Scoreboard"
+        case .smartScoreboard:
+            return "Smart Scoreboard"
         case .image:
             return "Photo"
         case .none:
@@ -36,6 +39,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Show a clean red-blue split behind the scoreboard."
         case .clearUnderBoard:
             return "Let the red-blue split show through where the board background is normally black."
+        case .smartScoreboard:
+            return "Use the bundled Smart Scoreboard background."
         case .image:
             return "Use a selected photo as the public display background."
         case .none:
@@ -576,6 +581,58 @@ struct TeamLogoImage: Codable, Equatable, Sendable {
     }
 }
 
+struct EventLogoImage: Codable, Equatable, Sendable {
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var data: Data
+
+    init(
+        id: String = UUID().uuidString,
+        sourceName: String?,
+        mimeType: String = "image/png",
+        pixelWidth: Int,
+        pixelHeight: Int,
+        byteCount: Int,
+        updatedAtUnixTime: TimeInterval = Date().timeIntervalSince1970,
+        data: Data
+    ) {
+        self.id = id
+        self.sourceName = sourceName
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.byteCount = byteCount
+        self.updatedAtUnixTime = updatedAtUnixTime
+        self.data = data
+    }
+
+    var displayName: String {
+        let trimmed = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Event Logo" : trimmed
+    }
+
+    var path: String {
+        Self.currentPath
+    }
+
+    var versionedPath: String {
+        "\(Self.currentPath)/\(id)"
+    }
+
+    var legacyVersionedPath: String {
+        "\(versionedPath).png"
+    }
+
+    static var currentPath: String {
+        "/api/v1/display/event-logo"
+    }
+}
+
 nonisolated struct ScoreboardWebAPIBackgroundImage: Codable, Sendable {
     let id: String
     let mimeType: String
@@ -595,6 +652,17 @@ nonisolated struct ScoreboardWebAPIBackgroundImagePlacement: Codable, Sendable {
 }
 
 nonisolated struct ScoreboardWebAPITeamLogo: Codable, Sendable {
+    let id: String
+    let mimeType: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let byteCount: Int
+    let updatedAtUnixTime: TimeInterval
+    let path: String
+    let downloadURLs: [String]
+}
+
+nonisolated struct ScoreboardWebAPIEventLogo: Codable, Sendable {
     let id: String
     let mimeType: String
     let pixelWidth: Int
@@ -640,6 +708,19 @@ enum ScoreboardDisplayImageProcessor {
         let renderedImage = try transparentLogoCanvas(from: downsampledImage)
         let encodedData = try encode(renderedImage, type: .png, quality: nil)
         return TeamLogoImage(
+            sourceName: sourceName,
+            pixelWidth: renderedImage.width,
+            pixelHeight: renderedImage.height,
+            byteCount: encodedData.count,
+            data: encodedData
+        )
+    }
+
+    static func makeEventLogo(from data: Data, sourceName: String?) throws -> EventLogoImage {
+        let downsampledImage = try downsampleImage(data, maxPixelSize: 512)
+        let renderedImage = try transparentLogoCanvas(from: downsampledImage)
+        let encodedData = try encode(renderedImage, type: .png, quality: nil)
+        return EventLogoImage(
             sourceName: sourceName,
             pixelWidth: renderedImage.width,
             pixelHeight: renderedImage.height,
@@ -778,6 +859,15 @@ struct ExternalDisplayBackgroundImageView: View {
         return CGImageSourceCreateImageAtIndex(source, 0, [
             kCGImageSourceShouldCache: false
         ] as CFDictionary)
+    }
+}
+
+struct SmartScoreboardBackgroundView: View {
+    var body: some View {
+        Image("SmartScoreboardBackground")
+            .resizable()
+            .scaledToFill()
+            .clipped()
     }
 }
 

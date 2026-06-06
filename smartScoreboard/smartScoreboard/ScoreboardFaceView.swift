@@ -55,8 +55,10 @@ struct ScoreboardFaceView: View {
     let showsScore: Bool
     let homeTeamName: String
     let guestTeamName: String
+    let eventName: String
     let homeTeamLogoData: Data?
     let guestTeamLogoData: Data?
+    let eventLogoData: Data?
     let playerLineupOverflowMode: PlayerLineupOverflowMode
     let playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
     let playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
@@ -114,10 +116,17 @@ struct ScoreboardFaceView: View {
     private var displayAlertColor: Color { .red }
     private var usesDedicatedDualClockLayout: Bool { sport == .chess }
     private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 }
+    private var trimmedEventName: String { eventName.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var showsEventBranding: Bool { !trimmedEventName.isEmpty || eventLogoData != nil }
 
     private enum PlayerLineupListStyle {
         case side
         case center
+    }
+
+    private enum PlayerLineupScrollAxisDirection {
+        case up
+        case down
     }
 
     var body: some View {
@@ -468,6 +477,11 @@ struct ScoreboardFaceView: View {
         VStack(spacing: ultraCondensed ? max(8, base * 0.014) : condensed ? max(12, base * 0.02) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
+            if showsEventBranding {
+                eventBrandingHeader(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             if showsDualClocks {
                 HStack(spacing: ultraCondensed ? 8 : condensed ? 12 : 14) {
                     headerBadge(
@@ -567,11 +581,48 @@ struct ScoreboardFaceView: View {
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: formattedShotClock)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isDisplayShotClockAlertActive)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: period)
+        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: showsEventBranding)
+        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: trimmedEventName)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
+    }
+
+    private func eventBrandingHeader(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
+        let logoSide = ultraCondensed ? max(30, min(base * 0.072, 54)) : condensed ? max(42, min(base * 0.095, 78)) : max(52, min(base * 0.12, 112))
+        let nameSize = ultraCondensed ? max(14, min(base * 0.026, 18)) : condensed ? max(18, min(base * 0.038, 28)) : max(22, min(base * 0.05, 40))
+        let accentWidth = ultraCondensed ? max(68, base * 0.16) : condensed ? max(88, base * 0.2) : max(110, base * 0.22)
+
+        return VStack(spacing: ultraCondensed ? 6 : condensed ? 8 : 10) {
+            if let eventLogoData {
+                TeamLogoImageView(data: eventLogoData, cornerRadius: ultraCondensed ? 8 : 10)
+                    .frame(width: logoSide, height: logoSide)
+                    .frame(maxWidth: .infinity)
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+
+            if !trimmedEventName.isEmpty {
+                Text(trimmedEventName)
+                    .font(.system(size: nameSize, weight: .black, design: .rounded))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.34)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(boardPrimaryTextColor)
+                    .frame(maxWidth: .infinity)
+            }
+
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [palette.homeAccent, palette.guestAccent],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: accentWidth, height: ultraCondensed ? 4 : condensed ? 6 : 7)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func shotClockBadge(
@@ -600,7 +651,8 @@ struct ScoreboardFaceView: View {
                 valueFontSize: valueFontSize,
                 valueMinScale: resolvedValueMinScale,
                 valueColor: valueColor,
-                showsContainer: false
+                showsContainer: false,
+                animatesValue: false
             )
             .layoutPriority(2)
 
@@ -643,6 +695,7 @@ struct ScoreboardFaceView: View {
         return HStack(spacing: ultraCondensed ? 12 : 18) {
             chessClockCard(
                 title: resolvedTitle(leftSide == .home ? homeTeamName : guestTeamName, placeholder: leftSide.title.uppercased()),
+                logoData: leftSide == .home ? homeTeamLogoData : guestTeamLogoData,
                 clock: leftSide == .home ? formattedHomeChessClock : formattedGuestChessClock,
                 isActive: activeChessClockSide == leftSide,
                 accent: leftSide == .home ? palette.homeAccent : palette.guestAccent,
@@ -653,6 +706,7 @@ struct ScoreboardFaceView: View {
 
             chessClockCard(
                 title: resolvedTitle(rightSide == .home ? homeTeamName : guestTeamName, placeholder: rightSide.title.uppercased()),
+                logoData: rightSide == .home ? homeTeamLogoData : guestTeamLogoData,
                 clock: rightSide == .home ? formattedHomeChessClock : formattedGuestChessClock,
                 isActive: activeChessClockSide == rightSide,
                 accent: rightSide == .home ? palette.homeAccent : palette.guestAccent,
@@ -663,8 +717,16 @@ struct ScoreboardFaceView: View {
         }
     }
 
-    private func chessClockCard(title: String, clock: String, isActive: Bool, accent: Color, base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        VStack(spacing: ultraCondensed ? 10 : 16) {
+    private func chessClockCard(title: String, logoData: Data?, clock: String, isActive: Bool, accent: Color, base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
+        let logoSide = ultraCondensed ? max(42, min(base * 0.115, 70)) : condensed ? max(58, min(base * 0.15, 100)) : max(72, min(base * 0.16, 128))
+
+        return VStack(spacing: ultraCondensed ? 10 : 16) {
+            if let logoData {
+                TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 12)
+                    .frame(width: logoSide, height: logoSide)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+
             Text(title)
                 .font(.system(size: ultraCondensed ? base * 0.05 : condensed ? base * 0.065 : base * 0.058, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.5)
@@ -673,7 +735,9 @@ struct ScoreboardFaceView: View {
             Text(clock)
                 .font(.system(size: ultraCondensed ? base * 0.16 : condensed ? base * 0.22 : base * 0.2, weight: .heavy, design: .rounded))
                 .monospacedDigit()
+                .singleLineFitted(minScale: 0.18)
                 .foregroundStyle(accent)
+                .frame(maxWidth: .infinity)
 
             localizedBoardText(isActive ? "ACTIVE" : "WAITING")
                 .font(.system(size: ultraCondensed ? 12 : 16, weight: .black, design: .rounded))
@@ -717,7 +781,8 @@ struct ScoreboardFaceView: View {
         valueFontSize: CGFloat? = nil,
         valueMinScale: CGFloat = 0.55,
         valueColor: Color? = nil,
-        showsContainer: Bool = true
+        showsContainer: Bool = true,
+        animatesValue: Bool = true
     ) -> some View {
         VStack(spacing: ultraCondensed ? 3 : 6) {
             localizedBoardText(title)
@@ -727,15 +792,15 @@ struct ScoreboardFaceView: View {
                 .foregroundStyle(boardBadgeTitleTextColor)
                 .frame(maxWidth: .infinity)
 
-            Text(value)
-                .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 28 : 28), weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .allowsTightening(true)
-                .singleLineFitted(minScale: valueMinScale)
-                .contentTransition(.numericText())
-                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
-                .foregroundStyle(valueColor ?? boardBadgeValueTextColor)
-                .frame(maxWidth: .infinity)
+            headerBadgeValueText(
+                value,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                valueFontSize: valueFontSize,
+                valueMinScale: valueMinScale,
+                valueColor: valueColor,
+                animatesValue: animatesValue
+            )
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
@@ -757,6 +822,33 @@ struct ScoreboardFaceView: View {
             }
         )
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func headerBadgeValueText(
+        _ value: String,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        valueFontSize: CGFloat?,
+        valueMinScale: CGFloat,
+        valueColor: Color?,
+        animatesValue: Bool
+    ) -> some View {
+        let text = Text(value)
+            .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 28 : 28), weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .allowsTightening(true)
+            .singleLineFitted(minScale: valueMinScale)
+            .foregroundStyle(valueColor ?? boardBadgeValueTextColor)
+            .frame(maxWidth: .infinity)
+
+        if animatesValue {
+            text
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: value)
+        } else {
+            text
+        }
     }
 
     private func substitutionLightStrip(
@@ -1100,12 +1192,12 @@ struct ScoreboardFaceView: View {
         date: Date,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        let distance = max(0, contentHeight - height)
-        let offset = shouldScroll && distance > 1 ? playerLineupScrollOffset(distance: distance, date: date) : 0
+        let offset = shouldScroll && contentHeight > height + 1 ? playerLineupScrollOffset(contentHeight: contentHeight, viewportHeight: height, date: date) : 0
         return clippedPlayerLineupContent(
             offset: offset,
             height: height,
             shouldFade: shouldFade || shouldScroll,
+            duplicatesContent: shouldScroll && playerLineupUsesContinuousScroll,
             content: content
         )
     }
@@ -1115,21 +1207,37 @@ struct ScoreboardFaceView: View {
         offset: CGFloat,
         height: CGFloat,
         shouldFade: Bool,
+        duplicatesContent: Bool,
         @ViewBuilder content: () -> Content
     ) -> some View {
         if shouldFade {
-            content()
+            playerLineupScrollableContent(duplicatesContent: duplicatesContent, content: content)
                 .offset(y: offset)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(height: height, alignment: .top)
                 .clipped()
                 .mask(playerLineupFadeMask())
         } else {
-            content()
+            playerLineupScrollableContent(duplicatesContent: duplicatesContent, content: content)
                 .offset(y: offset)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(height: height, alignment: .top)
                 .clipped()
+        }
+    }
+
+    @ViewBuilder
+    private func playerLineupScrollableContent<Content: View>(
+        duplicatesContent: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if duplicatesContent {
+            VStack(spacing: 0) {
+                content()
+                content()
+            }
+        } else {
+            content()
         }
     }
 
@@ -1146,7 +1254,55 @@ struct ScoreboardFaceView: View {
         )
     }
 
-    private func playerLineupScrollOffset(distance: CGFloat, date: Date) -> CGFloat {
+    private var playerLineupUsesContinuousScroll: Bool {
+        switch playerLineupScrollDirection {
+        case .continuousUp, .continuousDown:
+            return true
+        case .throughUp, .throughDown, .bounce:
+            return false
+        }
+    }
+
+    private func playerLineupScrollOffset(contentHeight: CGFloat, viewportHeight: CGFloat, date: Date) -> CGFloat {
+        switch playerLineupScrollDirection {
+        case .continuousUp:
+            return playerLineupContinuousScrollOffset(contentHeight: contentHeight, date: date, direction: .up)
+        case .continuousDown:
+            return playerLineupContinuousScrollOffset(contentHeight: contentHeight, date: date, direction: .down)
+        case .throughUp:
+            return playerLineupThroughScrollOffset(contentHeight: contentHeight, viewportHeight: viewportHeight, date: date, direction: .up)
+        case .throughDown:
+            return playerLineupThroughScrollOffset(contentHeight: contentHeight, viewportHeight: viewportHeight, date: date, direction: .down)
+        case .bounce:
+            return playerLineupBounceScrollOffset(distance: max(0, contentHeight - viewportHeight), date: date)
+        }
+    }
+
+    private func playerLineupContinuousScrollOffset(contentHeight: CGFloat, date: Date, direction: PlayerLineupScrollAxisDirection) -> CGFloat {
+        let speed = CGFloat(max(1, playerLineupScrollSpeed))
+        let cycleDistance = max(contentHeight, 1)
+        let traveled = CGFloat(date.timeIntervalSinceReferenceDate).truncatingRemainder(dividingBy: cycleDistance / speed) * speed
+        switch direction {
+        case .up:
+            return -traveled
+        case .down:
+            return -cycleDistance + traveled
+        }
+    }
+
+    private func playerLineupThroughScrollOffset(contentHeight: CGFloat, viewportHeight: CGFloat, date: Date, direction: PlayerLineupScrollAxisDirection) -> CGFloat {
+        let speed = CGFloat(max(1, playerLineupScrollSpeed))
+        let cycleDistance = max(contentHeight + viewportHeight, 1)
+        let traveled = CGFloat(date.timeIntervalSinceReferenceDate).truncatingRemainder(dividingBy: cycleDistance / speed) * speed
+        switch direction {
+        case .up:
+            return viewportHeight - traveled
+        case .down:
+            return -contentHeight + traveled
+        }
+    }
+
+    private func playerLineupBounceScrollOffset(distance: CGFloat, date: Date) -> CGFloat {
         let speed = CGFloat(max(1, playerLineupScrollSpeed))
         let pause: TimeInterval = 1.4
         let travel = TimeInterval(max(distance / speed, 0.1))
@@ -1157,26 +1313,15 @@ struct ScoreboardFaceView: View {
 
         let time = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
         if time < pause {
-            return playerLineupDirectionalScrollOffset(upwardOffset: 0, distance: distance)
+            return 0
         }
         if time < pause + travel {
-            let upwardOffset = -distance * CGFloat((time - pause) / travel)
-            return playerLineupDirectionalScrollOffset(upwardOffset: upwardOffset, distance: distance)
+            return -distance * CGFloat((time - pause) / travel)
         }
         if time < pause + travel + pause {
-            return playerLineupDirectionalScrollOffset(upwardOffset: -distance, distance: distance)
+            return -distance
         }
-        let upwardOffset = -distance + (distance * CGFloat((time - pause - travel - pause) / travel))
-        return playerLineupDirectionalScrollOffset(upwardOffset: upwardOffset, distance: distance)
-    }
-
-    private func playerLineupDirectionalScrollOffset(upwardOffset: CGFloat, distance: CGFloat) -> CGFloat {
-        switch playerLineupScrollDirection {
-        case .up:
-            return upwardOffset
-        case .down:
-            return -distance - upwardOffset
-        }
+        return -distance + (distance * CGFloat((time - pause - travel - pause) / travel))
     }
 
     private func playerLineupPageIndex(pageCount: Int, date: Date) -> Int {
@@ -1210,7 +1355,7 @@ struct ScoreboardFaceView: View {
                 .font(.system(size: playerLineupNumberFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * scale, weight: .black, design: .rounded))
                 .foregroundStyle(accent)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .minimumScaleFactor(0.55)
                 .frame(width: playerLineupNumberWidth(ultraCondensed: ultraCondensed, condensed: condensed, style: style) * scale, alignment: .leading)
 
             Text(player.name.isEmpty ? localizedBoardString("PLAYER") : player.name)
@@ -1219,15 +1364,14 @@ struct ScoreboardFaceView: View {
                 .foregroundStyle(playerStatusColor(player))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if style == .side {
-                Spacer(minLength: 0)
-            }
-
             if rules.supportsFouls {
                 Text(foulDisplayText(for: player.foulCount))
                     .font(.system(size: playerLineupFoulFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, style: style) * scale, weight: .black, design: .rounded))
                     .monospaced()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
                     .foregroundStyle(player.foulCount > 0 ? foulHighlightColor : boardPrimaryTextColor)
+                    .frame(width: playerLineupFoulWidth(ultraCondensed: ultraCondensed, condensed: condensed, style: style) * scale, alignment: .trailing)
             }
         }
         .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
@@ -1327,6 +1471,15 @@ struct ScoreboardFaceView: View {
             return ultraCondensed ? 48 : 60
         case .center:
             return ultraCondensed ? 50 : condensed ? 58 : 54
+        }
+    }
+
+    private func playerLineupFoulWidth(ultraCondensed: Bool, condensed: Bool, style: PlayerLineupListStyle) -> CGFloat {
+        switch style {
+        case .side:
+            return ultraCondensed ? 44 : condensed ? 56 : 52
+        case .center:
+            return ultraCondensed ? 34 : condensed ? 44 : 40
         }
     }
 
@@ -1576,7 +1729,10 @@ struct ScoreboardFaceView: View {
 
     private func foulDisplayText(for foulCount: Int) -> String {
         let count = max(0, foulCount)
-        return count == 0 ? "-" : String(repeating: "X", count: count)
+        guard count > 0 else {
+            return "-"
+        }
+        return count <= 3 ? String(repeating: "X", count: count) : "X +\(count - 1)"
     }
 
     private func substitutionsAllowed(for side: TeamSide) -> Int {

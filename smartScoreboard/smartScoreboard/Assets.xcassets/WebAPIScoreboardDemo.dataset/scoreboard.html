@@ -361,6 +361,7 @@
         none: 'none',
         live: 'Live',
         waiting: 'Waiting for state',
+        display: 'Display',
         mode: 'Reference WebSocket Demo'
       },
       zh: {
@@ -380,6 +381,7 @@
         none: '无',
         live: '实时',
         waiting: '等待状态',
+        display: '显示',
         mode: '参考 WebSocket 演示'
       }
     };
@@ -457,6 +459,7 @@
       const game = state.game || {};
       const clocks = state.clocks || {};
       const runtime = state.runtime || {};
+      const display = state.display || {};
 
       el('sport').textContent = valueText(rules.title, 'SmartScoreboard');
       el('homeName').textContent = valueText(home.name, t('home'));
@@ -484,6 +487,14 @@
       el('homeSubs').textContent = `${t('subs')} ${valueText(home.substitutionsRemaining, 0)}`;
       el('guestSubs').textContent = `${t('subs')} ${valueText(guest.substitutionsRemaining, 0)}`;
       el('generated').textContent = valueText(state.generatedAt, t('live'));
+      const viewMode = valueText(display.viewMode, 'scoreboard');
+      const rosterScope = valueText(display.playerViewRosterScope, 'fullRoster');
+      const eventName = valueText(game.eventName, '');
+      el('mode').textContent = viewMode === 'playerView'
+        ? `${t('display')}: ${viewMode} / ${rosterScope}`
+        : viewMode === 'eventLogo' && eventName
+          ? `${t('display')}: ${viewMode} / ${eventName}`
+          : `${t('display')}: ${viewMode}`;
     }
 
     function connect() {
