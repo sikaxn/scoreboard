@@ -21,6 +21,7 @@ struct ExternalScoreboardView: View {
             animatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
             showsDateTime: store.showsExternalDisplayDateTime,
             dateTimeFormat: store.externalDisplayDateTimeFormat,
+            showsDateTimeSeconds: store.showsExternalDisplayDateTimeSeconds,
             sport: store.selectedSport,
             rules: store.currentRules,
             showsScore: store.supportsScore,
@@ -55,7 +56,7 @@ struct ExternalScoreboardView: View {
             formattedDebatePrepGuestClock: store.showsDebatePrepTime ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
-            areSidesSwapped: store.areSidesSwapped,
+            displayDirection: store.externalDisplayDirection,
             isClockRunning: store.isClockRunning,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
@@ -96,13 +97,13 @@ struct ExternalScoreboardView: View {
             palette.externalDisplayBackground
         case .clear:
             HStack(spacing: 0) {
-                palette.homeAccent
-                palette.guestAccent
+                store.externalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                store.externalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .clearUnderBoard:
             HStack(spacing: 0) {
-                palette.homeAccent
-                palette.guestAccent
+                store.externalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                store.externalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .smartScoreboard:
             SmartScoreboardBackgroundView()
@@ -181,6 +182,7 @@ struct PublicScoreboardDisplayView: View {
     let animatedLogoOpacity: Double
     let showsDateTime: Bool
     let dateTimeFormat: ExternalDisplayDateTimeFormat
+    let showsDateTimeSeconds: Bool
     let sport: SportType
     let rules: SportRules
     let showsScore: Bool
@@ -215,7 +217,7 @@ struct PublicScoreboardDisplayView: View {
     let formattedDebatePrepGuestClock: String?
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
-    let areSidesSwapped: Bool
+    let displayDirection: ScoreboardDisplayDirection
     let isClockRunning: Bool
     let isPlayerTrackingEnabled: Bool
     let isPlayerOverlayPaused: Bool
@@ -249,6 +251,10 @@ struct PublicScoreboardDisplayView: View {
 
     private var palette: ThemePalette {
         theme.palette
+    }
+
+    private func accentColor(for side: TeamSide) -> Color {
+        side == .home ? palette.homeAccent : palette.guestAccent
     }
 
     var body: some View {
@@ -459,7 +465,7 @@ struct PublicScoreboardDisplayView: View {
 
     private func dateTimeOverlay(displaySize: CGSize) -> some View {
         TimelineView(.periodic(from: Date(), by: 1)) { timeline in
-            Text(dateTimeFormat.string(from: timeline.date))
+            Text(dateTimeFormat.string(from: timeline.date, showingSeconds: showsDateTimeSeconds))
                 .font(.system(size: dateTimeFontSize(in: displaySize), weight: .black, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
@@ -518,7 +524,7 @@ struct PublicScoreboardDisplayView: View {
             formattedDebatePrepGuestClock: formattedDebatePrepGuestClock,
             formattedShotClock: formattedShotClock,
             possessionDirection: possessionDirection,
-            areSidesSwapped: areSidesSwapped,
+            displayDirection: displayDirection,
             isClockRunning: isClockRunning,
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
@@ -546,8 +552,8 @@ struct PublicScoreboardDisplayView: View {
             palette.externalDisplayBackground
         case .clear, .clearUnderBoard:
             HStack(spacing: 0) {
-                palette.homeAccent
-                palette.guestAccent
+                accentColor(for: displayDirection.leftSide)
+                accentColor(for: displayDirection.rightSide)
             }
         case .smartScoreboard:
             SmartScoreboardBackgroundView()
@@ -599,8 +605,8 @@ struct PublicScoreboardDisplayView: View {
 
     @ViewBuilder
     private func teamDisplay(displaySize: CGSize, includesPlayers: Bool) -> some View {
-        let leftSide: TeamSide = areSidesSwapped ? .guest : .home
-        let rightSide: TeamSide = areSidesSwapped ? .home : .guest
+        let leftSide = displayDirection.leftSide
+        let rightSide = displayDirection.rightSide
         let isVertical = displaySize.width < displaySize.height * 1.05
         let spacing = max(18, min(displaySize.width, displaySize.height) * 0.035)
         let horizontalPadding = max(28, min(displaySize.width * 0.055, 92))

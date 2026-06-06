@@ -91,7 +91,7 @@ private struct MacPublicScoreboardRootView: View {
 
     var body: some View {
         if store.isRemoteDisplayViewerModeEnabled {
-            RemoteScoreboardView(showsPairingControls: false)
+            RemoteScoreboardView(showsPairingControls: false, usesExternalDisplayDirection: true)
         } else {
             ExternalScoreboardView()
                 .environmentObject(store)

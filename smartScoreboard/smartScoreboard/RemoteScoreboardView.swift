@@ -13,6 +13,7 @@ struct RemoteScoreboardView: View {
     var exitRemoteDisplayMode: (() -> Void)?
     var openScoreboardWindow: (() -> Void)?
     var showsPairingControls: Bool
+    var usesExternalDisplayDirection: Bool
 
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var receiver: ScoreboardRemoteDisplayReceiver
@@ -24,24 +25,28 @@ struct RemoteScoreboardView: View {
     init(
         exitRemoteDisplayMode: (() -> Void)? = nil,
         openScoreboardWindow: (() -> Void)? = nil,
-        showsPairingControls: Bool = true
+        showsPairingControls: Bool = true,
+        usesExternalDisplayDirection: Bool = false
     ) {
         self.receiver = ScoreboardRemoteDisplayReceiver.shared
         self.exitRemoteDisplayMode = exitRemoteDisplayMode
         self.openScoreboardWindow = openScoreboardWindow
         self.showsPairingControls = showsPairingControls
+        self.usesExternalDisplayDirection = usesExternalDisplayDirection
     }
 
     init(
         receiver: ScoreboardRemoteDisplayReceiver,
         exitRemoteDisplayMode: (() -> Void)? = nil,
         openScoreboardWindow: (() -> Void)? = nil,
-        showsPairingControls: Bool = true
+        showsPairingControls: Bool = true,
+        usesExternalDisplayDirection: Bool = false
     ) {
         self.receiver = receiver
         self.exitRemoteDisplayMode = exitRemoteDisplayMode
         self.openScoreboardWindow = openScoreboardWindow
         self.showsPairingControls = showsPairingControls
+        self.usesExternalDisplayDirection = usesExternalDisplayDirection
     }
 
     var body: some View {
@@ -66,7 +71,8 @@ struct RemoteScoreboardView: View {
                                 eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
                                 lastReceivedAt: receiver.lastReceivedAt,
                                 masterClockOffset: receiver.masterClockOffset,
-                                now: timeline.date
+                                now: timeline.date,
+                                usesExternalDisplayDirection: usesExternalDisplayDirection
                             )
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
@@ -184,6 +190,7 @@ private struct RemoteScoreboardFace: View {
     let lastReceivedAt: Date?
     let masterClockOffset: TimeInterval?
     let now: Date
+    let usesExternalDisplayDirection: Bool
 
     private var theme: ScoreboardTheme {
         state.display?.theme ?? .classic
@@ -203,6 +210,16 @@ private struct RemoteScoreboardFace: View {
 
     private var palette: ThemePalette {
         theme.palette
+    }
+
+    private var displayDirection: ScoreboardDisplayDirection {
+        let legacyDirection = ScoreboardDisplayDirection(areSidesSwapped: state.runtime.areSidesSwapped)
+        if usesExternalDisplayDirection {
+            return state.display?.resolvedRemoteExternalDirection
+                ?? state.display?.direction
+                ?? legacyDirection
+        }
+        return state.display?.direction ?? legacyDirection
     }
 
     var body: some View {
@@ -226,6 +243,7 @@ private struct RemoteScoreboardFace: View {
             animatedLogoOpacity: state.display?.resolvedAnimatedLogoOpacity ?? ScoreboardStore.defaultAnimatedLogoOpacity,
             showsDateTime: state.display?.resolvedShowsDateTime ?? false,
             dateTimeFormat: state.display?.resolvedDateTimeFormat ?? .time24Hour,
+            showsDateTimeSeconds: state.display?.resolvedShowsDateTimeSeconds ?? true,
             sport: state.rules.sport,
             rules: sportRules(),
             showsScore: state.rules.supportsScore,
@@ -260,7 +278,7 @@ private struct RemoteScoreboardFace: View {
             formattedDebatePrepGuestClock: projection.formattedDebatePrepGuestClock,
             formattedShotClock: projection.formattedShotClock,
             possessionDirection: state.runtime.possessionDirection,
-            areSidesSwapped: state.runtime.areSidesSwapped,
+            displayDirection: displayDirection,
             isClockRunning: projection.isClockRunning,
             isPlayerTrackingEnabled: state.players.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: state.players.isPlayerOverlayPaused,
@@ -300,8 +318,8 @@ private struct RemoteScoreboardFace: View {
             palette.externalDisplayBackground
         case .clear, .clearUnderBoard:
             HStack(spacing: 0) {
-                palette.homeAccent
-                palette.guestAccent
+                displayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                displayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .smartScoreboard:
             SmartScoreboardBackgroundView()

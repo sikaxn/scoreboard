@@ -439,6 +439,15 @@
       return raw;
     }
 
+    function applyDisplayDirection(display, runtime) {
+      const direction = valueText(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      document.querySelector('.team.home').style.order = guestLeft ? '3' : '1';
+      document.querySelector('.center').style.order = '2';
+      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '3';
+      return direction;
+    }
+
     function fitClockToOneLine() {
       const clock = el('clock');
       clock.style.fontSize = '';
@@ -460,6 +469,7 @@
       const clocks = state.clocks || {};
       const runtime = state.runtime || {};
       const display = state.display || {};
+      const direction = applyDisplayDirection(display, runtime);
 
       el('sport').textContent = valueText(rules.title, 'SmartScoreboard');
       el('homeName').textContent = valueText(home.name, t('home'));
@@ -493,13 +503,13 @@
       const animatedStyle = backgroundMode === 'animatedLogo'
         ? ` / ${valueText(display.animatedLogoStyle, 'horizontalMarquee')} / ${valueText(display.animatedLogoBackgroundColor, 'themeBackground')} / ${Math.round(valueText(display.animatedLogoOpacity, 0.23) * 100)}%`
         : '';
-      const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')}` : '';
+      const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')} / seconds ${valueText(display.showsDateTimeSeconds, true)}` : '';
       const eventName = valueText(game.eventName, '');
       el('mode').textContent = viewMode === 'playerView'
-        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`
+        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
         : viewMode === 'eventLogo' && eventName
-          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`
-          : `${t('display')}: ${viewMode} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`;
+          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+          : `${t('display')}: ${viewMode} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
     }
 
     function connect() {

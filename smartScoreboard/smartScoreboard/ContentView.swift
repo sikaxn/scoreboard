@@ -30,6 +30,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openURL) private var openURL
+    @FocusState private var focusedSettingsTextFieldID: String?
 
     @State private var homeTeamDraft = ""
     @State private var guestTeamDraft = ""
@@ -187,7 +188,7 @@ struct ContentView: View {
         .onReceive(store.$selectedSport) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$gameClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$shotClockMilliseconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$shotClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultShotClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$customSportConfig) {
             guard !isSetupDraftUpdateSuppressed else { return }
@@ -216,9 +217,6 @@ struct ContentView: View {
         .onReceive(store.$isDebatePlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isDebatePlayerFoulsEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isDebatePlayerCardsEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$activeShotClockPresetSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$possessionDirection) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$areSidesSwapped) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isPlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
@@ -253,6 +251,7 @@ struct ContentView: View {
         .onReceive(store.$externalDisplayAnimatedLogoOpacity) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$showsExternalDisplayDateTime) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$externalDisplayDateTimeFormat) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$showsExternalDisplayDateTimeSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
@@ -639,6 +638,7 @@ struct ContentView: View {
         let isEnabled = isSettingsPaneEnabled(pane)
         return Button {
             guard isEnabled else { return }
+            focusedSettingsTextFieldID = nil
             selectedSettingsPane = pane
         } label: {
             HStack(spacing: 12) {
@@ -1714,6 +1714,32 @@ struct ContentView: View {
                     }
                 }
 
+                settingsSection(title: "Display Direction", footer: "Choose which side appears on the left for this control board and the local external display. To change Remote Display direction, go to Integration > Remote Display.") {
+                    settingsPickerRow(
+                        title: "Control Board",
+                        selection: Binding(
+                            get: { store.controlBoardDisplayDirection },
+                            set: { store.setControlBoardDisplayDirection($0) }
+                        ),
+                        options: ScoreboardDisplayDirection.allCases
+                    ) { direction in
+                        direction.title
+                    }
+
+                    settingsDivider()
+
+                    settingsPickerRow(
+                        title: "External Display",
+                        selection: Binding(
+                            get: { store.externalDisplayDirection },
+                            set: { store.externalDisplayDirection = $0 }
+                        ),
+                        options: ScoreboardDisplayDirection.allCases
+                    ) { direction in
+                        direction.title
+                    }
+                }
+
                 settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
                     let backgroundModes = ExternalDisplayBackgroundMode.selectableThemeModes
                     ForEach(Array(backgroundModes.enumerated()), id: \.element.id) { index, mode in
@@ -1747,6 +1773,13 @@ struct ContentView: View {
                     ) { option in
                         option.title
                     }
+                    .disabled(!store.showsExternalDisplayDateTime)
+                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
+                    settingsDivider()
+                    settingsToggleRow(title: "Show Seconds", isOn: Binding(
+                        get: { store.showsExternalDisplayDateTimeSeconds },
+                        set: { store.showsExternalDisplayDateTimeSeconds = $0 }
+                    ))
                     .disabled(!store.showsExternalDisplayDateTime)
                     .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
                 }
@@ -2664,136 +2697,191 @@ struct ContentView: View {
             && enteredCode.count == ScoreboardRemoteDisplayHostService.pairingCodeLength
         let canTestSound = row.isConnected && !row.isMuted
 
-        return HStack(alignment: .center, spacing: 16) {
-            Image(systemName: row.deviceType.systemImage)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(remoteDisplayRowIconColor(row, isInUseByOtherBoard: isInUseByOtherBoard, hasVersionWarning: versionWarning != nil))
-                .frame(width: 30)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 16) {
+                Image(systemName: row.deviceType.systemImage)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(remoteDisplayRowIconColor(row, isInUseByOtherBoard: isInUseByOtherBoard, hasVersionWarning: versionWarning != nil))
+                    .frame(width: 30)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(row.name)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(settingsPalette.primaryText)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text(row.name)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+                            .lineLimit(1)
 
-                    Text(localizedAppString(row.deviceType.title))
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(settingsPalette.secondaryText)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(settingsPalette.fieldBackground, in: Capsule())
+                        Text(localizedAppString(row.deviceType.title))
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(settingsPalette.secondaryText)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(settingsPalette.fieldBackground, in: Capsule())
+                    }
+
+                    Text(remoteDisplayRowStatusText(row, isInUseByOtherBoard: isInUseByOtherBoard))
+                        .font(.subheadline)
+                        .foregroundStyle(isInUseByOtherBoard ? themePalette.destructiveTint : settingsPalette.secondaryText)
+
+                    if let versionWarning {
+                        Text(versionWarning)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.orange)
+                    }
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                if let connection = row.connection {
+                    remoteDisplayConnectionQualityBadge(connection.quality)
+                } else if row.isTrusted {
+                    remoteDisplayStatusBadge(remoteDisplayRowBadgeTitle(row, isInUseByOtherBoard: isInUseByOtherBoard))
                 }
 
-                Text(remoteDisplayRowStatusText(row, isInUseByOtherBoard: isInUseByOtherBoard))
-                    .font(.subheadline)
-                    .foregroundStyle(isInUseByOtherBoard ? themePalette.destructiveTint : settingsPalette.secondaryText)
-
-                if let versionWarning {
-                    Text(versionWarning)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.orange)
+                if row.isTrusted || row.isConnected {
+                    remoteDisplayIconActionButton(
+                        row.isMuted ? "Unmute" : "Mute",
+                        systemImage: row.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                        tint: row.isMuted ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        foreground: row.isMuted ? settingsPalette.accentText : settingsPalette.primaryText
+                    ) {
+                        store.setRemoteDisplayMuted(displayID: row.id, isMuted: !row.isMuted)
+                    }
                 }
-            }
-            .layoutPriority(1)
 
-            Spacer(minLength: 0)
+                if row.isConnected {
+                    remoteDisplayIconActionButton(
+                        "Test",
+                        systemImage: "play.fill",
+                        tint: canTestSound ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        foreground: canTestSound ? settingsPalette.accentText : settingsPalette.secondaryText,
+                        isEnabled: canTestSound
+                    ) {
+                        store.sendRemoteDisplaySoundTest(displayID: row.id)
+                    }
 
-            if let connection = row.connection {
-                remoteDisplayConnectionQualityBadge(connection.quality)
-            } else if row.isTrusted {
-                remoteDisplayStatusBadge(remoteDisplayRowBadgeTitle(row, isInUseByOtherBoard: isInUseByOtherBoard))
+                    remoteDisplayIconActionButton(
+                        "Disconnect",
+                        systemImage: "xmark.circle",
+                        tint: themePalette.destructiveTint.opacity(0.12),
+                        foreground: themePalette.destructiveTint
+                    ) {
+                        store.disconnectRemoteDisplay(displayID: row.id)
+                    }
+                } else if row.isTrusted, let source = row.source {
+                    remoteDisplayTextActionButton(
+                        "Connect",
+                        systemImage: "link",
+                        tint: settingsPalette.accent,
+                        foreground: settingsPalette.accentText,
+                        isEnabled: canConnect
+                    ) {
+                        requestConnectTrustedRemoteDisplay(source)
+                    }
+                } else if let source = row.source {
+                    TextField(
+                        localizedAppString("Code"),
+                        text: remoteDisplayPairingCodeBinding(for: source)
+                    )
+                    .font(.title3.weight(.black).monospacedDigit())
+                    .multilineTextAlignment(.center)
+                    .scoreboardNumberEntry()
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .textFieldStyle(.plain)
+                    .frame(width: 88)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                    )
+                    .onSubmit {
+                        guard canPair else { return }
+                        requestPairRemoteDisplay(source, pairingCode: enteredCode)
+                    }
+                    .disabled(isInUseByOtherBoard)
+
+                    remoteDisplayTextActionButton(
+                        "Pair",
+                        systemImage: "key.fill",
+                        tint: settingsPalette.accent,
+                        foreground: settingsPalette.accentText,
+                        isEnabled: canPair
+                    ) {
+                        requestPairRemoteDisplay(source, pairingCode: enteredCode)
+                    }
+                }
+
+                if row.isTrusted {
+                    remoteDisplayIconActionButton(
+                        "Remove",
+                        systemImage: "trash",
+                        tint: themePalette.destructiveTint.opacity(0.12),
+                        foreground: themePalette.destructiveTint
+                    ) {
+                        store.removeRemoteDisplayPairing(displayID: row.id)
+                    }
+                }
             }
 
             if row.isTrusted || row.isConnected {
-                remoteDisplayIconActionButton(
-                    row.isMuted ? "Unmute" : "Mute",
-                    systemImage: row.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                    tint: row.isMuted ? settingsPalette.accent : settingsPalette.fieldBackground,
-                    foreground: row.isMuted ? settingsPalette.accentText : settingsPalette.primaryText
-                ) {
-                    store.setRemoteDisplayMuted(displayID: row.id, isMuted: !row.isMuted)
-                }
-            }
-
-            if row.isConnected {
-                remoteDisplayIconActionButton(
-                    "Test",
-                    systemImage: "play.fill",
-                    tint: canTestSound ? settingsPalette.accent : settingsPalette.fieldBackground,
-                    foreground: canTestSound ? settingsPalette.accentText : settingsPalette.secondaryText,
-                    isEnabled: canTestSound
-                ) {
-                    store.sendRemoteDisplaySoundTest(displayID: row.id)
-                }
-
-                remoteDisplayIconActionButton(
-                    "Disconnect",
-                    systemImage: "xmark.circle",
-                    tint: themePalette.destructiveTint.opacity(0.12),
-                    foreground: themePalette.destructiveTint
-                ) {
-                    store.disconnectRemoteDisplay(displayID: row.id)
-                }
-            } else if row.isTrusted, let source = row.source {
-                remoteDisplayTextActionButton(
-                    "Connect",
-                    systemImage: "link",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText,
-                    isEnabled: canConnect
-                ) {
-                    requestConnectTrustedRemoteDisplay(source)
-                }
-            } else if let source = row.source {
-                TextField(
-                    localizedAppString("Code"),
-                    text: remoteDisplayPairingCodeBinding(for: source)
-                )
-                .font(.title3.weight(.black).monospacedDigit())
-                .multilineTextAlignment(.center)
-                .scoreboardNumberEntry()
-                .foregroundStyle(settingsPalette.primaryText)
-                .textFieldStyle(.plain)
-                .frame(width: 88)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(settingsPalette.cardBorder, lineWidth: 1)
-                )
-                .onSubmit {
-                    guard canPair else { return }
-                    requestPairRemoteDisplay(source, pairingCode: enteredCode)
-                }
-                .disabled(isInUseByOtherBoard)
-
-                remoteDisplayTextActionButton(
-                    "Pair",
-                    systemImage: "key.fill",
-                    tint: settingsPalette.accent,
-                    foreground: settingsPalette.accentText,
-                    isEnabled: canPair
-                ) {
-                    requestPairRemoteDisplay(source, pairingCode: enteredCode)
-                }
-            }
-
-            if row.isTrusted {
-                remoteDisplayIconActionButton(
-                    "Remove",
-                    systemImage: "trash",
-                    tint: themePalette.destructiveTint.opacity(0.12),
-                    foreground: themePalette.destructiveTint
-                ) {
-                    store.removeRemoteDisplayPairing(displayID: row.id)
-                }
+                remoteDisplayDirectionControls(row)
+                    .padding(.leading, 46)
             }
         }
         .padding(.vertical, 12)
+    }
+
+    private func remoteDisplayDirectionControls(_ row: RemoteDisplaySettingsRow) -> some View {
+        HStack(spacing: 10) {
+            remoteDisplayDirectionPicker(
+                title: "Remote Display",
+                selection: Binding(
+                    get: { store.remoteDisplayDirection(displayID: row.id) },
+                    set: { store.setRemoteDisplayDirection(displayID: row.id, direction: $0) }
+                )
+            )
+
+            if row.deviceType == .mac || row.deviceType == .ipad {
+                remoteDisplayDirectionPicker(
+                    title: "External Display",
+                    selection: Binding(
+                        get: { store.remoteDisplayExternalDirection(displayID: row.id) },
+                        set: { store.setRemoteDisplayExternalDirection(displayID: row.id, direction: $0) }
+                    )
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func remoteDisplayDirectionPicker(
+        title: String,
+        selection: Binding<ScoreboardDisplayDirection>
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(localizedAppString(title))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(settingsPalette.secondaryText)
+
+            Picker(localizedAppString(title), selection: selection) {
+                ForEach(ScoreboardDisplayDirection.allCases) { direction in
+                    Text(localizedAppString(direction.title)).tag(direction)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(settingsPalette.cardBorder.opacity(0.7), lineWidth: 1)
+        )
     }
 
     private func remoteDisplayIconActionButton(
@@ -3180,16 +3268,21 @@ struct ContentView: View {
     }
 
     private func settingsCompanionPortRow() -> some View {
-        HStack(spacing: 16) {
+        return HStack(spacing: 16) {
             localizedAppText("Port")
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
-            TextField("Port", text: Binding(
-                get: { store.companionPortText() },
-                set: { store.setCompanionPortText($0) }
-            ))
+            DeferredSettingsTextField(
+                placeholder: "Port",
+                text: Binding(
+                    get: { store.companionPortText() },
+                    set: { store.setCompanionPortText($0) }
+                ),
+                focusID: "companion-port",
+                focusedField: $focusedSettingsTextFieldID
+            )
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
                 .scoreboardNumberEntry()
@@ -3229,10 +3322,15 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                TextField("1:0:2", text: Binding(
-                    get: { store.companionLocationDisplayText(for: event, sport: sport) },
-                    set: { store.setCompanionLocationDisplayText($0, for: event, sport: sport) }
-                ))
+                DeferredSettingsTextField(
+                    placeholder: "1:0:2",
+                    text: Binding(
+                        get: { store.companionLocationDisplayText(for: event, sport: sport) },
+                        set: { store.setCompanionLocationDisplayText($0, for: event, sport: sport) }
+                    ),
+                    focusID: "companion-location-\(sport.rawValue)-\(event.rawValue)",
+                    focusedField: $focusedSettingsTextFieldID
+                )
                 .font(.headline.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .autocorrectionDisabled()
@@ -4109,7 +4207,7 @@ struct ContentView: View {
     }
 
     private var settingsLogPlaybackControls: some View {
-        HStack(spacing: 16) {
+        return HStack(spacing: 16) {
             Text("View")
                 .foregroundStyle(settingsPalette.primaryText)
 
@@ -4192,16 +4290,33 @@ struct ContentView: View {
         title: String,
         text: Binding<String>,
         placeholder: String? = nil,
-        teamSide: Bool? = nil
+        teamSide: Bool? = nil,
+        focusID: String? = nil
     ) -> some View {
-        HStack(spacing: 16) {
+        let committedText = Binding(
+            get: { text.wrappedValue },
+            set: { newValue in
+                if let teamSide {
+                    synchronizeDraftTeamName(newValue, isHome: teamSide)
+                } else {
+                    text.wrappedValue = newValue
+                }
+            }
+        )
+
+        return HStack(spacing: 16) {
             localizedAppText(title)
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
 
             Spacer(minLength: 0)
 
-            TextField(localizedAppString(placeholder ?? title), text: text)
+            DeferredSettingsTextField(
+                placeholder: localizedAppString(placeholder ?? title),
+                text: committedText,
+                focusID: focusID ?? "settings-text-entry-\(title)-\(placeholder ?? "")",
+                focusedField: $focusedSettingsTextFieldID
+            )
                 .scoreboardUppercaseEntry()
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
@@ -4210,10 +4325,6 @@ struct ContentView: View {
                 .padding(.vertical, 10)
                 .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .frame(maxWidth: 280)
-                .onSubmit {
-                    guard let teamSide else { return }
-                    synchronizeDraftTeamName(text.wrappedValue, isHome: teamSide)
-                }
         }
         .padding(.vertical, 10)
     }
@@ -4221,7 +4332,8 @@ struct ContentView: View {
     private func settingsPlainTextEntryRow(
         title: String,
         text: Binding<String>,
-        placeholder: String? = nil
+        placeholder: String? = nil,
+        focusID: String? = nil
     ) -> some View {
         HStack(spacing: 16) {
             localizedAppText(title)
@@ -4230,7 +4342,12 @@ struct ContentView: View {
 
             Spacer(minLength: 0)
 
-            TextField(localizedAppString(placeholder ?? title), text: text)
+            DeferredSettingsTextField(
+                placeholder: localizedAppString(placeholder ?? title),
+                text: text,
+                focusID: focusID ?? "settings-plain-text-entry-\(title)-\(placeholder ?? "")",
+                focusedField: $focusedSettingsTextFieldID
+            )
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
                 .scoreboardPlainTextEntry()
@@ -4444,14 +4561,16 @@ struct ContentView: View {
                     .background(settingsPalette.accent, in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField(
-                        localizedAppString("Segment Title"),
+                    DeferredSettingsTextField(
+                        placeholder: localizedAppString("Segment Title"),
                         text: Binding(
                             get: { customDebateSegment(segmentID)?.title ?? segment.title },
                             set: { newValue in
                                 updateCustomDebateSegment(segmentID) { $0.title = newValue }
                             }
-                        )
+                        ),
+                        focusID: "debate-segment-title-\(segmentID)",
+                        focusedField: $focusedSettingsTextFieldID
                     )
                     .font(.headline.weight(.black))
                     .autocorrectionDisabled()
@@ -4712,12 +4831,14 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
-                TextField(
-                    "No.",
+                DeferredSettingsTextField(
+                    placeholder: "No.",
                     text: Binding(
                         get: { player.number },
                         set: { store.updateTrackedPlayerNumber($0, for: side, playerID: player.id) }
-                    )
+                    ),
+                    focusID: "player-number-\(side.rawValue)-\(player.id.uuidString)",
+                    focusedField: $focusedSettingsTextFieldID
                 )
                 .multilineTextAlignment(.center)
                 .foregroundStyle(settingsPalette.primaryText)
@@ -4726,12 +4847,14 @@ struct ContentView: View {
                 .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .frame(width: 84)
 
-                TextField(
-                    "Player Name",
+                DeferredSettingsTextField(
+                    placeholder: "Player Name",
                     text: Binding(
                         get: { player.name },
                         set: { store.updateTrackedPlayerName($0, for: side, playerID: player.id) }
-                    )
+                    ),
+                    focusID: "player-name-\(side.rawValue)-\(player.id.uuidString)",
+                    focusedField: $focusedSettingsTextFieldID
                 )
                 .scoreboardUppercaseEntry()
                 .autocorrectionDisabled()
@@ -6141,7 +6264,7 @@ struct ContentView: View {
     }
 
     private func topControlRow(layout: InterfaceLayout) -> some View {
-        let leftIsHome = !store.areSidesSwapped
+        let leftIsHome = store.controlBoardDisplayDirection.leftSide == .home
         let leftTitle = store.sideRoleLabel(for: leftIsHome ? .home : .guest)
         let rightTitle = store.sideRoleLabel(for: leftIsHome ? .guest : .home)
 
@@ -6234,12 +6357,14 @@ struct ContentView: View {
             return AnyView(debateStatusWidget(layout: layout))
         }
 
-        let leftName = store.areSidesSwapped ? store.guestTeamName : store.homeTeamName
-        let leftScore = store.areSidesSwapped ? store.guestScore : store.homeScore
-        let leftTint = store.areSidesSwapped ? guestTint : homeTint
-        let rightName = store.areSidesSwapped ? store.homeTeamName : store.guestTeamName
-        let rightScore = store.areSidesSwapped ? store.homeScore : store.guestScore
-        let rightTint = store.areSidesSwapped ? homeTint : guestTint
+        let leftSide = store.controlBoardDisplayDirection.leftSide
+        let rightSide = store.controlBoardDisplayDirection.rightSide
+        let leftName = leftSide == .home ? store.homeTeamName : store.guestTeamName
+        let leftScore = leftSide == .home ? store.homeScore : store.guestScore
+        let leftTint = leftSide == .home ? homeTint : guestTint
+        let rightName = rightSide == .home ? store.homeTeamName : store.guestTeamName
+        let rightScore = rightSide == .home ? store.homeScore : store.guestScore
+        let rightTint = rightSide == .home ? homeTint : guestTint
 
         return AnyView(VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -7356,7 +7481,7 @@ struct ContentView: View {
             return nil
         }
 
-        let pointsLeft = (side == .home && !store.areSidesSwapped) || (side == .guest && store.areSidesSwapped)
+        let pointsLeft = side == store.controlBoardDisplayDirection.leftSide
         let color = side == .home ? homeTint : guestTint
         return (pointsLeft ? "arrow.left.circle.fill" : "arrow.right.circle.fill", color, pointsLeft)
     }
@@ -8039,6 +8164,14 @@ struct ContentView: View {
     }
 
     private func openSetupGame() {
+        if focusedSettingsTextFieldID != nil {
+            focusedSettingsTextFieldID = nil
+            DispatchQueue.main.async {
+                openSetupGame()
+            }
+            return
+        }
+
         #if os(macOS)
         let shouldOpenPublicBoard = !store.didCompleteSetup && NSScreen.screens.count > 1
         #endif
@@ -8137,6 +8270,7 @@ struct ContentView: View {
             externalDisplayAnimatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
             showsExternalDisplayDateTime: store.showsExternalDisplayDateTime,
             externalDisplayDateTimeFormat: store.externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: store.showsExternalDisplayDateTimeSeconds,
             showsTeamLogos: store.showsTeamLogos,
             showsEventLogo: store.showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -9678,6 +9812,7 @@ struct ContentView: View {
             externalDisplayAnimatedLogoOpacity: currentSnapshot.externalDisplayAnimatedLogoOpacity,
             showsExternalDisplayDateTime: currentSnapshot.showsExternalDisplayDateTime,
             externalDisplayDateTimeFormat: currentSnapshot.externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: currentSnapshot.showsExternalDisplayDateTimeSeconds,
             showsTeamLogos: currentSnapshot.showsTeamLogos,
             showsEventLogo: currentSnapshot.showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -9885,6 +10020,7 @@ struct ContentView: View {
             animatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
             showsDateTime: store.showsExternalDisplayDateTime,
             dateTimeFormat: store.externalDisplayDateTimeFormat,
+            showsDateTimeSeconds: store.showsExternalDisplayDateTimeSeconds,
             sport: store.selectedSport,
             rules: store.currentRules,
             showsScore: store.supportsScore,
@@ -9919,7 +10055,7 @@ struct ContentView: View {
             formattedDebatePrepGuestClock: store.showsDebatePrepTime ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
-            areSidesSwapped: store.areSidesSwapped,
+            displayDirection: store.externalDisplayDirection,
             isClockRunning: store.isClockRunning,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
@@ -11032,6 +11168,54 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+private struct DeferredSettingsTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    let focusID: String
+    let focusedField: FocusState<String?>.Binding
+    @State private var draft: String
+
+    init(
+        placeholder: String,
+        text: Binding<String>,
+        focusID: String,
+        focusedField: FocusState<String?>.Binding
+    ) {
+        self.placeholder = placeholder
+        self._text = text
+        self.focusID = focusID
+        self.focusedField = focusedField
+        self._draft = State(initialValue: text.wrappedValue)
+    }
+
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .focused(focusedField, equals: focusID)
+            .onSubmit(commitDraft)
+            .onChange(of: focusedField.wrappedValue) { oldValue, newValue in
+                if oldValue == focusID, newValue != focusID {
+                    commitDraft()
+                } else if newValue == focusID, oldValue != focusID {
+                    draft = text
+                }
+            }
+            .onChange(of: text) { _, newValue in
+                guard focusedField.wrappedValue != focusID else {
+                    return
+                }
+                draft = newValue
+            }
+            .onDisappear(perform: commitDraft)
+    }
+
+    private func commitDraft() {
+        guard text != draft else {
+            return
+        }
+        text = draft
     }
 }
 

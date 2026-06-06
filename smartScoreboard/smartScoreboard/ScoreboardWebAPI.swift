@@ -172,11 +172,14 @@ nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let animatedLogoOpacity: Double?
     let showsDateTime: Bool?
     let dateTimeFormat: ExternalDisplayDateTimeFormat?
+    let showsDateTimeSeconds: Bool?
     let showsTeamLogos: Bool?
     let showsEventLogo: Bool?
     let eventLogo: ScoreboardWebAPIEventLogo?
     let viewMode: ScoreboardDisplayViewMode?
     let playerViewRosterScope: PlayerViewRosterScope?
+    let direction: ScoreboardDisplayDirection?
+    let remoteExternalDirection: ScoreboardDisplayDirection?
 }
 
 nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
@@ -325,6 +328,14 @@ extension ScoreboardWebAPIDisplay {
         playerViewRosterScope ?? .fullRoster
     }
 
+    var resolvedDirection: ScoreboardDisplayDirection {
+        direction ?? .homeLeft
+    }
+
+    var resolvedRemoteExternalDirection: ScoreboardDisplayDirection? {
+        remoteExternalDirection
+    }
+
     var resolvedShowsEventLogo: Bool {
         showsEventLogo ?? true
     }
@@ -355,6 +366,10 @@ extension ScoreboardWebAPIDisplay {
 
     var resolvedDateTimeFormat: ExternalDisplayDateTimeFormat {
         dateTimeFormat ?? .time24Hour
+    }
+
+    var resolvedShowsDateTimeSeconds: Bool {
+        showsDateTimeSeconds ?? true
     }
 }
 
@@ -1143,6 +1158,25 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 @MainActor
 extension ScoreboardStore {
     func currentWebAPIState() -> ScoreboardWebAPIState {
+        currentWebAPIState(
+            displayDirection: externalDisplayDirection,
+            remoteExternalDirection: nil
+        )
+    }
+
+    func currentRemoteDisplayState(forDisplayID displayID: String?) -> ScoreboardWebAPIState {
+        let displayDirection = displayID.map { remoteDisplayDirection(displayID: $0) } ?? .homeLeft
+        let externalDirection = displayID.map { remoteDisplayExternalDirection(displayID: $0) } ?? .homeLeft
+        return currentWebAPIState(
+            displayDirection: displayDirection,
+            remoteExternalDirection: externalDirection
+        ).remoteDisplayPayload
+    }
+
+    private func currentWebAPIState(
+        displayDirection: ScoreboardDisplayDirection,
+        remoteExternalDirection: ScoreboardDisplayDirection?
+    ) -> ScoreboardWebAPIState {
         let now = Date()
         let rules = currentRules
 
@@ -1156,7 +1190,7 @@ extension ScoreboardStore {
                 isClockRunning: isClockRunning,
                 isShotClockRunning: isShotClockRunning,
                 isDebatePrepClockRunning: isDebatePrepClockRunning,
-                areSidesSwapped: areSidesSwapped,
+                areSidesSwapped: displayDirection.areSidesSwapped,
                 possessionDirection: possessionDirection
             ),
             display: ScoreboardWebAPIDisplay(
@@ -1170,11 +1204,14 @@ extension ScoreboardStore {
                 animatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
                 showsDateTime: showsExternalDisplayDateTime,
                 dateTimeFormat: externalDisplayDateTimeFormat,
+                showsDateTimeSeconds: showsExternalDisplayDateTimeSeconds,
                 showsTeamLogos: showsTeamLogos,
                 showsEventLogo: showsEventLogo,
                 eventLogo: webAPIEventLogoMetadata(),
                 viewMode: publicDisplayViewMode,
-                playerViewRosterScope: .fullRoster
+                playerViewRosterScope: .fullRoster,
+                direction: displayDirection,
+                remoteExternalDirection: remoteExternalDirection
             ),
             audio: ScoreboardWebAPIAudio(
                 isSoundEnabled: isSoundEnabled,

@@ -231,6 +231,13 @@
       document.body.classList.toggle('disconnected', !isConnected);
     }
 
+    function applyDisplayDirection(display, runtime) {
+      const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      document.querySelector('.team.home').style.order = guestLeft ? '2' : '1';
+      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '2';
+    }
+
     function fitClockToOneLine() {
       const clock = el('clock');
       clock.style.fontSize = '';
@@ -250,6 +257,9 @@
       const rules = state.rules || {};
       const game = state.game || {};
       const clocks = state.clocks || {};
+      const display = state.display || {};
+      const runtime = state.runtime || {};
+      applyDisplayDirection(display, runtime);
 
       el('homeName').textContent = text(home.name, t('home'));
       el('guestName').textContent = text(guest.name, t('guest'));

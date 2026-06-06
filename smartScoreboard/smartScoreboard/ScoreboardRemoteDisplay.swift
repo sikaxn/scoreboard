@@ -528,6 +528,16 @@ nonisolated struct ScoreboardRemoteDisplayTrustedPeer: Identifiable, Codable, Eq
     }
 }
 
+nonisolated struct ScoreboardRemoteDisplayDirectionSettings: Codable, Equatable, Sendable {
+    var displayDirection: ScoreboardDisplayDirection
+    var externalDisplayDirection: ScoreboardDisplayDirection
+
+    static let `default` = ScoreboardRemoteDisplayDirectionSettings(
+        displayDirection: .homeLeft,
+        externalDisplayDirection: .homeLeft
+    )
+}
+
 private enum ScoreboardRemoteDisplayIdentity {
     private static let keyPrefix = "com.ironmaple.smartscoreboard."
 
@@ -575,6 +585,7 @@ private enum ScoreboardRemoteDisplayPairingStore {
     private static let trustedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedDisplays"
     private static let trustedHostsKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedHosts"
     private static let mutedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayMutedDisplays"
+    private static let displayDirectionsKey = "com.ironmaple.smartscoreboard.remoteDisplayDirections"
     private static let lastActiveOperatorKey = "com.ironmaple.smartscoreboard.remoteDisplayLastActiveOperator"
 
     static func trustedDisplays() -> [ScoreboardRemoteDisplayTrustedPeer] {
@@ -614,6 +625,22 @@ private enum ScoreboardRemoteDisplayPairingStore {
         UserDefaults.standard.set(ids.sorted(), forKey: mutedDisplaysKey)
     }
 
+    static func displayDirectionsByID() -> [String: ScoreboardRemoteDisplayDirectionSettings] {
+        guard
+            let data = UserDefaults.standard.data(forKey: displayDirectionsKey),
+            let settings = try? JSONDecoder().decode([String: ScoreboardRemoteDisplayDirectionSettings].self, from: data)
+        else {
+            return [:]
+        }
+        return settings
+    }
+
+    static func saveDisplayDirectionsByID(_ settings: [String: ScoreboardRemoteDisplayDirectionSettings]) {
+        if let data = try? JSONEncoder().encode(settings) {
+            UserDefaults.standard.set(data, forKey: displayDirectionsKey)
+        }
+    }
+
     private static func load(key: String) -> [ScoreboardRemoteDisplayTrustedPeer] {
         guard
             let data = UserDefaults.standard.data(forKey: key),
@@ -645,6 +672,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     @Published private(set) var connectedDisplays: [ScoreboardRemoteDisplayConnection] = []
     @Published private(set) var trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = ScoreboardRemoteDisplayPairingStore.trustedDisplays()
     @Published private(set) var mutedDisplayIDs: Set<String> = ScoreboardRemoteDisplayPairingStore.mutedDisplayIDs()
+    @Published private(set) var displayDirectionsByID: [String: ScoreboardRemoteDisplayDirectionSettings] = ScoreboardRemoteDisplayPairingStore.displayDirectionsByID()
     @Published private(set) var displayInitiatedDisconnectNotice: ScoreboardRemoteDisplayDisconnectNotice?
 
     let hostID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayHostID")
@@ -660,7 +688,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     private var peerHandshakeMetricsByID: [String: PeerHandshakeMetrics] = [:]
     private var pendingTrustedDisplaysByPeerName: [String: ScoreboardRemoteDisplayTrustedPeer] = [:]
     private var lastTrustedInviteAttemptByID: [String: Date] = [:]
-    private var currentStateProvider: (() -> Data)?
+    private var currentStateProvider: ((String?) -> Data)?
     private var currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
     private var lastPeriodicStateSyncAt: Date?
     private var peerNamesResettingPairing = Set<String>()
@@ -670,13 +698,13 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     func start(
         initialState: Data,
         displayName: String,
-        currentStateProvider: (() -> Data)? = nil,
+        currentStateProvider: ((String?) -> Data)? = nil,
         currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])? = nil
     ) {
         stop()
         self.currentStateProvider = currentStateProvider
         self.currentImageResponsesProvider = currentImageResponsesProvider
-        latestStateData = currentStateProvider?() ?? initialState
+        latestStateData = currentStateProvider?(nil) ?? initialState
 
         let peerID = MCPeerID(displayName: displayName)
         let session = MCSession(
@@ -822,6 +850,8 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
         mutedDisplayIDs.remove(displayID)
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        displayDirectionsByID.removeValue(forKey: displayID)
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
         operatorDisconnectedDisplayIDs.remove(displayID)
 
         if let peer = connectedPeer(forDisplayID: displayID) {
@@ -918,6 +948,28 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         updateBrowsingStatus()
     }
 
+    func displayDirection(id displayID: String) -> ScoreboardDisplayDirection {
+        displayDirectionsByID[displayID]?.displayDirection ?? .homeLeft
+    }
+
+    func externalDisplayDirection(id displayID: String) -> ScoreboardDisplayDirection {
+        displayDirectionsByID[displayID]?.externalDisplayDirection ?? .homeLeft
+    }
+
+    func setDisplayDirection(id displayID: String, direction: ScoreboardDisplayDirection) {
+        var settings = displayDirectionsByID[displayID] ?? .default
+        settings.displayDirection = direction
+        displayDirectionsByID[displayID] = settings
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+    }
+
+    func setExternalDisplayDirection(id displayID: String, direction: ScoreboardDisplayDirection) {
+        var settings = displayDirectionsByID[displayID] ?? .default
+        settings.externalDisplayDirection = direction
+        displayDirectionsByID[displayID] = settings
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+    }
+
     func isTrustedDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
         guard let trustedDisplay = trustedDisplays.first(where: { $0.id == source.id }) else {
             return false
@@ -995,7 +1047,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
 
     func updateState(_ data: Data) {
         latestStateData = data
-        sendState(data, mode: .unreliable)
+        sendCurrentState(mode: .unreliable)
     }
 
     private func startHeartbeatTimer() {
@@ -1040,7 +1092,7 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         }
 
         lastPeriodicStateSyncAt = now
-        sendState(currentStateData(), mode: .reliable)
+        sendCurrentState(mode: .reliable)
     }
 
     private func handleControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from peerID: MCPeerID) {
@@ -1156,6 +1208,8 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
         mutedDisplayIDs.remove(displayID)
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        displayDirectionsByID.removeValue(forKey: displayID)
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
         peerNamesResettingPairing.insert(peerID.displayName)
         peerHandshakeMetricsByID.removeValue(forKey: peerID.displayName)
         invitedPeerIDs.remove(displayID)
@@ -1257,15 +1311,18 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         updateBrowsingStatus()
 
         if state == .connected {
-            sendState(currentStateData(), to: [peerID], mode: .reliable)
+            sendCurrentState(to: [peerID], mode: .reliable)
             sendMuteState(to: [peerID])
             sendHeartbeat()
         }
     }
 
-    private func currentStateData() -> Data {
-        if let data = currentStateProvider?(), !data.isEmpty {
-            latestStateData = data
+    private func currentStateData(forDisplayID displayID: String?) -> Data {
+        if let data = currentStateProvider?(displayID), !data.isEmpty {
+            if displayID == nil {
+                latestStateData = data
+            }
+            return data
         }
         return latestStateData
     }
@@ -1379,6 +1436,8 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
         mutedDisplayIDs.remove(source.id)
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        displayDirectionsByID.removeValue(forKey: source.id)
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
     }
 
     private func trustDisplay(
@@ -1428,8 +1487,20 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
         )
     }
 
-    private func sendState(_ data: Data, to peers: [MCPeerID]? = nil, mode: MCSessionSendDataMode) {
-        sendData(data, to: peers, mode: mode)
+    private func sendCurrentState(to peers: [MCPeerID]? = nil, mode: MCSessionSendDataMode) {
+        guard let session else {
+            return
+        }
+
+        let targetPeers = peers ?? session.connectedPeers
+        guard !targetPeers.isEmpty else {
+            return
+        }
+
+        for peer in targetPeers {
+            let displayID = sourceID(for: peer)
+            sendData(currentStateData(forDisplayID: displayID), to: [peer], mode: mode)
+        }
     }
 
     private func sendMuteState(to peers: [MCPeerID], displayID: String? = nil) {

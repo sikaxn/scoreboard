@@ -186,23 +186,23 @@ enum ExternalDisplayDateTimeFormat: String, Codable, CaseIterable, Identifiable,
         }
     }
 
-    func string(from date: Date) -> String {
+    func string(from date: Date, showingSeconds: Bool) -> String {
         let formatter = DateFormatter()
         formatter.locale = .current
-        formatter.dateFormat = dateFormat
+        formatter.dateFormat = dateFormat(showingSeconds: showingSeconds)
         return formatter.string(from: date)
     }
 
-    private var dateFormat: String {
+    private func dateFormat(showingSeconds: Bool) -> String {
         switch self {
         case .time12Hour:
-            return "h:mm a"
+            return showingSeconds ? "h:mm:ss a" : "h:mm a"
         case .time24Hour:
-            return "HH:mm"
+            return showingSeconds ? "HH:mm:ss" : "HH:mm"
         case .dateTime12Hour:
-            return "MMM d, h:mm a"
+            return showingSeconds ? "MMM d, h:mm:ss a" : "MMM d, h:mm a"
         case .dateTime24Hour:
-            return "MMM d, HH:mm"
+            return showingSeconds ? "MMM d, HH:mm:ss" : "MMM d, HH:mm"
         }
     }
 }

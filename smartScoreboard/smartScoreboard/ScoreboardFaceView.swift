@@ -84,7 +84,7 @@ struct ScoreboardFaceView: View {
     let formattedDebatePrepGuestClock: String?
     let formattedShotClock: String
     let possessionDirection: PossessionDirection
-    let areSidesSwapped: Bool
+    let displayDirection: ScoreboardDisplayDirection
     let isClockRunning: Bool
     let isPlayerTrackingEnabled: Bool
     let isPlayerOverlayPaused: Bool
@@ -143,8 +143,8 @@ struct ScoreboardFaceView: View {
                 max(size.width * (condensed ? 0.31 : 0.3), ultraCondensed ? 170 : condensed ? 210 : 260),
                 size.width * (ultraCondensed ? 0.4 : 0.38)
             )
-            let leftTeam = areSidesSwapped ? sidePanelData(for: .guest) : sidePanelData(for: .home)
-            let rightTeam = areSidesSwapped ? sidePanelData(for: .home) : sidePanelData(for: .guest)
+            let leftTeam = sidePanelData(for: displayDirection.leftSide)
+            let rightTeam = sidePanelData(for: displayDirection.rightSide)
             let leftHasLogo = leftTeam.logoData != nil
             let rightHasLogo = rightTeam.logoData != nil
             let leftDisplayedPlayers = displayedPlayers(for: leftTeam.side)
@@ -745,8 +745,8 @@ struct ScoreboardFaceView: View {
     }
 
     private func chessBoard(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
-        let leftSide: TeamSide = areSidesSwapped ? .guest : .home
-        let rightSide: TeamSide = areSidesSwapped ? .home : .guest
+        let leftSide = displayDirection.leftSide
+        let rightSide = displayDirection.rightSide
         return HStack(spacing: ultraCondensed ? 12 : 18) {
             chessClockCard(
                 title: resolvedTitle(leftSide == .home ? homeTeamName : guestTeamName, placeholder: leftSide.title.uppercased()),
@@ -1571,9 +1571,9 @@ struct ScoreboardFaceView: View {
 
         switch possessionDirection {
         case .home:
-            return (areSidesSwapped ? "arrow.left.circle.fill" : "arrow.right.circle.fill", palette.homeAccent)
+            return (displayDirection.leftSide == .home ? "arrow.left.circle.fill" : "arrow.right.circle.fill", palette.homeAccent)
         case .guest:
-            return (areSidesSwapped ? "arrow.right.circle.fill" : "arrow.left.circle.fill", palette.guestAccent)
+            return (displayDirection.leftSide == .guest ? "arrow.left.circle.fill" : "arrow.right.circle.fill", palette.guestAccent)
         case .none:
             return nil
         }
@@ -1584,7 +1584,7 @@ struct ScoreboardFaceView: View {
             return nil
         }
 
-        let pointsLeft = (debateSpeakingSide == .home && !areSidesSwapped) || (debateSpeakingSide == .guest && areSidesSwapped)
+        let pointsLeft = debateSpeakingSide == displayDirection.leftSide
         let color = debateSpeakingSide == .home ? palette.homeAccent : palette.guestAccent
         return (pointsLeft ? "arrow.left.circle.fill" : "arrow.right.circle.fill", color, pointsLeft)
     }
@@ -1859,7 +1859,7 @@ struct ScoreboardFaceView: View {
         side == .home ? homePenaltyTimers : guestPenaltyTimers
     }
 
-    private func sidePanelData(for side: PossessionDirection) -> SidePanelData {
+    private func sidePanelData(for side: TeamSide) -> SidePanelData {
         switch side {
         case .home:
             return SidePanelData(
@@ -1878,15 +1878,6 @@ struct ScoreboardFaceView: View {
                 logoData: guestTeamLogoData,
                 score: guestScore,
                 accent: palette.guestAccent
-            )
-        case .none:
-            return SidePanelData(
-                side: .home,
-                role: "",
-                title: "",
-                logoData: nil,
-                score: 0,
-                accent: palette.boardPrimaryText
             )
         }
     }

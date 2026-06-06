@@ -90,6 +90,7 @@ struct ScoreboardGameSnapshot: Sendable {
     var externalDisplayAnimatedLogoOpacity: Double? = nil
     var showsExternalDisplayDateTime: Bool? = nil
     var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat? = nil
+    var showsExternalDisplayDateTimeSeconds: Bool? = nil
     var showsTeamLogos: Bool? = nil
     var showsEventLogo: Bool? = nil
     var playerViewRosterScope: PlayerViewRosterScope? = nil
@@ -155,7 +156,8 @@ struct ScoreboardGameSnapshot: Sendable {
         homePenaltyTimers: [],
         guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
-        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
+        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
+        showsExternalDisplayDateTimeSeconds: true
     )
 
     var excludingEmbeddedImages: ScoreboardGameSnapshot {
@@ -246,6 +248,7 @@ extension ScoreboardGameSnapshot: Codable {
         case externalDisplayAnimatedLogoOpacity
         case showsExternalDisplayDateTime
         case externalDisplayDateTimeFormat
+        case showsExternalDisplayDateTimeSeconds
         case showsTeamLogos
         case showsEventLogo
         case playerViewRosterScope
@@ -325,6 +328,7 @@ extension ScoreboardGameSnapshot: Codable {
         externalDisplayAnimatedLogoOpacity = try container.decodeIfPresent(Double.self, forKey: .externalDisplayAnimatedLogoOpacity)
         showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime)
         externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat)
+        showsExternalDisplayDateTimeSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTimeSeconds)
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos)
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo)
         playerViewRosterScope = try container.decodeIfPresent(PlayerViewRosterScope.self, forKey: .playerViewRosterScope)
@@ -404,6 +408,7 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
         try container.encodeIfPresent(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
         try container.encodeIfPresent(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
+        try container.encodeIfPresent(showsExternalDisplayDateTimeSeconds, forKey: .showsExternalDisplayDateTimeSeconds)
         try container.encodeIfPresent(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encodeIfPresent(showsEventLogo, forKey: .showsEventLogo)
         try container.encodeIfPresent(playerViewRosterScope, forKey: .playerViewRosterScope)

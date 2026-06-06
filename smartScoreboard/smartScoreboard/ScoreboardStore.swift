@@ -85,6 +85,47 @@ enum TeamSide: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case homeLeft
+    case guestLeft
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .homeLeft:
+            return NSLocalizedString("Home Left", comment: "")
+        case .guestLeft:
+            return NSLocalizedString("Guest Left", comment: "")
+        }
+    }
+
+    var leftSide: TeamSide {
+        switch self {
+        case .homeLeft:
+            return .home
+        case .guestLeft:
+            return .guest
+        }
+    }
+
+    var rightSide: TeamSide {
+        leftSide == .home ? .guest : .home
+    }
+
+    var areSidesSwapped: Bool {
+        self == .guestLeft
+    }
+
+    init(areSidesSwapped: Bool) {
+        self = areSidesSwapped ? .guestLeft : .homeLeft
+    }
+
+    func toggled() -> ScoreboardDisplayDirection {
+        self == .homeLeft ? .guestLeft : .homeLeft
+    }
+}
+
 enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
     case red
     case orange
@@ -466,6 +507,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var activeShotClockPresetSeconds = 0
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
+    @Published var controlBoardDisplayDirection: ScoreboardDisplayDirection = .homeLeft
     @Published var isPlayerTrackingEnabled = false
     @Published var isPlayerOverlayPaused = false
     @Published var rosterSizePerTeam = defaultRosterSize
@@ -521,6 +563,8 @@ final class ScoreboardStore: ObservableObject {
     @Published var externalDisplayAnimatedLogoOpacity = defaultAnimatedLogoOpacity
     @Published var showsExternalDisplayDateTime = false
     @Published var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat = .time24Hour
+    @Published var showsExternalDisplayDateTimeSeconds = true
+    @Published var externalDisplayDirection: ScoreboardDisplayDirection = .homeLeft
     @Published var showsTeamLogos = true
     @Published var showsEventLogo = true
     @Published var homeTeamLogoImage: TeamLogoImage?
@@ -539,6 +583,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var companionFailureNotice: ScoreboardCompanionFailureNotice?
     @Published var isClockRunning = false
     @Published var isShotClockRunning = false
+    @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
     @Published var setupPresets: [SetupPreset] = []
     @Published var isWebAPIEnabled = false
@@ -552,6 +597,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteDisplayConnectedDisplays: [ScoreboardRemoteDisplayConnection] = []
     @Published private(set) var remoteDisplayTrustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = []
     @Published private(set) var remoteDisplayMutedDisplayIDs: Set<String> = []
+    @Published private(set) var remoteDisplayDirectionsByID: [String: ScoreboardRemoteDisplayDirectionSettings] = [:]
     @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
 
     var remoteDisplayHostID: String {
@@ -1199,6 +1245,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: shotClockMilliseconds / 1_000
         )
+        if shotClockMilliseconds != previousMilliseconds, !isShotClockRunning {
+            requestShotClockAutosave()
+        }
     }
 
     func resetClock(to seconds: Int? = nil) {
@@ -1267,6 +1316,7 @@ final class ScoreboardStore: ObservableObject {
         if !isAuditLoggingSuspended {
             handleScoreboardEvent(.shotClockReset)
         }
+        requestShotClockAutosave()
     }
 
     func toggleClock() {
@@ -1552,6 +1602,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if wasRunning != isShotClockRunning {
             handleScoreboardEvent(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+            requestShotClockAutosave()
         }
     }
 
@@ -1597,6 +1648,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        let wasShotClockRunning = isShotClockRunning
         startShotClock()
         recordLog(
             kind: .possessionChange,
@@ -1605,6 +1657,9 @@ final class ScoreboardStore: ObservableObject {
             notes: localizedStoreString("Shot clock auto-started")
         )
         handleScoreboardEvent(.possessionChanged)
+        if wasShotClockRunning != isShotClockRunning {
+            requestShotClockAutosave()
+        }
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
@@ -1636,6 +1691,7 @@ final class ScoreboardStore: ObservableObject {
             )
             if wasRunning != isShotClockRunning {
                 handleScoreboardEvent(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+                requestShotClockAutosave()
             }
             return
         }
@@ -1652,6 +1708,7 @@ final class ScoreboardStore: ObservableObject {
             value: targetSeconds
         )
         handleScoreboardEvent(.shotClockStarted)
+        requestShotClockAutosave()
     }
 
     func resetActiveShotClock() {
@@ -1681,6 +1738,7 @@ final class ScoreboardStore: ObservableObject {
             value: targetSeconds
         )
         handleScoreboardEvent(.shotClockReset)
+        requestShotClockAutosave()
     }
 
     func newGame() {
@@ -1741,13 +1799,19 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
-        areSidesSwapped.toggle()
+        controlBoardDisplayDirection = controlBoardDisplayDirection.toggled()
+        areSidesSwapped = controlBoardDisplayDirection.areSidesSwapped
         recordLog(
             kind: .sideSwap,
             summary: localizedStoreString("Swap home and guest sides"),
             outcome: .applied
         )
         handleScoreboardEvent(.sideSwitched)
+    }
+
+    func setControlBoardDisplayDirection(_ direction: ScoreboardDisplayDirection) {
+        controlBoardDisplayDirection = direction
+        areSidesSwapped = direction.areSidesSwapped
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
@@ -2859,7 +2923,7 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
-            areSidesSwapped: areSidesSwapped,
+            areSidesSwapped: false,
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
@@ -2911,6 +2975,7 @@ final class ScoreboardStore: ObservableObject {
             externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
             showsExternalDisplayDateTime: showsExternalDisplayDateTime,
             externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: showsExternalDisplayDateTimeSeconds,
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -3032,7 +3097,6 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
             possessionDirection = supportsPossession ? snapshot.possessionDirection : .none
-            areSidesSwapped = snapshot.areSidesSwapped
             isPlayerTrackingEnabled = currentRules.supportsPlayerTracking ? (snapshot.isPlayerTrackingEnabled ?? false) : false
             isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
             rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
@@ -3087,6 +3151,7 @@ final class ScoreboardStore: ObservableObject {
             setExternalDisplayAnimatedLogoOpacity(snapshot.externalDisplayAnimatedLogoOpacity ?? Self.defaultAnimatedLogoOpacity)
             showsExternalDisplayDateTime = snapshot.showsExternalDisplayDateTime ?? false
             externalDisplayDateTimeFormat = snapshot.externalDisplayDateTimeFormat ?? .time24Hour
+            showsExternalDisplayDateTimeSeconds = snapshot.showsExternalDisplayDateTimeSeconds ?? true
             showsTeamLogos = snapshot.showsTeamLogos ?? true
             showsEventLogo = snapshot.showsEventLogo ?? true
             playerViewRosterScope = .fullRoster
@@ -3163,7 +3228,6 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds = currentRules.supportsShotClock ? boundedShotClockSeconds(shotClockSeconds) : 0
             activeShotClockPresetSeconds = defaultShotClockSeconds
             possessionDirection = .none
-            areSidesSwapped = false
             isPlayerOverlayPaused = false
             resetPlayerTrackingForNewGame()
             didCompleteSetup = true
@@ -3271,6 +3335,10 @@ final class ScoreboardStore: ObservableObject {
     private func pauseShotClock() {
         isShotClockRunning = false
         updateTimerState()
+    }
+
+    private func requestShotClockAutosave() {
+        shotClockAutosaveRevision &+= 1
     }
 
     private func updateTimerState() {
@@ -3386,6 +3454,7 @@ final class ScoreboardStore: ObservableObject {
                         outcome: .applied,
                         value: 0
                     )
+                    requestShotClockAutosave()
                 }
             }
         }
@@ -3777,6 +3846,24 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayMutedDisplayIDs.contains(displayID)
     }
 
+    func remoteDisplayDirection(displayID: String) -> ScoreboardDisplayDirection {
+        remoteDisplayHostService.displayDirection(id: displayID)
+    }
+
+    func remoteDisplayExternalDirection(displayID: String) -> ScoreboardDisplayDirection {
+        remoteDisplayHostService.externalDisplayDirection(id: displayID)
+    }
+
+    func setRemoteDisplayDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        remoteDisplayHostService.setDisplayDirection(id: displayID, direction: direction)
+        refreshRemoteDisplayState()
+    }
+
+    func setRemoteDisplayExternalDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        remoteDisplayHostService.setExternalDisplayDirection(id: displayID, direction: direction)
+        refreshRemoteDisplayState()
+    }
+
     func refreshWebAPILocalAddresses() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
     }
@@ -3860,6 +3947,12 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.$mutedDisplayIDs
             .sink { [weak self] mutedDisplayIDs in
                 self?.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$displayDirectionsByID
+            .sink { [weak self] displayDirectionsByID in
+                self?.remoteDisplayDirectionsByID = displayDirectionsByID
             }
             .store(in: &cancellables)
 
@@ -4015,8 +4108,8 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayState(),
             displayName: remoteDisplayHostName,
-            currentStateProvider: { [weak self] in
-                self?.encodedRemoteDisplayState() ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+            currentStateProvider: { [weak self] displayID in
+                self?.encodedRemoteDisplayState(forDisplayID: displayID) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
             },
             currentImageResponsesProvider: { [weak self] in
                 self?.currentWebAPIImageResponses() ?? [:]
@@ -4040,9 +4133,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func encodedRemoteDisplayState() -> Data {
+        encodedRemoteDisplayState(forDisplayID: nil)
+    }
+
+    private func encodedRemoteDisplayState(forDisplayID displayID: String?) -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(currentWebAPIState().remoteDisplayPayload)) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+        return (try? encoder.encode(currentRemoteDisplayState(forDisplayID: displayID))) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
     }
 
     private var remoteDisplayHostName: String {
@@ -4067,6 +4164,7 @@ final class ScoreboardStore: ObservableObject {
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
             $possessionDirection.map { _ in () }.eraseToAnyPublisher(),
             $areSidesSwapped.map { _ in () }.eraseToAnyPublisher(),
+            $controlBoardDisplayDirection.map { _ in () }.eraseToAnyPublisher(),
             $isPlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isPlayerOverlayPaused.map { _ in () }.eraseToAnyPublisher(),
             $rosterSizePerTeam.map { _ in () }.eraseToAnyPublisher(),
@@ -4122,6 +4220,8 @@ final class ScoreboardStore: ObservableObject {
             $externalDisplayAnimatedLogoOpacity.map { _ in () }.eraseToAnyPublisher(),
             $showsExternalDisplayDateTime.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayDateTimeFormat.map { _ in () }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTimeSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayDirection.map { _ in () }.eraseToAnyPublisher(),
             $showsTeamLogos.map { _ in () }.eraseToAnyPublisher(),
             $showsEventLogo.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
@@ -4232,7 +4332,8 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
             possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
-            areSidesSwapped = persistedState.areSidesSwapped
+            controlBoardDisplayDirection = persistedState.controlBoardDisplayDirection
+            areSidesSwapped = controlBoardDisplayDirection.areSidesSwapped
             isPlayerTrackingEnabled = selectedSport == .debate
                 ? persistedState.isDebatePlayerTrackingEnabled
                 : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
@@ -4289,6 +4390,8 @@ final class ScoreboardStore: ObservableObject {
             setExternalDisplayAnimatedLogoOpacity(persistedState.externalDisplayAnimatedLogoOpacity)
             showsExternalDisplayDateTime = persistedState.showsExternalDisplayDateTime
             externalDisplayDateTimeFormat = persistedState.externalDisplayDateTimeFormat
+            showsExternalDisplayDateTimeSeconds = persistedState.showsExternalDisplayDateTimeSeconds
+            externalDisplayDirection = persistedState.externalDisplayDirection
             showsTeamLogos = persistedState.showsTeamLogos
             showsEventLogo = persistedState.showsEventLogo
             homeTeamLogoImage = nil
@@ -4367,6 +4470,7 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped,
+            controlBoardDisplayDirection: controlBoardDisplayDirection,
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
@@ -4420,6 +4524,8 @@ final class ScoreboardStore: ObservableObject {
             externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
             showsExternalDisplayDateTime: showsExternalDisplayDateTime,
             externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: showsExternalDisplayDateTimeSeconds,
+            externalDisplayDirection: externalDisplayDirection,
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
@@ -4578,6 +4684,7 @@ private struct PersistedState: Codable {
     var activeShotClockPresetSeconds: Int
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
+    var controlBoardDisplayDirection: ScoreboardDisplayDirection
     var isPlayerTrackingEnabled: Bool
     var isPlayerOverlayPaused: Bool
     var rosterSizePerTeam: Int
@@ -4631,6 +4738,8 @@ private struct PersistedState: Codable {
     var externalDisplayAnimatedLogoOpacity: Double
     var showsExternalDisplayDateTime: Bool
     var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat
+    var showsExternalDisplayDateTimeSeconds: Bool
+    var externalDisplayDirection: ScoreboardDisplayDirection
     var showsTeamLogos: Bool
     var showsEventLogo: Bool
     var isSoundEnabled: Bool
@@ -4666,6 +4775,7 @@ private struct PersistedState: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case controlBoardDisplayDirection
         case isPlayerTrackingEnabled
         case isPlayerOverlayPaused
         case rosterSizePerTeam
@@ -4719,6 +4829,8 @@ private struct PersistedState: Codable {
         case externalDisplayAnimatedLogoOpacity
         case showsExternalDisplayDateTime
         case externalDisplayDateTimeFormat
+        case showsExternalDisplayDateTimeSeconds
+        case externalDisplayDirection
         case showsTeamLogos
         case showsEventLogo
         case isSoundEnabled
@@ -4756,6 +4868,7 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds: Int,
         possessionDirection: PossessionDirection,
         areSidesSwapped: Bool,
+        controlBoardDisplayDirection: ScoreboardDisplayDirection,
         isPlayerTrackingEnabled: Bool,
         isPlayerOverlayPaused: Bool,
         rosterSizePerTeam: Int,
@@ -4809,6 +4922,8 @@ private struct PersistedState: Codable {
         externalDisplayAnimatedLogoOpacity: Double,
         showsExternalDisplayDateTime: Bool,
         externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat,
+        showsExternalDisplayDateTimeSeconds: Bool,
+        externalDisplayDirection: ScoreboardDisplayDirection,
         showsTeamLogos: Bool,
         showsEventLogo: Bool,
         isSoundEnabled: Bool,
@@ -4842,6 +4957,7 @@ private struct PersistedState: Codable {
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
         self.possessionDirection = possessionDirection
         self.areSidesSwapped = areSidesSwapped
+        self.controlBoardDisplayDirection = controlBoardDisplayDirection
         self.isPlayerTrackingEnabled = isPlayerTrackingEnabled
         self.isPlayerOverlayPaused = isPlayerOverlayPaused
         self.rosterSizePerTeam = rosterSizePerTeam
@@ -4895,6 +5011,8 @@ private struct PersistedState: Codable {
         self.externalDisplayAnimatedLogoOpacity = externalDisplayAnimatedLogoOpacity
         self.showsExternalDisplayDateTime = showsExternalDisplayDateTime
         self.externalDisplayDateTimeFormat = externalDisplayDateTimeFormat
+        self.showsExternalDisplayDateTimeSeconds = showsExternalDisplayDateTimeSeconds
+        self.externalDisplayDirection = externalDisplayDirection
         self.showsTeamLogos = showsTeamLogos
         self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
@@ -4936,6 +5054,8 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
+        let migratedDisplayDirection = ScoreboardDisplayDirection(areSidesSwapped: areSidesSwapped)
+        controlBoardDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .controlBoardDisplayDirection) ?? migratedDisplayDirection
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? false
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
@@ -4999,6 +5119,8 @@ private struct PersistedState: Codable {
         )
         showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime) ?? false
         externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat) ?? .time24Hour
+        showsExternalDisplayDateTimeSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTimeSeconds) ?? true
+        externalDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .externalDisplayDirection) ?? migratedDisplayDirection
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
@@ -5052,6 +5174,7 @@ private struct PersistedState: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encode(controlBoardDisplayDirection, forKey: .controlBoardDisplayDirection)
         try container.encode(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
         try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encode(rosterSizePerTeam, forKey: .rosterSizePerTeam)
@@ -5105,6 +5228,8 @@ private struct PersistedState: Codable {
         try container.encode(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
         try container.encode(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
         try container.encode(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
+        try container.encode(showsExternalDisplayDateTimeSeconds, forKey: .showsExternalDisplayDateTimeSeconds)
+        try container.encode(externalDisplayDirection, forKey: .externalDisplayDirection)
         try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
@@ -5151,6 +5276,7 @@ private extension PersistedState {
             activeShotClockPresetSeconds: 0,
             possessionDirection: .none,
             areSidesSwapped: false,
+            controlBoardDisplayDirection: .homeLeft,
             isPlayerTrackingEnabled: false,
             isPlayerOverlayPaused: false,
             rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
@@ -5204,6 +5330,8 @@ private extension PersistedState {
             externalDisplayAnimatedLogoOpacity: ScoreboardStore.defaultAnimatedLogoOpacity,
             showsExternalDisplayDateTime: false,
             externalDisplayDateTimeFormat: .time24Hour,
+            showsExternalDisplayDateTimeSeconds: true,
+            externalDisplayDirection: .homeLeft,
             showsTeamLogos: true,
             showsEventLogo: true,
             isSoundEnabled: true,
