@@ -582,6 +582,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var companionLastError: String?
     @Published private(set) var companionFailureNotice: ScoreboardCompanionFailureNotice?
     @Published var isClockRunning = false
+    @Published private(set) var gameClockAutosaveRevision = 0
     @Published var isShotClockRunning = false
     @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
@@ -1219,6 +1220,9 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: gameClockSeconds
         )
+        if gameClockSeconds != previousClock, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func adjustShotClock(by delta: Int) {
@@ -1285,6 +1289,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             value: gameClockSeconds
         )
+        requestGameClockAutosave()
     }
 
     func resetShotClock(to seconds: Int? = nil) {
@@ -1339,6 +1344,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if wasRunning != isClockRunning {
             handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -1365,6 +1371,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if wasRunning != isClockRunning {
             handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -1768,6 +1775,7 @@ final class ScoreboardStore: ObservableObject {
             configureDebateSegment(index: 0, preserveRunningState: false)
         }
         resetPlayerTrackingForNewGame()
+        requestGameClockAutosave()
     }
 
     func resetScores() {
@@ -2250,6 +2258,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: notes ?? currentDebatePreset.title
         )
+        requestGameClockAutosave()
     }
 
     func resetDebateCurrentSegment() {
@@ -2262,6 +2271,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: debateSegmentTitle
         )
+        requestGameClockAutosave()
     }
 
     func advanceDebateSegment(by delta: Int) {
@@ -2287,11 +2297,13 @@ final class ScoreboardStore: ObservableObject {
             notes: debateSegmentTitle
         )
         handleScoreboardEvent(.periodChanged)
+        requestGameClockAutosave()
     }
 
     func toggleDebatePrepClock(for side: TeamSide) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
+        let wasClockRunning = isClockRunning
         if debateActiveTimer != target {
             pauseClock()
             debateActiveTimer = target
@@ -2305,6 +2317,9 @@ final class ScoreboardStore: ObservableObject {
                 outcome: .ignored,
                 teamSide: side
             )
+            if wasClockRunning, !isClockRunning {
+                requestGameClockAutosave()
+            }
             return
         }
         isDebatePrepClockRunning.toggle()
@@ -2317,6 +2332,9 @@ final class ScoreboardStore: ObservableObject {
             value: currentSeconds
         )
         handleScoreboardEvent(isDebatePrepClockRunning ? .gameClockStarted : .gameClockPaused)
+        if wasClockRunning, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
@@ -2340,6 +2358,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if wasOnPrepTimer {
             handleScoreboardEvent(resume ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -2414,6 +2433,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if wasRunning != isClockRunning {
             handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -2508,6 +2528,9 @@ final class ScoreboardStore: ObservableObject {
             value: updatedValue,
             notes: isDebateMode ? debateSegmentTitle : nil
         )
+        if previousValue != updatedValue, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func resetChessClocks() {
@@ -2534,6 +2557,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: isDebateMode ? debateSegmentTitle : (selectedSport == .chess ? chessClockPreset.title : selectedSport.title)
         )
+        requestGameClockAutosave()
     }
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int) {
@@ -3337,6 +3361,10 @@ final class ScoreboardStore: ObservableObject {
         updateTimerState()
     }
 
+    private func requestGameClockAutosave() {
+        gameClockAutosaveRevision &+= 1
+    }
+
     private func requestShotClockAutosave() {
         shotClockAutosaveRevision &+= 1
     }
@@ -3390,6 +3418,7 @@ final class ScoreboardStore: ObservableObject {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
                             soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            requestGameClockAutosave()
                         }
                     case .guest:
                         guestChessClockSeconds = max(0, guestChessClockSeconds - elapsedWholeSeconds)
@@ -3397,9 +3426,11 @@ final class ScoreboardStore: ObservableObject {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
                             soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            requestGameClockAutosave()
                         }
                     case .none:
                         isClockRunning = false
+                        requestGameClockAutosave()
                     }
                 } else {
                     switch gameClockMode {
@@ -3416,6 +3447,7 @@ final class ScoreboardStore: ObservableObject {
                                 outcome: .applied,
                                 value: gameClockSeconds
                             )
+                            requestGameClockAutosave()
                         }
                     case .countUp:
                         gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
@@ -3423,6 +3455,7 @@ final class ScoreboardStore: ObservableObject {
                         if gameClockSeconds == Self.maxGameClockSeconds {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
+                            requestGameClockAutosave()
                         }
                     }
                 }

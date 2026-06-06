@@ -186,7 +186,7 @@ struct ContentView: View {
         .onReceive(store.$guestScore) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$period) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$selectedSport) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$gameClockSeconds) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$gameClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$shotClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$defaultShotClockSeconds) { _ in autosaveSelectedGameFile() }
@@ -199,8 +199,6 @@ struct ContentView: View {
             guard !isSetupDraftUpdateSuppressed else { return }
             setupCustomDebatePreset = $0
         }
-        .onReceive(store.$homeChessClockSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestChessClockSeconds) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$activeChessClockSide) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$chessClockPreset) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homePenaltyTimers) { _ in autosaveSelectedGameFile() }
