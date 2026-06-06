@@ -21,7 +21,7 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 9
+    var fileVersion = 10
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
@@ -83,6 +83,13 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestRoster: TeamRoster?
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode? = nil
     var externalDisplayBackgroundImage: ScoreboardGameEmbeddedImage? = nil
+    var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle? = nil
+    var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor? = nil
+    var externalDisplayAnimatedLogoSpeed: Int? = nil
+    var externalDisplayAnimatedLogoSize: Int? = nil
+    var externalDisplayAnimatedLogoOpacity: Double? = nil
+    var showsExternalDisplayDateTime: Bool? = nil
+    var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat? = nil
     var showsTeamLogos: Bool? = nil
     var showsEventLogo: Bool? = nil
     var playerViewRosterScope: PlayerViewRosterScope? = nil
@@ -232,6 +239,13 @@ extension ScoreboardGameSnapshot: Codable {
         case guestRoster
         case externalDisplayBackgroundMode
         case externalDisplayBackgroundImage
+        case externalDisplayAnimatedLogoStyle
+        case externalDisplayAnimatedLogoBackgroundColor
+        case externalDisplayAnimatedLogoSpeed
+        case externalDisplayAnimatedLogoSize
+        case externalDisplayAnimatedLogoOpacity
+        case showsExternalDisplayDateTime
+        case externalDisplayDateTimeFormat
         case showsTeamLogos
         case showsEventLogo
         case playerViewRosterScope
@@ -304,6 +318,13 @@ extension ScoreboardGameSnapshot: Codable {
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode)
         externalDisplayBackgroundImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .externalDisplayBackgroundImage)
+        externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle)
+        externalDisplayAnimatedLogoBackgroundColor = try container.decodeIfPresent(ExternalDisplayAnimatedLogoBackgroundColor.self, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        externalDisplayAnimatedLogoSpeed = try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSpeed)
+        externalDisplayAnimatedLogoSize = try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSize)
+        externalDisplayAnimatedLogoOpacity = try container.decodeIfPresent(Double.self, forKey: .externalDisplayAnimatedLogoOpacity)
+        showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime)
+        externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat)
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos)
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo)
         playerViewRosterScope = try container.decodeIfPresent(PlayerViewRosterScope.self, forKey: .playerViewRosterScope)
@@ -376,6 +397,13 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
         try container.encodeIfPresent(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoBackgroundColor, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoSpeed, forKey: .externalDisplayAnimatedLogoSpeed)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoSize, forKey: .externalDisplayAnimatedLogoSize)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
+        try container.encodeIfPresent(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
+        try container.encodeIfPresent(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
         try container.encodeIfPresent(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encodeIfPresent(showsEventLogo, forKey: .showsEventLogo)
         try container.encodeIfPresent(playerViewRosterScope, forKey: .playerViewRosterScope)

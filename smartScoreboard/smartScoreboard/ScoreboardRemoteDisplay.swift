@@ -1973,7 +1973,8 @@ final class ScoreboardRemoteDisplayReceiver: NSObject, ObservableObject {
     }
 
     private func requestMissingImagesIfNeeded(for state: ScoreboardWebAPIState, from peerID: MCPeerID) {
-        if state.display?.backgroundMode == .image, let image = state.display?.backgroundImage {
+        let backgroundMode = (state.display?.backgroundMode ?? .blurred).resolvedForRendering
+        if backgroundMode == .image, let image = state.display?.backgroundImage {
             requestImageIfNeeded(id: image.id, path: image.path, from: peerID)
         }
 

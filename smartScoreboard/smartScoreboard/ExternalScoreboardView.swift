@@ -12,8 +12,15 @@ struct ExternalScoreboardView: View {
             viewMode: store.publicDisplayViewMode,
             playerViewRosterScope: .fullRoster,
             theme: store.theme,
-            backgroundMode: store.externalDisplayBackgroundMode,
+            backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
             backgroundImage: store.externalDisplayBackgroundImage.map(PublicScoreboardBackgroundImage.init(image:)),
+            animatedLogoStyle: store.externalDisplayAnimatedLogoStyle,
+            animatedLogoBackgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
+            animatedLogoSpeed: store.externalDisplayAnimatedLogoSpeed,
+            animatedLogoSize: store.externalDisplayAnimatedLogoSize,
+            animatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
+            showsDateTime: store.showsExternalDisplayDateTime,
+            dateTimeFormat: store.externalDisplayDateTimeFormat,
             sport: store.selectedSport,
             rules: store.currentRules,
             showsScore: store.supportsScore,
@@ -41,6 +48,7 @@ struct ExternalScoreboardView: View {
             debateHomeSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .home) : nil,
             debateGuestSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .guest) : nil,
             debateSegmentTitle: store.isDebateMode ? store.debateSegmentTitle : nil,
+            debateSpeakingSide: store.isDebateMode ? store.debateSpeakingSide : nil,
             debateActiveTimer: store.isDebateMode ? store.debateActiveTimer : nil,
             showsDebatePrepTime: store.showsDebatePrepTime,
             formattedDebatePrepHomeClock: store.showsDebatePrepTime ? store.formattedDebatePrepHomeClock : nil,
@@ -70,7 +78,7 @@ struct ExternalScoreboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
         .background(PublicBoardWindowConfigurator(
-            backgroundMode: store.externalDisplayBackgroundMode,
+            backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
             displayViewMode: store.publicDisplayViewMode,
             fullscreenRequestID: publicBoardState.fullscreenRequestID
         ))
@@ -83,7 +91,7 @@ struct ExternalScoreboardView: View {
 
     @ViewBuilder
     private func externalBackgroundView(using palette: ThemePalette) -> some View {
-        switch store.externalDisplayBackgroundMode {
+        switch store.externalDisplayBackgroundMode.resolvedForRendering {
         case .blurred:
             palette.externalDisplayBackground
         case .clear:
@@ -104,13 +112,23 @@ struct ExternalScoreboardView: View {
             } else {
                 palette.externalDisplayBackground
             }
+        case .animatedLogo:
+            ExternalDisplayAnimatedLogoBackgroundView(
+                data: store.externalDisplayBackgroundImage?.data,
+                style: store.externalDisplayAnimatedLogoStyle,
+                backgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
+                speed: store.externalDisplayAnimatedLogoSpeed,
+                logoSize: store.externalDisplayAnimatedLogoSize,
+                logoOpacity: store.externalDisplayAnimatedLogoOpacity,
+                palette: palette
+            )
         case .none:
             Color.clear
         }
     }
 
     private func resolvedBoardBackgroundStyle() -> ScoreboardFaceView.BackgroundStyle {
-        switch store.externalDisplayBackgroundMode {
+        switch store.externalDisplayBackgroundMode.resolvedForRendering {
         case .blurred:
             return .blurred
         case .clear:
@@ -120,6 +138,8 @@ struct ExternalScoreboardView: View {
         case .smartScoreboard:
             return .transparent
         case .image:
+            return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
+        case .animatedLogo:
             return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
         case .none:
             return .clear
@@ -154,6 +174,13 @@ struct PublicScoreboardDisplayView: View {
     let theme: ScoreboardTheme
     let backgroundMode: ExternalDisplayBackgroundMode
     let backgroundImage: PublicScoreboardBackgroundImage?
+    let animatedLogoStyle: ExternalDisplayAnimatedLogoStyle
+    let animatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor
+    let animatedLogoSpeed: Int
+    let animatedLogoSize: Int
+    let animatedLogoOpacity: Double
+    let showsDateTime: Bool
+    let dateTimeFormat: ExternalDisplayDateTimeFormat
     let sport: SportType
     let rules: SportRules
     let showsScore: Bool
@@ -181,6 +208,7 @@ struct PublicScoreboardDisplayView: View {
     let debateHomeSideLabel: String?
     let debateGuestSideLabel: String?
     let debateSegmentTitle: String?
+    let debateSpeakingSide: TeamSide?
     let debateActiveTimer: DebateActiveTimer?
     let showsDebatePrepTime: Bool
     let formattedDebatePrepHomeClock: String?
@@ -207,6 +235,7 @@ struct PublicScoreboardDisplayView: View {
     let homeRosterPlayers: [TrackedPlayer]
     let guestRosterPlayers: [TrackedPlayer]
     var compactBoardOverride: Bool? = nil
+    var animatesAnimatedLogoBackground = true
     @State private var foregroundViewMode: ScoreboardDisplayViewMode = .scoreboard
     @State private var isForegroundVisible = true
     @State private var deferredForegroundMode: ScoreboardDisplayViewMode?
@@ -225,11 +254,11 @@ struct PublicScoreboardDisplayView: View {
     var body: some View {
         GeometryReader { proxy in
             let displaySize = proxy.size
+            let displayedBlackoutVisible = hasPreparedInitialMode ? isBlackoutVisible : viewMode == .blackScreen
             let boardSize = ScoreboardFaceView.fittedBoardSize(in: displaySize)
             let usesCompactBoard = compactBoardOverride ?? (boardSize.width < 1320 || boardSize.height < 760)
             let displayedForegroundMode = hasPreparedInitialMode ? foregroundViewMode : initialForegroundMode
             let displayedForegroundVisible = hasPreparedInitialMode ? isForegroundVisible : viewMode != .backgroundOnly
-            let displayedBlackoutVisible = hasPreparedInitialMode ? isBlackoutVisible : viewMode == .blackScreen
 
             ZStack {
                 stableBackgroundView()
@@ -250,6 +279,11 @@ struct PublicScoreboardDisplayView: View {
                     .opacity(displayedBlackoutVisible ? 1 : 0)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
+
+                if shouldShowDateTimeOverlay(blackoutVisible: displayedBlackoutVisible) {
+                    dateTimeOverlay(displaySize: displaySize)
+                        .transition(.opacity)
+                }
             }
             .frame(width: displaySize.width, height: displaySize.height)
             .clipped()
@@ -407,6 +441,45 @@ struct PublicScoreboardDisplayView: View {
         .easeInOut(duration: 0.34)
     }
 
+    private func shouldShowDateTimeOverlay(blackoutVisible: Bool) -> Bool {
+        showsDateTime && !blackoutVisible
+    }
+
+    static func dateTimeOverlayHorizontalInset(in displaySize: CGSize) -> CGFloat {
+        max(16, displaySize.width * 0.018)
+    }
+
+    static func dateTimeOverlayTopInset(in displaySize: CGSize) -> CGFloat {
+        max(14, displaySize.height * 0.014)
+    }
+
+    private func dateTimeFontSize(in displaySize: CGSize) -> CGFloat {
+        max(18, min(min(displaySize.width, displaySize.height) * 0.030, 36))
+    }
+
+    private func dateTimeOverlay(displaySize: CGSize) -> some View {
+        TimelineView(.periodic(from: Date(), by: 1)) { timeline in
+            Text(dateTimeFormat.string(from: timeline.date))
+                .font(.system(size: dateTimeFontSize(in: displaySize), weight: .black, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .foregroundStyle(.white)
+                .padding(.horizontal, max(12, displaySize.width * 0.010))
+                .padding(.vertical, max(7, displaySize.height * 0.006))
+                .background(.black.opacity(0.50), in: Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                )
+                .frame(maxWidth: max(160, displaySize.width * 0.42), alignment: .leading)
+                .padding(.leading, Self.dateTimeOverlayHorizontalInset(in: displaySize))
+                .padding(.top, Self.dateTimeOverlayTopInset(in: displaySize))
+                .frame(width: displaySize.width, height: displaySize.height, alignment: .topLeading)
+        }
+        .allowsHitTesting(false)
+    }
+
     private func scoreboardFace(usesCompactBoard: Bool) -> some View {
         ScoreboardFaceView(
             theme: theme,
@@ -438,6 +511,7 @@ struct PublicScoreboardDisplayView: View {
             debateHomeSideLabel: debateHomeSideLabel,
             debateGuestSideLabel: debateGuestSideLabel,
             debateSegmentTitle: debateSegmentTitle,
+            debateSpeakingSide: debateSpeakingSide,
             debateActiveTimer: debateActiveTimer,
             showsDebatePrepTime: showsDebatePrepTime,
             formattedDebatePrepHomeClock: formattedDebatePrepHomeClock,
@@ -467,7 +541,7 @@ struct PublicScoreboardDisplayView: View {
 
     @ViewBuilder
     private func stableBackgroundView() -> some View {
-        switch backgroundMode {
+        switch backgroundMode.resolvedForRendering {
         case .blurred:
             palette.externalDisplayBackground
         case .clear, .clearUnderBoard:
@@ -488,13 +562,24 @@ struct PublicScoreboardDisplayView: View {
             } else {
                 palette.externalDisplayBackground
             }
+        case .animatedLogo:
+            ExternalDisplayAnimatedLogoBackgroundView(
+                data: backgroundImage?.data,
+                style: animatedLogoStyle,
+                backgroundColor: animatedLogoBackgroundColor,
+                speed: animatedLogoSpeed,
+                logoSize: animatedLogoSize,
+                logoOpacity: animatedLogoOpacity,
+                palette: palette,
+                animates: animatesAnimatedLogoBackground
+            )
         case .none:
             Color.clear
         }
     }
 
     private func boardBackgroundStyle() -> ScoreboardFaceView.BackgroundStyle {
-        switch backgroundMode {
+        switch backgroundMode.resolvedForRendering {
         case .blurred:
             return .blurred
         case .clear:
@@ -504,6 +589,8 @@ struct PublicScoreboardDisplayView: View {
         case .smartScoreboard:
             return .transparent
         case .image:
+            return backgroundImage == nil ? .blurred : .transparent
+        case .animatedLogo:
             return backgroundImage == nil ? .blurred : .transparent
         case .none:
             return .clear
@@ -986,10 +1073,12 @@ struct PublicScoreboardDisplayView: View {
     }
 
     private var usesTransparentBoardSurfaces: Bool {
-        switch backgroundMode {
+        switch backgroundMode.resolvedForRendering {
         case .clearUnderBoard, .smartScoreboard, .none:
             return true
         case .image:
+            return backgroundImage != nil
+        case .animatedLogo:
             return backgroundImage != nil
         case .blurred, .clear:
             return false

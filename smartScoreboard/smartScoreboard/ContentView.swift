@@ -87,6 +87,8 @@ struct ContentView: View {
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
     @State private var isExternalBackgroundImageEditorVisible = false
+    @State private var isDebateDesignerVisible = false
+    @State private var pendingExternalBackgroundModeAfterImageImport: ExternalDisplayBackgroundMode?
     #if os(iOS)
     @State private var showsExternalBackgroundPhotoPicker = false
     @State private var showsHomeLogoPhotoPicker = false
@@ -244,6 +246,13 @@ struct ContentView: View {
         .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayAnimatedLogoStyle) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayAnimatedLogoBackgroundColor) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayAnimatedLogoSpeed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayAnimatedLogoSize) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayAnimatedLogoOpacity) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$showsExternalDisplayDateTime) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$externalDisplayDateTimeFormat) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
@@ -310,6 +319,9 @@ struct ContentView: View {
         }
         .onChange(of: setupSport) { _, _ in
             let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+            if setupSport != .debate {
+                isDebateDesignerVisible = false
+            }
             guard selectedSettingsPane == .players, !supportsPlayers else {
                 return
             }
@@ -337,6 +349,12 @@ struct ContentView: View {
                 selectedSoundSettingsSport = setupSport
             } else if pane == .integration, selectedIntegrationDetail == .bitfocusCompanion {
                 selectedCompanionSettingsSport = setupSport
+            }
+            if pane != .theme {
+                isExternalBackgroundImageEditorVisible = false
+            }
+            if pane != .game {
+                isDebateDesignerVisible = false
             }
         }
         .onChange(of: selectedIntegrationDetail) { _, detail in
@@ -719,118 +737,166 @@ struct ContentView: View {
         }
     }
 
-    private func settingsGamePane(layout: InterfaceLayout) -> some View {
+    private func settingsGamePane(layout: InterfaceLayout) -> AnyView {
+        if isDebateDesignerVisible {
+            return AnyView(debateDesignerPage(layout: layout))
+        }
+
+        return AnyView(settingsGameOverviewPane(layout: layout))
+    }
+
+    private func settingsGameOverviewPane(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Sport", footer: "Choose the scoreboard mode before editing teams, clocks, and tracking rules.") {
-                sportSelectionGrid(layout: layout)
-            }
+            settingsGameIdentitySections(layout: layout)
+            settingsGameRulesSections()
+            settingsSubstitutionTrackingSection()
+        }
+    }
 
-            settingsSection(title: "Event") {
-                settingsPlainTextEntryRow(title: "Event Name", text: $eventNameDraft)
-            }
+    @ViewBuilder
+    private func settingsGameIdentitySections(layout: InterfaceLayout) -> some View {
+        settingsSection(title: "Sport", footer: "Choose the scoreboard mode before editing teams, clocks, and tracking rules.") {
+            sportSelectionGrid(layout: layout)
+        }
 
-            settingsSection(title: "Teams") {
-                settingsTextEntryRow(title: "Home Team", text: $homeTeamDraft, teamSide: true)
-                settingsDivider()
-                settingsTextEntryRow(title: "Guest Team", text: $guestTeamDraft, teamSide: false)
-            }
+        settingsSection(title: "Event") {
+            settingsPlainTextEntryRow(title: "Event Name", text: $eventNameDraft)
+        }
 
-            if setupSport == .custom {
-                customSportSettingsSections()
-            } else if setupSport == .debate {
-                debateSettingsSections()
-            } else {
-                settingsSection(title: "Game") {
-                    if setupRules.supportsPeriod {
-                        settingsStepperValueRow(
-                            title: "Starting \(setupRules.periodTitle)",
-                            value: "\(setupPeriod)",
-                            decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                            increment: { setupPeriod = min(9, setupPeriod + 1) }
-                        )
-                    }
+        settingsSection(title: "Teams") {
+            settingsTextEntryRow(title: "Home Team", text: $homeTeamDraft, teamSide: true)
+            settingsDivider()
+            settingsTextEntryRow(title: "Guest Team", text: $guestTeamDraft, teamSide: false)
+        }
+    }
 
-                    if setupSport == .volleyball {
-                        settingsDivider()
-                        settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
-                    }
-                    if setupRules.usesChessClocks {
-                        if setupSport == .chess {
-                            settingsDivider()
-                            settingsSegmentRow(
-                                title: "Preset",
-                                options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
-                                selection: Binding(
-                                    get: { setupChessPreset.seconds },
-                                    set: { value in
-                                        if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
-                                            setupChessPreset = preset
-                                        }
-                                    }
-                                )
-                            )
-                        }
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Home Clock",
-                            value: formatClock(setupClockSeconds),
-                            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                        )
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Guest Clock",
-                            value: formatClock(setupGuestClockSeconds),
-                            decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
-                            increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
-                        )
-                    } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Opening Clock",
-                            value: formatClock(setupClockSeconds),
-                            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                        )
-                        settingsDivider()
-                        if setupSport == .simple {
-                            settingsPresetButtonGrid(
-                                title: "Clock Preset",
-                                options: clockPresetOptions(for: setupSport),
-                                selection: $setupClockSeconds
-                            )
-                        } else {
-                            settingsSegmentRow(
-                                title: "Clock Preset",
-                                options: clockPresetOptions(for: setupSport),
-                                selection: $setupClockSeconds
-                            )
+    @ViewBuilder
+    private func settingsGameRulesSections() -> some View {
+        if setupSport == .custom {
+            customSportSettingsSections()
+        } else if setupSport == .debate {
+            debateSettingsSections()
+        } else {
+            builtInSportGameSettingsSection()
+        }
+    }
+
+    private func builtInSportGameSettingsSection() -> some View {
+        settingsSection(title: "Game") {
+            builtInSportGameSettingsRows()
+        }
+    }
+
+    @ViewBuilder
+    private func builtInSportGameSettingsRows() -> some View {
+        if setupRules.supportsPeriod {
+            settingsStepperValueRow(
+                title: "Starting \(setupRules.periodTitle)",
+                value: "\(setupPeriod)",
+                decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                increment: { setupPeriod = min(9, setupPeriod + 1) }
+            )
+        }
+
+        if setupSport == .volleyball {
+            settingsDivider()
+            settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
+        }
+
+        if setupRules.usesChessClocks {
+            chessClockSetupRows()
+        } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
+            sharedClockSetupRows()
+        }
+
+        if setupRules.supportsShotClock {
+            shotClockSetupRows()
+        }
+    }
+
+    @ViewBuilder
+    private func chessClockSetupRows() -> some View {
+        if setupSport == .chess {
+            settingsDivider()
+            settingsSegmentRow(
+                title: "Preset",
+                options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                selection: Binding(
+                    get: { setupChessPreset.seconds },
+                    set: { value in
+                        if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                            setupChessPreset = preset
                         }
                     }
+                )
+            )
+        }
 
-                    if setupRules.supportsShotClock {
-                        settingsDivider()
-                        settingsStepperValueRow(
-                            title: "Shot Clock",
-                            value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                            decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-                            increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-                        )
-                        settingsDivider()
-                        settingsSegmentRow(
-                            title: "Shot Preset",
-                            options: [
-                                ("24", 24),
-                                ("14", 14)
-                            ],
-                            selection: $setupShotClockSeconds
-                        )
-                    }
-                }
-            }
+        settingsDivider()
+        settingsStepperValueRow(
+            title: "Home Clock",
+            value: formatClock(setupClockSeconds),
+            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+        )
+        settingsDivider()
+        settingsStepperValueRow(
+            title: "Guest Clock",
+            value: formatClock(setupGuestClockSeconds),
+            decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+            increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+        )
+    }
 
-            if setupRules.showsSubstitutionTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
-                settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
+    @ViewBuilder
+    private func sharedClockSetupRows() -> some View {
+        settingsDivider()
+        settingsStepperValueRow(
+            title: "Opening Clock",
+            value: formatClock(setupClockSeconds),
+            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+        )
+        settingsDivider()
+        if setupSport == .simple {
+            settingsPresetButtonGrid(
+                title: "Clock Preset",
+                options: clockPresetOptions(for: setupSport),
+                selection: $setupClockSeconds
+            )
+        } else {
+            settingsSegmentRow(
+                title: "Clock Preset",
+                options: clockPresetOptions(for: setupSport),
+                selection: $setupClockSeconds
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func shotClockSetupRows() -> some View {
+        settingsDivider()
+        settingsStepperValueRow(
+            title: "Shot Clock",
+            value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+            decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+            increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+        )
+        settingsDivider()
+        settingsSegmentRow(
+            title: "Shot Preset",
+            options: [
+                ("24", 24),
+                ("14", 14)
+            ],
+            selection: $setupShotClockSeconds
+        )
+    }
+
+    @ViewBuilder
+    private func settingsSubstitutionTrackingSection() -> some View {
+        if setupRules.showsSubstitutionTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
+            settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
                 settingsStepperValueRow(
                     title: "Home Allowed",
                     value: "\(store.homeSubstitutionsAllowed)",
@@ -844,7 +910,6 @@ struct ContentView: View {
                     decrement: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed - 1) },
                     increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
                 )
-            }
             }
         }
     }
@@ -1036,6 +1101,8 @@ struct ContentView: View {
             }
             if setupDebatePresetID == DebatePreset.customID {
                 settingsDivider()
+                debateDesignerLauncherRow()
+                settingsDivider()
                 settingsTextEntryRow(
                     title: "Format Title",
                     text: Binding(
@@ -1050,6 +1117,10 @@ struct ContentView: View {
             settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
             settingsDivider()
             settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
+        }
+
+        settingsSection(title: "Segments", footer: setupDebatePresetID == DebatePreset.customID ? "Preview the full custom debate flow. Use Open Designer under Preset to edit these blocks." : "Preview the full debate timer flow for the selected preset.") {
+            debateSegmentPreviewList(preset: setupDebatePreset)
         }
 
         settingsSection(title: "Player", footer: "Enable player tracking and choose whether debate players carry fouls or cards.") {
@@ -1082,54 +1153,378 @@ struct ContentView: View {
                 }
             }
         }
+    }
 
-        settingsSection(title: "Segments", footer: "Segments define the main debate timer flow. Built-in presets are read-only; custom debate lets you add and edit segments.") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Round Segments")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(settingsPalette.primaryText)
+    private func debateDesignerLauncherRow() -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "square.grid.2x2")
+                .font(.title3.weight(.black))
+                .foregroundStyle(settingsPalette.accent)
+                .frame(width: 42, height: 42)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText("Debate Designer")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(settingsPalette.primaryText)
 
-                    if setupDebatePresetID == DebatePreset.customID {
-                        Button("Add Segment") {
-                            addCustomDebateSegment()
-                        }
-                        .buttonStyle(.plain)
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(settingsPalette.accent)
-                    }
-                }
+                Text(localizedAppFormat("%lld blocks · %@ speech time", setupCustomDebatePreset.segments.count, formatClock(debateTotalDurationSeconds(setupCustomDebatePreset))))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+            }
 
-                if setupDebatePresetID == DebatePreset.customID {
-                    ForEach(Array(setupCustomDebatePreset.segments.indices), id: \.self) { index in
-                        if index > 0 {
-                            settingsDivider()
-                        }
-                        customDebateSegmentEditor(segment: setupCustomDebatePreset.segments[index], index: index)
-                    }
-                } else {
-                    ForEach(Array(setupDebatePreset.segments.enumerated()), id: \.element.id) { index, segment in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text(localizedAppFormat("%lld. %@", index + 1, localizedAppString(segment.title)))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(settingsPalette.primaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
 
-                            Text(segment.timerMode == .masterClock ? "Master" : segment.timerMode == .dualClock ? "Dual" : "None")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(settingsPalette.secondaryText)
+            settingsCompactIconButton("Open Designer", systemImage: "arrow.right", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                openDebateDesigner()
+            }
+        }
+        .padding(.vertical, 12)
+    }
 
-                            Text(formatClock(segment.durationSeconds))
-                                .font(.subheadline.weight(.black))
-                                .monospacedDigit()
-                                .foregroundStyle(settingsPalette.secondaryText)
-                        }
-                    }
+    private func debateSegmentPreviewList(preset: DebatePreset) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(preset.segments.enumerated()), id: \.offset) { index, segment in
+                debateSegmentPreviewRow(segment: segment, index: index)
+                if index < preset.segments.count - 1 {
+                    settingsDivider()
                 }
             }
         }
+    }
+
+    private func debateSegmentPreviewRow(segment: DebateSegment, index: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(localizedAppFormat("%lld. %@", index + 1, localizedAppString(segment.title)))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(settingsPalette.primaryText)
+                .lineLimit(2)
+
+            Spacer(minLength: 8)
+
+            Text(debateSegmentPreviewDetail(segment))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 11)
+    }
+
+    private func debateSegmentPreviewDetail(_ segment: DebateSegment) -> String {
+        let timerTitle = debateTimerModeTitle(segment.timerMode)
+        let speakerTitle = segment.speakingSide.map(debateSpeakingSideTitle)
+        guard segment.timerMode != .none else {
+            return [timerTitle, speakerTitle].compactMap { $0 }.joined(separator: " · ")
+        }
+
+        return [timerTitle, formatClock(segment.durationSeconds), speakerTitle].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func debateDesignerPage(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            debateDesignerHeader()
+            debateDesignerTemplatesSection(layout: layout)
+            debateDesignerFormatSection()
+            debateDesignerSegmentsSection()
+        }
+    }
+
+    private func debateDesignerHeader() -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            settingsCompactIconButton("Back", systemImage: "chevron.left", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                isDebateDesignerVisible = false
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText("Debate Designer")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(localizedAppFormat("%lld blocks · %@ speech time", setupCustomDebatePreset.segments.count, formatClock(debateTotalDurationSeconds(setupCustomDebatePreset))))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func debateDesignerTemplatesSection(layout: InterfaceLayout) -> some View {
+        settingsSection(title: "Templates", footer: "Start from Public Forum, Lincoln-Douglas, or Policy. Applying a template creates an editable Custom Debate flow.") {
+            debateDesignerTemplateGrid(layout: layout)
+        }
+    }
+
+    private func debateDesignerFormatSection() -> some View {
+        settingsSection(title: "Format", footer: "These labels and tracking options are saved with the custom debate format.") {
+            debateDesignerFormatRows()
+        }
+    }
+
+    @ViewBuilder
+    private func debateDesignerFormatRows() -> some View {
+        settingsTextEntryRow(
+            title: "Format Title",
+            text: Binding(
+                get: { setupCustomDebatePreset.title },
+                set: { setupCustomDebatePreset.title = $0 }
+            )
+        )
+        settingsDivider()
+        settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)
+        settingsDivider()
+        settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
+        settingsDivider()
+        settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
+        settingsDivider()
+        settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
+        if setupDebatePlayerTrackingEnabled {
+            settingsDivider()
+            settingsToggleRow(title: "Player Fouls", isOn: $setupDebatePlayerFoulsEnabled)
+            settingsDivider()
+            settingsToggleRow(title: "Player Cards", isOn: $setupDebatePlayerCardsEnabled)
+        }
+        settingsDivider()
+        settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled)
+        if setupDebatePrepTimeEnabled {
+            settingsDivider()
+            settingsStepperValueRow(
+                title: "Prep Time",
+                value: formatClock(setupCustomDebatePreset.prepSecondsPerSide),
+                decrement: {
+                    setupCustomDebatePreset.prepSecondsPerSide = max(0, setupCustomDebatePreset.prepSecondsPerSide - 15)
+                },
+                increment: {
+                    setupCustomDebatePreset.prepSecondsPerSide = min(ScoreboardStore.maxGameClockSeconds, setupCustomDebatePreset.prepSecondsPerSide + 15)
+                }
+            )
+        }
+    }
+
+    private func debateDesignerSegmentsSection() -> some View {
+        settingsSection(title: "Segment Blocks", footer: "Each block becomes one step in the live debate timer. Add speeches, crossfires, prep breaks, or side-clock segments in the order they should run.") {
+            debateDesignerSegmentBlocks()
+        }
+    }
+
+    private func debateDesignerSegmentBlocks() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    localizedAppText("Round Flow")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(localizedAppFormat("%lld blocks", setupCustomDebatePreset.segments.count))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+
+                Spacer(minLength: 0)
+
+                settingsCompactIconButton("Add Segment", systemImage: "plus", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    addCustomDebateSegment()
+                }
+            }
+
+            ForEach(Array(setupCustomDebatePreset.segments.indices), id: \.self) { index in
+                customDebateSegmentEditor(segment: setupCustomDebatePreset.segments[index], index: index)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var debateDesignerTemplates: [DebatePreset] {
+        [simpleDemoDebateTemplate] + DebatePreset.builtInPresets
+    }
+
+    private var simpleDemoDebateTemplate: DebatePreset {
+        DebatePreset(
+            id: "simple-demo",
+            title: "Simple Demo",
+            homeSideLabel: "Aff",
+            guestSideLabel: "Neg",
+            segments: [
+                DebateSegment(
+                    id: "demo-no-timer",
+                    title: "No Timer Block",
+                    timerMode: .none,
+                    durationSeconds: 0,
+                    startingSide: nil,
+                    allowsSideSwitching: false,
+                    autoPauseAtEnd: true,
+                    startsPaused: true
+                ),
+                DebateSegment(
+                    id: "demo-aff-speech",
+                    title: "Aff Speech",
+                    timerMode: .masterClock,
+                    durationSeconds: 60,
+                    startingSide: nil,
+                    allowsSideSwitching: false,
+                    autoPauseAtEnd: true,
+                    startsPaused: true
+                ),
+                DebateSegment(
+                    id: "demo-neg-speech",
+                    title: "Neg Speech",
+                    timerMode: .masterClock,
+                    durationSeconds: 60,
+                    startingSide: nil,
+                    allowsSideSwitching: false,
+                    autoPauseAtEnd: true,
+                    startsPaused: false
+                ),
+                DebateSegment(
+                    id: "demo-aff-led-dual",
+                    title: "Aff-Led Side Clock",
+                    timerMode: .dualClock,
+                    durationSeconds: 90,
+                    startingSide: .home,
+                    allowsSideSwitching: true,
+                    autoPauseAtEnd: true,
+                    startsPaused: true
+                ),
+                DebateSegment(
+                    id: "demo-neg-led-dual",
+                    title: "Neg-Led Side Clock",
+                    timerMode: .dualClock,
+                    durationSeconds: 90,
+                    startingSide: .guest,
+                    allowsSideSwitching: true,
+                    autoPauseAtEnd: false,
+                    startsPaused: true
+                ),
+                DebateSegment(
+                    id: "demo-final",
+                    title: "Final Speech",
+                    timerMode: .masterClock,
+                    durationSeconds: 45,
+                    startingSide: nil,
+                    allowsSideSwitching: false,
+                    autoPauseAtEnd: true,
+                    startsPaused: true
+                )
+            ],
+            prepSecondsPerSide: 30,
+            isPrepTimeEnabled: true,
+            defaultScoreTrackingEnabled: true,
+            defaultPlayerTrackingEnabled: true,
+            defaultPlayerFoulsEnabled: true,
+            defaultPlayerCardsEnabled: true
+        )
+    }
+
+    private func debateDesignerTemplateGrid(layout: InterfaceLayout) -> some View {
+        let columnCount = layout.size.width < 880 ? 1 : layout.size.width < 1240 ? 2 : 3
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount)
+
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(debateDesignerTemplates) { template in
+                debateDesignerTemplateButton(template)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func debateDesignerTemplateButton(_ template: DebatePreset) -> some View {
+        Button {
+            applyDebateDesignerTemplate(template)
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.headline.weight(.black))
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 34, height: 34)
+                        .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        localizedAppText(template.title)
+                            .font(.headline.weight(.black))
+                            .foregroundStyle(settingsPalette.primaryText)
+                            .lineLimit(2)
+
+                        Text(localizedAppFormat("%lld blocks · %@", template.segments.count, formatClock(debateTotalDurationSeconds(template))))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 8) {
+                    debateTemplatePill(template.homeSideLabel)
+                    debateTemplatePill(template.guestSideLabel)
+                    debateTemplatePill(template.isPrepTimeEnabled ? localizedAppFormat("%@ prep", formatClock(template.prepSecondsPerSide)) : "No prep")
+                }
+
+                Text(debateTemplateFeatureLine(template))
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(template.segments.prefix(4).map { localizedAppString($0.title) }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 156, alignment: .topLeading)
+            .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(settingsPalette.cardBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func debateTemplatePill(_ title: String) -> some View {
+        Text(localizedAppString(title))
+            .font(.caption.weight(.bold))
+            .foregroundStyle(settingsPalette.secondaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(settingsPalette.cardBackground, in: Capsule())
+    }
+
+    private func debateTemplateFeatureLine(_ template: DebatePreset) -> String {
+        var features: [String] = []
+        let timerModes = Set(template.segments.map(\.timerMode))
+
+        if timerModes.contains(.masterClock) {
+            features.append(localizedAppString("Master"))
+        }
+        if timerModes.contains(.dualClock) {
+            features.append(localizedAppString("Dual side"))
+        }
+        if timerModes.contains(.none) {
+            features.append(localizedAppString("No timer"))
+        }
+        if template.defaultScoreTrackingEnabled {
+            features.append(localizedAppString("Score"))
+        }
+        if template.defaultPlayerTrackingEnabled {
+            features.append(localizedAppString("Players"))
+        }
+        if template.defaultPlayerFoulsEnabled {
+            features.append(localizedAppString("Fouls"))
+        }
+        if template.defaultPlayerCardsEnabled {
+            features.append(localizedAppString("Cards"))
+        }
+        if template.segments.contains(where: { $0.allowsSideSwitching }) {
+            features.append(localizedAppString("Side switch"))
+        }
+
+        return features.joined(separator: " · ")
     }
 
     private func sportSelectionGrid(layout: InterfaceLayout) -> some View {
@@ -1303,30 +1698,59 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private func settingsThemePane() -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
-                ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
-                    themeSelectionRow(theme)
+        if isExternalBackgroundImageEditorVisible {
+            externalBackgroundImageEditorPage()
+        } else {
+            VStack(alignment: .leading, spacing: 22) {
+                settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
+                    ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
+                        themeSelectionRow(theme)
 
-                    if index < ScoreboardTheme.allCases.count - 1 {
-                        settingsDivider()
+                        if index < ScoreboardTheme.allCases.count - 1 {
+                            settingsDivider()
+                        }
                     }
                 }
-            }
 
-            settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
-                ForEach(Array(ExternalDisplayBackgroundMode.allCases.enumerated()), id: \.element.id) { index, mode in
-                    externalBackgroundModeRow(mode)
+                settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
+                    let backgroundModes = ExternalDisplayBackgroundMode.selectableThemeModes
+                    ForEach(Array(backgroundModes.enumerated()), id: \.element.id) { index, mode in
+                        externalBackgroundModeRow(mode)
 
-                    if index < ExternalDisplayBackgroundMode.allCases.count - 1 {
+                        if index < backgroundModes.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                    settingsDivider()
+                    externalBackgroundImageControls()
+                    if store.externalDisplayBackgroundMode == .animatedLogo && ExternalDisplayBackgroundMode.isAnimatedLogoBackgroundEnabled {
                         settingsDivider()
+                        animatedLogoBackgroundControls()
                     }
                 }
-                settingsDivider()
-                externalBackgroundImageControls()
-            }
 
+                settingsSection(title: "Display Date & Time", footer: "Shows the current device date/time on public and remote displays without resizing the scoreboard.") {
+                    settingsToggleRow(title: "Show Date/Time", isOn: Binding(
+                        get: { store.showsExternalDisplayDateTime },
+                        set: { store.showsExternalDisplayDateTime = $0 }
+                    ))
+                    settingsDivider()
+                    settingsPickerRow(
+                        title: "Time Format",
+                        selection: Binding(
+                            get: { store.externalDisplayDateTimeFormat },
+                            set: { store.externalDisplayDateTimeFormat = $0 }
+                        ),
+                        options: ExternalDisplayDateTimeFormat.allCases
+                    ) { option in
+                        option.title
+                    }
+                    .disabled(!store.showsExternalDisplayDateTime)
+                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
+                }
+            }
         }
     }
 
@@ -3939,140 +4363,257 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    private func openDebateDesigner() {
+        if setupSport != .debate {
+            setupSport = .debate
+        }
+        if setupDebatePresetID == DebatePreset.customID {
+            normalizeSetupCustomDebatePreset()
+        } else {
+            applyDebateDesignerTemplate(setupDebatePreset)
+        }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            isDebateDesignerVisible = true
+        }
+    }
+
+    private func applyDebateDesignerTemplate(_ template: DebatePreset) {
+        var customPreset = template
+        customPreset.id = DebatePreset.customID
+        setupCustomDebatePreset = customPreset
+        setupDebatePresetID = DebatePreset.customID
+        setupDebateHomeSideLabel = customPreset.homeSideLabel
+        setupDebateGuestSideLabel = customPreset.guestSideLabel
+        setupDebateScoreTrackingEnabled = customPreset.defaultScoreTrackingEnabled
+        setupDebatePlayerTrackingEnabled = customPreset.defaultPlayerTrackingEnabled
+        setupDebatePlayerFoulsEnabled = customPreset.defaultPlayerFoulsEnabled
+        setupDebatePlayerCardsEnabled = customPreset.defaultPlayerCardsEnabled
+        setupDebatePrepTimeEnabled = customPreset.isPrepTimeEnabled
+        if let firstSegment = customPreset.segments.first {
+            setupClockSeconds = firstSegment.durationSeconds
+            setupGuestClockSeconds = firstSegment.durationSeconds
+        }
+    }
+
+    private var setupDebateOpeningSegmentSeconds: Int {
+        max(0, setupDebatePreset.segments.first?.durationSeconds ?? 0)
+    }
+
+    private func debateTotalDurationSeconds(_ preset: DebatePreset) -> Int {
+        preset.segments.reduce(0) { $0 + max(0, $1.durationSeconds) }
+    }
+
+    private func debateTimerModeTitle(_ mode: DebateTimerMode) -> String {
+        switch mode {
+        case .masterClock:
+            return "Master"
+        case .dualClock:
+            return "Dual"
+        case .none:
+            return "None"
+        }
+    }
+
+    private func debateSpeakingSideTitle(_ side: TeamSide?) -> String {
+        guard let side else {
+            return "Not Set"
+        }
+
+        return debateSpeakingSideTitle(side)
+    }
+
+    private func debateSpeakingSideTitle(_ side: TeamSide) -> String {
+        side == .home ? setupDebateHomeSideLabel : setupDebateGuestSideLabel
+    }
+
+    private func debateSpeakingSideSystemImage(_ side: TeamSide) -> String {
+        side == .home ? "arrow.left.circle.fill" : "arrow.right.circle.fill"
+    }
+
     @ViewBuilder
     private func customDebateSegmentEditor(segment: DebateSegment, index: Int) -> some View {
         let segmentID = segment.id
+        let currentSegment = customDebateSegment(segmentID) ?? segment
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Segment \(index + 1)")
-                    .font(.subheadline.weight(.bold))
+            HStack(alignment: .top, spacing: 12) {
+                Text("\(index + 1)")
+                    .font(.headline.weight(.black))
+                    .monospacedDigit()
+                    .foregroundStyle(settingsPalette.accentText)
+                    .frame(width: 38, height: 38)
+                    .background(settingsPalette.accent, in: Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField(
+                        localizedAppString("Segment Title"),
+                        text: Binding(
+                            get: { customDebateSegment(segmentID)?.title ?? segment.title },
+                            set: { newValue in
+                                updateCustomDebateSegment(segmentID) { $0.title = newValue }
+                            }
+                        )
+                    )
+                    .font(.headline.weight(.black))
+                    .autocorrectionDisabled()
+                    .scoreboardPlainTextEntry()
                     .foregroundStyle(settingsPalette.primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    HStack(spacing: 8) {
+                        debateSegmentMetaPill(formatClock(currentSegment.durationSeconds), systemImage: "timer")
+                        debateSegmentMetaPill(debateTimerModeTitle(currentSegment.timerMode), systemImage: currentSegment.timerMode == .dualClock ? "person.2" : "clock")
+                        if let speakingSide = currentSegment.speakingSide {
+                            debateSegmentMetaPill(debateSpeakingSideTitle(speakingSide), systemImage: debateSpeakingSideSystemImage(speakingSide))
+                        }
+                    }
+                }
 
                 Spacer(minLength: 0)
 
-                if index > 0 {
-                    Button("Up") {
-                        moveCustomDebateSegment(from: index, to: index - 1)
+                HStack(spacing: 8) {
+                    if index > 0 {
+                        settingsCompactIconButton("Up", systemImage: "chevron.up", tint: settingsPalette.cardBackground, foreground: settingsPalette.primaryText) {
+                            moveCustomDebateSegment(from: index, to: index - 1)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(settingsPalette.accent)
-                }
 
-                if index < setupCustomDebatePreset.segments.count - 1 {
-                    Button("Down") {
-                        moveCustomDebateSegment(from: index, to: index + 1)
+                    if index < setupCustomDebatePreset.segments.count - 1 {
+                        settingsCompactIconButton("Down", systemImage: "chevron.down", tint: settingsPalette.cardBackground, foreground: settingsPalette.primaryText) {
+                            moveCustomDebateSegment(from: index, to: index + 1)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(settingsPalette.accent)
-                }
 
-                if setupCustomDebatePreset.segments.count > 1 {
-                    Button("Delete") {
-                        removeCustomDebateSegment(segment.id)
+                    if setupCustomDebatePreset.segments.count > 1 {
+                        settingsCompactIconButton("Delete", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                            removeCustomDebateSegment(segment.id)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(themePalette.destructiveTint)
                 }
             }
 
-            settingsTextEntryRow(
-                title: "Title",
-                text: Binding(
-                    get: { customDebateSegment(segmentID)?.title ?? segment.title },
-                    set: { newValue in
-                        updateCustomDebateSegment(segmentID) { $0.title = newValue }
-                    }
-                )
-            )
-
-            settingsPickerRow(
-                title: "Timer",
-                selection: Binding(
-                    get: { customDebateSegment(segmentID)?.timerMode ?? segment.timerMode },
-                    set: { newValue in
-                        updateCustomDebateSegment(segmentID) {
-                            $0.timerMode = newValue
-                            if newValue != .dualClock {
-                                $0.startingSide = nil
-                                $0.allowsSideSwitching = false
-                            } else if $0.startingSide == nil {
-                                $0.startingSide = .home
+            VStack(spacing: 0) {
+                settingsPickerRow(
+                    title: "Timer",
+                    selection: Binding(
+                        get: { customDebateSegment(segmentID)?.timerMode ?? segment.timerMode },
+                        set: { newValue in
+                            updateCustomDebateSegment(segmentID) {
+                                $0.timerMode = newValue
+                                if newValue != .dualClock {
+                                    $0.startingSide = nil
+                                    $0.allowsSideSwitching = false
+                                } else if $0.startingSide == nil {
+                                    $0.startingSide = .home
+                                }
                             }
                         }
-                    }
-                ),
-                options: DebateTimerMode.allCases
-            ) { mode in
-                switch mode {
-                case .masterClock:
-                    return "Master"
-                case .dualClock:
-                    return "Dual"
-                case .none:
-                    return "None"
+                    ),
+                    options: DebateTimerMode.allCases
+                ) { mode in
+                    debateTimerModeTitle(mode)
                 }
-            }
 
-            let currentSegment = customDebateSegment(segmentID) ?? segment
-            settingsStepperValueRow(
-                title: "Duration",
-                value: formatClock(currentSegment.durationSeconds),
-                decrement: {
-                    updateCustomDebateSegment(segmentID) { $0.durationSeconds = max(0, $0.durationSeconds - 15) }
-                },
-                increment: {
-                    updateCustomDebateSegment(segmentID) { $0.durationSeconds = min(ScoreboardStore.maxGameClockSeconds, $0.durationSeconds + 15) }
-                }
-            )
+                settingsDivider()
 
-            settingsToggleRow(
-                title: "Start Paused",
-                isOn: Binding(
-                    get: { customDebateSegment(segmentID)?.startsPaused ?? segment.startsPaused },
-                    set: { newValue in
-                        updateCustomDebateSegment(segmentID) { $0.startsPaused = newValue }
-                    }
-                )
-            )
-
-            settingsToggleRow(
-                title: "Auto Pause At End",
-                isOn: Binding(
-                    get: { customDebateSegment(segmentID)?.autoPauseAtEnd ?? segment.autoPauseAtEnd },
-                    set: { newValue in
-                        updateCustomDebateSegment(segmentID) { $0.autoPauseAtEnd = newValue }
-                    }
-                )
-            )
-
-            if currentSegment.timerMode == .dualClock {
                 settingsPickerRow(
-                    title: "Starting Side",
-                    selection: Binding(
-                        get: { customDebateSegment(segmentID)?.startingSide ?? segment.startingSide ?? .home },
+                    title: "Speaking Side",
+                    selection: Binding<TeamSide?>(
+                        get: { customDebateSegment(segmentID)?.speakingSide ?? segment.speakingSide },
                         set: { newValue in
-                            updateCustomDebateSegment(segmentID) { $0.startingSide = newValue }
+                            updateCustomDebateSegment(segmentID) { $0.speakingSide = newValue }
                         }
                     ),
-                    options: [TeamSide.home, TeamSide.guest]
+                    options: [TeamSide?.none, .some(.home), .some(.guest)]
                 ) { side in
-                    side == .home ? setupDebateHomeSideLabel : setupDebateGuestSideLabel
+                    debateSpeakingSideTitle(side)
                 }
 
+                settingsDivider()
+
+                settingsStepperValueRow(
+                    title: "Duration",
+                    value: formatClock(currentSegment.durationSeconds),
+                    decrement: {
+                        updateCustomDebateSegment(segmentID) { $0.durationSeconds = max(0, $0.durationSeconds - 15) }
+                    },
+                    increment: {
+                        updateCustomDebateSegment(segmentID) { $0.durationSeconds = min(ScoreboardStore.maxDebateSegmentSeconds, $0.durationSeconds + 15) }
+                    }
+                )
+
+                settingsDivider()
+
                 settingsToggleRow(
-                    title: "Allow Side Switching",
+                    title: "Start Paused",
                     isOn: Binding(
-                        get: { customDebateSegment(segmentID)?.allowsSideSwitching ?? segment.allowsSideSwitching },
+                        get: { customDebateSegment(segmentID)?.startsPaused ?? segment.startsPaused },
                         set: { newValue in
-                            updateCustomDebateSegment(segmentID) { $0.allowsSideSwitching = newValue }
+                            updateCustomDebateSegment(segmentID) { $0.startsPaused = newValue }
                         }
                     )
                 )
+
+                settingsDivider()
+
+                settingsToggleRow(
+                    title: "Auto Pause At End",
+                    isOn: Binding(
+                        get: { customDebateSegment(segmentID)?.autoPauseAtEnd ?? segment.autoPauseAtEnd },
+                        set: { newValue in
+                            updateCustomDebateSegment(segmentID) { $0.autoPauseAtEnd = newValue }
+                        }
+                    )
+                )
+
+                if currentSegment.timerMode == .dualClock {
+                    settingsDivider()
+
+                    settingsPickerRow(
+                        title: "Starting Side",
+                        selection: Binding(
+                            get: { customDebateSegment(segmentID)?.startingSide ?? segment.startingSide ?? .home },
+                            set: { newValue in
+                                updateCustomDebateSegment(segmentID) { $0.startingSide = newValue }
+                            }
+                        ),
+                        options: [TeamSide.home, TeamSide.guest]
+                    ) { side in
+                        side == .home ? setupDebateHomeSideLabel : setupDebateGuestSideLabel
+                    }
+
+                    settingsDivider()
+
+                    settingsToggleRow(
+                        title: "Allow Side Switching",
+                        isOn: Binding(
+                            get: { customDebateSegment(segmentID)?.allowsSideSwitching ?? segment.allowsSideSwitching },
+                            set: { newValue in
+                                updateCustomDebateSegment(segmentID) { $0.allowsSideSwitching = newValue }
+                            }
+                        )
+                    )
+                }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(settingsPalette.cardBorder, lineWidth: 1)
+        )
+    }
+
+    private func debateSegmentMetaPill(_ title: String, systemImage: String) -> some View {
+        Label(localizedAppString(title), systemImage: systemImage)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(settingsPalette.secondaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(settingsPalette.cardBackground, in: Capsule())
     }
 
     private func addCustomDebateSegment() {
@@ -4412,11 +4953,15 @@ struct ContentView: View {
         let isSelected = store.externalDisplayBackgroundMode == mode
 
         return Button {
-            if mode == .image, store.externalDisplayBackgroundImage == nil {
+            if mode.usesSelectedBackgroundPhoto, store.externalDisplayBackgroundImage == nil {
+                pendingExternalBackgroundModeAfterImageImport = mode
                 beginExternalBackgroundImageImport()
+                #if os(iOS)
+                showsExternalBackgroundPhotoPicker = true
+                #endif
             } else {
                 store.externalDisplayBackgroundMode = mode
-                if mode == .image {
+                if mode.usesSelectedBackgroundPhoto {
                     isExternalBackgroundImageEditorVisible = true
                 }
             }
@@ -4471,42 +5016,136 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     #if os(iOS)
                     settingsCompactIconButton("Choose", systemImage: "photo", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                        showsExternalBackgroundPhotoPicker = true
+                        chooseExternalBackgroundImage()
                     }
                     #else
                     settingsCompactIconButton("Choose", systemImage: "photo", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                        beginExternalBackgroundImageImport()
+                        chooseExternalBackgroundImage()
                     }
                     #endif
 
                     if store.externalDisplayBackgroundImage != nil {
                         settingsCompactIconButton(
-                            isExternalBackgroundImageEditorVisible ? "Hide" : "Edit",
-                            systemImage: isExternalBackgroundImageEditorVisible ? "eye.slash" : "slider.horizontal.3",
+                            "Edit",
+                            systemImage: "slider.horizontal.3",
                             tint: settingsPalette.fieldBackground,
                             foreground: settingsPalette.primaryText
                         ) {
-                            isExternalBackgroundImageEditorVisible.toggle()
+                            showExternalBackgroundImageEditor()
                         }
 
                         settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
-                            store.clearExternalDisplayBackgroundImage()
-                            isExternalBackgroundImageEditorVisible = false
+                            removeExternalBackgroundImage()
                         }
                     }
                 }
-            }
-
-            if store.externalDisplayBackgroundImage != nil, isExternalBackgroundImageEditorVisible {
-                externalBackgroundImageEditor()
+                .zIndex(2)
             }
         }
         .padding(.vertical, 12)
     }
 
+    private func chooseExternalBackgroundImage() {
+        pendingExternalBackgroundModeAfterImageImport = store.externalDisplayBackgroundMode.usesSelectedBackgroundPhoto ? store.externalDisplayBackgroundMode : nil
+        beginExternalBackgroundImageImport()
+        #if os(iOS)
+        showsExternalBackgroundPhotoPicker = true
+        #endif
+    }
+
+    private func showExternalBackgroundImageEditor() {
+        guard store.externalDisplayBackgroundImage != nil else {
+            isExternalBackgroundImageEditorVisible = false
+            return
+        }
+
+        isExternalBackgroundImageEditorVisible = true
+    }
+
+    private func removeExternalBackgroundImage() {
+        pendingExternalBackgroundModeAfterImageImport = nil
+        store.clearExternalDisplayBackgroundImage()
+        isExternalBackgroundImageEditorVisible = false
+        autosaveSelectedGameFile(refreshSelection: true)
+    }
+
+    private func animatedLogoBackgroundControls() -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            settingsPickerRow(
+                title: "Animation Style",
+                selection: Binding(
+                    get: { store.externalDisplayAnimatedLogoStyle },
+                    set: { store.externalDisplayAnimatedLogoStyle = $0 }
+                ),
+                options: ExternalDisplayAnimatedLogoStyle.allCases
+            ) { option in
+                option.title
+            }
+
+            Text(store.externalDisplayAnimatedLogoStyle.subtitle)
+                .font(.footnote)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 10)
+
+            settingsDivider()
+            settingsPickerRow(
+                title: "Background Color",
+                selection: Binding(
+                    get: { store.externalDisplayAnimatedLogoBackgroundColor },
+                    set: { store.externalDisplayAnimatedLogoBackgroundColor = $0 }
+                ),
+                options: ExternalDisplayAnimatedLogoBackgroundColor.allCases
+            ) { option in
+                option.title
+            }
+
+            settingsDivider()
+            settingsStepperValueRow(
+                title: "Animation Speed",
+                value: "\(store.externalDisplayAnimatedLogoSpeed) px/s",
+                decrement: { store.setExternalDisplayAnimatedLogoSpeed(store.externalDisplayAnimatedLogoSpeed - 6) },
+                increment: { store.setExternalDisplayAnimatedLogoSpeed(store.externalDisplayAnimatedLogoSpeed + 6) }
+            )
+            settingsDivider()
+            settingsStepperValueRow(
+                title: "Logo Size",
+                value: "\(store.externalDisplayAnimatedLogoSize) px",
+                decrement: { store.setExternalDisplayAnimatedLogoSize(store.externalDisplayAnimatedLogoSize - 8) },
+                increment: { store.setExternalDisplayAnimatedLogoSize(store.externalDisplayAnimatedLogoSize + 8) }
+            )
+            settingsDivider()
+            animatedLogoOpacitySlider()
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func animatedLogoOpacitySlider() -> some View {
+        HStack(spacing: 12) {
+            localizedAppText("Logo Opacity")
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Slider(
+                value: Binding(
+                    get: { store.externalDisplayAnimatedLogoOpacity },
+                    set: { store.setExternalDisplayAnimatedLogoOpacity($0) }
+                ),
+                in: ScoreboardStore.minAnimatedLogoOpacity...ScoreboardStore.maxAnimatedLogoOpacity
+            )
+            .frame(maxWidth: 220)
+
+            Text("\(Int((store.externalDisplayAnimatedLogoOpacity * 100).rounded()))%")
+                .font(.body.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(width: 48, alignment: .trailing)
+        }
+        .padding(.vertical, 10)
+    }
+
     private var externalBackgroundImageDetail: String {
         guard let image = store.externalDisplayBackgroundImage else {
-            return localizedAppString("Choose a photo to enable Photo mode.")
+            return localizedAppString("Choose a photo to enable Photo or Animated Logo mode.")
         }
 
         return "\(image.displayName) · \(image.pixelWidth)x\(image.pixelHeight) · \(ByteCountFormatter.string(fromByteCount: Int64(image.byteCount), countStyle: .file))"
@@ -4536,20 +5175,64 @@ struct ContentView: View {
         }
     }
 
-    private func externalBackgroundImageEditor() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            GeometryReader { proxy in
-                if let image = store.externalDisplayBackgroundImage {
-                    ExternalDisplayBackgroundImageView(image: image)
-                        .frame(width: proxy.size.width, height: proxy.size.width / ScoreboardFaceView.preferredAspectRatio)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(settingsPalette.cardBorder, lineWidth: 1)
-                        )
+    private func externalBackgroundImageEditorPage() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .center, spacing: 12) {
+                settingsCompactIconButton("Back", systemImage: "chevron.left", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
+                    isExternalBackgroundImageEditorVisible = false
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    localizedAppText("Background Photo")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(externalBackgroundImageDetail)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if store.externalDisplayBackgroundImage == nil {
+                settingsSection(title: "Background Photo", footer: "Choose a photo before editing placement.") {
+                    HStack(spacing: 14) {
+                        externalBackgroundImagePreview()
+                            .frame(width: 96, height: 54)
+
+                        localizedAppText("No background photo selected")
+                            .foregroundStyle(settingsPalette.secondaryText)
+
+                        Spacer(minLength: 0)
+
+                        settingsCompactIconButton("Choose", systemImage: "photo", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                            chooseExternalBackgroundImage()
+                        }
+                    }
+                    .padding(.vertical, 12)
+                }
+            } else {
+                settingsSection(title: "Edit Background", footer: "Adjust the selected photo placement on the public display.") {
+                    externalBackgroundImageEditor()
                 }
             }
-            .aspectRatio(ScoreboardFaceView.preferredAspectRatio, contentMode: .fit)
+        }
+    }
+
+    private func externalBackgroundImageEditor() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let image = store.externalDisplayBackgroundImage {
+                ExternalDisplayBackgroundImageView(image: image)
+                    .aspectRatio(ScoreboardFaceView.preferredAspectRatio, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                    )
+            }
 
             externalBackgroundPlacementSlider(
                 title: "Scale",
@@ -4603,6 +5286,7 @@ struct ContentView: View {
         }
         .padding(12)
         .background(settingsPalette.fieldBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .zIndex(0)
     }
 
     private func externalBackgroundPlacementSlider(title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
@@ -4765,14 +5449,20 @@ struct ContentView: View {
     ) -> some View {
         Button(action: action) {
             settingsCompactIconLabel(title, systemImage: systemImage, tint: tint, foreground: foreground)
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func settingsCompactIconLabel(_ title: String, systemImage: String, tint: Color, foreground: Color) -> some View {
         Label(localizedAppString(title), systemImage: systemImage)
             .font(.caption.weight(.bold))
             .foregroundStyle(foreground)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(tint, in: Capsule())
@@ -4817,14 +5507,16 @@ struct ContentView: View {
 
     @ViewBuilder
     private func externalBackgroundPreview(_ mode: ExternalDisplayBackgroundMode, palette: ThemePalette) -> some View {
-        if mode == .blurred {
+        let renderedMode = mode.resolvedForRendering
+
+        if renderedMode == .blurred {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(LinearGradient(colors: [palette.homeAccent.opacity(0.65), palette.guestAccent.opacity(0.45), palette.externalDisplayBackground], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
                 )
-        } else if mode == .clear {
+        } else if renderedMode == .clear {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(
                     LinearGradient(
@@ -4837,7 +5529,7 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
                 )
-        } else if mode == .clearUnderBoard {
+        } else if renderedMode == .clearUnderBoard {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(
                     LinearGradient(
@@ -4856,14 +5548,14 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
                 )
-        } else if mode == .smartScoreboard {
+        } else if renderedMode == .smartScoreboard {
             SmartScoreboardBackgroundView()
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
                 )
-        } else if mode == .image {
+        } else if renderedMode == .image {
             if let image = store.externalDisplayBackgroundImage {
                 ExternalDisplayBackgroundImageView(image: image)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -4884,6 +5576,22 @@ struct ContentView: View {
                             .stroke(settingsPalette.cardBorder, lineWidth: 1)
                     )
             }
+        } else if renderedMode == .animatedLogo {
+            ExternalDisplayAnimatedLogoBackgroundView(
+                data: store.externalDisplayBackgroundImage?.data,
+                style: store.externalDisplayAnimatedLogoStyle,
+                backgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
+                speed: store.externalDisplayAnimatedLogoSpeed,
+                logoSize: store.externalDisplayAnimatedLogoSize,
+                logoOpacity: store.externalDisplayAnimatedLogoOpacity,
+                palette: palette,
+                animates: false
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(settingsPalette.cardBorder, lineWidth: 1)
+            )
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.clear)
@@ -6405,11 +7113,7 @@ struct ContentView: View {
                         .font(.title3.weight(.bold))
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                    localizedAppText(store.debateSegmentTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(themePalette.dashboardMutedText)
-                        .id("status-segment-title-\(store.debateCurrentSegmentIndex)-\(store.debateSegmentTitle)")
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    debateControlSegmentTitle(idPrefix: "status")
                 }
 
                 Spacer(minLength: 0)
@@ -6509,6 +7213,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.supportsScore)
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.showsDebatePrepTime)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.debateSpeakingSide)
     }
 
     private func debateGameControls(layout: InterfaceLayout) -> some View {
@@ -6520,11 +7225,7 @@ struct ContentView: View {
                         .font(.title3.weight(.bold))
                         .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                    localizedAppText(store.debateSegmentTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(themePalette.dashboardMutedText)
-                        .id("controls-segment-title-\(store.debateCurrentSegmentIndex)-\(store.debateSegmentTitle)")
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    debateControlSegmentTitle(idPrefix: "controls")
                 }
 
                 Spacer(minLength: 0)
@@ -6624,6 +7325,48 @@ struct ContentView: View {
         )
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.supportsScore)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.debateSpeakingSide)
+    }
+
+    private func debateControlSegmentTitle(idPrefix: String) -> some View {
+        let indicator = debateControlSpeakingSideIndicator
+
+        return HStack(alignment: .center, spacing: 6) {
+            if let indicator, indicator.pointsLeft {
+                debateControlSpeakingSideArrow(systemName: indicator.systemName, color: indicator.color)
+            }
+
+            localizedAppText(store.debateSegmentTitle)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(themePalette.dashboardMutedText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .layoutPriority(1)
+
+            if let indicator, !indicator.pointsLeft {
+                debateControlSpeakingSideArrow(systemName: indicator.systemName, color: indicator.color)
+            }
+        }
+        .id("\(idPrefix)-segment-title-\(store.debateCurrentSegmentIndex)-\(store.debateSegmentTitle)-\(store.debateSpeakingSide?.rawValue ?? "none")")
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var debateControlSpeakingSideIndicator: (systemName: String, color: Color, pointsLeft: Bool)? {
+        guard let side = store.debateSpeakingSide else {
+            return nil
+        }
+
+        let pointsLeft = (side == .home && !store.areSidesSwapped) || (side == .guest && store.areSidesSwapped)
+        let color = side == .home ? homeTint : guestTint
+        return (pointsLeft ? "arrow.left.circle.fill" : "arrow.right.circle.fill", color, pointsLeft)
+    }
+
+    private func debateControlSpeakingSideArrow(systemName: String, color: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.subheadline.weight(.black))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(color)
+            .accessibilityHidden(true)
     }
 
     private var debateActiveSideTint: Color {
@@ -7319,8 +8062,11 @@ struct ContentView: View {
     }
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
-        ScoreboardGameSnapshot(
-            fileVersion: 9,
+        let draftClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupClockSeconds
+        let draftGuestClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupGuestClockSeconds
+
+        return ScoreboardGameSnapshot(
+            fileVersion: 10,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -7332,8 +8078,8 @@ struct ContentView: View {
             homeScore: 0,
             guestScore: 0,
             period: setupPeriod,
-            gameClockSeconds: setupClockSeconds,
-            defaultClockSeconds: setupClockSeconds,
+            gameClockSeconds: draftClockSeconds,
+            defaultClockSeconds: draftClockSeconds,
             isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
             shotClockMilliseconds: setupRules.supportsShotClock ? setupShotClockSeconds * 1_000 : 0,
             defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
@@ -7361,8 +8107,8 @@ struct ContentView: View {
             guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsUsed : 0,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
-            homeChessClockSeconds: setupRules.usesChessClocks ? setupClockSeconds : nil,
-            guestChessClockSeconds: setupRules.usesChessClocks ? setupGuestClockSeconds : nil,
+            homeChessClockSeconds: setupRules.usesChessClocks ? draftClockSeconds : nil,
+            guestChessClockSeconds: setupRules.usesChessClocks ? draftGuestClockSeconds : nil,
             activeChessClockSide: setupRules.usesChessClocks ? .home : nil,
             chessClockPreset: setupSport == .chess ? setupChessPreset : nil,
             selectedDebatePresetID: setupSport == .debate ? setupDebatePresetID : nil,
@@ -7384,6 +8130,13 @@ struct ContentView: View {
             guestRoster: store.guestRoster,
             externalDisplayBackgroundMode: store.externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: store.currentGameSnapshot().externalDisplayBackgroundImage,
+            externalDisplayAnimatedLogoStyle: store.externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: store.externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: store.externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: store.showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: store.externalDisplayDateTimeFormat,
             showsTeamLogos: store.showsTeamLogos,
             showsEventLogo: store.showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -7683,6 +8436,7 @@ struct ContentView: View {
         panel.canChooseFiles = true
         panel.begin { response in
             guard response == .OK, let url = panel.urls.first else {
+                pendingExternalBackgroundModeAfterImageImport = nil
                 return
             }
 
@@ -7821,10 +8575,16 @@ struct ContentView: View {
     private func applyExternalBackgroundImageData(_ data: Data, sourceName: String?) {
         do {
             let image = try ScoreboardDisplayImageProcessor.makeBackgroundImage(from: data, sourceName: sourceName)
+            let pendingMode = pendingExternalBackgroundModeAfterImageImport
             store.setExternalDisplayBackgroundImage(image)
+            if let pendingMode {
+                store.externalDisplayBackgroundMode = pendingMode
+            }
+            pendingExternalBackgroundModeAfterImageImport = nil
             isExternalBackgroundImageEditorVisible = true
             autosaveSelectedGameFile(refreshSelection: true)
         } catch {
+            pendingExternalBackgroundModeAfterImageImport = nil
             presentFileOperationError(error)
         }
     }
@@ -8830,17 +9590,24 @@ struct ContentView: View {
             && setupSport == .debate
             && currentSnapshot.selectedDebatePresetID == setupDebatePresetID
             && (setupDebatePresetID != DebatePreset.customID || currentSnapshot.customDebatePreset == resolvedDebatePreset)
-        let gameClockSeconds = didEditMainClock ? setupClockSeconds : currentSnapshot.gameClockSeconds
+        let debateOpeningClockSeconds = setupDebateOpeningSegmentSeconds
+        let setupDefaultClockSeconds = setupSport == .debate ? debateOpeningClockSeconds : setupClockSeconds
+        let gameClockSeconds = setupSport == .debate && !isSameDebateFormat
+            ? debateOpeningClockSeconds
+            : (didEditMainClock ? setupClockSeconds : currentSnapshot.gameClockSeconds)
         let shotClockMilliseconds = didEditShotClock ? setupShotClockSeconds * 1_000 : currentSnapshot.shotClockMilliseconds
         let homeChessClockSeconds = setupRules.usesChessClocks
-            ? (didEditMainClock ? setupClockSeconds : currentSnapshot.homeChessClockSeconds)
+            ? (setupSport == .debate && !isSameDebateFormat ? debateOpeningClockSeconds : (didEditMainClock ? setupClockSeconds : currentSnapshot.homeChessClockSeconds))
             : currentSnapshot.homeChessClockSeconds
         let guestChessClockSeconds = setupRules.usesChessClocks
-            ? (didEditGuestClock ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds)
+            ? (setupSport == .debate && !isSameDebateFormat ? debateOpeningClockSeconds : (didEditGuestClock ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds))
             : currentSnapshot.guestChessClockSeconds
+        let activeChessClockSide = setupRules.usesChessClocks
+            ? ((setupSport == .debate ? isSameDebateFormat : isSameSport) ? currentSnapshot.activeChessClockSide : .home)
+            : currentSnapshot.activeChessClockSide
 
         return ScoreboardGameSnapshot(
-            fileVersion: 9,
+            fileVersion: 10,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -8853,7 +9620,7 @@ struct ContentView: View {
             guestScore: currentSnapshot.guestScore,
             period: setupPeriod,
             gameClockSeconds: gameClockSeconds,
-            defaultClockSeconds: setupClockSeconds,
+            defaultClockSeconds: setupDefaultClockSeconds,
             isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
             shotClockMilliseconds: setupRules.supportsShotClock ? shotClockMilliseconds : 0,
             defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
@@ -8883,7 +9650,7 @@ struct ContentView: View {
             guestTeamFouls: currentSnapshot.guestTeamFouls,
             homeChessClockSeconds: homeChessClockSeconds,
             guestChessClockSeconds: guestChessClockSeconds,
-            activeChessClockSide: isSameSport && setupRules.usesChessClocks ? currentSnapshot.activeChessClockSide : (setupRules.usesChessClocks ? .home : currentSnapshot.activeChessClockSide),
+            activeChessClockSide: activeChessClockSide,
             chessClockPreset: setupSport == .chess ? setupChessPreset : currentSnapshot.chessClockPreset,
             selectedDebatePresetID: setupSport == .debate ? setupDebatePresetID : currentSnapshot.selectedDebatePresetID,
             debateHomeSideLabel: setupSport == .debate ? setupDebateHomeSideLabel : currentSnapshot.debateHomeSideLabel,
@@ -8904,6 +9671,13 @@ struct ContentView: View {
             guestRoster: currentSnapshot.guestRoster,
             externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
+            externalDisplayAnimatedLogoStyle: currentSnapshot.externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: currentSnapshot.externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: currentSnapshot.externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: currentSnapshot.externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: currentSnapshot.externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: currentSnapshot.showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: currentSnapshot.externalDisplayDateTimeFormat,
             showsTeamLogos: currentSnapshot.showsTeamLogos,
             showsEventLogo: currentSnapshot.showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -8944,7 +9718,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 9,
+                    fileVersion: 10,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
@@ -9102,8 +9876,15 @@ struct ContentView: View {
             viewMode: store.publicDisplayViewMode,
             playerViewRosterScope: .fullRoster,
             theme: store.theme,
-            backgroundMode: store.externalDisplayBackgroundMode,
+            backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
             backgroundImage: store.externalDisplayBackgroundImage.map(PublicScoreboardBackgroundImage.init(image:)),
+            animatedLogoStyle: store.externalDisplayAnimatedLogoStyle,
+            animatedLogoBackgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
+            animatedLogoSpeed: store.externalDisplayAnimatedLogoSpeed,
+            animatedLogoSize: store.externalDisplayAnimatedLogoSize,
+            animatedLogoOpacity: store.externalDisplayAnimatedLogoOpacity,
+            showsDateTime: store.showsExternalDisplayDateTime,
+            dateTimeFormat: store.externalDisplayDateTimeFormat,
             sport: store.selectedSport,
             rules: store.currentRules,
             showsScore: store.supportsScore,
@@ -9131,6 +9912,7 @@ struct ContentView: View {
             debateHomeSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .home) : nil,
             debateGuestSideLabel: store.isDebateMode ? store.sideRoleLabel(for: .guest) : nil,
             debateSegmentTitle: store.isDebateMode ? store.debateSegmentTitle : nil,
+            debateSpeakingSide: store.isDebateMode ? store.debateSpeakingSide : nil,
             debateActiveTimer: store.isDebateMode ? store.debateActiveTimer : nil,
             showsDebatePrepTime: store.showsDebatePrepTime,
             formattedDebatePrepHomeClock: store.showsDebatePrepTime ? store.formattedDebatePrepHomeClock : nil,
@@ -9155,14 +9937,15 @@ struct ContentView: View {
             homeDisplayedPlayers: store.displayedHomePlayers,
             guestDisplayedPlayers: store.displayedGuestPlayers,
             homeRosterPlayers: store.homeRoster.players,
-            guestRosterPlayers: store.guestRoster.players
+            guestRosterPlayers: store.guestRoster.players,
+            animatesAnimatedLogoBackground: false
         )
     }
 
     private var currentPreviewModeTitle: String {
         let displayModeTitle = store.publicDisplayViewMode.title
         let backgroundTitle: String
-        switch store.externalDisplayBackgroundMode {
+        switch store.externalDisplayBackgroundMode.resolvedForRendering {
         case .blurred:
             backgroundTitle = "Blurred Background"
         case .clear:
@@ -9173,6 +9956,8 @@ struct ContentView: View {
             backgroundTitle = "Smart Scoreboard Background"
         case .image:
             backgroundTitle = "Photo Background"
+        case .animatedLogo:
+            backgroundTitle = "Animated Logo Background"
         case .none:
             backgroundTitle = "No Background"
         }
@@ -9712,7 +10497,7 @@ private struct StoredGameFileSummary: Decodable {
     }
 
     private static func formatGameClock(_ totalSeconds: Int) -> String {
-        let boundedSeconds = max(0, min(59 * 60 + 59, totalSeconds))
+        let boundedSeconds = max(0, totalSeconds)
         let minutes = boundedSeconds / 60
         let seconds = boundedSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)

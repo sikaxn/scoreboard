@@ -165,6 +165,13 @@ nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let theme: ScoreboardTheme
     let backgroundMode: ExternalDisplayBackgroundMode
     let backgroundImage: ScoreboardWebAPIBackgroundImage?
+    let animatedLogoStyle: ExternalDisplayAnimatedLogoStyle?
+    let animatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor?
+    let animatedLogoSpeed: Int?
+    let animatedLogoSize: Int?
+    let animatedLogoOpacity: Double?
+    let showsDateTime: Bool?
+    let dateTimeFormat: ExternalDisplayDateTimeFormat?
     let showsTeamLogos: Bool?
     let showsEventLogo: Bool?
     let eventLogo: ScoreboardWebAPIEventLogo?
@@ -267,6 +274,7 @@ nonisolated struct ScoreboardWebAPIDebate: Codable, Sendable {
     let segmentIndex: Int
     let segmentTitle: String
     let segmentTimerMode: DebateTimerMode?
+    let speakingSide: TeamSide?
     let activeTimer: DebateActiveTimer
     let homeSideLabel: String
     let guestSideLabel: String
@@ -319,6 +327,34 @@ extension ScoreboardWebAPIDisplay {
 
     var resolvedShowsEventLogo: Bool {
         showsEventLogo ?? true
+    }
+
+    var resolvedAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle {
+        animatedLogoStyle ?? .horizontalMarquee
+    }
+
+    var resolvedAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor {
+        animatedLogoBackgroundColor ?? .themeBackground
+    }
+
+    var resolvedAnimatedLogoSpeed: Int {
+        max(ScoreboardStore.minAnimatedLogoSpeed, min(ScoreboardStore.maxAnimatedLogoSpeed, animatedLogoSpeed ?? ScoreboardStore.defaultAnimatedLogoSpeed))
+    }
+
+    var resolvedAnimatedLogoSize: Int {
+        max(ScoreboardStore.minAnimatedLogoSize, min(ScoreboardStore.maxAnimatedLogoSize, animatedLogoSize ?? ScoreboardStore.defaultAnimatedLogoSize))
+    }
+
+    var resolvedAnimatedLogoOpacity: Double {
+        max(ScoreboardStore.minAnimatedLogoOpacity, min(ScoreboardStore.maxAnimatedLogoOpacity, animatedLogoOpacity ?? ScoreboardStore.defaultAnimatedLogoOpacity))
+    }
+
+    var resolvedShowsDateTime: Bool {
+        showsDateTime ?? false
+    }
+
+    var resolvedDateTimeFormat: ExternalDisplayDateTimeFormat {
+        dateTimeFormat ?? .time24Hour
     }
 }
 
@@ -1125,8 +1161,15 @@ extension ScoreboardStore {
             ),
             display: ScoreboardWebAPIDisplay(
                 theme: theme,
-                backgroundMode: externalDisplayBackgroundMode,
+                backgroundMode: externalDisplayBackgroundMode.resolvedForRendering,
                 backgroundImage: webAPIBackgroundImageMetadata(),
+                animatedLogoStyle: externalDisplayAnimatedLogoStyle,
+                animatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
+                animatedLogoSpeed: externalDisplayAnimatedLogoSpeed,
+                animatedLogoSize: externalDisplayAnimatedLogoSize,
+                animatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
+                showsDateTime: showsExternalDisplayDateTime,
+                dateTimeFormat: externalDisplayDateTimeFormat,
                 showsTeamLogos: showsTeamLogos,
                 showsEventLogo: showsEventLogo,
                 eventLogo: webAPIEventLogoMetadata(),
@@ -1202,6 +1245,7 @@ extension ScoreboardStore {
                 segmentIndex: debateCurrentSegmentIndex,
                 segmentTitle: debateSegmentTitle,
                 segmentTimerMode: currentDebateSegment?.timerMode,
+                speakingSide: debateSpeakingSide,
                 activeTimer: debateActiveTimer,
                 homeSideLabel: sideRoleLabel(for: .home),
                 guestSideLabel: sideRoleLabel(for: .guest),

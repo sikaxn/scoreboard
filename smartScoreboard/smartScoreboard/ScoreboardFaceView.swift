@@ -77,6 +77,7 @@ struct ScoreboardFaceView: View {
     let debateHomeSideLabel: String?
     let debateGuestSideLabel: String?
     let debateSegmentTitle: String?
+    let debateSpeakingSide: TeamSide?
     let debateActiveTimer: DebateActiveTimer?
     let showsDebatePrepTime: Bool
     let formattedDebatePrepHomeClock: String?
@@ -526,7 +527,12 @@ struct ScoreboardFaceView: View {
                 if sport == .debate,
                    let debateSegmentTitle,
                    !debateSegmentTitle.isEmpty {
-                    headerBadge(title: "SEGMENT", value: localizedBoardString(debateSegmentTitle).uppercased(), condensed: condensed, ultraCondensed: ultraCondensed)
+                    debateSegmentBadge(
+                        value: localizedBoardString(debateSegmentTitle).uppercased(),
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
                         .id("public-segment-\(debateSegmentTitle)")
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -687,6 +693,55 @@ struct ScoreboardFaceView: View {
             RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
+    }
+
+    private func debateSegmentBadge(
+        value: String,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        let arrowFontSize = ultraCondensed ? min(26, base * 0.044) : condensed ? min(34, base * 0.055) : min(40, base * 0.064)
+        let arrowSlotWidth = arrowFontSize + (ultraCondensed ? 6 : 8)
+        let arrowIndicator = debateSpeakingSideIndicator
+        let showsLeftArrow = arrowIndicator?.pointsLeft == true
+        let showsRightArrow = arrowIndicator?.pointsLeft == false
+
+        return ZStack {
+            headerBadge(
+                title: "SEGMENT",
+                value: value,
+                condensed: condensed,
+                ultraCondensed: ultraCondensed,
+                valueMinScale: arrowIndicator == nil ? 0.55 : 0.34
+            )
+            .layoutPriority(2)
+
+            if let arrowIndicator {
+                HStack {
+                    shotArrowSlot(
+                        systemName: arrowIndicator.systemName,
+                        color: arrowIndicator.color,
+                        isVisible: showsLeftArrow,
+                        fontSize: arrowFontSize,
+                        slotWidth: arrowSlotWidth
+                    )
+
+                    Spacer(minLength: 0)
+
+                    shotArrowSlot(
+                        systemName: arrowIndicator.systemName,
+                        color: arrowIndicator.color,
+                        isVisible: showsRightArrow,
+                        fontSize: arrowFontSize,
+                        slotWidth: arrowSlotWidth
+                    )
+                }
+                .padding(.horizontal, ultraCondensed ? 8 : 12)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
+            }
+        }
     }
 
     private func chessBoard(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -1522,6 +1577,16 @@ struct ScoreboardFaceView: View {
         case .none:
             return nil
         }
+    }
+
+    private var debateSpeakingSideIndicator: (systemName: String, color: Color, pointsLeft: Bool)? {
+        guard sport == .debate, let debateSpeakingSide else {
+            return nil
+        }
+
+        let pointsLeft = (debateSpeakingSide == .home && !areSidesSwapped) || (debateSpeakingSide == .guest && areSidesSwapped)
+        let color = debateSpeakingSide == .home ? palette.homeAccent : palette.guestAccent
+        return (pointsLeft ? "arrow.left.circle.fill" : "arrow.right.circle.fill", color, pointsLeft)
     }
 
     private func usesCenterPlayerStripFallback(

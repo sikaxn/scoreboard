@@ -393,6 +393,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
 final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
     nonisolated static let maxGameClockSeconds = 59 * 60 + 59
+    nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
     nonisolated static let defaultRosterSize = 12
@@ -405,6 +406,15 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let defaultPlayerLineupScrollSpeed = 14
     nonisolated static let minPlayerLineupScrollSpeed = 6
     nonisolated static let maxPlayerLineupScrollSpeed = 40
+    nonisolated static let defaultAnimatedLogoSpeed = 42
+    nonisolated static let minAnimatedLogoSpeed = 8
+    nonisolated static let maxAnimatedLogoSpeed = 180
+    nonisolated static let defaultAnimatedLogoSize = 112
+    nonisolated static let minAnimatedLogoSize = 44
+    nonisolated static let maxAnimatedLogoSize = 240
+    nonisolated static let defaultAnimatedLogoOpacity = 0.23
+    nonisolated static let minAnimatedLogoOpacity = 0.05
+    nonisolated static let maxAnimatedLogoOpacity = 0.75
     nonisolated static let defaultSoundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect] = [
         .gameClockExpired: .classicBuzzer,
         .shotClockExpired: .shotClockBeep,
@@ -504,6 +514,13 @@ final class ScoreboardStore: ObservableObject {
     @Published var theme: ScoreboardTheme = .classic
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
+    @Published var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle = .horizontalMarquee
+    @Published var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor = .themeBackground
+    @Published var externalDisplayAnimatedLogoSpeed = defaultAnimatedLogoSpeed
+    @Published var externalDisplayAnimatedLogoSize = defaultAnimatedLogoSize
+    @Published var externalDisplayAnimatedLogoOpacity = defaultAnimatedLogoOpacity
+    @Published var showsExternalDisplayDateTime = false
+    @Published var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat = .time24Hour
     @Published var showsTeamLogos = true
     @Published var showsEventLogo = true
     @Published var homeTeamLogoImage: TeamLogoImage?
@@ -606,6 +623,10 @@ final class ScoreboardStore: ObservableObject {
 
     var debateSegmentTitle: String {
         currentDebateSegment?.title ?? "Debate Segment"
+    }
+
+    var debateSpeakingSide: TeamSide? {
+        currentDebateSegment?.speakingSide
     }
 
     var formattedDebatePrepHomeClock: String {
@@ -960,7 +981,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
-        let boundedSeconds = max(0, min(maxGameClockSeconds, totalSeconds))
+        let boundedSeconds = max(0, totalSeconds)
         let minutes = boundedSeconds / 60
         let seconds = boundedSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
@@ -1140,7 +1161,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let previousClock = gameClockSeconds
-        gameClockSeconds = boundedGameClockSeconds(gameClockSeconds + delta)
+        gameClockSeconds = boundedRuntimeClockSeconds(gameClockSeconds + delta)
         if gameClockMode == .countdown && gameClockSeconds == 0 {
             pauseClock()
         }
@@ -2061,7 +2082,7 @@ final class ScoreboardStore: ObservableObject {
         }
         resolved.prepSecondsPerSide = boundedGameClockSeconds(resolved.prepSecondsPerSide)
         for index in resolved.segments.indices {
-            resolved.segments[index].durationSeconds = boundedGameClockSeconds(resolved.segments[index].durationSeconds)
+            resolved.segments[index].durationSeconds = boundedDebateSegmentSeconds(resolved.segments[index].durationSeconds)
             if resolved.segments[index].timerMode != .dualClock {
                 resolved.segments[index].startingSide = nil
                 resolved.segments[index].allowsSideSwitching = false
@@ -2404,9 +2425,9 @@ final class ScoreboardStore: ObservableObject {
         let previousValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
         switch side {
         case .home:
-            homeChessClockSeconds = boundedGameClockSeconds(homeChessClockSeconds + delta)
+            homeChessClockSeconds = boundedRuntimeClockSeconds(homeChessClockSeconds + delta)
         case .guest:
-            guestChessClockSeconds = boundedGameClockSeconds(guestChessClockSeconds + delta)
+            guestChessClockSeconds = boundedRuntimeClockSeconds(guestChessClockSeconds + delta)
         }
 
         let updatedValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
@@ -2436,7 +2457,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         pauseClock()
-        let resetSeconds = boundedGameClockSeconds(defaultClockSeconds)
+        let resetSeconds = boundedRuntimeClockSeconds(defaultClockSeconds)
         homeChessClockSeconds = resetSeconds
         guestChessClockSeconds = usesChessClocks && selectedSport == .chess && defaultClockSeconds == 0
             ? chessClockPreset.seconds
@@ -2794,11 +2815,11 @@ final class ScoreboardStore: ObservableObject {
 
         switch segment.timerMode {
         case .masterClock:
-            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            defaultClockSeconds = boundedDebateSegmentSeconds(segment.durationSeconds)
             gameClockSeconds = defaultClockSeconds
             activeChessClockSide = nil
         case .dualClock:
-            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            defaultClockSeconds = boundedDebateSegmentSeconds(segment.durationSeconds)
             homeChessClockSeconds = defaultClockSeconds
             guestChessClockSeconds = defaultClockSeconds
             activeChessClockSide = segment.startingSide ?? .home
@@ -2821,7 +2842,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 9,
+            fileVersion: 10,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -2883,6 +2904,13 @@ final class ScoreboardStore: ObservableObject {
             guestRoster: guestRoster,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: embeddedExternalDisplayBackgroundImage(),
+            externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             playerViewRosterScope: .fullRoster,
@@ -2929,9 +2957,21 @@ final class ScoreboardStore: ObservableObject {
         externalDisplayBackgroundImage = image.withPlacement(scale: scale, offsetX: offsetX, offsetY: offsetY)
     }
 
+    func setExternalDisplayAnimatedLogoSpeed(_ value: Int) {
+        externalDisplayAnimatedLogoSpeed = max(Self.minAnimatedLogoSpeed, min(Self.maxAnimatedLogoSpeed, value))
+    }
+
+    func setExternalDisplayAnimatedLogoSize(_ value: Int) {
+        externalDisplayAnimatedLogoSize = max(Self.minAnimatedLogoSize, min(Self.maxAnimatedLogoSize, value))
+    }
+
+    func setExternalDisplayAnimatedLogoOpacity(_ value: Double) {
+        externalDisplayAnimatedLogoOpacity = max(Self.minAnimatedLogoOpacity, min(Self.maxAnimatedLogoOpacity, value))
+    }
+
     func clearExternalDisplayBackgroundImage() {
         externalDisplayBackgroundImage = nil
-        if externalDisplayBackgroundMode == .image {
+        if externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo {
             externalDisplayBackgroundMode = .blurred
         }
     }
@@ -2985,8 +3025,8 @@ final class ScoreboardStore: ObservableObject {
             homeScore = max(0, snapshot.homeScore)
             guestScore = max(0, snapshot.guestScore)
             period = max(1, min(9, snapshot.period))
-            gameClockSeconds = boundedGameClockSeconds(snapshot.gameClockSeconds)
-            defaultClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
+            gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.gameClockSeconds) : boundedGameClockSeconds(snapshot.gameClockSeconds)
+            defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
             isGameClockEnabled = snapshot.isGameClockEnabled ?? true
             shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
@@ -3017,9 +3057,9 @@ final class ScoreboardStore: ObservableObject {
             }
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
-            let defaultDualClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
-            homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
-            guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
+            let defaultDualClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
+            homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds) : boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+            guestChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds) : boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
             activeChessClockSide = snapshot.activeChessClockSide ?? .home
             chessClockPreset = snapshot.chessClockPreset ?? .rapid
             selectedDebatePresetID = snapshot.selectedDebatePresetID ?? DebatePreset.publicForum.id
@@ -3040,6 +3080,13 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            externalDisplayAnimatedLogoStyle = snapshot.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee
+            externalDisplayAnimatedLogoBackgroundColor = snapshot.externalDisplayAnimatedLogoBackgroundColor ?? .themeBackground
+            setExternalDisplayAnimatedLogoSpeed(snapshot.externalDisplayAnimatedLogoSpeed ?? Self.defaultAnimatedLogoSpeed)
+            setExternalDisplayAnimatedLogoSize(snapshot.externalDisplayAnimatedLogoSize ?? Self.defaultAnimatedLogoSize)
+            setExternalDisplayAnimatedLogoOpacity(snapshot.externalDisplayAnimatedLogoOpacity ?? Self.defaultAnimatedLogoOpacity)
+            showsExternalDisplayDateTime = snapshot.showsExternalDisplayDateTime ?? false
+            externalDisplayDateTimeFormat = snapshot.externalDisplayDateTimeFormat ?? .time24Hour
             showsTeamLogos = snapshot.showsTeamLogos ?? true
             showsEventLogo = snapshot.showsEventLogo ?? true
             playerViewRosterScope = .fullRoster
@@ -3050,10 +3097,10 @@ final class ScoreboardStore: ObservableObject {
                 configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
                 switch currentDebateSegment?.timerMode {
                 case .masterClock:
-                    gameClockSeconds = boundedGameClockSeconds(snapshot.gameClockSeconds)
+                    gameClockSeconds = boundedDebateSegmentSeconds(snapshot.gameClockSeconds)
                 case .dualClock:
-                    homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
-                    guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
+                    homeChessClockSeconds = boundedDebateSegmentSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+                    guestChessClockSeconds = boundedDebateSegmentSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
                 case .some(.none), nil:
                     gameClockSeconds = 0
                 }
@@ -3084,7 +3131,7 @@ final class ScoreboardStore: ObservableObject {
         eventLogoImage = snapshot.eventLogoImage.flatMap(EventLogoImage.init(embeddedImage:))
 
         let restoredBackgroundMode = snapshot.externalDisplayBackgroundMode ?? .blurred
-        if restoredBackgroundMode == .image, externalDisplayBackgroundImage == nil {
+        if (restoredBackgroundMode == .image || restoredBackgroundMode == .animatedLogo), externalDisplayBackgroundImage == nil {
             externalDisplayBackgroundMode = .blurred
         } else {
             externalDisplayBackgroundMode = restoredBackgroundMode
@@ -3421,6 +3468,14 @@ final class ScoreboardStore: ObservableObject {
 
     private func boundedGameClockSeconds(_ value: Int) -> Int {
         max(0, min(Self.maxGameClockSeconds, value))
+    }
+
+    private func boundedDebateSegmentSeconds(_ value: Int) -> Int {
+        max(0, min(Self.maxDebateSegmentSeconds, value))
+    }
+
+    private func boundedRuntimeClockSeconds(_ value: Int) -> Int {
+        isDebateMode ? boundedDebateSegmentSeconds(value) : boundedGameClockSeconds(value)
     }
 
     private func boundedShotClockSeconds(_ value: Int) -> Int {
@@ -4060,6 +4115,13 @@ final class ScoreboardStore: ObservableObject {
             $theme.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoStyle.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoBackgroundColor.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSpeed.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSize.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoOpacity.map { _ in () }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTime.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayDateTimeFormat.map { _ in () }.eraseToAnyPublisher(),
             $showsTeamLogos.map { _ in () }.eraseToAnyPublisher(),
             $showsEventLogo.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
@@ -4163,8 +4225,8 @@ final class ScoreboardStore: ObservableObject {
             homeScore = persistedState.homeScore
             guestScore = persistedState.guestScore
             period = max(1, min(9, persistedState.period))
-            gameClockSeconds = boundedGameClockSeconds(persistedState.gameClockSeconds)
-            defaultClockSeconds = boundedGameClockSeconds(persistedState.defaultClockSeconds)
+            gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.gameClockSeconds) : boundedGameClockSeconds(persistedState.gameClockSeconds)
+            defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.defaultClockSeconds) : boundedGameClockSeconds(persistedState.defaultClockSeconds)
             isGameClockEnabled = persistedState.isGameClockEnabled
             shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
@@ -4196,8 +4258,8 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
             homeTeamFouls = max(0, persistedState.homeTeamFouls)
             guestTeamFouls = max(0, persistedState.guestTeamFouls)
-            homeChessClockSeconds = boundedGameClockSeconds(persistedState.homeChessClockSeconds)
-            guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
+            homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.homeChessClockSeconds) : boundedGameClockSeconds(persistedState.homeChessClockSeconds)
+            guestChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.guestChessClockSeconds) : boundedGameClockSeconds(persistedState.guestChessClockSeconds)
             activeChessClockSide = persistedState.activeChessClockSide
             chessClockPreset = persistedState.chessClockPreset
             selectedDebatePresetID = persistedState.selectedDebatePresetID
@@ -4220,12 +4282,19 @@ final class ScoreboardStore: ObservableObject {
             guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
             theme = persistedState.theme
             externalDisplayBackgroundImage = nil
+            externalDisplayAnimatedLogoStyle = persistedState.externalDisplayAnimatedLogoStyle
+            externalDisplayAnimatedLogoBackgroundColor = persistedState.externalDisplayAnimatedLogoBackgroundColor
+            setExternalDisplayAnimatedLogoSpeed(persistedState.externalDisplayAnimatedLogoSpeed)
+            setExternalDisplayAnimatedLogoSize(persistedState.externalDisplayAnimatedLogoSize)
+            setExternalDisplayAnimatedLogoOpacity(persistedState.externalDisplayAnimatedLogoOpacity)
+            showsExternalDisplayDateTime = persistedState.showsExternalDisplayDateTime
+            externalDisplayDateTimeFormat = persistedState.externalDisplayDateTimeFormat
             showsTeamLogos = persistedState.showsTeamLogos
             showsEventLogo = persistedState.showsEventLogo
             homeTeamLogoImage = nil
             guestTeamLogoImage = nil
             eventLogoImage = nil
-            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image ? .blurred : persistedState.externalDisplayBackgroundMode
+            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image || persistedState.externalDisplayBackgroundMode == .animatedLogo ? .blurred : persistedState.externalDisplayBackgroundMode
             isSoundEnabled = persistedState.isSoundEnabled
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             isCompanionVisible = persistedState.isCompanionVisible
@@ -4343,7 +4412,14 @@ final class ScoreboardStore: ObservableObject {
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
-            externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image ? .blurred : externalDisplayBackgroundMode,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo ? .blurred : externalDisplayBackgroundMode,
+            externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
@@ -4548,6 +4624,13 @@ private struct PersistedState: Codable {
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
+    var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle
+    var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor
+    var externalDisplayAnimatedLogoSpeed: Int
+    var externalDisplayAnimatedLogoSize: Int
+    var externalDisplayAnimatedLogoOpacity: Double
+    var showsExternalDisplayDateTime: Bool
+    var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat
     var showsTeamLogos: Bool
     var showsEventLogo: Bool
     var isSoundEnabled: Bool
@@ -4629,6 +4712,13 @@ private struct PersistedState: Codable {
         case guestRoster
         case theme
         case externalDisplayBackgroundMode
+        case externalDisplayAnimatedLogoStyle
+        case externalDisplayAnimatedLogoBackgroundColor
+        case externalDisplayAnimatedLogoSpeed
+        case externalDisplayAnimatedLogoSize
+        case externalDisplayAnimatedLogoOpacity
+        case showsExternalDisplayDateTime
+        case externalDisplayDateTimeFormat
         case showsTeamLogos
         case showsEventLogo
         case isSoundEnabled
@@ -4712,6 +4802,13 @@ private struct PersistedState: Codable {
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
+        externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle,
+        externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor,
+        externalDisplayAnimatedLogoSpeed: Int,
+        externalDisplayAnimatedLogoSize: Int,
+        externalDisplayAnimatedLogoOpacity: Double,
+        showsExternalDisplayDateTime: Bool,
+        externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat,
         showsTeamLogos: Bool,
         showsEventLogo: Bool,
         isSoundEnabled: Bool,
@@ -4791,6 +4888,13 @@ private struct PersistedState: Codable {
         self.guestRoster = guestRoster
         self.theme = theme
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
+        self.externalDisplayAnimatedLogoStyle = externalDisplayAnimatedLogoStyle
+        self.externalDisplayAnimatedLogoBackgroundColor = externalDisplayAnimatedLogoBackgroundColor
+        self.externalDisplayAnimatedLogoSpeed = externalDisplayAnimatedLogoSpeed
+        self.externalDisplayAnimatedLogoSize = externalDisplayAnimatedLogoSize
+        self.externalDisplayAnimatedLogoOpacity = externalDisplayAnimatedLogoOpacity
+        self.showsExternalDisplayDateTime = showsExternalDisplayDateTime
+        self.externalDisplayDateTimeFormat = externalDisplayDateTimeFormat
         self.showsTeamLogos = showsTeamLogos
         self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
@@ -4879,6 +4983,22 @@ private struct PersistedState: Codable {
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
+        externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle) ?? .horizontalMarquee
+        externalDisplayAnimatedLogoBackgroundColor = try container.decodeIfPresent(ExternalDisplayAnimatedLogoBackgroundColor.self, forKey: .externalDisplayAnimatedLogoBackgroundColor) ?? .themeBackground
+        externalDisplayAnimatedLogoSpeed = max(
+            ScoreboardStore.minAnimatedLogoSpeed,
+            min(ScoreboardStore.maxAnimatedLogoSpeed, try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSpeed) ?? ScoreboardStore.defaultAnimatedLogoSpeed)
+        )
+        externalDisplayAnimatedLogoSize = max(
+            ScoreboardStore.minAnimatedLogoSize,
+            min(ScoreboardStore.maxAnimatedLogoSize, try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSize) ?? ScoreboardStore.defaultAnimatedLogoSize)
+        )
+        externalDisplayAnimatedLogoOpacity = max(
+            ScoreboardStore.minAnimatedLogoOpacity,
+            min(ScoreboardStore.maxAnimatedLogoOpacity, try container.decodeIfPresent(Double.self, forKey: .externalDisplayAnimatedLogoOpacity) ?? ScoreboardStore.defaultAnimatedLogoOpacity)
+        )
+        showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime) ?? false
+        externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat) ?? .time24Hour
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
@@ -4978,6 +5098,13 @@ private struct PersistedState: Codable {
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encode(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
+        try container.encode(externalDisplayAnimatedLogoBackgroundColor, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        try container.encode(externalDisplayAnimatedLogoSpeed, forKey: .externalDisplayAnimatedLogoSpeed)
+        try container.encode(externalDisplayAnimatedLogoSize, forKey: .externalDisplayAnimatedLogoSize)
+        try container.encode(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
+        try container.encode(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
+        try container.encode(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
         try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
@@ -5070,6 +5197,13 @@ private extension PersistedState {
             guestRoster: defaultRoster,
             theme: .classic,
             externalDisplayBackgroundMode: .blurred,
+            externalDisplayAnimatedLogoStyle: .horizontalMarquee,
+            externalDisplayAnimatedLogoBackgroundColor: .themeBackground,
+            externalDisplayAnimatedLogoSpeed: ScoreboardStore.defaultAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: ScoreboardStore.defaultAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: ScoreboardStore.defaultAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: false,
+            externalDisplayDateTimeFormat: .time24Hour,
             showsTeamLogos: true,
             showsEventLogo: true,
             isSoundEnabled: true,

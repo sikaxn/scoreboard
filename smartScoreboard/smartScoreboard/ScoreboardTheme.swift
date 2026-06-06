@@ -10,9 +10,26 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
     case clearUnderBoard
     case smartScoreboard
     case image
+    case animatedLogo
     case none
 
     var id: String { rawValue }
+
+    static let isAnimatedLogoBackgroundEnabled = false
+
+    static var selectableThemeModes: [ExternalDisplayBackgroundMode] {
+        allCases.filter { mode in
+            mode != .animatedLogo || isAnimatedLogoBackgroundEnabled
+        }
+    }
+
+    var resolvedForRendering: ExternalDisplayBackgroundMode {
+        if self == .animatedLogo, !Self.isAnimatedLogoBackgroundEnabled {
+            return .blurred
+        }
+
+        return self
+    }
 
     var title: String {
         switch self {
@@ -26,6 +43,8 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Smart Scoreboard"
         case .image:
             return "Photo"
+        case .animatedLogo:
+            return "Animated Logo"
         case .none:
             return "No Background"
         }
@@ -43,8 +62,147 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             return "Use the bundled Smart Scoreboard background."
         case .image:
             return "Use a selected photo as the public display background."
+        case .animatedLogo:
+            if !Self.isAnimatedLogoBackgroundEnabled {
+                return "Temporarily disabled; falls back to the blurred background."
+            }
+            return "Tile the selected background photo as an animated logo pattern."
         case .none:
             return "Leave the external display background unfilled outside the scoreboard."
+        }
+    }
+
+    var usesSelectedBackgroundPhoto: Bool {
+        self == .image || (self == .animatedLogo && Self.isAnimatedLogoBackgroundEnabled)
+    }
+}
+
+enum ExternalDisplayAnimatedLogoStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case horizontalMarquee
+    case diagonalMarquee
+    case waveDrift
+    case checkerFade
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .horizontalMarquee:
+            return "Horizontal Marquee"
+        case .diagonalMarquee:
+            return "Diagonal Marquee"
+        case .waveDrift:
+            return "Wave Drift"
+        case .checkerFade:
+            return "Checker Fade"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .horizontalMarquee:
+            return "Rows of logos move across the display."
+        case .diagonalMarquee:
+            return "The logo pattern travels on a slight slope."
+        case .waveDrift:
+            return "Rows glide with a soft vertical wave."
+        case .checkerFade:
+            return "Logo tiles fade through a black-and-white checker pattern."
+        }
+    }
+}
+
+enum ExternalDisplayAnimatedLogoBackgroundColor: String, Codable, CaseIterable, Identifiable, Sendable {
+    case themeBackground
+    case black
+    case white
+    case homeAccent
+    case guestAccent
+    case splitAccent
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .themeBackground:
+            return "Theme"
+        case .black:
+            return "Black"
+        case .white:
+            return "White"
+        case .homeAccent:
+            return "Home Color"
+        case .guestAccent:
+            return "Guest Color"
+        case .splitAccent:
+            return "Split Colors"
+        }
+    }
+}
+
+struct ExternalDisplayAnimatedLogoBackgroundFill: View {
+    let selection: ExternalDisplayAnimatedLogoBackgroundColor
+    let palette: ThemePalette
+
+    var body: some View {
+        switch selection {
+        case .themeBackground:
+            palette.externalDisplayBackground
+        case .black:
+            Color.black
+        case .white:
+            Color.white
+        case .homeAccent:
+            palette.homeAccent
+        case .guestAccent:
+            palette.guestAccent
+        case .splitAccent:
+            HStack(spacing: 0) {
+                palette.homeAccent
+                palette.guestAccent
+            }
+        }
+    }
+}
+
+enum ExternalDisplayDateTimeFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    case time12Hour
+    case time24Hour
+    case dateTime12Hour
+    case dateTime24Hour
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .time12Hour:
+            return "12-Hour Time"
+        case .time24Hour:
+            return "24-Hour Time"
+        case .dateTime12Hour:
+            return "Date + 12-Hour"
+        case .dateTime24Hour:
+            return "Date + 24-Hour"
+        }
+    }
+
+    func string(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = dateFormat
+        return formatter.string(from: date)
+    }
+
+    private var dateFormat: String {
+        switch self {
+        case .time12Hour:
+            return "h:mm a"
+        case .time24Hour:
+            return "HH:mm"
+        case .dateTime12Hour:
+            return "MMM d, h:mm a"
+        case .dateTime24Hour:
+            return "MMM d, HH:mm"
         }
     }
 }
@@ -812,6 +970,15 @@ enum ScoreboardDisplayImageProcessor {
     }
 }
 
+fileprivate func scoreboardCGImage(from data: Data) -> CGImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        return nil
+    }
+    return CGImageSourceCreateImageAtIndex(source, 0, [
+        kCGImageSourceShouldCache: false
+    ] as CFDictionary)
+}
+
 struct ExternalDisplayBackgroundImageView: View {
     let data: Data
     let scale: Double
@@ -834,7 +1001,7 @@ struct ExternalDisplayBackgroundImageView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            if let cgImage = Self.cgImage(from: data) {
+            if let cgImage = scoreboardCGImage(from: data) {
                 Image(decorative: cgImage, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFill()
@@ -851,15 +1018,6 @@ struct ExternalDisplayBackgroundImageView: View {
         }
         .clipped()
     }
-
-    private static func cgImage(from data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return nil
-        }
-        return CGImageSourceCreateImageAtIndex(source, 0, [
-            kCGImageSourceShouldCache: false
-        ] as CFDictionary)
-    }
 }
 
 struct SmartScoreboardBackgroundView: View {
@@ -868,6 +1026,156 @@ struct SmartScoreboardBackgroundView: View {
             .resizable()
             .scaledToFill()
             .clipped()
+    }
+}
+
+struct ExternalDisplayAnimatedLogoBackgroundView: View {
+    let data: Data?
+    let style: ExternalDisplayAnimatedLogoStyle
+    let backgroundColor: ExternalDisplayAnimatedLogoBackgroundColor
+    let speed: Int
+    let logoSize: Int
+    let logoOpacity: Double
+    let palette: ThemePalette
+    var animates: Bool = true
+
+    private var boundedSpeed: CGFloat {
+        CGFloat(max(8, min(180, speed)))
+    }
+
+    private var boundedLogoSize: CGFloat {
+        CGFloat(max(44, min(240, logoSize)))
+    }
+
+    private var boundedLogoOpacity: Double {
+        max(0.05, min(0.75, logoOpacity))
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ExternalDisplayAnimatedLogoBackgroundFill(selection: backgroundColor, palette: palette)
+
+                if let data, let cgImage = scoreboardCGImage(from: data) {
+                    if animates {
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                            animatedLogoPattern(
+                                cgImage: cgImage,
+                                displaySize: proxy.size,
+                                date: timeline.date
+                            )
+                        }
+                    } else {
+                        animatedLogoPattern(
+                            cgImage: cgImage,
+                            displaySize: proxy.size,
+                            date: Date(timeIntervalSinceReferenceDate: 0)
+                        )
+                    }
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: min(proxy.size.width, proxy.size.height) * 0.10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.16))
+                }
+
+                LinearGradient(
+                    colors: [.black.opacity(0.26), .clear, .black.opacity(0.30)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func animatedLogoPattern(cgImage: CGImage, displaySize: CGSize, date: Date) -> some View {
+        switch style {
+        case .horizontalMarquee:
+            movingLogoRows(cgImage: cgImage, displaySize: displaySize, date: date, rotationDegrees: 0, wave: false)
+        case .diagonalMarquee:
+            movingLogoRows(cgImage: cgImage, displaySize: displaySize, date: date, rotationDegrees: -11, wave: false)
+                .scaleEffect(1.16)
+        case .waveDrift:
+            movingLogoRows(cgImage: cgImage, displaySize: displaySize, date: date, rotationDegrees: 0, wave: true)
+        case .checkerFade:
+            checkerFadeLogoGrid(cgImage: cgImage, displaySize: displaySize, date: date)
+        }
+    }
+
+    private func movingLogoRows(
+        cgImage: CGImage,
+        displaySize: CGSize,
+        date: Date,
+        rotationDegrees: Double,
+        wave: Bool
+    ) -> some View {
+        let logoSize = boundedLogoSize
+        let horizontalGap = logoSize * 1.55
+        let verticalGap = logoSize * 1.22
+        let columnCount = max(4, Int(ceil(displaySize.width / horizontalGap)) + 5)
+        let rowCount = max(3, Int(ceil(displaySize.height / verticalGap)) + 4)
+        let time = CGFloat(date.timeIntervalSinceReferenceDate)
+        let baseOffset = (time * boundedSpeed).truncatingRemainder(dividingBy: horizontalGap)
+
+        return ZStack {
+            ForEach(0..<rowCount, id: \.self) { row in
+                ForEach(0..<columnCount, id: \.self) { column in
+                    let rowDirection: CGFloat = row.isMultiple(of: 2) ? 1 : -1
+                    let rowOffset = rowDirection > 0 ? -baseOffset : baseOffset
+                    let x = (CGFloat(column) * horizontalGap) - horizontalGap + rowOffset + (row.isMultiple(of: 2) ? 0 : horizontalGap * 0.42)
+                    let waveOffset = wave ? sin((time * 0.72) + (CGFloat(column) * 0.85) + CGFloat(row)) * logoSize * 0.22 : 0
+                    let y = (CGFloat(row) * verticalGap) - verticalGap + waveOffset
+
+                    logoTile(cgImage: cgImage, size: logoSize, opacity: boundedLogoOpacity)
+                        .position(x: x, y: y)
+                }
+            }
+        }
+        .frame(width: displaySize.width, height: displaySize.height)
+        .rotationEffect(.degrees(rotationDegrees))
+    }
+
+    private func checkerFadeLogoGrid(cgImage: CGImage, displaySize: CGSize, date: Date) -> some View {
+        let tileSize = boundedLogoSize * 1.30
+        let columnCount = max(3, Int(ceil(displaySize.width / tileSize)) + 2)
+        let rowCount = max(3, Int(ceil(displaySize.height / tileSize)) + 2)
+        let time = date.timeIntervalSinceReferenceDate
+        let phaseSpeed = max(0.18, Double(boundedSpeed) / 54.0)
+
+        return ZStack {
+            ForEach(0..<rowCount, id: \.self) { row in
+                ForEach(0..<columnCount, id: \.self) { column in
+                    let isLightTile = (row + column).isMultiple(of: 2)
+                    let phase = (sin((time * phaseSpeed) + Double(row + column) * 0.82) + 1) / 2
+                    let phaseOpacity = isLightTile ? phase : 1 - phase
+                    let logoOpacity = max(0, min(1, boundedLogoOpacity * (0.61 + phaseOpacity * 1.39)))
+                    let tileColor = isLightTile
+                        ? Color.white.opacity(0.05 + phase * 0.10)
+                        : Color.black.opacity(0.16 + phase * 0.22)
+                    let x = (CGFloat(column) * tileSize) - (tileSize * 0.5)
+                    let y = (CGFloat(row) * tileSize) - (tileSize * 0.5)
+
+                    ZStack {
+                        Rectangle()
+                            .fill(tileColor)
+                        logoTile(cgImage: cgImage, size: tileSize * 0.54, opacity: logoOpacity)
+                    }
+                    .frame(width: tileSize, height: tileSize)
+                    .position(x: x, y: y)
+                }
+            }
+        }
+        .frame(width: displaySize.width, height: displaySize.height)
+    }
+
+    private func logoTile(cgImage: CGImage, size: CGFloat, opacity: Double) -> some View {
+        Image(decorative: cgImage, scale: 1, orientation: .up)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .opacity(opacity)
+            .shadow(color: .black.opacity(0.30), radius: size * 0.08, x: 0, y: size * 0.02)
     }
 }
 

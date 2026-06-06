@@ -489,12 +489,17 @@
       el('generated').textContent = valueText(state.generatedAt, t('live'));
       const viewMode = valueText(display.viewMode, 'scoreboard');
       const rosterScope = valueText(display.playerViewRosterScope, 'fullRoster');
+      const backgroundMode = valueText(display.backgroundMode, 'blurred');
+      const animatedStyle = backgroundMode === 'animatedLogo'
+        ? ` / ${valueText(display.animatedLogoStyle, 'horizontalMarquee')} / ${valueText(display.animatedLogoBackgroundColor, 'themeBackground')} / ${Math.round(valueText(display.animatedLogoOpacity, 0.23) * 100)}%`
+        : '';
+      const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')}` : '';
       const eventName = valueText(game.eventName, '');
       el('mode').textContent = viewMode === 'playerView'
-        ? `${t('display')}: ${viewMode} / ${rosterScope}`
+        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`
         : viewMode === 'eventLogo' && eventName
-          ? `${t('display')}: ${viewMode} / ${eventName}`
-          : `${t('display')}: ${viewMode}`;
+          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`
+          : `${t('display')}: ${viewMode} / ${backgroundMode}${animatedStyle}${dateTimeStatus}`;
     }
 
     function connect() {

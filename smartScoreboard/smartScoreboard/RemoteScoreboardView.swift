@@ -54,33 +54,37 @@ struct RemoteScoreboardView: View {
                         now: timeline.date
                     )
 
-                    ZStack(alignment: .topTrailing) {
-                        RemoteScoreboardFace(
-                            state: state,
-                            backgroundImageData: receiver.imageData(for: state.display?.backgroundImage?.id),
-                            homeLogoData: receiver.imageData(for: state.teams.home.logo?.id),
-                            guestLogoData: receiver.imageData(for: state.teams.guest.logo?.id),
-                            eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
-                            lastReceivedAt: receiver.lastReceivedAt,
-                            masterClockOffset: receiver.masterClockOffset,
-                            now: timeline.date
-                        )
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .focusable(true)
-                        .onTapGesture {
-                            if showsPairingControls {
-                                showsConfiguration = true
-                            }
-                        }
+                    GeometryReader { proxy in
+                        let displaySize = proxy.size
 
-                        RemoteDisplayLiveBadge(health: health) {
-                            if showsPairingControls {
-                                showsConfiguration = true
+                        ZStack(alignment: .topTrailing) {
+                            RemoteScoreboardFace(
+                                state: state,
+                                backgroundImageData: receiver.imageData(for: state.display?.backgroundImage?.id),
+                                homeLogoData: receiver.imageData(for: state.teams.home.logo?.id),
+                                guestLogoData: receiver.imageData(for: state.teams.guest.logo?.id),
+                                eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
+                                lastReceivedAt: receiver.lastReceivedAt,
+                                masterClockOffset: receiver.masterClockOffset,
+                                now: timeline.date
+                            )
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .focusable(true)
+                            .onTapGesture {
+                                if showsPairingControls {
+                                    showsConfiguration = true
+                                }
                             }
+
+                            RemoteDisplayLiveBadge(health: health) {
+                                if showsPairingControls {
+                                    showsConfiguration = true
+                                }
+                            }
+                            .padding(.top, PublicScoreboardDisplayView.dateTimeOverlayTopInset(in: displaySize))
+                            .padding(.trailing, PublicScoreboardDisplayView.dateTimeOverlayHorizontalInset(in: displaySize))
                         }
-                        .padding(.top, 18)
-                        .padding(.trailing, 18)
                     }
                 }
             } else {
@@ -186,7 +190,7 @@ private struct RemoteScoreboardFace: View {
     }
 
     private var backgroundMode: ExternalDisplayBackgroundMode {
-        state.display?.backgroundMode ?? .blurred
+        (state.display?.backgroundMode ?? .blurred).resolvedForRendering
     }
 
     private var displaysTeamLogos: Bool {
@@ -215,6 +219,13 @@ private struct RemoteScoreboardFace: View {
             theme: theme,
             backgroundMode: backgroundMode,
             backgroundImage: publicBackgroundImage,
+            animatedLogoStyle: state.display?.resolvedAnimatedLogoStyle ?? .horizontalMarquee,
+            animatedLogoBackgroundColor: state.display?.resolvedAnimatedLogoBackgroundColor ?? .themeBackground,
+            animatedLogoSpeed: state.display?.resolvedAnimatedLogoSpeed ?? ScoreboardStore.defaultAnimatedLogoSpeed,
+            animatedLogoSize: state.display?.resolvedAnimatedLogoSize ?? ScoreboardStore.defaultAnimatedLogoSize,
+            animatedLogoOpacity: state.display?.resolvedAnimatedLogoOpacity ?? ScoreboardStore.defaultAnimatedLogoOpacity,
+            showsDateTime: state.display?.resolvedShowsDateTime ?? false,
+            dateTimeFormat: state.display?.resolvedDateTimeFormat ?? .time24Hour,
             sport: state.rules.sport,
             rules: sportRules(),
             showsScore: state.rules.supportsScore,
@@ -242,6 +253,7 @@ private struct RemoteScoreboardFace: View {
             debateHomeSideLabel: state.debate?.homeSideLabel,
             debateGuestSideLabel: state.debate?.guestSideLabel,
             debateSegmentTitle: state.debate?.segmentTitle,
+            debateSpeakingSide: state.debate?.speakingSide,
             debateActiveTimer: state.debate?.activeTimer,
             showsDebatePrepTime: state.debate?.prepTimeEnabled ?? false,
             formattedDebatePrepHomeClock: projection.formattedDebatePrepHomeClock,
@@ -304,6 +316,16 @@ private struct RemoteScoreboardFace: View {
             } else {
                 palette.externalDisplayBackground
             }
+        case .animatedLogo:
+            ExternalDisplayAnimatedLogoBackgroundView(
+                data: backgroundImageData,
+                style: state.display?.resolvedAnimatedLogoStyle ?? .horizontalMarquee,
+                backgroundColor: state.display?.resolvedAnimatedLogoBackgroundColor ?? .themeBackground,
+                speed: state.display?.resolvedAnimatedLogoSpeed ?? ScoreboardStore.defaultAnimatedLogoSpeed,
+                logoSize: state.display?.resolvedAnimatedLogoSize ?? ScoreboardStore.defaultAnimatedLogoSize,
+                logoOpacity: state.display?.resolvedAnimatedLogoOpacity ?? ScoreboardStore.defaultAnimatedLogoOpacity,
+                palette: palette
+            )
         case .none:
             Color.clear
         }
@@ -320,6 +342,8 @@ private struct RemoteScoreboardFace: View {
         case .smartScoreboard:
             return .transparent
         case .image:
+            return backgroundImageData == nil ? .blurred : .transparent
+        case .animatedLogo:
             return backgroundImageData == nil ? .blurred : .transparent
         case .none:
             return .clear

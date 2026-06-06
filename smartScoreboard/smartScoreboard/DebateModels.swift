@@ -13,10 +13,50 @@ struct DebateSegment: Identifiable, Codable, Equatable, Sendable {
     var title: String
     var timerMode: DebateTimerMode
     var durationSeconds: Int
+    var speakingSide: TeamSide?
     var startingSide: TeamSide?
     var allowsSideSwitching: Bool
     var autoPauseAtEnd: Bool
     var startsPaused: Bool
+
+    init(
+        id: String,
+        title: String,
+        timerMode: DebateTimerMode,
+        durationSeconds: Int,
+        speakingSide: TeamSide? = nil,
+        startingSide: TeamSide?,
+        allowsSideSwitching: Bool,
+        autoPauseAtEnd: Bool,
+        startsPaused: Bool
+    ) {
+        self.id = id
+        self.title = title
+        self.timerMode = timerMode
+        self.durationSeconds = durationSeconds
+        self.speakingSide = speakingSide ?? Self.inferredSpeakingSide(id: id, title: title)
+        self.startingSide = startingSide
+        self.allowsSideSwitching = allowsSideSwitching
+        self.autoPauseAtEnd = autoPauseAtEnd
+        self.startsPaused = startsPaused
+    }
+
+    private static func inferredSpeakingSide(id: String, title: String) -> TeamSide? {
+        let normalizedID = id.lowercased()
+        let normalizedTitle = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if normalizedID.contains("-aff-") || normalizedID.contains("-aff") || normalizedTitle.hasPrefix("aff ") || normalizedTitle.hasPrefix("aff-") {
+            return .home
+        }
+
+        if normalizedID.contains("-neg-") || normalizedID.contains("-neg") || normalizedTitle.hasPrefix("neg ") || normalizedTitle.hasPrefix("neg-") {
+            return .guest
+        }
+
+        return nil
+    }
 }
 
 struct DebatePreset: Identifiable, Codable, Equatable, Sendable {
