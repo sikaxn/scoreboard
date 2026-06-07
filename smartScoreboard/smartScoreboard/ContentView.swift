@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS) || os(macOS)
+import TipKit
+#endif
 #if os(iOS)
 import PhotosUI
 import UIKit
@@ -31,6 +34,8 @@ private struct PendingGameFileAutosave {
 }
 
 struct ContentView: View {
+    private static let tipHistoryResetGenerationKey = "scoreboardTipHistoryResetGeneration"
+
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
     @Environment(\.openWindow) private var openWindow
@@ -68,6 +73,9 @@ struct ContentView: View {
     @State private var selectedCompanionSettingsSport: SportType = .simple
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
+    @State private var showsGettingStarted = false
+    @State private var isGettingStartedAutoPresentation = false
+    @State private var tipHistoryResetGeneration = UserDefaults.standard.integer(forKey: Self.tipHistoryResetGenerationKey)
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
@@ -85,6 +93,8 @@ struct ContentView: View {
     @State private var fileOperationError: FileOperationAlert?
     @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
     @State private var dashboardPage: DashboardPage = .main
+    @State private var dashboardTipGroup: TipGroup?
+    @State private var dashboardTipGroupSignature = ""
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingBackupRestore: PendingBackupRestore?
     @State private var pendingLogDeletion: StoredLogSession?
@@ -109,10 +119,18 @@ struct ContentView: View {
     @State private var selectedHomeLogoPhotoItem: PhotosPickerItem?
     @State private var selectedGuestLogoPhotoItem: PhotosPickerItem?
     @State private var selectedEventLogoPhotoItem: PhotosPickerItem?
+    @State private var settingsKeyboardHeight: CGFloat = 0
     #endif
 
     private var themePalette: ThemePalette { store.theme.palette }
     private var settingsPalette: SettingsPalette { themePalette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
+    private var settingsKeyboardAvoidanceInset: CGFloat {
+        #if os(iOS)
+        settingsKeyboardHeight > 0 ? min(88, max(24, settingsKeyboardHeight * 0.18)) : 0
+        #else
+        0
+        #endif
+    }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
     private var appDisplayName: String {
@@ -381,8 +399,31 @@ struct ContentView: View {
     }
 
     #if os(iOS)
+    private func updateSettingsKeyboardHeight(_ notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+
+        let screenHeight = UIScreen.main.bounds.height
+        let overlap = max(0, screenHeight - endFrame.minY)
+        let resolvedHeight = overlap < 80 ? 0 : overlap
+        withAnimation(.easeOut(duration: 0.22)) {
+            settingsKeyboardHeight = resolvedHeight
+        }
+    }
+    #endif
+
+    #if os(iOS)
     private var filePresentationConfiguredRootView: some View {
         lifecycleConfiguredRootView
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateSettingsKeyboardHeight(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.22)) {
+                settingsKeyboardHeight = 0
+            }
+        }
         .fileImporter(
             isPresented: $showsGameImporter,
             allowedContentTypes: iOSGameImportContentTypes,
@@ -550,6 +591,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
             refreshStoredLogSessions()
         }
+        .sheet(isPresented: $showsGettingStarted, onDismiss: handleGettingStartedDismissed) {
+            gettingStartedSheet
+        }
         .sheet(item: $pendingPenaltySelection) { selection in
             penaltyPlayerSelectionSheet(selection)
         }
@@ -599,30 +643,36 @@ struct ContentView: View {
     }
 
     private func settingsSidebar(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Settings")
-                    .font(.system(size: layout.heroTitleSize - 4, weight: .black, design: .rounded))
-                    .foregroundStyle(settingsPalette.primaryText)
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Settings")
+                            .font(.system(size: layout.heroTitleSize - 4, weight: .black, design: .rounded))
+                            .foregroundStyle(settingsPalette.primaryText)
 
-                Text(localizedAppString(setupDescription))
-                    .font(.subheadline)
-                    .foregroundStyle(settingsPalette.secondaryText)
-            }
+                        Text(localizedAppString(setupDescription))
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
 
-            VStack(spacing: 8) {
-                ForEach(SettingsPane.allCases) { pane in
-                    settingsSidebarButton(pane)
+                    VStack(spacing: 8) {
+                        ForEach(SettingsPane.allCases) { pane in
+                            settingsSidebarButton(pane)
+                        }
+                    }
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 12)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             VStack(spacing: 10) {
                 Button {
                     openSetupGame()
                 } label: {
-                    Text(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
+                    localizedAppText(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
                         .font(.headline.weight(.bold))
                         .foregroundStyle(settingsPalette.secondaryButtonText)
                         .frame(maxWidth: .infinity)
@@ -631,8 +681,10 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
-        .padding(24)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(settingsPalette.sidebarBackground)
         .overlay(alignment: .trailing) {
@@ -674,26 +726,52 @@ struct ContentView: View {
 
     private func settingsDetailPane(layout: InterfaceLayout) -> some View {
         Group {
-            if selectedSettingsPane.usesFileManagerLayout {
-                VStack(alignment: .leading, spacing: 24) {
-                    settingsPaneHeader
-                    settingsPaneContent(layout: layout)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-                .padding(28)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if selectedSettingsPane == .files {
+                settingsLibraryDetailPane(layout: layout)
+            } else if selectedSettingsPane == .logs {
+                settingsFixedManagerDetailPane(layout: layout)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        settingsPaneHeader
-                        settingsPaneContent(layout: layout)
-                    }
-                    .padding(28)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                settingsScrollableDetailPane(layout: layout)
             }
         }
         .background(settingsPalette.detailBackground)
+    }
+
+    private func settingsLibraryDetailPane(layout: InterfaceLayout) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                settingsPaneHeader
+                settingsPaneIntroTip
+                settingsFilesPane(layout: layout, fillsAvailableHeight: false)
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
+    }
+
+    private func settingsFixedManagerDetailPane(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            settingsPaneHeader
+            settingsPaneIntroTip
+            settingsPaneContent(layout: layout)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func settingsScrollableDetailPane(layout: InterfaceLayout) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                settingsPaneHeader
+                settingsPaneIntroTip
+                settingsPaneContent(layout: layout)
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
     }
 
     private var settingsPaneHeader: some View {
@@ -710,6 +788,202 @@ struct ContentView: View {
 
             Spacer(minLength: 0)
         }
+    }
+
+    @ViewBuilder
+    private var settingsPaneIntroTip: some View {
+        if store.areTipsEnabled, let introduction = settingsPaneIntroduction(for: selectedSettingsPane) {
+            settingsPageTip(introduction, title: selectedSettingsPane.title, systemImage: selectedSettingsPane.systemImage)
+        }
+    }
+
+    private func settingsPaneIntroduction(for pane: SettingsPane) -> String? {
+        switch pane {
+        case .game:
+            return "Use Game Setup to choose the sport, name the event, set both sides, and define the starting rules that the live control board will use. Changes here are the defaults for the next run of the current game, so set clocks, periods, tracking, and sport-specific options before operators begin."
+        case .players:
+            return "Use Players to prepare roster details and decide which player data should appear during the game. This page controls roster size, active lineup state, fouls, cards, overlay pause behavior, and CSV roster import or export when the selected sport supports player tracking."
+        case .display:
+            return "Use Display to shape the public scoreboard presentation without changing the live game state. These options control lineup overflow, team and event logos, foul highlighting, and clock warning colors shown on external, public, and remote displays."
+        case .sound:
+            return "Use Sound to decide whether the app can play audio and which tones fire for each sport event. Sound settings are global to the app, while sport event assignments let different game types use different start, stop, warning, and expiration cues."
+        case .theme:
+            return "Use Theme to set the visual style shared by setup, live controls, previews, and public scoreboard outputs. This page also controls display direction, public-display background treatment, and optional date or time overlays."
+        case .files:
+            return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files keep operator-facing setup and scoreboard state, while full backups can include settings, game files, current game state, and logs."
+        case .logs:
+            return "Use Logs to review the sequence of actions captured during a scoreboard run. Sessions can be inspected for audit or replay context, exported for review, or removed when they are no longer needed."
+        case .integration:
+            return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
+        case .about:
+            return nil
+        }
+    }
+
+    private var settingsSportSetupGuidance: (message: String, systemImage: String) {
+        switch setupSport {
+        case .simple:
+            return (
+                "For Simple, choose the opening countdown and side names for a compact score-and-clock board. Use it when operators only need score, optional clock state, quick side swaps, and reset controls without sport-specific player or penalty tools.",
+                "timer"
+            )
+        case .basketball:
+            return (
+                "For Basketball, confirm the starting period, opening game clock, and shot-clock default before going live. The control board will expose score buttons, period controls, possession, shot-clock presets, and player tools based on this setup.",
+                "timer.circle"
+            )
+        case .volleyball:
+            return (
+                "For Volleyball, decide whether the match timer should be enabled, set the starting set, and configure substitution and player/card tracking as needed. The live board focuses on sets, swaps, cards, score, and optional timing.",
+                "person.3"
+            )
+        case .soccer:
+            return (
+                "For Soccer, set halves, the match clock, team names, substitution allowances, and player tracking before kickoff. The live board uses those choices for score, cards, lineups, swaps, and the public player display.",
+                "flag.checkered"
+            )
+        case .hockey:
+            return (
+                "For Hockey, confirm the period and clock setup before puck drop. The live board adds side-specific penalty timers, so team names, period timing, and player details should be ready before penalties are tracked.",
+                "clock"
+            )
+        case .chess:
+            return (
+                "For Chess, choose the clock preset and confirm both starting clocks. The control board runs one active side clock at a time, so correct clock lengths and side names are the key setup choices before starting the match.",
+                "timer"
+            )
+        case .debate:
+            return (
+                "For Debate, start by choosing a preset or Custom Debate, then verify side labels, segment order, prep time, scoring, and player tracking before opening the live board. The control board advances through these segments in order, so this setup page is where the round flow should be checked.",
+                "quote.bubble"
+            )
+        case .custom:
+            return (
+                "For Custom, build the sport from modules: score behavior, clock mode, period labels, shot clock, possession, player tracking, substitutions, and team counters. Turn on only the pieces operators need, then set the starting clock and period values before going live.",
+                "slider.horizontal.3"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var settingsSportSetupGuidanceTip: some View {
+        if store.areTipsEnabled {
+            let guidance = settingsSportSetupGuidance
+            settingsPageTip(guidance.message, title: "\(setupSport.title) Setup", systemImage: guidance.systemImage)
+        }
+    }
+
+    private func settingsPageTip(_ message: String, title: String = "Page Overview", systemImage: String = "lightbulb") -> some View {
+        scoreboardInlineTip(
+            ScoreboardTips.ParagraphTip(
+                id: scoreboardTipID(prefix: "settings.page", message: "\(title).\(message)"),
+                titleText: title,
+                messageText: message,
+                systemImage: systemImage
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func settingsOptionTip(_ message: String, systemImage: String = "lightbulb") -> some View {
+        if store.areTipsEnabled {
+            let title = settingsOptionTipTitle(for: message)
+            let resolvedSystemImage = settingsOptionTipSystemImage(for: message, fallback: systemImage)
+            scoreboardInlineTip(
+                ScoreboardTips.ParagraphTip(
+                    id: scoreboardTipID(prefix: "settings.option", message: message),
+                    titleText: title,
+                    messageText: message,
+                    systemImage: resolvedSystemImage
+                )
+            )
+        }
+    }
+
+    private func settingsOptionTipTitle(for message: String) -> String {
+        let lowercasedMessage = message.lowercased()
+
+        if lowercasedMessage.hasPrefix("pick the sport") { return "Choose Sport" }
+        if lowercasedMessage.hasPrefix("name the event") { return "Event Name" }
+        if lowercasedMessage.hasPrefix("set the two side names") { return "Team Names" }
+        if lowercasedMessage.hasPrefix("review the starting game state") { return "Starting State" }
+        if lowercasedMessage.hasPrefix("set substitution allowances") { return "Substitution Limits" }
+        if lowercasedMessage.hasPrefix("use general to define the custom sport") { return "Custom General" }
+        if lowercasedMessage.hasPrefix("use clock") { return "Clock Setup" }
+        if lowercasedMessage.hasPrefix("use period") { return "Period Setup" }
+        if lowercasedMessage.hasPrefix("use shot clock") { return "Shot Clock Setup" }
+        if lowercasedMessage.hasPrefix("use possession") { return "Possession Setup" }
+        if lowercasedMessage.hasPrefix("use player settings when the custom sport") { return "Custom Player Tools" }
+        if lowercasedMessage.hasPrefix("use team settings") { return "Team Counters" }
+        if lowercasedMessage.hasPrefix("use general to choose the debate") { return "Debate Format" }
+        if lowercasedMessage.hasPrefix("use segments") { return "Debate Segments" }
+        if lowercasedMessage.hasPrefix("use player settings for debate") { return "Debate Speakers" }
+        if lowercasedMessage.hasPrefix("use prep") { return "Prep Clocks" }
+        if lowercasedMessage.contains("no timer segments") || lowercasedMessage.hasPrefix("no timer segments") { return "No Timer Segments" }
+        if lowercasedMessage.contains("dual clock segments") || lowercasedMessage.hasPrefix("dual clock segments") { return "Dual Clock Segments" }
+        if lowercasedMessage.hasPrefix("use templates") { return "Debate Templates" }
+        if lowercasedMessage.hasPrefix("use format") { return "Custom Format" }
+        if lowercasedMessage.hasPrefix("use segment blocks") { return "Segment Blocks" }
+        if lowercasedMessage.hasPrefix("display direction") { return "Display Direction" }
+        if lowercasedMessage.hasPrefix("keep this limitation") { return "iPad Web API" }
+        if lowercasedMessage.hasPrefix("use web api") { return "Web API Output" }
+        if lowercasedMessage.hasPrefix("review security") { return "Network Security" }
+        if lowercasedMessage.hasPrefix("choose which integration") { return "Integration Selector" }
+        if lowercasedMessage.hasPrefix("use remote display mode") { return "Remote Display Mode" }
+        if lowercasedMessage.hasPrefix("use this device") { return "Remote Display Mode" }
+        if lowercasedMessage.hasPrefix("use remote display") { return "Remote Display Mode" }
+        if lowercasedMessage.hasPrefix("turn on operator broadcast") { return "Operator Broadcast" }
+        if lowercasedMessage.hasPrefix("use displays") { return "Display Pairing" }
+        if lowercasedMessage.hasPrefix("each saved or connected remote display") { return "Remote Direction" }
+        if lowercasedMessage.hasPrefix("use bitfocus companion settings") { return "Companion Settings" }
+        if lowercasedMessage.hasPrefix("use companion") { return "Companion Automation" }
+        if lowercasedMessage.hasPrefix("choose the sport whose companion") { return "Sport Assignments" }
+        if lowercasedMessage.hasPrefix("use event commands") { return "Event Commands" }
+        if lowercasedMessage.hasPrefix("local network permission") { return "Local Network" }
+
+        return "Setup Guidance"
+    }
+
+    private func settingsOptionTipSystemImage(for message: String, fallback: String) -> String {
+        let lowercasedMessage = message.lowercased()
+
+        if lowercasedMessage.hasPrefix("review the starting game state") {
+            return "checklist"
+        }
+        if lowercasedMessage.hasPrefix("use segment blocks") {
+            return "square.grid.2x2"
+        }
+        if lowercasedMessage.hasPrefix("display direction") || lowercasedMessage.hasPrefix("each saved or connected remote display") {
+            return "arrow.left.and.right"
+        }
+        if lowercasedMessage.contains("no timer segments") || lowercasedMessage.hasPrefix("no timer segments") {
+            return "pause.circle"
+        }
+        if lowercasedMessage.contains("dual clock segments") || lowercasedMessage.hasPrefix("dual clock segments") {
+            return "person.2"
+        }
+
+        return fallback
+    }
+
+    @ViewBuilder
+    private func scoreboardInlineTip(_ tip: (any Tip)?) -> some View {
+        if store.areTipsEnabled {
+            TipView(tip)
+        }
+    }
+
+    private func scoreboardTipID(prefix: String, message: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in message.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return "\(prefix).\(tipHistoryResetGeneration).\(String(hash, radix: 16))"
+    }
+
+    private var arePopoverTipsEnabled: Bool {
+        store.areTipsEnabled && !showsGettingStarted
     }
 
     private func isSettingsPaneEnabled(_ pane: SettingsPane) -> Bool {
@@ -756,6 +1030,7 @@ struct ContentView: View {
     private func settingsGameOverviewPane(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             settingsGameIdentitySections(layout: layout)
+            settingsSportSetupGuidanceTip
             settingsGameRulesSections()
             settingsSubstitutionTrackingSection()
         }
@@ -764,14 +1039,17 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsGameIdentitySections(layout: InterfaceLayout) -> some View {
         settingsSection(title: "Sport", footer: "Choose the scoreboard mode before editing teams, clocks, and tracking rules.") {
+            settingsOptionTip("Pick the sport or custom ruleset first because this choice decides which score buttons, timers, periods, player tools, and display controls appear across the rest of setup and the live board.", systemImage: "slider.horizontal.3")
             sportSelectionGrid(layout: layout)
         }
 
         settingsSection(title: "Event") {
+            settingsOptionTip("Name the event when the public board should show tournament, venue, round, or broadcast context. Leave it blank for a cleaner scoreboard that focuses only on the teams and live state.", systemImage: "textformat")
             settingsPlainTextEntryRow(title: "Event Name", text: $eventNameDraft)
         }
 
         settingsSection(title: "Teams") {
+            settingsOptionTip("Set the two side names exactly as operators and viewers should see them. These names drive the setup screen, live controls, saved game files, public scoreboard, logs, and connected displays.", systemImage: "person.2")
             settingsTextEntryRow(title: "Home Team", text: $homeTeamDraft, teamSide: true)
             settingsDivider()
             settingsTextEntryRow(title: "Guest Team", text: $guestTeamDraft, teamSide: false)
@@ -791,6 +1069,7 @@ struct ContentView: View {
 
     private func builtInSportGameSettingsSection() -> some View {
         settingsSection(title: "Game") {
+            settingsOptionTip("Review the starting game state for the selected sport before opening the control board. Only options that matter to this sport appear here, such as period, clock presets, chess clocks, match timer, or shot clock.", systemImage: "slider.horizontal.3")
             builtInSportGameSettingsRows()
         }
     }
@@ -905,6 +1184,7 @@ struct ContentView: View {
     private func settingsSubstitutionTrackingSection() -> some View {
         if setupRules.showsSubstitutionTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isSubstitutionTrackingEnabled) {
             settingsSection(title: "Substitutions", footer: "Set how many player swaps each team can use during the match.") {
+                settingsOptionTip("Set substitution allowances before the match so the live board can count remaining swaps for each side. These limits are saved with the current game setup and can differ for home and guest.", systemImage: "arrow.left.arrow.right")
                 settingsStepperValueRow(
                     title: "Home Allowed",
                     value: "\(store.homeSubstitutionsAllowed)",
@@ -925,6 +1205,7 @@ struct ContentView: View {
     @ViewBuilder
     private func customSportSettingsSections() -> some View {
         settingsSection(title: "General", footer: "Core custom sport identity and scoring behavior.") {
+            settingsOptionTip("Use General to define the custom sport name and whether the scoreboard should track points at all. When score tracking is enabled, choose the button layout that best matches how operators usually add points.", systemImage: "tag")
             settingsTextEntryRow(title: "Custom Title", text: Binding(
                 get: { setupCustomSportConfig.title },
                 set: { setupCustomSportConfig.title = $0 }
@@ -948,6 +1229,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Clock", footer: "Choose between a shared game clock and chess-style side clocks.") {
+            settingsOptionTip("Use Clock to decide whether the custom sport has one shared timer, no main timer, count-up or count-down behavior, or separate side clocks. The opening values here become the live board reset targets.", systemImage: "timer")
             settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
                 get: { setupCustomSportConfig.usesChessClocks },
                 set: { setupCustomSportConfig.usesChessClocks = $0 }
@@ -996,6 +1278,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Period", footer: "Enable period tracking and define the labels shown on the board.") {
+            settingsOptionTip("Use Period when the custom sport has halves, sets, innings, rounds, segments, or another phase label. The full and short labels are used by the public board, live controls, and logs.", systemImage: "number")
             settingsToggleRow(title: "Period Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isPeriodEnabled },
                 set: { setupCustomSportConfig.isPeriodEnabled = $0 }
@@ -1022,6 +1305,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Shot Clock", footer: "Enable a separate shot timer and configure how it resets.") {
+            settingsOptionTip("Use Shot Clock when the sport needs a secondary possession timer beside the main game clock. The default and preset values appear on the live board so operators can reset possession quickly.", systemImage: "timer.circle")
             settingsToggleRow(title: "Shot Clock", isOn: Binding(
                 get: { setupCustomSportConfig.isShotClockEnabled },
                 set: {
@@ -1052,6 +1336,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the shot clock." : "Enable Shot Clock first to use the possession arrow.") {
+            settingsOptionTip("Use Possession to show which side currently controls play. The arrow is tied to shot-clock workflows, so it becomes available after the custom sport has shot-clock support enabled.", systemImage: "arrow.left.and.right")
             settingsToggleRow(title: "Possession Arrow", isOn: Binding(
                 get: { setupCustomSportConfig.isPossessionEnabled },
                 set: { setupCustomSportConfig.isPossessionEnabled = $0 }
@@ -1061,6 +1346,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Player", footer: "Enable player tracking, lineup style, and player-specific state.") {
+            settingsOptionTip("Use Player settings when the custom sport needs rosters, active lineups, player fouls, cards, or a soccer-style center player strip. Turning tracking on also enables the Players settings page.", systemImage: "person.3")
             settingsToggleRow(title: "Player Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isPlayerTrackingEnabled },
                 set: { setupCustomSportConfig.isPlayerTrackingEnabled = $0 }
@@ -1085,6 +1371,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
+            settingsOptionTip("Use Team settings for counters that belong to a side rather than an individual player. Substitutions and team fouls add live controls, reset actions, public display state, and log entries for both sides.", systemImage: "person.2")
             settingsToggleRow(title: "Substitutions", isOn: Binding(
                 get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
                 set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
@@ -1100,6 +1387,7 @@ struct ContentView: View {
     @ViewBuilder
     private func debateSettingsSections() -> some View {
         settingsSection(title: "General", footer: "Choose the debate format, round title, side labels, and whether score is tracked.") {
+            settingsOptionTip("Use General to choose the debate format, label each side, and decide whether the round has score tracking. Presets fill in standard flows, while Custom Debate lets you design a format for this event.", systemImage: "quote.bubble")
             settingsPickerRow(
                 title: "Preset",
                 selection: $setupDebatePresetID,
@@ -1128,10 +1416,13 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Segments", footer: setupDebatePresetID == DebatePreset.customID ? "Preview the full custom debate flow. Use Open Designer under Preset to edit these blocks." : "Preview the full debate timer flow for the selected preset.") {
+            settingsOptionTip("Use Segments to confirm the speaking order, timing mode, active side, and duration before the round starts. This preview is the sequence operators will advance through on the live debate board.", systemImage: "list.number")
+            debateSegmentPreviewModeTips(preset: setupDebatePreset)
             debateSegmentPreviewList(preset: setupDebatePreset)
         }
 
         settingsSection(title: "Player", footer: "Enable player tracking and choose whether debate players carry fouls or cards.") {
+            settingsOptionTip("Use Player settings for debate when speakers need roster entries, active lineup visibility, fouls, or cards. These options control whether the Players page and player overlay tools appear for debate rounds.", systemImage: "person.3")
             settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
             if setupDebatePlayerTrackingEnabled {
                 settingsDivider()
@@ -1142,6 +1433,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Prep", footer: setupDebatePrepTimeEnabled ? "Prep time is tracked per side and shown on the live board and display." : "Turn prep time on to expose per-side prep clocks.") {
+            settingsOptionTip("Use Prep to give each side its own preparation clock. Prep time appears beside the segment timer on the live board so operators can pause the speech flow and run side-specific prep.", systemImage: "hourglass")
             settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled)
             if setupDebatePrepTimeEnabled {
                 settingsDivider()
@@ -1199,6 +1491,17 @@ struct ContentView: View {
                     settingsDivider()
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func debateSegmentPreviewModeTips(preset: DebatePreset) -> some View {
+        if preset.segments.contains(where: { $0.timerMode == .none }) {
+            settingsOptionTip("This debate format includes No Timer segments. Those blocks appear in the live round sequence as checkpoints or transitions, but they do not run a speech clock.", systemImage: "pause.circle")
+        }
+
+        if preset.segments.contains(where: { $0.timerMode == .dualClock }) {
+            settingsOptionTip("This debate format includes Dual Clock segments. Those blocks run separate side clocks, starting from the configured side and optionally allowing operators to switch active sides during the segment.", systemImage: "person.2")
         }
     }
 
@@ -1262,12 +1565,14 @@ struct ContentView: View {
 
     private func debateDesignerTemplatesSection(layout: InterfaceLayout) -> some View {
         settingsSection(title: "Templates", footer: "Start from Public Forum, Lincoln-Douglas, or Policy. Applying a template creates an editable Custom Debate flow.") {
+            settingsOptionTip("Use Templates as starting points for a custom debate format. Applying a template replaces the current custom block list with an editable copy, so choose the closest flow before fine-tuning labels and timings.", systemImage: "doc.on.doc")
             debateDesignerTemplateGrid(layout: layout)
         }
     }
 
     private func debateDesignerFormatSection() -> some View {
         settingsSection(title: "Format", footer: "These labels and tracking options are saved with the custom debate format.") {
+            settingsOptionTip("Use Format to name the custom debate, label the two sides, and decide which live-board tools are available. These choices define the behavior of the custom preset before individual segment blocks run.", systemImage: "text.badge.checkmark")
             debateDesignerFormatRows()
         }
     }
@@ -1314,6 +1619,7 @@ struct ContentView: View {
 
     private func debateDesignerSegmentsSection() -> some View {
         settingsSection(title: "Segment Blocks", footer: "Each block becomes one step in the live debate timer. Add speeches, crossfires, prep breaks, or side-clock segments in the order they should run.") {
+            settingsOptionTip("Use Segment Blocks to build the exact round flow operators will follow. Each block can have no timer, a shared master clock, or a dual side clock, and the order here becomes the live segment order.", systemImage: "square.grid.2x2")
             debateDesignerSegmentBlocks()
         }
     }
@@ -1491,6 +1797,7 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
+        .scoreboardPopoverTip(ScoreboardTips.about, isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateTemplatePill(_ title: String) -> some View {
@@ -1723,6 +2030,9 @@ struct ContentView: View {
                 }
 
                 settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display.") {
+                    settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Integration.", systemImage: "arrow.left.and.right")
+                    settingsDivider()
+
                     settingsPickerRow(
                         title: "Control Board",
                         selection: Binding(
@@ -2212,22 +2522,22 @@ struct ContentView: View {
         .padding(.vertical, 12)
     }
 
-    private func settingsFilesPane(layout: InterfaceLayout) -> some View {
+    private func settingsFilesPane(layout: InterfaceLayout, fillsAvailableHeight: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             settingsBackupSection()
 
             settingsTwoColumnLayout(
                 layout: layout,
                 primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
-                fillsHeight: true
+                fillsHeight: fillsAvailableHeight
             ) {
-                settingsFileManagerPanel(title: "Game Files") {
+                settingsFileManagerPanel(title: "Game Files", fillsHeight: fillsAvailableHeight) {
                     settingsGameFileManagerToolbar
                 } content: {
-                    settingsGameFileManagerList
+                    settingsGameFileManagerList(minHeight: layout.settingsFileManagerListMinimumHeight)
                 }
             } right: {
-                settingsFileManagerPanel(title: "Details") {
+                settingsFileManagerPanel(title: "Details", fillsHeight: fillsAvailableHeight) {
                     settingsSelectedGameFileToolbar
                 } content: {
                     settingsGameFileDetailPane
@@ -2283,22 +2593,25 @@ struct ContentView: View {
     }
 
     private func settingsLogsPane(layout: InterfaceLayout) -> some View {
-        settingsTwoColumnLayout(
-            layout: layout,
-            primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
-            fillsHeight: true
-        ) {
-            settingsFileManagerPanel(title: "Sessions") {
-                settingsLogSessionManagerToolbar
-            } content: {
-                settingsLogSessionManagerList
+        VStack(alignment: .leading, spacing: 18) {
+            settingsTwoColumnLayout(
+                layout: layout,
+                primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
+                fillsHeight: true
+            ) {
+                settingsFileManagerPanel(title: "Sessions") {
+                    settingsLogSessionManagerToolbar
+                } content: {
+                    settingsLogSessionManagerList()
+                }
+            } right: {
+                settingsFileManagerPanel(title: "Playback") {
+                    settingsLogPlaybackToolbar
+                } content: {
+                    settingsLogPlaybackDetailPane
+                }
             }
-        } right: {
-            settingsFileManagerPanel(title: "Playback") {
-                settingsLogPlaybackToolbar
-            } content: {
-                settingsLogPlaybackDetailPane
-            }
+            .frame(maxHeight: .infinity)
         }
     }
 
@@ -2321,6 +2634,7 @@ struct ContentView: View {
     #if os(iOS)
     private func settingsIPadLifecycleSection() -> some View {
         settingsSection(title: "iPad App Lifecycle") {
+            settingsOptionTip("Keep this limitation in mind when using Web API from iPad during a production session. iPadOS can suspend local network services after app switches, so the most reliable setup keeps Scoreboard open while external tools are connected.", systemImage: "ipad")
             Text("If you close Scoreboard or switch to another app, iPadOS may pause local web connections even if you did not force quit. Keep Scoreboard open during production use. When you return to the app, the Web API restarts automatically if it is still enabled.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
@@ -2337,6 +2651,7 @@ struct ContentView: View {
             #endif
 
             settingsSection(title: "Web API", footer: "Publishes live scoreboard state over HTTP 5516 and WebSocket 5517 for trusted local production tools.") {
+                settingsOptionTip("Use Web API when local overlays, browser sources, custom dashboards, or production scripts need to read live scoreboard state. The API is read-only for game operations and publishes current state over HTTP and WebSocket ports.", systemImage: "network")
                 settingsToggleRow(title: "Enable HTTP 5516 and WebSocket 5517", isOn: Binding(
                     get: { store.isWebAPIEnabled },
                     set: { store.setWebAPIEnabled($0) }
@@ -2366,6 +2681,7 @@ struct ContentView: View {
             }
 
             settingsSection(title: "Security") {
+                settingsOptionTip("Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices and does not expose controls for changing scores, clocks, rosters, files, or settings.", systemImage: "lock.shield")
                 Text("This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes.")
                     .font(.body)
                     .foregroundStyle(settingsPalette.primaryText)
@@ -2380,6 +2696,7 @@ struct ContentView: View {
             title: "Configure Integration",
             footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display, and Bitfocus Companion are separate integrations."
         ) {
+            settingsOptionTip("Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display, and Bitfocus Companion each keep their own enabled state, connection details, and assignments.", systemImage: "arrow.left.arrow.right")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 ForEach(IntegrationSettingsDetail.allCases) { detail in
                     settingsIntegrationConfigurationButton(detail)
@@ -2428,9 +2745,16 @@ struct ContentView: View {
                     .foregroundStyle(isSelected ? settingsPalette.accentText.opacity(0.82) : settingsPalette.secondaryText)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                localizedAppText(detail.introduction)
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? settingsPalette.accentText.opacity(0.78) : settingsPalette.secondaryText)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 136, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 174, alignment: .topLeading)
             .background(
                 isSelected ? settingsPalette.accent : settingsPalette.fieldBackground,
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -2461,9 +2785,10 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsRemoteDisplayThisDeviceSection() -> some View {
         #if !os(tvOS)
-        settingsSection(title: "This Device", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
+        settingsSection(title: "Remote Display Mode", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
+            settingsOptionTip("Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available.", systemImage: "rectangle.on.rectangle")
             settingsButtonRow(
-                title: "Use This Device as Remote Display",
+                title: "Enter Remote Display Mode",
                 buttonTitle: "Enter",
                 tint: settingsPalette.accent,
                 foreground: settingsPalette.accentText
@@ -2489,6 +2814,7 @@ struct ContentView: View {
 
     private func settingsRemoteDisplayAboutSection() -> some View {
         settingsSection(title: "About Remote Display") {
+            settingsOptionTip("Use Remote Display for Apple TV, iPad, or Mac displays that should mirror the public scoreboard without browser URLs or a Web API client. Pairing happens nearby and the operator device remains the source of live updates.", systemImage: "tv.and.mediabox")
             Text("Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
@@ -2499,6 +2825,7 @@ struct ContentView: View {
 
     private func settingsRemoteDisplayBroadcastSection() -> some View {
         settingsSection(title: "Operator Broadcast", footer: "Turn this on from the operator device. Nearby displays in Remote Display Mode appear by device name.") {
+            settingsOptionTip("Turn on Operator Broadcast from the device that will run the game. Nearby Remote Display devices can then pair, reconnect if saved, receive live scoreboard state, and stay in sync with theme and sound settings.", systemImage: "dot.radiowaves.left.and.right")
             settingsToggleRow(title: "Enable Remote Display Pairing", isOn: Binding(
                 get: { store.isRemoteDisplayHostEnabled },
                 set: { store.setRemoteDisplayHostEnabled($0) }
@@ -2518,11 +2845,16 @@ struct ContentView: View {
 
     private func settingsRemoteDisplayDisplaysSection(_ displayRows: [RemoteDisplaySettingsRow]) -> some View {
         settingsSection(title: "Displays", footer: "Connected, saved, and nearby displays appear together. Saved displays can connect without another code; new displays need the 4-digit code shown on that display.") {
+            settingsOptionTip("Use Displays to see which remote screens are available, saved, connected, or waiting for a pairing code. Pair new screens from their four-digit code and reuse saved displays for faster setup at the next event.", systemImage: "display.2")
+            settingsOptionTip("Each saved or connected Remote Display can use its own direction because screens may be mounted on opposite sides of the court, field, room, or player area. Set the direction here for that physical display, then use Swap Sides during the game only when the teams or sides need to flip live across every output.", systemImage: "arrow.left.and.right")
             if !store.isRemoteDisplayHostEnabled {
+                settingsDivider()
                 settingsSummaryValueRow(title: "Displays", value: localizedAppString("Enable Remote Display Pairing first"))
             } else if displayRows.isEmpty {
+                settingsDivider()
                 settingsSummaryValueRow(title: "Displays", value: localizedAppString("No displays found or saved"))
             } else {
+                settingsDivider()
                 ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
                     settingsRemoteDisplayRow(row)
                     if index < displayRows.count - 1 {
@@ -3144,6 +3476,7 @@ struct ContentView: View {
 
     private func settingsCompanionConnectionSection() -> some View {
         settingsSection(title: "Bitfocus Companion", footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.") {
+            settingsOptionTip("Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent.", systemImage: "square.grid.3x3")
             settingsToggleRow(title: "Show Companion", isOn: Binding(
                 get: { store.isCompanionVisible },
                 set: { store.setCompanionVisible($0) }
@@ -3189,6 +3522,7 @@ struct ContentView: View {
 
     private func settingsCompanionAboutSection() -> some View {
         settingsSection(title: "About Companion") {
+            settingsOptionTip("Use Companion when scoreboard events should trigger production automation, such as switching scenes, firing graphics, or controlling external gear. Scoreboard sends button press commands to Companion; Companion handles the downstream actions.", systemImage: "bolt.horizontal")
             Text("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
@@ -3206,12 +3540,14 @@ struct ContentView: View {
 
     private func settingsCompanionSportSection(layout: InterfaceLayout) -> some View {
         settingsSection(title: "Configure Sport", footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.") {
+            settingsOptionTip("Choose the sport whose Companion assignments you want to edit. Assignments are stored per sport, so basketball, soccer, debate, and custom games can each trigger different Companion buttons.", systemImage: "slider.horizontal.3")
             compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport)
         }
     }
 
     private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
         settingsSection(title: "Event Commands", footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.") {
+            settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3")
             if events.isEmpty {
                 settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
             } else {
@@ -3228,6 +3564,7 @@ struct ContentView: View {
 
     private func settingsLocalNetworkPermissionSection() -> some View {
         settingsSection(title: "Local Network Permission", footer: localNetworkPermissionFooter) {
+            settingsOptionTip("Local Network permission is required before this device can discover nearby displays, host the Web API, or send commands to Companion on your production network. Open system settings here if the OS has blocked access.", systemImage: "wifi")
             settingsButtonRow(
                 title: "System Settings",
                 buttonTitle: "Open",
@@ -3513,6 +3850,42 @@ struct ContentView: View {
                 .padding(.vertical, 12)
             }
 
+            settingsSection(title: "Help", footer: "Tips guide you through setup and key controls around the app. Turn them off here, or reset them to show dismissed tips again.") {
+                settingsToggleRow(
+                    title: "Tips",
+                    isOn: Binding(
+                        get: { store.areTipsEnabled },
+                        set: { store.areTipsEnabled = $0 }
+                    )
+                )
+                settingsDivider()
+                settingsToggleRow(
+                    title: "Show Getting Started on Startup",
+                    isOn: Binding(
+                        get: { store.showGettingStartedOnStartup },
+                        set: { store.setGettingStartedStartupEnabled($0) }
+                    )
+                )
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Getting Started",
+                    buttonTitle: "Show",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    presentGettingStarted(auto: false)
+                }
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Tip History",
+                    buttonTitle: "Reset Tips",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    resetScoreboardTips()
+                }
+            }
+
             settingsSection(title: "Factory Default", footer: "Deletes local app data and returns Scoreboard to its first-launch defaults.") {
                 settingsButtonRow(
                     title: "Reset App",
@@ -3596,6 +3969,140 @@ struct ContentView: View {
         }
     }
 
+    private var gettingStartedSheet: some View {
+        GeometryReader { proxy in
+            let isCompact = proxy.size.width < 620
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(alignment: .center, spacing: 16) {
+                        Image("ScoreboardIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(settingsPalette.cardBorder)
+                            )
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Welcome to Smart Scoreboard")
+                                .font(.system(size: isCompact ? 28 : 34, weight: .black, design: .rounded))
+                                .foregroundStyle(settingsPalette.primaryText)
+
+                            Text("Set up the game, open the public board, then run the live controls from one operator screen.")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(settingsPalette.secondaryText)
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        gettingStartedFeatureRow(
+                            title: "Start in Game Setup",
+                            detail: "Choose the sport, teams, clock defaults, display options, files, and integrations before opening the live board.",
+                            systemImage: "slider.horizontal.3"
+                        )
+                        settingsDivider()
+                        gettingStartedFeatureRow(
+                            title: "Show the Public Board",
+                            detail: "On Mac, open the public scoreboard window. On iPad, connect an external display or pair a Remote Display.",
+                            systemImage: "display.2"
+                        )
+                        settingsDivider()
+                        gettingStartedFeatureRow(
+                            title: "Run the Game",
+                            detail: "Use the live board for score, clock, shot clock, players, fouls, substitutions, sound, and companion controls.",
+                            systemImage: "trophy"
+                        )
+                        settingsDivider()
+                        gettingStartedFeatureRow(
+                            title: "Tips Guide You Through the App",
+                            detail: "Contextual tips appear near key controls while you set up and run the scoreboard. You can turn them off or reset them any time in Settings > About.",
+                            systemImage: "lightbulb"
+                        )
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(settingsPalette.cardBorder)
+                    )
+
+                    HStack(spacing: 12) {
+                        gettingStartedExperiencedButton
+                            .frame(maxWidth: .infinity)
+                        gettingStartedPrimaryButton
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(28)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .background(settingsPalette.shellBackground)
+        }
+        #if os(macOS)
+        .frame(minWidth: 620, minHeight: 620)
+        #endif
+    }
+
+    private func gettingStartedFeatureRow(title: String, detail: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(settingsPalette.accentText)
+                .frame(width: 42, height: 42)
+                .background(settingsPalette.accent, in: Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                localizedAppText(title)
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                localizedAppText(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var gettingStartedPrimaryButton: some View {
+        Button {
+            closeGettingStarted()
+        } label: {
+            Label("Get Started", systemImage: "checkmark")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(settingsPalette.accentText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(settingsPalette.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var gettingStartedExperiencedButton: some View {
+        Button {
+            skipGettingStartedAndDisableTips()
+        } label: {
+            Label("Skip Welcome and Turn Off Tips", systemImage: "xmark.circle")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(settingsPalette.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.58)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(settingsPalette.fieldBackground, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func settingsLinkRow(
         title: String,
@@ -3636,6 +4143,7 @@ struct ContentView: View {
 
     private func settingsFileManagerPanel<Toolbar: View, Content: View>(
         title: String,
+        fillsHeight: Bool = true,
         @ViewBuilder toolbar: () -> Toolbar,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -3659,7 +4167,7 @@ struct ContentView: View {
             settingsDivider()
 
             content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
         }
         .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
@@ -3790,7 +4298,7 @@ struct ContentView: View {
         }
     }
 
-    private var settingsGameFileManagerList: some View {
+    private func settingsGameFileManagerList(minHeight: CGFloat = 360) -> some View {
         Group {
             if storedGameFiles.isEmpty {
                 settingsEmptyFileManagerMessage("No local game files yet. Create one from the current setup or import an existing file.")
@@ -3862,7 +4370,7 @@ struct ContentView: View {
                 .background(Color.clear)
             }
         }
-        .frame(minHeight: 360)
+        .frame(minHeight: minHeight)
     }
 
     private func settingsGameFileManagerRow(_ gameFile: StoredGameFile) -> some View {
@@ -3914,6 +4422,7 @@ struct ContentView: View {
             renameDraft: $renameGameFileNameDraft,
             canRename: canRenameSelectedGameFile,
             palette: settingsPalette,
+            keyboardBottomInset: settingsKeyboardAvoidanceInset,
             onRename: renameSelectedStoredGame
         )
     }
@@ -4043,7 +4552,7 @@ struct ContentView: View {
         }
     }
 
-    private var settingsLogSessionManagerList: some View {
+    private func settingsLogSessionManagerList(minHeight: CGFloat = 360) -> some View {
         Group {
             if storedLogSessions.isEmpty {
                 settingsEmptyFileManagerMessage("No log sessions yet. Start operating the scoreboard to create the first per-run log.")
@@ -4133,7 +4642,7 @@ struct ContentView: View {
                 .background(Color.clear)
             }
         }
-        .frame(minHeight: 360)
+        .frame(minHeight: minHeight)
     }
 
     private func settingsLogSessionManagerRow(_ session: StoredLogSession) -> some View {
@@ -4539,6 +5048,18 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private func debateTimerModeSetupGuidance(_ mode: DebateTimerMode) -> some View {
+        switch mode {
+        case .none:
+            settingsOptionTip("No Timer segments are checkpoints in the round flow, such as judge instructions, disclosure, prep reminders, or transitions. They do not run a countdown on the live board, so operators will only move to the previous or next segment unless prep time or score/player tools are enabled.", systemImage: "pause.circle")
+        case .dualClock:
+            settingsOptionTip("Dual Clock segments give each side its own countdown for cross-examination, flex prep, or side-controlled speaking time. Set the starting side and decide whether operators can switch the active side during the segment before saving the custom debate format.", systemImage: "person.2")
+        case .masterClock:
+            EmptyView()
+        }
+    }
+
     private func debateSpeakingSideTitle(_ side: TeamSide?) -> String {
         guard let side else {
             return "Not Set"
@@ -4640,6 +5161,11 @@ struct ContentView: View {
                     options: DebateTimerMode.allCases
                 ) { mode in
                     debateTimerModeTitle(mode)
+                }
+
+                if currentSegment.timerMode == .none || currentSegment.timerMode == .dualClock {
+                    settingsDivider()
+                    debateTimerModeSetupGuidance(currentSegment.timerMode)
                 }
 
                 settingsDivider()
@@ -4962,7 +5488,7 @@ struct ContentView: View {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
             Spacer(minLength: 0)
-            Text(value)
+            Text(localizedAppString(value))
                 .foregroundStyle(settingsPalette.secondaryText)
                 .multilineTextAlignment(.trailing)
         }
@@ -5213,7 +5739,7 @@ struct ContentView: View {
                 option.title
             }
 
-            Text(store.externalDisplayAnimatedLogoStyle.subtitle)
+            localizedAppText(store.externalDisplayAnimatedLogoStyle.subtitle)
                 .font(.footnote)
                 .foregroundStyle(settingsPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -5770,6 +6296,12 @@ struct ContentView: View {
             }
             .padding(layout.outerPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .onAppear {
+                refreshDashboardTipGroup()
+            }
+            .onChange(of: dashboardTourSignature) { _, _ in
+                refreshDashboardTipGroup()
+            }
         }
     }
 
@@ -5798,11 +6330,12 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(selectedStoredGameFile?.displayName ?? "New Game")
+            Text(selectedStoredGameFile?.displayName ?? localizedAppString("New Game"))
                 .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
@@ -5844,7 +6377,7 @@ struct ContentView: View {
             Button {
                 dashboardPage = .preview
             } label: {
-                Label("Show Preview", systemImage: "display")
+                Label("Display Control", systemImage: "display")
                     .font(layout.headerBadgeFont)
                     .foregroundStyle(themePalette.dashboardNeutralButtonText)
                     .padding(.horizontal, layout.headerBadgeHorizontalPadding)
@@ -5852,6 +6385,7 @@ struct ContentView: View {
                     .background(themePalette.dashboardNeutralButton, in: Capsule())
             }
             .buttonStyle(.plain)
+            .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.displayPreview), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
         }
     }
 
@@ -5997,6 +6531,7 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.shotClockControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
@@ -6059,6 +6594,18 @@ struct ContentView: View {
                 playerTrackingIntroCard(layout: layout)
                     .transition(.move(edge: .top).combined(with: .opacity))
 
+                dashboardInlineTip(
+                    "Use the player list to manage rosters during live operation. Quick actions handle full-game reset tasks, while each side roster lets you adjust player fouls, cards, active lineup status, and public overlay visibility without leaving the control board.",
+                    systemImage: "person.3",
+                    layout: layout
+                )
+
+                dashboardInlineTip(
+                    "Reset actions stay protected while timers are running. Pause the live clocks before clearing fouls, cards, or team counters so player state is not changed accidentally during active play.",
+                    systemImage: "lock.shield",
+                    layout: layout
+                )
+
                 playerTrackingPanel(layout: layout)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -6070,8 +6617,8 @@ struct ContentView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: layout.sectionSpacing) {
                 pageIntroCard(
-                    title: "Display Preview",
-                    caption: "Preview the external scoreboard without requiring an attached display. This preview may not match the connected external display exactly.",
+                    title: "Display Control",
+                    caption: "Choose the public display mode and preview the external scoreboard without requiring an attached display. This preview may not match the connected external display exactly.",
                     actionTitle: "Back to Game",
                     actionSystemImage: "chevron.left",
                     action: { dashboardPage = .main },
@@ -6079,8 +6626,20 @@ struct ContentView: View {
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
 
+                dashboardInlineTip(
+                    "Use Display Control to switch what viewers see while keeping the operator controls private. Mode changes apply to the public scoreboard window, external displays, and paired Remote Display devices, while the preview below gives a quick confidence check before or during a game.",
+                    systemImage: "display",
+                    layout: layout
+                )
+
                 displayPresetPanel(layout: layout)
                     .transition(.move(edge: .top).combined(with: .opacity))
+
+                dashboardInlineTip(
+                    "The preview renders from the current game state, theme, display direction, background, logos, and player settings. Treat it as an operator check of the selected public mode, not as a pixel-perfect guarantee for every connected screen.",
+                    systemImage: "eye",
+                    layout: layout
+                )
 
                 previewPanel(
                     title: "External Scoreboard",
@@ -6096,19 +6655,159 @@ struct ContentView: View {
         }
     }
 
+    private func dashboardParagraphTip(
+        _ message: String,
+        systemImage: String,
+        placement: String
+    ) -> ScoreboardTips.ParagraphTip {
+        ScoreboardTips.ParagraphTip(
+            id: scoreboardTipID(prefix: "dashboard.\(placement)", message: message),
+            titleText: dashboardTourTipTitle(for: message),
+            messageText: message,
+            systemImage: systemImage
+        )
+    }
+
+    private func dashboardTourTipTitle(for message: String) -> String {
+        let lowercasedMessage = message.lowercased()
+
+        if lowercasedMessage.hasPrefix("use the player list") { return "Player List" }
+        if lowercasedMessage.hasPrefix("reset actions stay protected") { return "Protected Resets" }
+        if lowercasedMessage.hasPrefix("use display control") { return "Display Control" }
+        if lowercasedMessage.hasPrefix("select the display mode") { return "Display Mode" }
+        if lowercasedMessage.hasPrefix("the preview renders") { return "Public Preview" }
+        if lowercasedMessage.hasPrefix("this debate segment has no timer") { return "No Timer Segment" }
+        if lowercasedMessage.hasPrefix("this debate segment uses two side clocks") { return "Dual Clock Segment" }
+        if lowercasedMessage.hasPrefix("debate controls") { return "Debate Controls" }
+        if lowercasedMessage.hasPrefix("custom dual-clock controls") { return "Custom Dual Clocks" }
+        if lowercasedMessage.hasPrefix("chess controls") { return "Chess Controls" }
+        if lowercasedMessage.hasPrefix("simple controls") { return "Simple Controls" }
+        if lowercasedMessage.hasPrefix("basketball controls") { return "Basketball Controls" }
+        if lowercasedMessage.hasPrefix("volleyball controls") { return "Volleyball Controls" }
+        if lowercasedMessage.hasPrefix("soccer controls") { return "Soccer Controls" }
+        if lowercasedMessage.hasPrefix("hockey controls") { return "Hockey Controls" }
+        if lowercasedMessage.hasPrefix("custom controls") { return "Custom Controls" }
+
+        return "Live Board"
+    }
+
+    private var liveBoardSportGuidanceTourTip: ScoreboardTips.ParagraphTip {
+        let guidance = liveBoardSportGuidance
+        return dashboardParagraphTip(
+            guidance.message,
+            systemImage: guidance.systemImage,
+            placement: "panel"
+        )
+    }
+
+    private var liveDebateSegmentModeTourTip: ScoreboardTips.ParagraphTip? {
+        switch store.currentDebateSegment?.timerMode {
+        case .some(.none):
+            return dashboardParagraphTip(
+                "This debate segment has no timer. Use it as a live checklist step for instructions, transitions, prep reminders, or judge/admin pauses, then move to the previous or next segment when the round flow is ready to continue.",
+                systemImage: "pause.circle",
+                placement: "panel"
+            )
+        case .some(.dualClock):
+            return dashboardParagraphTip(
+                "This debate segment uses two side clocks. Start the active side, switch turns when control changes, and use the active-side jog buttons carefully because time adjustments apply to the currently selected side clock.",
+                systemImage: "person.2",
+                placement: "panel"
+            )
+        case .some(.masterClock), nil:
+            return nil
+        }
+    }
+
+    private var dashboardTourTips: [any Tip] {
+        var tips: [any Tip] = [
+            ScoreboardTips.liveBoard,
+            ScoreboardTips.displayPreview,
+            liveBoardSportGuidanceTourTip
+        ]
+
+        if let debateSegmentTip = liveDebateSegmentModeTourTip {
+            tips.append(debateSegmentTip)
+        }
+        if !usesDedicatedDualClockLayout {
+            tips.append(ScoreboardTips.gameState)
+        }
+        tips.append(ScoreboardTips.scoreControls)
+        tips.append(ScoreboardTips.matchControls)
+        if store.supportsShotClock {
+            tips.append(ScoreboardTips.shotClockControls)
+        }
+        if !usesDedicatedDualClockLayout, store.isPlayerTrackingEnabled {
+            tips.append(ScoreboardTips.playerShortcut)
+        }
+
+        return tips
+    }
+
+    private var dashboardTourSignature: String {
+        dashboardTourTips.map(\.id).joined(separator: "|")
+    }
+
+    private func refreshDashboardTipGroup() {
+        let signature = dashboardTourSignature
+        guard signature != dashboardTipGroupSignature else { return }
+
+        let tips = dashboardTourTips
+        dashboardTipGroupSignature = signature
+        dashboardTipGroup = TipGroup(.ordered) {
+            for tip in tips {
+                tip
+            }
+        }
+    }
+
+    private func dashboardCurrentTourTip(matching tip: any Tip) -> (any Tip)? {
+        guard dashboardPage == .main, let currentTip = dashboardTipGroup?.currentTip, currentTip.id == tip.id else {
+            return nil
+        }
+        return currentTip
+    }
+
+    @ViewBuilder
+    private func dashboardOrderedTip(_ tip: any Tip) -> some View {
+        if store.areTipsEnabled, let currentTip = dashboardCurrentTourTip(matching: tip) {
+            scoreboardInlineTip(currentTip)
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardInlineTip(
+        _ message: String,
+        systemImage: String = "lightbulb",
+        layout _: InterfaceLayout
+    ) -> some View {
+        let tip = dashboardParagraphTip(message, systemImage: systemImage, placement: "inline")
+        if dashboardPage == .main {
+            dashboardOrderedTip(tip)
+        } else {
+            scoreboardInlineTip(tip)
+        }
+    }
+
     private func displayPresetPanel(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Display")
+                localizedAppText("Display")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
                 Spacer(minLength: 0)
 
-                Text(store.publicDisplayViewMode.title)
+                Text(localizedAppString(store.publicDisplayViewMode.title))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
+
+            dashboardPanelTip(
+                "Select the display mode that should be sent to viewers. Scoreboard mode shows the full game face, while player, logo, and alternate display modes focus the public screen on the selected production element.",
+                systemImage: "rectangle.on.rectangle",
+                layout: layout
+            )
 
             LazyVGrid(
                 columns: Array(
@@ -6131,6 +6830,107 @@ struct ContentView: View {
         )
     }
 
+    @ViewBuilder
+    private func dashboardPanelTip(
+        _ message: String,
+        systemImage: String = "lightbulb",
+        layout _: InterfaceLayout
+    ) -> some View {
+        let tip = dashboardParagraphTip(message, systemImage: systemImage, placement: "panel")
+        if dashboardPage == .main {
+            dashboardOrderedTip(tip)
+        } else {
+            scoreboardInlineTip(tip)
+        }
+    }
+
+    private var liveBoardSportGuidance: (message: String, systemImage: String) {
+        if store.isDebateMode {
+            return (
+                "Debate controls follow the segment flow chosen in Game Setup. Use this panel to start or return to the active segment timer, move between segments, switch active sides for dual-clock blocks, and reset only after timers are paused.",
+                "quote.bubble"
+            )
+        }
+
+        if store.usesChessClocks {
+            if store.selectedSport == .custom {
+                return (
+                    "Custom dual-clock controls use the side clocks configured in Game Setup. Start the active clock, switch turns, adjust side clocks, or reset both clocks here after pausing live play.",
+                    "timer"
+                )
+            }
+
+            return (
+                "Chess controls use the preset and side clocks configured in Game Setup. Start the active clock, switch turns, adjust side clocks, or reset both player clocks here after pausing the match.",
+                "timer"
+            )
+        }
+
+        switch store.selectedSport {
+        case .simple:
+            return (
+                "Simple controls use the setup clock and team names for a compact score-and-timer workflow. Run or jog the clock here, swap sides if needed, and use reset actions only when live play is paused.",
+                "timer"
+            )
+        case .basketball:
+            return (
+                "Basketball controls combine score, game clock, period, possession, and shot-clock presets from setup. Use this panel to run the main clock, move periods, swap sides, and reset only after play is paused.",
+                "timer.circle"
+            )
+        case .volleyball:
+            return (
+                "Volleyball controls reflect the match timer, set, substitution, and player-card choices from setup. Use this panel for optional timing, set changes, side swaps, and score resets during dead-ball moments.",
+                "person.3"
+            )
+        case .soccer:
+            return (
+                "Soccer controls use the half, clock, lineup, card, and substitution choices from setup. Run the match clock here, manage sides and resets, and use Players for lineups, cards, fouls, and overlay changes.",
+                "flag.checkered"
+            )
+        case .hockey:
+            return (
+                "Hockey controls use the period and clock setup, while side panels handle penalty timers. Use this panel for the main clock, period changes, side swaps, and resets after live play is paused.",
+                "clock"
+            )
+        case .custom:
+            return (
+                "Custom controls reflect the modules enabled in Game Setup. If clock, period, shot clock, substitutions, fouls, cards, or player tools are missing, return to Settings and turn on that custom option before going live.",
+                "slider.horizontal.3"
+            )
+        case .chess, .debate:
+            return (
+                "Game controls reflect the sport-specific setup chosen in Settings. Confirm clocks, sides, periods, and tracking options before using this panel during live play.",
+                "lightbulb"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func liveBoardSportGuidanceTip(layout: InterfaceLayout) -> some View {
+        let guidance = liveBoardSportGuidance
+        dashboardPanelTip(guidance.message, systemImage: guidance.systemImage, layout: layout)
+    }
+
+    @ViewBuilder
+    private func liveDebateSegmentModeTip(layout: InterfaceLayout) -> some View {
+        switch store.currentDebateSegment?.timerMode {
+        case .some(.none):
+            dashboardPanelTip(
+                "This debate segment has no timer. Use it as a live checklist step for instructions, transitions, prep reminders, or judge/admin pauses, then move to the previous or next segment when the round flow is ready to continue.",
+                systemImage: "pause.circle",
+                layout: layout
+            )
+        case .some(.dualClock):
+            dashboardPanelTip(
+                "This debate segment uses two side clocks. Start the active side, switch turns when control changes, and use the active-side jog buttons carefully because time adjustments apply to the currently selected side clock.",
+                systemImage: "person.2",
+                layout: layout
+            )
+        case .some(.masterClock), nil:
+            EmptyView()
+        }
+    }
+
     private func displayPresetButton(_ mode: ScoreboardDisplayViewMode, layout: InterfaceLayout) -> some View {
         let isSelected = store.publicDisplayViewMode == mode
 
@@ -6139,7 +6939,7 @@ struct ContentView: View {
                 store.publicDisplayViewMode = mode
             }
         } label: {
-            Label(mode.title, systemImage: isSelected ? "checkmark.circle.fill" : mode.systemImage)
+            Label(localizedAppString(mode.title), systemImage: isSelected ? "checkmark.circle.fill" : mode.systemImage)
                 .font(.headline.weight(.bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -6383,7 +7183,7 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                Text(store.showsGameClock ? (store.isClockRunning ? "Running" : "Stopped") : "Timer Off")
+                localizedAppText(store.showsGameClock ? (store.isClockRunning ? "Running" : "Stopped") : "Timer Off")
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(store.showsGameClock && store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
@@ -6449,6 +7249,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.playerShortcut), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
             }
         }
         .controlCardStyle(
@@ -6456,7 +7257,8 @@ struct ContentView: View {
             borderColor: themePalette.dashboardCardBorder,
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
-        ))
+        )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top))
     }
 
     private func compactDualClockRow(layout: InterfaceLayout) -> some View {
@@ -6519,13 +7321,13 @@ struct ContentView: View {
     private func chessStatusWidget(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(localizedAppFormat("%@ Clocks", store.selectedSport.title))
+                Text(localizedAppFormat("%@ Clocks", localizedAppString(store.selectedSport.title)))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
                 Spacer(minLength: 0)
 
-                Text(store.isClockRunning ? "Running" : "Paused")
+                localizedAppText(store.isClockRunning ? "Running" : "Paused")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
             }
@@ -6554,6 +7356,7 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func chessClockColumn(title: String, value: String, tint: Color, isActive: Bool, layout: InterfaceLayout) -> some View {
@@ -6567,7 +7370,7 @@ struct ContentView: View {
                 .monospacedDigit()
                 .foregroundStyle(tint)
 
-            Text(isActive ? "ACTIVE" : "WAITING")
+            localizedAppText(isActive ? "ACTIVE" : "WAITING")
                 .font(.caption.weight(.black))
                 .foregroundStyle(isActive ? tint : themePalette.dashboardMutedText)
         }
@@ -6751,6 +7554,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsDebatePrepTime)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.debateActiveTimer)
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.scoreControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
         )
     }
 
@@ -6767,7 +7571,7 @@ struct ContentView: View {
                 .monospacedDigit()
                 .foregroundStyle(tint)
 
-            Text(store.activeChessClockSide == side ? "Active Clock" : "Waiting")
+            localizedAppText(store.activeChessClockSide == side ? "Active Clock" : "Waiting")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(store.activeChessClockSide == side ? tint : themePalette.dashboardMutedText)
 
@@ -6812,6 +7616,7 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.scoreControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func playerTrackingPanel(layout: InterfaceLayout) -> some View {
@@ -6855,6 +7660,7 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.resetInterlock), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func quickResetButtons() -> [ActionDescriptor] {
@@ -6983,7 +7789,7 @@ struct ContentView: View {
                     .singleLineFitted(minScale: 0.65)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
-                Text(player.isInActiveLineup ? "Active Lineup" : "Bench")
+                localizedAppText(player.isInActiveLineup ? "Active Lineup" : "Bench")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(player.isInActiveLineup ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
             }
@@ -7060,6 +7866,8 @@ struct ContentView: View {
             if store.showsGameClock {
                 gameSummaryRow(layout: layout)
 
+                liveBoardSportGuidanceTip(layout: layout)
+
                 actionButton(
                     store.isClockRunning ? "Pause Game Clock" : "Start Game Clock",
                     tint: themePalette.dashboardSuccessButton,
@@ -7103,6 +7911,8 @@ struct ContentView: View {
                         .singleLineFitted(minScale: 0.7)
                         .foregroundStyle(themePalette.dashboardMutedText)
                 }
+
+                liveBoardSportGuidanceTip(layout: layout)
             }
 
             buttonGrid(
@@ -7150,13 +7960,14 @@ struct ContentView: View {
             borderColor: themePalette.dashboardCardBorder,
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
-        ))
+        )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top))
     }
 
     private func chessGameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(localizedAppFormat("%@ Controls", store.selectedSport.title))
+                Text(localizedAppFormat("%@ Controls", localizedAppString(store.selectedSport.title)))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
                 Spacer(minLength: 0)
@@ -7164,6 +7975,8 @@ struct ContentView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
             }
+
+            liveBoardSportGuidanceTip(layout: layout)
 
             actionButton(
                 store.isClockRunning ? "Pause Active Clock" : "Start Active Clock",
@@ -7236,6 +8049,7 @@ struct ContentView: View {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateStatusWidget(layout: InterfaceLayout) -> some View {
@@ -7251,7 +8065,7 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                Text(store.debateActiveTimer == .segment ? (store.isClockRunning ? "Running" : "Paused") : "Prep")
+                localizedAppText(store.debateActiveTimer == .segment ? (store.isClockRunning ? "Running" : "Paused") : "Prep")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(store.isClockRunning || store.isDebatePrepClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
             }
@@ -7335,6 +8149,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.playerShortcut), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
             }
         }
         .controlCardStyle(
@@ -7347,6 +8162,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.showsDebatePrepTime)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.debateSpeakingSide)
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateGameControls(layout: InterfaceLayout) -> some View {
@@ -7368,6 +8184,9 @@ struct ContentView: View {
                     .foregroundStyle(themePalette.dashboardMutedText)
                     .contentTransition(.numericText())
             }
+
+            liveBoardSportGuidanceTip(layout: layout)
+            liveDebateSegmentModeTip(layout: layout)
 
             actionButton(
                 store.debateActiveTimer == .segment
@@ -7459,6 +8278,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.supportsScore)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.debateSpeakingSide)
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateControlSegmentTitle(idPrefix: String) -> some View {
@@ -7612,7 +8432,7 @@ struct ContentView: View {
 
             Spacer(minLength: 0)
 
-            Text(store.isClockRunning ? "Running" : "Stopped")
+            localizedAppText(store.isClockRunning ? "Running" : "Stopped")
                 .font(.subheadline.weight(.semibold))
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
@@ -7872,6 +8692,57 @@ struct ContentView: View {
         syncCurrentLogGameFile()
         store.refreshWebAPILocalAddresses()
         updateIdleTimer(for: scenePhase)
+        presentGettingStartedIfNeeded()
+    }
+
+    private func presentGettingStartedIfNeeded() {
+        guard store.showGettingStartedOnStartup, !store.didAutoShowGettingStarted, !showsGettingStarted else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            guard store.showGettingStartedOnStartup, !store.didAutoShowGettingStarted, !showsGettingStarted else {
+                return
+            }
+            presentGettingStarted(auto: true)
+        }
+    }
+
+    private func presentGettingStarted(auto: Bool) {
+        isGettingStartedAutoPresentation = auto
+        showsGettingStarted = true
+    }
+
+    private func closeGettingStarted() {
+        showsGettingStarted = false
+    }
+
+    private func skipGettingStartedAndDisableTips() {
+        isGettingStartedAutoPresentation = false
+        store.skipGettingStartedAndDisableTips()
+        showsGettingStarted = false
+    }
+
+    private func resetScoreboardTips() {
+        #if os(iOS) || os(macOS)
+        let nextGeneration = tipHistoryResetGeneration + 1
+        tipHistoryResetGeneration = nextGeneration
+        UserDefaults.standard.set(nextGeneration, forKey: Self.tipHistoryResetGenerationKey)
+        store.areTipsEnabled = true
+
+        if #available(iOS 26.0, macOS 26.0, *) {
+            Task {
+                await ScoreboardTips.resetTipEligibility()
+            }
+        }
+        #endif
+    }
+
+    private func handleGettingStartedDismissed() {
+        if isGettingStartedAutoPresentation {
+            store.markGettingStartedAutoShown()
+        }
+        isGettingStartedAutoPresentation = false
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
@@ -10582,6 +11453,7 @@ private struct SettingsGameFileDetailPane: View {
     @Binding var renameDraft: String
     let canRename: Bool
     let palette: SettingsPalette
+    let keyboardBottomInset: CGFloat
     let onRename: () -> Void
     @State private var isRenameEditorVisible = false
 
@@ -10604,6 +11476,7 @@ private struct SettingsGameFileDetailPane: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 8)
         }
+        .scoreboardSettingsKeyboardAwareScroll(bottomInset: keyboardBottomInset)
         .onChange(of: selectedFile?.id) { _, _ in
             isRenameEditorVisible = false
         }
@@ -11004,6 +11877,17 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         }
     }
 
+    var introduction: String {
+        switch self {
+        case .webAPI:
+            return "Use this when local overlays, browser sources, or scripts need a read-only stream of live scoreboard state from the operator device."
+        case .remoteDisplay:
+            return "Use this when another Apple device should show the public scoreboard while the operator keeps private controls on the main device."
+        case .bitfocusCompanion:
+            return "Use this when scoreboard moments should press Companion buttons for graphics, scene changes, lighting, or other production automation."
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .webAPI:
@@ -11213,6 +12097,9 @@ private struct InterfaceLayout {
         if width < 1180 { return 300 }
         return 360
     }
+    var settingsFileManagerListMinimumHeight: CGFloat {
+        isShortHeight ? 260 : 360
+    }
     var settingsTwoColumnUsesVerticalFlow: Bool { width < 1180 }
     var settingsPrimaryColumnWidth: CGFloat {
         min(max(contentMaxWidth * 0.34, 340), 460)
@@ -11249,6 +12136,19 @@ private extension View {
         self
         #else
         keyboardType(.numberPad)
+        #endif
+    }
+
+    @ViewBuilder
+    func scoreboardSettingsKeyboardAwareScroll(bottomInset: CGFloat) -> some View {
+        #if os(iOS)
+        self
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: bottomInset)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        #else
+        self
         #endif
     }
 

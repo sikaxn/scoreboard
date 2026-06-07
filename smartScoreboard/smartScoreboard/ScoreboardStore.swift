@@ -592,6 +592,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var isShotClockRunning = false
     @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
+    @Published var areTipsEnabled = true
+    @Published var showGettingStartedOnStartup = true
+    @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
     @Published var isWebAPIEnabled = false
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
@@ -4295,6 +4298,9 @@ final class ScoreboardStore: ObservableObject {
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
+            $areTipsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $showGettingStartedOnStartup.map { _ in () }.eraseToAnyPublisher(),
+            $didAutoShowGettingStarted.map { _ in () }.eraseToAnyPublisher(),
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
@@ -4352,6 +4358,24 @@ final class ScoreboardStore: ObservableObject {
         applyPersistedState(.factoryDefault)
         UserDefaults.standard.removeObject(forKey: persistenceKey)
         persistState()
+    }
+
+    func setGettingStartedStartupEnabled(_ isEnabled: Bool) {
+        showGettingStartedOnStartup = isEnabled
+        if isEnabled {
+            didAutoShowGettingStarted = false
+        }
+    }
+
+    func markGettingStartedAutoShown() {
+        didAutoShowGettingStarted = true
+        showGettingStartedOnStartup = false
+    }
+
+    func skipGettingStartedAndDisableTips() {
+        areTipsEnabled = false
+        showGettingStartedOnStartup = false
+        didAutoShowGettingStarted = true
     }
 
     func replaceRosters(home: TeamRoster, guest: TeamRoster, rosterSize: Int) {
@@ -4499,6 +4523,9 @@ final class ScoreboardStore: ObservableObject {
             isClockRunning = false
             isShotClockRunning = false
             isDebatePrepClockRunning = false
+            areTipsEnabled = persistedState.areTipsEnabled
+            showGettingStartedOnStartup = persistedState.showGettingStartedOnStartup
+            didAutoShowGettingStarted = persistedState.didAutoShowGettingStarted
             updateTimerState()
             refreshWebAPIState()
             refreshRemoteDisplayState()
@@ -4602,6 +4629,9 @@ final class ScoreboardStore: ObservableObject {
             companionPort: companionPort,
             companionAssignmentsBySport: companionAssignmentsBySport,
             didCompleteSetup: didCompleteSetup,
+            areTipsEnabled: areTipsEnabled,
+            showGettingStartedOnStartup: showGettingStartedOnStartup,
+            didAutoShowGettingStarted: didAutoShowGettingStarted,
             setupPresets: setupPresets,
             isWebAPIEnabled: isWebAPIEnabled,
             webAPIUpdateMode: webAPIUpdateMode,
@@ -4822,6 +4852,9 @@ private struct PersistedState: Codable {
     var companionPort: UInt16
     var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]]
     var didCompleteSetup: Bool
+    var areTipsEnabled: Bool
+    var showGettingStartedOnStartup: Bool
+    var didAutoShowGettingStarted: Bool
     var setupPresets: [SetupPreset]
     var isWebAPIEnabled: Bool
     var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
@@ -4916,6 +4949,9 @@ private struct PersistedState: Codable {
         case companionAssignments
         case companionAssignmentsBySport
         case didCompleteSetup
+        case areTipsEnabled
+        case showGettingStartedOnStartup
+        case didAutoShowGettingStarted
         case setupPresets
         case isWebAPIEnabled
         case webAPIUpdateMode
@@ -5007,6 +5043,9 @@ private struct PersistedState: Codable {
         companionPort: UInt16,
         companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]],
         didCompleteSetup: Bool,
+        areTipsEnabled: Bool,
+        showGettingStartedOnStartup: Bool,
+        didAutoShowGettingStarted: Bool,
         setupPresets: [SetupPreset],
         isWebAPIEnabled: Bool,
         webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
@@ -5096,6 +5135,9 @@ private struct PersistedState: Codable {
         self.companionPort = companionPort
         self.companionAssignmentsBySport = companionAssignmentsBySport
         self.didCompleteSetup = didCompleteSetup
+        self.areTipsEnabled = areTipsEnabled
+        self.showGettingStartedOnStartup = showGettingStartedOnStartup
+        self.didAutoShowGettingStarted = didAutoShowGettingStarted
         self.setupPresets = setupPresets
         self.isWebAPIEnabled = isWebAPIEnabled
         self.webAPIUpdateMode = webAPIUpdateMode
@@ -5228,6 +5270,9 @@ private struct PersistedState: Codable {
             companionAssignmentsBySport = [:]
         }
         didCompleteSetup = try container.decode(Bool.self, forKey: .didCompleteSetup)
+        areTipsEnabled = try container.decodeIfPresent(Bool.self, forKey: .areTipsEnabled) ?? true
+        showGettingStartedOnStartup = try container.decodeIfPresent(Bool.self, forKey: .showGettingStartedOnStartup) ?? true
+        didAutoShowGettingStarted = try container.decodeIfPresent(Bool.self, forKey: .didAutoShowGettingStarted) ?? false
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
         isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
         webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
@@ -5321,6 +5366,9 @@ private struct PersistedState: Codable {
         try container.encode(companionPort, forKey: .companionPort)
         try container.encode(companionAssignmentsBySport, forKey: .companionAssignmentsBySport)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
+        try container.encode(areTipsEnabled, forKey: .areTipsEnabled)
+        try container.encode(showGettingStartedOnStartup, forKey: .showGettingStartedOnStartup)
+        try container.encode(didAutoShowGettingStarted, forKey: .didAutoShowGettingStarted)
         try container.encode(setupPresets, forKey: .setupPresets)
         try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
@@ -5423,6 +5471,9 @@ private extension PersistedState {
             companionPort: ScoreboardCompanionMode.tcp.defaultPort,
             companionAssignmentsBySport: [:],
             didCompleteSetup: false,
+            areTipsEnabled: true,
+            showGettingStartedOnStartup: true,
+            didAutoShowGettingStarted: false,
             setupPresets: [],
             isWebAPIEnabled: false,
             webAPIUpdateMode: .fixedInterval,

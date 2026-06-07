@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS) || os(macOS)
+import TipKit
+#endif
 
 @main
 struct SmartScoreboardApp: App {
@@ -6,6 +9,16 @@ struct SmartScoreboardApp: App {
     @StateObject private var store = ScoreboardStore.shared
     @StateObject private var publicBoardState = PublicBoardState.shared
     #endif
+
+    init() {
+        #if os(iOS) || os(macOS)
+        do {
+            try Tips.configure()
+        } catch {
+            print("Error initializing TipKit \(error.localizedDescription)")
+        }
+        #endif
+    }
 
     var body: some Scene {
         #if os(tvOS)
