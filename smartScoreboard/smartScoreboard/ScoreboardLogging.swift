@@ -454,6 +454,7 @@ struct ScoreboardLogExportDocument: FileDocument {
 @MainActor
 final class ScoreboardLogManager {
     static let shared = ScoreboardLogManager()
+    private static let automaticDiskWriteThrottleInterval: TimeInterval = 5
 
     private let fileManager = FileManager.default
     private let encoder: JSONEncoder
@@ -461,6 +462,9 @@ final class ScoreboardLogManager {
     private var currentSessionURL: URL?
     private var currentSession: ScoreboardLogSession?
     private var currentGameFileURL: URL?
+    private var lastPersistDate: Date?
+    private var isPersistPending = false
+    private var pendingPersistWorkItem: DispatchWorkItem?
 
     private init() {
         encoder = JSONEncoder()
@@ -472,6 +476,8 @@ final class ScoreboardLogManager {
     }
 
     func startSession() {
+        cancelPendingPersist()
+
         let now = Date()
         let session = ScoreboardLogSession(startedAt: now, lastUpdatedAt: now)
         let filename = sessionFilename(for: session)
@@ -482,6 +488,7 @@ final class ScoreboardLogManager {
             currentSession = session
             currentSessionURL = sessionURL
             try persist(session, to: sessionURL)
+            lastPersistDate = Date()
             notifyChange()
         } catch {
             currentSession = session
@@ -516,14 +523,7 @@ final class ScoreboardLogManager {
         session.lastUpdatedAt = now
         currentSession = session
 
-        do {
-            if let currentSessionURL {
-                try persist(session, to: currentSessionURL)
-            }
-            notifyChange()
-        } catch {
-            NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
-        }
+        requestPersistCurrentSession()
     }
 
     func listSessions() throws -> [StoredLogSession] {
@@ -562,6 +562,7 @@ final class ScoreboardLogManager {
         try fileManager.removeItem(at: url)
 
         if currentSessionURL == url {
+            cancelPendingPersist()
             currentSession = nil
             currentSessionURL = nil
             startSession()
@@ -572,7 +573,9 @@ final class ScoreboardLogManager {
     }
 
     func backupFiles() throws -> [ScoreboardBackupFile] {
-        try listSessions().map { session in
+        flushPendingWrites()
+
+        return try listSessions().map { session in
             ScoreboardBackupFile(
                 filename: session.url.lastPathComponent,
                 data: try Data(contentsOf: session.url)
@@ -593,6 +596,7 @@ final class ScoreboardLogManager {
 
     func replaceSessions(with files: [ScoreboardBackupFile]) throws {
         try validateBackupFiles(files)
+        cancelPendingPersist()
 
         let directoryURL = try logsDirectory()
         let existingURLs = try fileManager.contentsOfDirectory(
@@ -625,6 +629,14 @@ final class ScoreboardLogManager {
 
     func exportJSONData(for session: ScoreboardLogSession) throws -> Data {
         try encoder.encode(session)
+    }
+
+    func flushPendingWrites() {
+        guard isPersistPending else {
+            return
+        }
+
+        persistPendingCurrentSession()
     }
 
     func exportCSVData(for session: ScoreboardLogSession) -> Data {
@@ -718,6 +730,64 @@ final class ScoreboardLogManager {
     private func persist(_ session: ScoreboardLogSession, to url: URL) throws {
         let data = try encoder.encode(session)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func requestPersistCurrentSession() {
+        guard currentSession != nil else {
+            return
+        }
+
+        guard currentSessionURL != nil else {
+            notifyChange()
+            return
+        }
+
+        isPersistPending = true
+        let now = Date()
+        if let lastPersistDate {
+            let elapsed = now.timeIntervalSince(lastPersistDate)
+            if elapsed < Self.automaticDiskWriteThrottleInterval {
+                guard pendingPersistWorkItem == nil else {
+                    return
+                }
+
+                let delay = Self.automaticDiskWriteThrottleInterval - elapsed
+                let workItem = DispatchWorkItem {
+                    self.persistPendingCurrentSession()
+                }
+                pendingPersistWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+                return
+            }
+        }
+
+        persistPendingCurrentSession()
+    }
+
+    private func persistPendingCurrentSession() {
+        pendingPersistWorkItem?.cancel()
+        pendingPersistWorkItem = nil
+
+        guard isPersistPending, let currentSessionURL, let currentSession else {
+            isPersistPending = false
+            return
+        }
+
+        do {
+            try persist(currentSession, to: currentSessionURL)
+            lastPersistDate = Date()
+            isPersistPending = false
+            notifyChange()
+        } catch {
+            isPersistPending = false
+            NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
+        }
+    }
+
+    private func cancelPendingPersist() {
+        pendingPersistWorkItem?.cancel()
+        pendingPersistWorkItem = nil
+        isPersistPending = false
     }
 
     private func mergedContext(from context: ScoreboardLogContext) -> ScoreboardLogContext {

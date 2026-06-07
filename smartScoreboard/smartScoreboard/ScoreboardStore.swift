@@ -124,6 +124,10 @@ enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Se
     func toggled() -> ScoreboardDisplayDirection {
         self == .homeLeft ? .guestLeft : .homeLeft
     }
+
+    func applyingSideSwap(_ areSidesSwapped: Bool) -> ScoreboardDisplayDirection {
+        areSidesSwapped ? toggled() : self
+    }
 }
 
 enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
@@ -447,6 +451,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let defaultPlayerLineupScrollSpeed = 14
     nonisolated static let minPlayerLineupScrollSpeed = 6
     nonisolated static let maxPlayerLineupScrollSpeed = 40
+    private static let automaticDiskWriteThrottleSeconds = 5
     nonisolated static let defaultAnimatedLogoSpeed = 42
     nonisolated static let minAnimatedLogoSpeed = 8
     nonisolated static let maxAnimatedLogoSpeed = 180
@@ -456,6 +461,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let defaultAnimatedLogoOpacity = 0.23
     nonisolated static let minAnimatedLogoOpacity = 0.05
     nonisolated static let maxAnimatedLogoOpacity = 0.75
+    nonisolated static let displayDirectionModelVersion = 2
     nonisolated static let defaultSoundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect] = [
         .gameClockExpired: .classicBuzzer,
         .shotClockExpired: .shotClockBeep,
@@ -605,6 +611,18 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.hostID
     }
 
+    var resolvedControlBoardDisplayDirection: ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: controlBoardDisplayDirection)
+    }
+
+    var resolvedExternalDisplayDirection: ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: externalDisplayDirection)
+    }
+
+    func resolvedDisplayDirection(for configuredDirection: ScoreboardDisplayDirection) -> ScoreboardDisplayDirection {
+        configuredDirection.applyingSideSwap(areSidesSwapped)
+    }
+
     private var timer: Timer?
     private var lastTimerFireDate: Date?
     private var accumulatedGameClockElapsed: TimeInterval = 0
@@ -629,6 +647,7 @@ final class ScoreboardStore: ObservableObject {
 
     private init() {
         loadPersistedState()
+        remoteDisplayHostService.migrateDisplayDirectionsIfNeeded(areSidesSwapped: areSidesSwapped)
         configurePersistence()
         configureWebAPIService()
         configureRemoteDisplayService()
@@ -1807,8 +1826,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
-        controlBoardDisplayDirection = controlBoardDisplayDirection.toggled()
-        areSidesSwapped = controlBoardDisplayDirection.areSidesSwapped
+        areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
             summary: localizedStoreString("Swap home and guest sides"),
@@ -1819,7 +1837,6 @@ final class ScoreboardStore: ObservableObject {
 
     func setControlBoardDisplayDirection(_ direction: ScoreboardDisplayDirection) {
         controlBoardDisplayDirection = direction
-        areSidesSwapped = direction.areSidesSwapped
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
@@ -3808,7 +3825,6 @@ final class ScoreboardStore: ObservableObject {
         if isEnabled {
             resetRemoteDisplayWarningState()
         }
-        persistState()
     }
 
     func pairRemoteDisplay(
@@ -3885,6 +3901,14 @@ final class ScoreboardStore: ObservableObject {
 
     func remoteDisplayExternalDirection(displayID: String) -> ScoreboardDisplayDirection {
         remoteDisplayHostService.externalDisplayDirection(id: displayID)
+    }
+
+    func resolvedRemoteDisplayDirection(displayID: String) -> ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: remoteDisplayDirection(displayID: displayID))
+    }
+
+    func resolvedRemoteDisplayExternalDirection(displayID: String) -> ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: remoteDisplayExternalDirection(displayID: displayID))
     }
 
     func setRemoteDisplayDirection(displayID: String, direction: ScoreboardDisplayDirection) {
@@ -4278,9 +4302,18 @@ final class ScoreboardStore: ObservableObject {
             $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher()
         ]
 
-        Publishers.MergeMany(persistencePublishers)
+        let stateChanges = Publishers.MergeMany(persistencePublishers)
+
+        stateChanges
             .sink { [weak self] _ in
                 self?.scheduleStateSideEffectRefresh()
+            }
+            .store(in: &cancellables)
+
+        stateChanges
+            .throttle(for: .seconds(Self.automaticDiskWriteThrottleSeconds), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] _ in
+                self?.persistState()
             }
             .store(in: &cancellables)
     }
@@ -4296,7 +4329,6 @@ final class ScoreboardStore: ObservableObject {
                 return
             }
             self.isStateSideEffectRefreshScheduled = false
-            self.persistState()
             self.refreshWebAPIState()
             self.refreshRemoteDisplayState()
         }
@@ -4366,7 +4398,7 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
             possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
             controlBoardDisplayDirection = persistedState.controlBoardDisplayDirection
-            areSidesSwapped = controlBoardDisplayDirection.areSidesSwapped
+            areSidesSwapped = persistedState.areSidesSwapped
             isPlayerTrackingEnabled = selectedSport == .debate
                 ? persistedState.isDebatePlayerTrackingEnabled
                 : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
@@ -4660,11 +4692,17 @@ final class ScoreboardStore: ObservableObject {
         case .home:
             var roster = homeRoster
             mutate(&roster)
-            homeRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            let normalized = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            if normalized != homeRoster {
+                homeRoster = normalized
+            }
         case .guest:
             var roster = guestRoster
             mutate(&roster)
-            guestRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            let normalized = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            if normalized != guestRoster {
+                guestRoster = normalized
+            }
         }
     }
 
@@ -4808,6 +4846,7 @@ private struct PersistedState: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case displayDirectionModelVersion
         case controlBoardDisplayDirection
         case isPlayerTrackingEnabled
         case isPlayerOverlayPaused
@@ -5087,8 +5126,12 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
-        let migratedDisplayDirection = ScoreboardDisplayDirection(areSidesSwapped: areSidesSwapped)
-        controlBoardDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .controlBoardDisplayDirection) ?? migratedDisplayDirection
+        let displayDirectionModelVersion = try container.decodeIfPresent(Int.self, forKey: .displayDirectionModelVersion) ?? 1
+        let legacyDisplayDirection = ScoreboardDisplayDirection(areSidesSwapped: areSidesSwapped)
+        let decodedControlBoardDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .controlBoardDisplayDirection) ?? legacyDisplayDirection
+        controlBoardDisplayDirection = displayDirectionModelVersion < ScoreboardStore.displayDirectionModelVersion
+            ? decodedControlBoardDisplayDirection.applyingSideSwap(areSidesSwapped)
+            : decodedControlBoardDisplayDirection
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? false
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
@@ -5153,7 +5196,10 @@ private struct PersistedState: Codable {
         showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime) ?? false
         externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat) ?? .time24Hour
         showsExternalDisplayDateTimeSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTimeSeconds) ?? true
-        externalDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .externalDisplayDirection) ?? migratedDisplayDirection
+        let decodedExternalDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .externalDisplayDirection) ?? legacyDisplayDirection
+        externalDisplayDirection = displayDirectionModelVersion < ScoreboardStore.displayDirectionModelVersion
+            ? decodedExternalDisplayDirection.applyingSideSwap(areSidesSwapped)
+            : decodedExternalDisplayDirection
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
@@ -5207,6 +5253,7 @@ private struct PersistedState: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encode(ScoreboardStore.displayDirectionModelVersion, forKey: .displayDirectionModelVersion)
         try container.encode(controlBoardDisplayDirection, forKey: .controlBoardDisplayDirection)
         try container.encode(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
         try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)

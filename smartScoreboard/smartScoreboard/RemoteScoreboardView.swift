@@ -844,12 +844,6 @@ private struct RemoteDisplayConfigurationView: View {
                                 .stroke(.white.opacity(0.18), lineWidth: 1)
                         )
 
-                    Text("On the operator device, go to Settings > Integration > Remote Display and enter this code. The code refreshes automatically while waiting to pair.")
-                        .font(.footnote.weight(.medium))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white.opacity(0.54))
-                        .fixedSize(horizontal: false, vertical: true)
-
                     Text(savedPairingDetail)
                         .font(.caption.weight(.bold))
                         .multilineTextAlignment(.center)

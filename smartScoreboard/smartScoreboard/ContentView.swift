@@ -23,6 +23,13 @@ private func localizedAppText(_ key: String) -> Text {
     Text(localizedAppString(key))
 }
 
+private let automaticDiskWriteThrottleInterval: TimeInterval = 5
+
+private struct PendingGameFileAutosave {
+    var url: URL
+    var refreshSelection: Bool
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
@@ -90,6 +97,9 @@ struct ContentView: View {
     @State private var isExternalBackgroundImageEditorVisible = false
     @State private var isDebateDesignerVisible = false
     @State private var pendingExternalBackgroundModeAfterImageImport: ExternalDisplayBackgroundMode?
+    @State private var pendingGameFileAutosaves: [String: PendingGameFileAutosave] = [:]
+    @State private var lastGameFileAutosaveDate: Date?
+    @State private var pendingGameFileAutosaveWorkItem: DispatchWorkItem?
     #if os(iOS)
     @State private var showsExternalBackgroundPhotoPicker = false
     @State private var showsHomeLogoPhotoPicker = false
@@ -1712,7 +1722,7 @@ struct ContentView: View {
                     }
                 }
 
-                settingsSection(title: "Display Direction", footer: "Choose which side appears on the left for this control board and the local external display. To change Remote Display direction, go to Integration > Remote Display.") {
+                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display.") {
                     settingsPickerRow(
                         title: "Control Board",
                         selection: Binding(
@@ -4786,7 +4796,7 @@ struct ContentView: View {
     }
 
     private func settingsRosterEditor(side: TeamSide, layout: InterfaceLayout) -> some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             ForEach(Array(store.trackedPlayers(for: side).enumerated()), id: \.element.id) { index, player in
                 settingsTrackedPlayerRow(player, side: side, layout: layout)
 
@@ -6262,7 +6272,7 @@ struct ContentView: View {
     }
 
     private func topControlRow(layout: InterfaceLayout) -> some View {
-        let leftIsHome = store.controlBoardDisplayDirection.leftSide == .home
+        let leftIsHome = store.resolvedControlBoardDisplayDirection.leftSide == .home
         let leftTitle = store.sideRoleLabel(for: leftIsHome ? .home : .guest)
         let rightTitle = store.sideRoleLabel(for: leftIsHome ? .guest : .home)
 
@@ -6355,8 +6365,8 @@ struct ContentView: View {
             return AnyView(debateStatusWidget(layout: layout))
         }
 
-        let leftSide = store.controlBoardDisplayDirection.leftSide
-        let rightSide = store.controlBoardDisplayDirection.rightSide
+        let leftSide = store.resolvedControlBoardDisplayDirection.leftSide
+        let rightSide = store.resolvedControlBoardDisplayDirection.rightSide
         let leftName = leftSide == .home ? store.homeTeamName : store.guestTeamName
         let leftScore = leftSide == .home ? store.homeScore : store.guestScore
         let leftTint = leftSide == .home ? homeTint : guestTint
@@ -7479,7 +7489,7 @@ struct ContentView: View {
             return nil
         }
 
-        let pointsLeft = side == store.controlBoardDisplayDirection.leftSide
+        let pointsLeft = side == store.resolvedControlBoardDisplayDirection.leftSide
         let color = side == .home ? homeTint : guestTint
         return (pointsLeft ? "arrow.left.circle.fill" : "arrow.right.circle.fill", color, pointsLeft)
     }
@@ -8391,7 +8401,8 @@ struct ContentView: View {
 
     private func prepareFullBackup(destination: ExportDestination = .share) {
         do {
-            autosaveSelectedGameFile(refreshSelection: true)
+            autosaveSelectedGameFileImmediately(refreshSelection: true)
+            logManager.flushPendingWrites()
             let backup = try makeFullBackup()
             let data = try ScoreboardAppBackup.makeEncoder().encode(backup)
             presentExport(
@@ -8455,6 +8466,7 @@ struct ContentView: View {
     private func restoreFullBackup(_ backup: ScoreboardAppBackup) {
         do {
             try validateFullBackup(backup)
+            discardPendingGameFileAutosaves()
             try replaceStoredGameFiles(with: backup.storedGameFiles)
             try logManager.replaceSessions(with: backup.logSessions)
             try store.restorePersistedStateData(backup.persistedStateData)
@@ -8839,6 +8851,7 @@ struct ContentView: View {
                 return
             }
 
+            flushPendingGameFileAutosave(for: selectedURL)
             let snapshot = try loadGameSnapshot(from: selectedURL)
             presentGameExport(snapshot: snapshot, defaultFilename: selectedURL.lastPathComponent, destination: destination)
             recordFileLog(
@@ -8857,6 +8870,7 @@ struct ContentView: View {
             return
         }
 
+        flushPendingGameFileAutosave(for: selectedStoredGameFile.url)
         loadStoredGameFile(selectedStoredGameFile)
     }
 
@@ -8870,6 +8884,7 @@ struct ContentView: View {
 
     private func deleteStoredGame(_ gameFile: StoredGameFile) {
         do {
+            discardPendingGameFileAutosave(for: gameFile.url)
             try FileManager.default.removeItem(at: gameFile.url)
             selectedGameFileIDs.remove(gameFile.id)
             refreshStoredGameFiles()
@@ -8892,6 +8907,7 @@ struct ContentView: View {
 
         do {
             for gameFile in filesToDelete {
+                discardPendingGameFileAutosave(for: gameFile.url)
                 try FileManager.default.removeItem(at: gameFile.url)
                 recordFileLog(
                     kind: .fileDelete,
@@ -8915,6 +8931,7 @@ struct ContentView: View {
                 return
             }
 
+            flushPendingGameFileAutosave(for: selectedURL)
             let destinationURL = try uniqueStoredGameFileURL(
                 preferredFilename: renameGameFileNameDraft,
                 excluding: selectedURL
@@ -9035,6 +9052,10 @@ struct ContentView: View {
 
     private func prepareLogExport(as contentType: UTType, destination: ExportDestination = .share) {
         do {
+            let selectedURL = selectedStoredLogSession?.url
+            logManager.flushPendingWrites()
+            refreshStoredLogSessions(selectedURL: selectedURL)
+
             guard let session = selectedStoredLogSession else {
                 return
             }
@@ -9572,6 +9593,7 @@ struct ContentView: View {
 
     private func replaceStoredGameFiles(with files: [ScoreboardBackupFile]) throws {
         try validateStoredGameBackupFiles(files)
+        discardPendingGameFileAutosaves()
         try deleteAllStoredGameFiles()
 
         let directoryURL = try storedGameFilesDirectory()
@@ -9831,6 +9853,20 @@ struct ContentView: View {
             return
         }
 
+        let autosave = PendingGameFileAutosave(
+            url: selectedURL,
+            refreshSelection: refreshSelection
+        )
+        requestGameFileAutosave(autosave)
+    }
+
+    private func autosaveSelectedGameFileImmediately(refreshSelection: Bool = false) {
+        guard let selectedURL = selectedStoredGameFile?.url else {
+            return
+        }
+
+        discardPendingGameFileAutosave(for: selectedURL)
+
         do {
             let snapshot = store.currentGameSnapshot()
             try writeGameSnapshot(snapshot, to: selectedURL)
@@ -9841,6 +9877,126 @@ struct ContentView: View {
         } catch {
             presentFileOperationError(error)
         }
+    }
+
+    private func requestGameFileAutosave(_ autosave: PendingGameFileAutosave) {
+        let key = autosave.url.standardizedFileURL.path
+        if var pendingAutosave = pendingGameFileAutosaves[key] {
+            pendingAutosave.refreshSelection = pendingAutosave.refreshSelection || autosave.refreshSelection
+            pendingGameFileAutosaves[key] = pendingAutosave
+        } else {
+            pendingGameFileAutosaves[key] = autosave
+        }
+
+        schedulePendingGameFileAutosaves()
+    }
+
+    private func schedulePendingGameFileAutosaves() {
+        guard !pendingGameFileAutosaves.isEmpty else {
+            pendingGameFileAutosaveWorkItem?.cancel()
+            pendingGameFileAutosaveWorkItem = nil
+            return
+        }
+
+        let now = Date()
+        if let lastGameFileAutosaveDate {
+            let elapsed = now.timeIntervalSince(lastGameFileAutosaveDate)
+            if elapsed < automaticDiskWriteThrottleInterval {
+                guard pendingGameFileAutosaveWorkItem == nil else {
+                    return
+                }
+
+                let delay = automaticDiskWriteThrottleInterval - elapsed
+                let workItem = DispatchWorkItem {
+                    performPendingGameFileAutosaves()
+                }
+                pendingGameFileAutosaveWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+                return
+            }
+        }
+
+        performPendingGameFileAutosaves()
+    }
+
+    private func performPendingGameFileAutosaves() {
+        pendingGameFileAutosaveWorkItem?.cancel()
+        pendingGameFileAutosaveWorkItem = nil
+
+        let autosaves = Array(pendingGameFileAutosaves.values)
+        guard !autosaves.isEmpty else {
+            return
+        }
+
+        pendingGameFileAutosaves.removeAll()
+        lastGameFileAutosaveDate = Date()
+
+        var refreshURL: URL?
+        for autosave in autosaves {
+            do {
+                guard let snapshot = pendingGameFileSnapshot(for: autosave) else {
+                    continue
+                }
+                try writeGameSnapshot(snapshot, to: autosave.url)
+                if autosave.refreshSelection {
+                    if autosave.url.standardizedFileURL.path == selectedStoredGameFile?.url.standardizedFileURL.path {
+                        refreshURL = autosave.url
+                    } else if refreshURL == nil {
+                        refreshURL = autosave.url
+                    }
+                }
+            } catch {
+                presentFileOperationError(error)
+            }
+        }
+
+        if let refreshURL {
+            refreshStoredGameFiles(selectedURL: refreshURL)
+        }
+    }
+
+    private func pendingGameFileSnapshot(for autosave: PendingGameFileAutosave) -> ScoreboardGameSnapshot? {
+        guard autosave.url.standardizedFileURL.path == selectedStoredGameFile?.url.standardizedFileURL.path else {
+            return nil
+        }
+        return store.currentGameSnapshot()
+    }
+
+    private func flushPendingGameFileAutosaves() {
+        performPendingGameFileAutosaves()
+    }
+
+    private func flushPendingGameFileAutosave(for url: URL) {
+        let key = url.standardizedFileURL.path
+        guard let autosave = pendingGameFileAutosaves.removeValue(forKey: key) else {
+            return
+        }
+
+        do {
+            guard let snapshot = pendingGameFileSnapshot(for: autosave) else {
+                schedulePendingGameFileAutosaves()
+                return
+            }
+            try writeGameSnapshot(snapshot, to: autosave.url)
+            lastGameFileAutosaveDate = Date()
+            if autosave.refreshSelection {
+                refreshStoredGameFiles(selectedURL: autosave.url)
+            }
+        } catch {
+            presentFileOperationError(error)
+        }
+
+        schedulePendingGameFileAutosaves()
+    }
+
+    private func discardPendingGameFileAutosave(for url: URL) {
+        pendingGameFileAutosaves.removeValue(forKey: url.standardizedFileURL.path)
+        schedulePendingGameFileAutosaves()
+    }
+
+    private func discardPendingGameFileAutosaves() {
+        pendingGameFileAutosaves.removeAll()
+        schedulePendingGameFileAutosaves()
     }
 
     private func migrateLegacyPresetsToStoredGameFilesIfNeeded() {
@@ -10053,7 +10209,7 @@ struct ContentView: View {
             formattedDebatePrepGuestClock: store.showsDebatePrepTime ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
-            displayDirection: store.externalDisplayDirection,
+            displayDirection: store.resolvedExternalDisplayDirection,
             isClockRunning: store.isClockRunning,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,

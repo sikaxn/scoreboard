@@ -56,7 +56,7 @@ struct ExternalScoreboardView: View {
             formattedDebatePrepGuestClock: store.showsDebatePrepTime ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
-            displayDirection: store.externalDisplayDirection,
+            displayDirection: store.resolvedExternalDisplayDirection,
             isClockRunning: store.isClockRunning,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
@@ -97,13 +97,13 @@ struct ExternalScoreboardView: View {
             palette.externalDisplayBackground
         case .clear:
             HStack(spacing: 0) {
-                store.externalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
-                store.externalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
+                store.resolvedExternalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                store.resolvedExternalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .clearUnderBoard:
             HStack(spacing: 0) {
-                store.externalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
-                store.externalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
+                store.resolvedExternalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                store.resolvedExternalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .smartScoreboard:
             SmartScoreboardBackgroundView()

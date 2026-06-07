@@ -536,6 +536,13 @@ nonisolated struct ScoreboardRemoteDisplayDirectionSettings: Codable, Equatable,
         displayDirection: .homeLeft,
         externalDisplayDirection: .homeLeft
     )
+
+    func applyingSideSwap(_ areSidesSwapped: Bool) -> ScoreboardRemoteDisplayDirectionSettings {
+        ScoreboardRemoteDisplayDirectionSettings(
+            displayDirection: displayDirection.applyingSideSwap(areSidesSwapped),
+            externalDisplayDirection: externalDisplayDirection.applyingSideSwap(areSidesSwapped)
+        )
+    }
 }
 
 private enum ScoreboardRemoteDisplayIdentity {
@@ -586,6 +593,7 @@ private enum ScoreboardRemoteDisplayPairingStore {
     private static let trustedHostsKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedHosts"
     private static let mutedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayMutedDisplays"
     private static let displayDirectionsKey = "com.ironmaple.smartscoreboard.remoteDisplayDirections"
+    private static let displayDirectionModelVersionKey = "com.ironmaple.smartscoreboard.remoteDisplayDirectionModelVersion"
     private static let lastActiveOperatorKey = "com.ironmaple.smartscoreboard.remoteDisplayLastActiveOperator"
 
     static func trustedDisplays() -> [ScoreboardRemoteDisplayTrustedPeer] {
@@ -638,7 +646,19 @@ private enum ScoreboardRemoteDisplayPairingStore {
     static func saveDisplayDirectionsByID(_ settings: [String: ScoreboardRemoteDisplayDirectionSettings]) {
         if let data = try? JSONEncoder().encode(settings) {
             UserDefaults.standard.set(data, forKey: displayDirectionsKey)
+            saveDisplayDirectionModelVersion(ScoreboardStore.displayDirectionModelVersion)
         }
+    }
+
+    static func displayDirectionModelVersion() -> Int {
+        guard UserDefaults.standard.object(forKey: displayDirectionModelVersionKey) != nil else {
+            return 1
+        }
+        return UserDefaults.standard.integer(forKey: displayDirectionModelVersionKey)
+    }
+
+    static func saveDisplayDirectionModelVersion(_ version: Int) {
+        UserDefaults.standard.set(version, forKey: displayDirectionModelVersionKey)
     }
 
     private static func load(key: String) -> [ScoreboardRemoteDisplayTrustedPeer] {
@@ -694,6 +714,17 @@ final class ScoreboardRemoteDisplayHostService: NSObject, ObservableObject {
     private var peerNamesResettingPairing = Set<String>()
     private var operatorDisconnectedDisplayIDs = Set<String>()
     private var displayInitiatedDisconnectSequence: UInt64 = 0
+
+    func migrateDisplayDirectionsIfNeeded(areSidesSwapped: Bool) {
+        guard ScoreboardRemoteDisplayPairingStore.displayDirectionModelVersion() < ScoreboardStore.displayDirectionModelVersion else {
+            return
+        }
+
+        displayDirectionsByID = displayDirectionsByID.mapValues { settings in
+            settings.applyingSideSwap(areSidesSwapped)
+        }
+        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+    }
 
     func start(
         initialState: Data,

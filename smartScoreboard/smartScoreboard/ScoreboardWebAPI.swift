@@ -1159,14 +1159,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 extension ScoreboardStore {
     func currentWebAPIState() -> ScoreboardWebAPIState {
         currentWebAPIState(
-            displayDirection: externalDisplayDirection,
+            displayDirection: resolvedExternalDisplayDirection,
             remoteExternalDirection: nil
         )
     }
 
     func currentRemoteDisplayState(forDisplayID displayID: String?) -> ScoreboardWebAPIState {
-        let displayDirection = displayID.map { remoteDisplayDirection(displayID: $0) } ?? .homeLeft
-        let externalDirection = displayID.map { remoteDisplayExternalDirection(displayID: $0) } ?? .homeLeft
+        let displayDirection = displayID.map { resolvedRemoteDisplayDirection(displayID: $0) } ?? resolvedDisplayDirection(for: .homeLeft)
+        let externalDirection = displayID.map { resolvedRemoteDisplayExternalDirection(displayID: $0) } ?? resolvedDisplayDirection(for: .homeLeft)
         return currentWebAPIState(
             displayDirection: displayDirection,
             remoteExternalDirection: externalDirection
@@ -1190,7 +1190,7 @@ extension ScoreboardStore {
                 isClockRunning: isClockRunning,
                 isShotClockRunning: isShotClockRunning,
                 isDebatePrepClockRunning: isDebatePrepClockRunning,
-                areSidesSwapped: displayDirection.areSidesSwapped,
+                areSidesSwapped: areSidesSwapped,
                 possessionDirection: possessionDirection
             ),
             display: ScoreboardWebAPIDisplay(
