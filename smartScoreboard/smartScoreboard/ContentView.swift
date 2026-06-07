@@ -8691,6 +8691,10 @@ struct ContentView: View {
         refreshStoredLogSessions()
         syncCurrentLogGameFile()
         store.refreshWebAPILocalAddresses()
+        #if os(iOS)
+        store.reconcileRunningTimersWithWallClock()
+        store.syncLiveActivityForCurrentState()
+        #endif
         updateIdleTimer(for: scenePhase)
         presentGettingStartedIfNeeded()
     }
@@ -8748,12 +8752,25 @@ struct ContentView: View {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         updateIdleTimer(for: newPhase)
 
+        #if os(iOS)
+        switch newPhase {
+        case .active:
+            ScoreboardBackgroundCoordinator.shared.handleAppDidBecomeActive(store: store)
+        case .background:
+            ScoreboardBackgroundCoordinator.shared.handleAppDidEnterBackground(store: store)
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+        #else
         if newPhase == .active {
             store.resumeWebAPIForAppLifecycle()
             store.refreshWebAPILocalAddresses()
         } else {
             store.suspendWebAPIForAppLifecycle()
         }
+        #endif
 
         if newPhase != .active {
             autosaveSelectedGameFile(refreshSelection: true)

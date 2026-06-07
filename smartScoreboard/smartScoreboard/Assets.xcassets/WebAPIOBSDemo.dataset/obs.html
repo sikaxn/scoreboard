@@ -49,6 +49,9 @@
       align-items: center;
       min-height: 64px;
     }
+    .team.has-logo {
+      grid-template-columns: auto minmax(0, 1fr) 92px;
+    }
     .team + .team {
       border-top: 1px solid rgba(255, 255, 255, 0.16);
     }
@@ -63,6 +66,14 @@
       white-space: nowrap;
       text-transform: uppercase;
     }
+    .logo {
+      width: 42px;
+      height: 42px;
+      margin-left: 14px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+    }
     .score {
       height: 100%;
       display: grid;
@@ -72,6 +83,9 @@
       font-variant-numeric: tabular-nums;
       background: #f8fafc;
       color: #101623;
+    }
+    .hidden {
+      display: none !important;
     }
     .home .name {
       border-left: 8px solid #38bdf8;
@@ -148,6 +162,11 @@
         left: 20px;
         bottom: 220px;
       }
+      .logo {
+        width: 36px;
+        height: 36px;
+        margin-left: 10px;
+      }
     }
   </style>
 </head>
@@ -155,10 +174,12 @@
   <main class="scorebug">
     <section class="teams">
       <div class="team home">
+        <img id="homeLogo" class="logo hidden" alt="">
         <div id="homeName" class="name" data-i18n="home">HOME</div>
         <div id="homeScore" class="score">0</div>
       </div>
       <div class="team guest">
+        <img id="guestLogo" class="logo hidden" alt="">
         <div id="guestName" class="name" data-i18n="guest">GUEST</div>
         <div id="guestScore" class="score">0</div>
       </div>
@@ -231,6 +252,26 @@
       document.body.classList.toggle('disconnected', !isConnected);
     }
 
+    function logoURL(logo) {
+      if (!logo || !logo.path) return '';
+      const version = logo.id || logo.updatedAtUnixTime || '';
+      return version ? `${logo.path}?v=${encodeURIComponent(version)}` : logo.path;
+    }
+
+    function applyLogo(elementID, logo) {
+      const image = el(elementID);
+      const url = logoURL(logo);
+      image.closest('.team').classList.toggle('has-logo', Boolean(url));
+      image.classList.toggle('hidden', !url);
+      if (!url) {
+        image.removeAttribute('src');
+        return;
+      }
+      if (image.getAttribute('src') !== url) {
+        image.src = url;
+      }
+    }
+
     function applyDisplayDirection(display, runtime) {
       const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
       const guestLeft = direction === 'guestLeft';
@@ -263,6 +304,8 @@
 
       el('homeName').textContent = text(home.name, t('home'));
       el('guestName').textContent = text(guest.name, t('guest'));
+      applyLogo('homeLogo', home.logo);
+      applyLogo('guestLogo', guest.logo);
       el('homeScore').textContent = text(home.score, 0);
       el('guestScore').textContent = text(guest.score, 0);
 

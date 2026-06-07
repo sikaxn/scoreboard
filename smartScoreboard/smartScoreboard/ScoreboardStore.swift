@@ -634,7 +634,10 @@ final class ScoreboardStore: ObservableObject {
     private var accumulatedDebatePrepElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
+    private var isReconcilingTimersFromWallClock = false
     private let persistenceKey = "smartScoreboard.persistedState"
+    private let primaryTimerPersistenceKey = "smartScoreboard.primaryTimerPersistence"
+    private var lastPrimaryTimerPersistenceSignature: String?
     private let buzzerPlayer = BuzzerPlayer()
     private let logManager = ScoreboardLogManager.shared
     private let webAPIService = ScoreboardWebAPIService()
@@ -720,6 +723,10 @@ final class ScoreboardStore: ObservableObject {
             isDebatePrepClockRunning ||
             homePenaltyTimers.contains(where: \.isRunning) ||
             guestPenaltyTimers.contains(where: \.isRunning)
+    }
+
+    var isGameRunning: Bool {
+        isClockRunning || isDebatePrepClockRunning
     }
 
     var isResetInterlockActive: Bool {
@@ -1207,6 +1214,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustClock(by delta: Int) {
+        reconcileRunningTimersWithWallClock()
+
         if isDebateMode {
             guard currentDebateSegment?.timerMode == .masterClock else {
                 recordLog(
@@ -1233,6 +1242,8 @@ final class ScoreboardStore: ObservableObject {
         gameClockSeconds = boundedRuntimeClockSeconds(gameClockSeconds + delta)
         if gameClockMode == .countdown && gameClockSeconds == 0 {
             pauseClock()
+        } else if isClockRunning {
+            refreshPrimaryTimerPersistence()
         }
 
         recordLog(
@@ -1248,6 +1259,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustShotClock(by delta: Int) {
+        reconcileRunningTimersWithWallClock()
+
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAdjustment,
@@ -2322,6 +2335,7 @@ final class ScoreboardStore: ObservableObject {
 
     func toggleDebatePrepClock(for side: TeamSide) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
         let wasClockRunning = isClockRunning
         if debateActiveTimer != target {
@@ -2344,6 +2358,7 @@ final class ScoreboardStore: ObservableObject {
         }
         isDebatePrepClockRunning.toggle()
         updateTimerState()
+        refreshPrimaryTimerPersistence()
         recordLog(
             kind: .debatePrepToggle,
             summary: localizedStoreFormat("%@ prep clock %@", sideRoleLabel(for: side), localizedStoreString(isDebatePrepClockRunning ? "start" : "pause")),
@@ -2359,6 +2374,7 @@ final class ScoreboardStore: ObservableObject {
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
         guard isDebateMode else { return }
+        reconcileRunningTimersWithWallClock()
 
         let wasOnPrepTimer = debateActiveTimer != .segment
         debateActiveTimer = .segment
@@ -2384,6 +2400,7 @@ final class ScoreboardStore: ObservableObject {
 
     func resetDebatePrepClock(for side: TeamSide) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let value = currentDebatePreset.prepSecondsPerSide
         switch side {
         case .home:
@@ -2394,6 +2411,7 @@ final class ScoreboardStore: ObservableObject {
         if debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
             isDebatePrepClockRunning = false
             updateTimerState()
+            refreshPrimaryTimerPersistence()
         }
         recordLog(
             kind: .debatePrepReset,
@@ -2406,12 +2424,16 @@ final class ScoreboardStore: ObservableObject {
 
     func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
         switch side {
         case .home:
             debatePrepHomeSeconds = boundedGameClockSeconds(debatePrepHomeSeconds + delta)
         case .guest:
             debatePrepGuestSeconds = boundedGameClockSeconds(debatePrepGuestSeconds + delta)
+        }
+        if isDebatePrepClockRunning && debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
+            refreshPrimaryTimerPersistence()
         }
         let updatedValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
         recordLog(
@@ -2467,6 +2489,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
         switch activeChessClockSide {
         case .home:
@@ -2486,6 +2509,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if previousSide != activeChessClockSide {
             handleScoreboardEvent(.sideSwitched)
+            refreshPrimaryTimerPersistence()
         }
     }
 
@@ -2500,6 +2524,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
         activeChessClockSide = side
         recordLog(
@@ -2511,6 +2536,7 @@ final class ScoreboardStore: ObservableObject {
         )
         if previousSide != side {
             handleScoreboardEvent(.sideSwitched)
+            refreshPrimaryTimerPersistence()
         }
     }
 
@@ -2526,6 +2552,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
         switch side {
         case .home:
@@ -2537,6 +2564,8 @@ final class ScoreboardStore: ObservableObject {
         let updatedValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
         if updatedValue == 0, activeChessClockSide == side {
             pauseClock()
+        } else if isClockRunning {
+            refreshPrimaryTimerPersistence()
         }
 
         recordLog(
@@ -3329,6 +3358,7 @@ final class ScoreboardStore: ObservableObject {
             }
             isClockRunning = true
             updateTimerState()
+            refreshPrimaryTimerPersistence()
             return
         }
 
@@ -3352,11 +3382,16 @@ final class ScoreboardStore: ObservableObject {
 
         isClockRunning = true
         updateTimerState()
+        refreshPrimaryTimerPersistence()
     }
 
     private func pauseClock() {
+        if isClockRunning, !isAuditLoggingSuspended {
+            reconcileRunningTimersWithWallClock()
+        }
         isClockRunning = false
         updateTimerState()
+        refreshPrimaryTimerPersistence()
     }
 
     private func startShotClock() {
@@ -3377,6 +3412,9 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func pauseShotClock() {
+        if isShotClockRunning, !isAuditLoggingSuspended {
+            reconcileRunningTimersWithWallClock()
+        }
         isShotClockRunning = false
         updateTimerState()
     }
@@ -3413,12 +3451,41 @@ final class ScoreboardStore: ObservableObject {
             }
 
             Task { @MainActor in
-                let now = Date()
-                let elapsed = now.timeIntervalSince(self.lastTimerFireDate ?? now)
-                self.lastTimerFireDate = now
-                self.tick(elapsed: elapsed)
+                self.reconcileRunningTimersWithWallClock()
             }
         }
+    }
+
+    func reconcileRunningTimersWithWallClock() {
+        reconcileRunningTimersWithWallClock(now: Date())
+    }
+
+    private func reconcileRunningTimersWithWallClock(now: Date) {
+        guard !isReconcilingTimersFromWallClock else {
+            return
+        }
+
+        let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+            lastTimerFireDate = nil
+            return
+        }
+
+        guard let lastTimerFireDate else {
+            self.lastTimerFireDate = now
+            return
+        }
+
+        let elapsed = now.timeIntervalSince(lastTimerFireDate)
+        guard elapsed > 0 else {
+            return
+        }
+
+        self.lastTimerFireDate = now
+        isReconcilingTimersFromWallClock = true
+        tick(elapsed: elapsed)
+        isReconcilingTimersFromWallClock = false
+        refreshPrimaryTimerPersistence()
     }
 
     private func tick(elapsed: TimeInterval) {
@@ -3952,6 +4019,44 @@ final class ScoreboardStore: ObservableObject {
         #endif
     }
 
+    #if os(iOS)
+    func prepareForBackgroundRuntime() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+    }
+
+    func resumeFromBackgroundRuntime() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+        resumeWebAPIForAppLifecycle()
+        refreshWebAPILocalAddresses()
+    }
+
+    func expireBackgroundWebAPIGrace() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+        isWebAPIAppLifecycleActive = false
+        guard isWebAPIEnabled else {
+            return
+        }
+        webAPIService.stop(notify: false)
+        webAPIStatus = .suspended
+    }
+
+    func performBackgroundTimerMaintenance() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+    }
+    #endif
+
     private func configureWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
 
@@ -4048,14 +4153,15 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func handleRemoteDisplayConnectedDisplaysChanged(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) {
-        remoteDisplayConnectedDisplays = connectedDisplays
+        let uniqueConnectedDisplays = uniqueRemoteDisplayConnections(connectedDisplays)
+        remoteDisplayConnectedDisplays = uniqueConnectedDisplays
 
         guard isRemoteDisplayHostEnabled, !isRemoteDisplayViewerModeEnabled else {
-            resetRemoteDisplayWarningState(connectedDisplays: connectedDisplays)
+            resetRemoteDisplayWarningState(connectedDisplays: uniqueConnectedDisplays)
             return
         }
 
-        let connectedDisplaysByID = Dictionary(uniqueKeysWithValues: connectedDisplays.map { ($0.id, $0) })
+        let connectedDisplaysByID = keyedRemoteDisplayConnections(uniqueConnectedDisplays)
         let droppedDisplays = remoteDisplayConnectedDisplaysByID.filter { connectedDisplaysByID[$0.key] == nil }
 
         for (displayID, display) in droppedDisplays {
@@ -4073,7 +4179,7 @@ final class ScoreboardStore: ObservableObject {
 
         remoteDisplayConnectedDisplaysByID = connectedDisplaysByID
         refreshRemoteDisplayWarningNotice(
-            unresponsiveDisplays: connectedDisplays.filter { $0.quality == .unresponsive }
+            unresponsiveDisplays: uniqueConnectedDisplays.filter { $0.quality == .unresponsive }
         )
     }
 
@@ -4091,7 +4197,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayWarningNotice(unresponsiveDisplays: [ScoreboardRemoteDisplayConnection]) {
-        let unresponsiveDisplaysByID = Dictionary(uniqueKeysWithValues: unresponsiveDisplays.map { ($0.id, $0.name) })
+        let unresponsiveDisplaysByID = keyedRemoteDisplayNames(unresponsiveDisplays)
         let problemDisplayIDs = Set(remoteDisplayDisconnectedDisplaysByID.keys).union(unresponsiveDisplaysByID.keys)
 
         dismissedRemoteDisplayWarningDisplayIDs.formIntersection(problemDisplayIDs)
@@ -4132,11 +4238,29 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func resetRemoteDisplayWarningState(connectedDisplays: [ScoreboardRemoteDisplayConnection] = []) {
-        remoteDisplayConnectedDisplaysByID = Dictionary(uniqueKeysWithValues: connectedDisplays.map { ($0.id, $0) })
+        remoteDisplayConnectedDisplaysByID = keyedRemoteDisplayConnections(connectedDisplays)
         remoteDisplayDisconnectedDisplaysByID.removeAll()
         dismissedRemoteDisplayWarningDisplayIDs.removeAll()
         intentionallyDisconnectedRemoteDisplayIDs.removeAll()
         remoteDisplayWarningNotice = nil
+    }
+
+    private func keyedRemoteDisplayConnections(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [String: ScoreboardRemoteDisplayConnection] {
+        connectedDisplays.reduce(into: [:]) { displaysByID, display in
+            displaysByID[display.id] = display
+        }
+    }
+
+    private func keyedRemoteDisplayNames(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [String: String] {
+        connectedDisplays.reduce(into: [:]) { namesByID, display in
+            namesByID[display.id] = display.name
+        }
+    }
+
+    private func uniqueRemoteDisplayConnections(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [ScoreboardRemoteDisplayConnection] {
+        keyedRemoteDisplayConnections(connectedDisplays).values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 
     private func startWebAPIService() {
@@ -4335,8 +4459,12 @@ final class ScoreboardStore: ObservableObject {
                 return
             }
             self.isStateSideEffectRefreshScheduled = false
+            self.refreshPrimaryTimerPersistence()
             self.refreshWebAPIState()
             self.refreshRemoteDisplayState()
+            #if os(iOS)
+            self.syncLiveActivityForCurrentState()
+            #endif
         }
     }
 
@@ -4350,11 +4478,13 @@ final class ScoreboardStore: ObservableObject {
 
     func restorePersistedStateData(_ data: Data) throws {
         let persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
+        clearPrimaryTimerPersistence()
         applyPersistedState(persistedState.excludingRemoteDisplayPairingState)
         persistState()
     }
 
     func resetToFactoryDefaults() {
+        clearPrimaryTimerPersistence()
         applyPersistedState(.factoryDefault)
         UserDefaults.standard.removeObject(forKey: persistenceKey)
         persistState()
@@ -4391,10 +4521,12 @@ final class ScoreboardStore: ObservableObject {
             let data = UserDefaults.standard.data(forKey: persistenceKey),
             let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data)
         else {
+            clearPrimaryTimerPersistence()
             return
         }
 
         applyPersistedState(persistedState)
+        restorePrimaryTimerPersistenceIfNeeded()
     }
 
     private func applyPersistedState(_ persistedState: PersistedState) {
@@ -4538,6 +4670,167 @@ final class ScoreboardStore: ObservableObject {
         }
 
         UserDefaults.standard.set(data, forKey: persistenceKey)
+    }
+
+    private func refreshPrimaryTimerPersistence() {
+        guard let snapshot = currentPrimaryTimerPersistenceSnapshot(now: Date()) else {
+            clearPrimaryTimerPersistence()
+            return
+        }
+
+        guard snapshot.signature != lastPrimaryTimerPersistenceSignature else {
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: primaryTimerPersistenceKey)
+            lastPrimaryTimerPersistenceSignature = snapshot.signature
+        }
+    }
+
+    private func clearPrimaryTimerPersistence() {
+        UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
+        lastPrimaryTimerPersistenceSignature = nil
+    }
+
+    private func restorePrimaryTimerPersistenceIfNeeded() {
+        guard
+            let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
+            let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
+        else {
+            return
+        }
+
+        switch snapshot.kind {
+        case .standardClock:
+            guard showsGameClock, !usesChessClocks else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            gameClockSeconds = boundedRuntimeClockSeconds(snapshot.gameClockSeconds)
+            isClockRunning = gameClockSeconds > 0 || gameClockMode == .countUp
+            isDebatePrepClockRunning = false
+
+        case .dualClock:
+            guard usesChessClocks else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            homeChessClockSeconds = boundedRuntimeClockSeconds(snapshot.homeChessClockSeconds)
+            guestChessClockSeconds = boundedRuntimeClockSeconds(snapshot.guestChessClockSeconds)
+            activeChessClockSide = snapshot.activeChessClockSide ?? activeChessClockSide ?? .home
+            isClockRunning = homeChessClockSeconds > 0 || guestChessClockSeconds > 0
+            isDebatePrepClockRunning = false
+
+        case .debatePrep:
+            guard isDebateMode, isDebatePrepTimeEnabled else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            debateActiveTimer = snapshot.debateActiveTimer
+            debatePrepHomeSeconds = boundedGameClockSeconds(snapshot.debatePrepHomeSeconds)
+            debatePrepGuestSeconds = boundedGameClockSeconds(snapshot.debatePrepGuestSeconds)
+            isClockRunning = false
+            switch debateActiveTimer {
+            case .prepHome:
+                isDebatePrepClockRunning = debatePrepHomeSeconds > 0
+            case .prepGuest:
+                isDebatePrepClockRunning = debatePrepGuestSeconds > 0
+            case .segment:
+                isDebatePrepClockRunning = false
+            }
+        }
+
+        lastTimerFireDate = Date(timeIntervalSince1970: snapshot.savedAtUnixTime)
+        lastPrimaryTimerPersistenceSignature = snapshot.signature
+        updateTimerState()
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+    }
+
+    private func currentPrimaryTimerPersistenceSnapshot(now: Date) -> PrimaryTimerPersistenceSnapshot? {
+        guard isGameRunning else {
+            return nil
+        }
+
+        let roundedNow = floor(now.timeIntervalSince1970)
+        if isDebatePrepClockRunning {
+            let signature: String
+            switch debateActiveTimer {
+            case .prepHome:
+                signature = "debatePrep-home-\(Int(roundedNow) + debatePrepHomeSeconds)-\(debatePrepGuestSeconds)"
+            case .prepGuest:
+                signature = "debatePrep-guest-\(Int(roundedNow) + debatePrepGuestSeconds)-\(debatePrepHomeSeconds)"
+            case .segment:
+                return nil
+            }
+
+            return PrimaryTimerPersistenceSnapshot(
+                kind: .debatePrep,
+                savedAtUnixTime: now.timeIntervalSince1970,
+                signature: signature,
+                gameClockSeconds: gameClockSeconds,
+                homeChessClockSeconds: homeChessClockSeconds,
+                guestChessClockSeconds: guestChessClockSeconds,
+                activeChessClockSide: activeChessClockSide,
+                debateActiveTimer: debateActiveTimer,
+                debatePrepHomeSeconds: debatePrepHomeSeconds,
+                debatePrepGuestSeconds: debatePrepGuestSeconds
+            )
+        }
+
+        if isClockRunning, usesChessClocks {
+            let activeSeconds: Int
+            let inactiveSeconds: Int
+            switch activeChessClockSide {
+            case .home:
+                activeSeconds = homeChessClockSeconds
+                inactiveSeconds = guestChessClockSeconds
+            case .guest:
+                activeSeconds = guestChessClockSeconds
+                inactiveSeconds = homeChessClockSeconds
+            case .none:
+                return nil
+            }
+            let signature = "dual-\(activeChessClockSide?.rawValue ?? "none")-\(Int(roundedNow) + activeSeconds)-\(inactiveSeconds)"
+            return PrimaryTimerPersistenceSnapshot(
+                kind: .dualClock,
+                savedAtUnixTime: now.timeIntervalSince1970,
+                signature: signature,
+                gameClockSeconds: gameClockSeconds,
+                homeChessClockSeconds: homeChessClockSeconds,
+                guestChessClockSeconds: guestChessClockSeconds,
+                activeChessClockSide: activeChessClockSide,
+                debateActiveTimer: debateActiveTimer,
+                debatePrepHomeSeconds: debatePrepHomeSeconds,
+                debatePrepGuestSeconds: debatePrepGuestSeconds
+            )
+        }
+
+        guard isClockRunning else {
+            return nil
+        }
+
+        let signature: String
+        switch gameClockMode {
+        case .countdown:
+            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)"
+        case .countUp:
+            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)"
+        }
+
+        return PrimaryTimerPersistenceSnapshot(
+            kind: .standardClock,
+            savedAtUnixTime: now.timeIntervalSince1970,
+            signature: signature,
+            gameClockSeconds: gameClockSeconds,
+            homeChessClockSeconds: homeChessClockSeconds,
+            guestChessClockSeconds: guestChessClockSeconds,
+            activeChessClockSide: activeChessClockSide,
+            debateActiveTimer: debateActiveTimer,
+            debatePrepHomeSeconds: debatePrepHomeSeconds,
+            debatePrepGuestSeconds: debatePrepGuestSeconds
+        )
     }
 
     private func encodedPersistedStateData() throws -> Data {
@@ -4766,6 +5059,25 @@ final class ScoreboardStore: ObservableObject {
             }
         }
     }
+}
+
+private enum PrimaryTimerPersistenceKind: String, Codable {
+    case standardClock
+    case dualClock
+    case debatePrep
+}
+
+private struct PrimaryTimerPersistenceSnapshot: Codable {
+    var kind: PrimaryTimerPersistenceKind
+    var savedAtUnixTime: TimeInterval
+    var signature: String
+    var gameClockSeconds: Int
+    var homeChessClockSeconds: Int
+    var guestChessClockSeconds: Int
+    var activeChessClockSide: TeamSide?
+    var debateActiveTimer: DebateActiveTimer
+    var debatePrepHomeSeconds: Int
+    var debatePrepGuestSeconds: Int
 }
 
 private struct PersistedState: Codable {

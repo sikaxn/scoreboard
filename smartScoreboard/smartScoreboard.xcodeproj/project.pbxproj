@@ -7,12 +7,46 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		384309A8966F4E4C94D7CB55 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
+		3E754FB72FFB444CA8F5874E /* ScoreboardLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		73B2C908E4E64768A32359F7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F5EB3F233F174EF38BB12216 /* Assets.xcassets */; };
+		8F1F456D06AC403F8DD5D7FA /* ScoreboardLiveActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */; };
+		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
 		D88F712A2FCFD6CF000A14F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A76AF4D9F508470EB8C05883 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D820B20A2FCAA97400523B92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3C07EE3D36FA4642BCBEA508;
+			remoteInfo = ScoreboardLiveActivityExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		31162D32ECCB4ED3B071EBEA /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				3E754FB72FFB444CA8F5874E /* ScoreboardLiveActivityExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		03483FFA1A5C43C2B50A791 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityAttributes.swift; sourceTree = "<group>"; };
+		739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScoreboardLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		F5EB3F233F174EF38BB12216 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -24,6 +58,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		B9952E3A237A4C3C9E777809 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D820B20F2FCAA97400523B92 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -34,10 +75,22 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		221458D9C9FF4CEDA88D86F1 /* ScoreboardLiveActivityExtension */ = {
+			isa = PBXGroup;
+			children = (
+				C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */,
+				F5EB3F233F174EF38BB12216 /* Assets.xcassets */,
+				03483FFA1A5C43C2B50A791 /* Info.plist */,
+			);
+			path = ScoreboardLiveActivityExtension;
+			sourceTree = "<group>";
+		};
 		D820B2092FCAA97400523B92 = {
 			isa = PBXGroup;
 			children = (
 				D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */,
+				DAF6B1EDD972442299D2D2EE /* ScoreboardLiveActivityShared */,
+				221458D9C9FF4CEDA88D86F1 /* ScoreboardLiveActivityExtension */,
 				D820B2142FCAA97400523B92 /* smartScoreboard */,
 				D820B2132FCAA97400523B92 /* Products */,
 			);
@@ -47,13 +100,41 @@
 			isa = PBXGroup;
 			children = (
 				D820B2122FCAA97400523B92 /* smartScoreboard.app */,
+				739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		DAF6B1EDD972442299D2D2EE /* ScoreboardLiveActivityShared */ = {
+			isa = PBXGroup;
+			children = (
+				03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */,
+			);
+			path = ScoreboardLiveActivityShared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3C07EE3D36FA4642BCBEA508 /* ScoreboardLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B2DDA5BA81C349B482288B4F /* Build configuration list for PBXNativeTarget "ScoreboardLiveActivityExtension" */;
+			buildPhases = (
+				B9DC4B2122804E3A8F724DD8 /* Sources */,
+				B9952E3A237A4C3C9E777809 /* Frameworks */,
+				771A320AB09A4CF29E412C3B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScoreboardLiveActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = ScoreboardLiveActivityExtension;
+			productReference = 739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		D820B2112FCAA97400523B92 /* smartScoreboard */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D820B21D2FCAA97500523B92 /* Build configuration list for PBXNativeTarget "smartScoreboard" */;
@@ -61,10 +142,12 @@
 				D820B20E2FCAA97400523B92 /* Sources */,
 				D820B20F2FCAA97400523B92 /* Frameworks */,
 				D820B2102FCAA97400523B92 /* Resources */,
+				31162D32ECCB4ED3B071EBEA /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AE43F183FBC84695AECD617B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D820B2142FCAA97400523B92 /* smartScoreboard */,
@@ -86,6 +169,9 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
+					3C07EE3D36FA4642BCBEA508 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					D820B2112FCAA97400523B92 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -107,11 +193,20 @@
 			projectRoot = "";
 			targets = (
 				D820B2112FCAA97400523B92 /* smartScoreboard */,
+				3C07EE3D36FA4642BCBEA508 /* ScoreboardLiveActivityExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		771A320AB09A4CF29E412C3B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73B2C908E4E64768A32359F7 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D820B2102FCAA97400523B92 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -123,16 +218,67 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		B9DC4B2122804E3A8F724DD8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F1F456D06AC403F8DD5D7FA /* ScoreboardLiveActivityExtension.swift in Sources */,
+				384309A8966F4E4C94D7CB55 /* ScoreboardLiveActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D820B20E2FCAA97400523B92 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		AE43F183FBC84695AECD617B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 3C07EE3D36FA4642BCBEA508 /* ScoreboardLiveActivityExtension */;
+			targetProxy = A76AF4D9F508470EB8C05883 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		6A818AC092D943FA80B0FE95 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 53MBHYV2D9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScoreboardLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		D820B21B2FCAA97500523B92 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -339,9 +485,50 @@
 			};
 			name = Release;
 		};
+		EE7960EB0FB8429BBAA397E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 53MBHYV2D9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScoreboardLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B2DDA5BA81C349B482288B4F /* Build configuration list for PBXNativeTarget "ScoreboardLiveActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6A818AC092D943FA80B0FE95 /* Debug */,
+				EE7960EB0FB8429BBAA397E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		D820B20D2FCAA97400523B92 /* Build configuration list for PBXProject "smartScoreboard" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

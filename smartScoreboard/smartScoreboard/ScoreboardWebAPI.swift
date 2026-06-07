@@ -154,6 +154,7 @@ nonisolated struct ScoreboardWebAPIAppInfo: Codable, Sendable {
 }
 
 nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
+    let isGameRunning: Bool
     let isClockRunning: Bool
     let isShotClockRunning: Bool
     let isDebatePrepClockRunning: Bool
@@ -1187,6 +1188,7 @@ extension ScoreboardStore {
             app: ScoreboardWebAPIAppInfo.current,
             game: currentGameSnapshot().excludingEmbeddedImages,
             runtime: ScoreboardWebAPIRuntime(
+                isGameRunning: isGameRunning,
                 isClockRunning: isClockRunning,
                 isShotClockRunning: isShotClockRunning,
                 isDebatePrepClockRunning: isDebatePrepClockRunning,

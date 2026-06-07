@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>IronMaple.smartScoreboard.timer-maintenance</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -46,6 +50,8 @@
 	<string>Scoreboard uses the local network to pair Remote Display devices, let trusted production tools read live scoreboard status with Web API, and trigger Bitfocus Companion commands when those integrations are enabled.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Scoreboard lets you choose photos for public display backgrounds and team logos.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -11,6 +11,10 @@ struct SmartScoreboardApp: App {
     #endif
 
     init() {
+        #if os(iOS)
+        ScoreboardBackgroundCoordinator.shared.register()
+        #endif
+
         #if os(iOS) || os(macOS)
         do {
             try Tips.configure()
