@@ -94,6 +94,7 @@ struct ContentView: View {
     @State private var fileOperationError: FileOperationAlert?
     @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
     @State private var dashboardPage: DashboardPage = .main
+    @State private var isDashboardHeaderHidden = false
     @State private var dashboardTipGroup: TipGroup?
     @State private var dashboardTipGroupSignature = ""
     @State private var pendingGameConfirmation: GameConfirmationAction?
@@ -6532,23 +6533,37 @@ struct ContentView: View {
     private func dashboardContent(layout: InterfaceLayout) -> some View {
         GeometryReader { proxy in
             let availableHeight = max(proxy.size.height - (layout.outerPadding * 2), 0)
-            let contentHeight = max(availableHeight - layout.dashboardHeaderHeight - layout.sectionSpacing, 0)
+            let headerHeight = isDashboardHeaderHidden ? CGFloat(0) : layout.dashboardHeaderHeight
+            let headerSpacing = isDashboardHeaderHidden ? CGFloat(0) : layout.sectionSpacing
+            let contentHeight = max(availableHeight - headerHeight - headerSpacing, 0)
 
-            VStack(spacing: layout.sectionSpacing) {
-                dashboardHeader(layout: layout)
-                    .frame(height: layout.dashboardHeaderHeight)
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: headerSpacing) {
+                    if !isDashboardHeaderHidden {
+                        dashboardHeader(layout: layout)
+                            .frame(height: layout.dashboardHeaderHeight)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
 
-                controlPane(layout: layout)
-                    .frame(height: contentHeight)
+                    controlPane(layout: layout)
+                        .frame(height: contentHeight)
+                }
+                .padding(layout.outerPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                if isDashboardHeaderHidden {
+                    showDashboardHeaderButton(layout: layout)
+                        .padding(layout.outerPadding)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
             }
-            .padding(layout.outerPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onAppear {
                 refreshDashboardTipGroup()
             }
             .onChange(of: dashboardTourSignature) { _, _ in
                 refreshDashboardTipGroup()
             }
+            .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isDashboardHeaderHidden)
         }
     }
 
@@ -6577,6 +6592,13 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+        .overlay(alignment: .topTrailing) {
+            if isIPhoneInterface {
+                hideDashboardHeaderButton(layout: layout)
+                    .padding(.top, layout.headerVerticalPadding)
+                    .padding(.trailing, layout.headerHorizontalPadding)
+            }
+        }
         .scoreboardPopoverTip(dashboardHeaderTip(layout: layout), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
     }
 
@@ -6658,16 +6680,18 @@ struct ContentView: View {
                 companionHeaderButton(layout: layout)
             }
             settingsHeaderButton(layout: layout)
+            hideDashboardHeaderButton(layout: layout)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         #else
-        HStack(spacing: 0) {
+        HStack(spacing: 10) {
             Spacer(minLength: 0)
+            let actionCount = 2 + (store.isCompanionVisible ? 1 : 0)
 
             LazyVGrid(
                 columns: Array(
                     repeating: GridItem(.flexible(), spacing: 10),
-                    count: max(1, min(layout.headerActionColumns, store.isCompanionVisible ? 3 : 2))
+                    count: max(1, min(layout.headerActionColumns, actionCount))
                 ),
                 spacing: 10
             ) {
@@ -6678,6 +6702,10 @@ struct ContentView: View {
                 settingsHeaderButton(layout: layout)
             }
             .frame(maxWidth: layout.headerActionWidth, alignment: .trailing)
+
+            if !isIPhoneInterface {
+                hideDashboardHeaderButton(layout: layout)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         #endif
@@ -6732,6 +6760,38 @@ struct ContentView: View {
                 .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    private func hideDashboardHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDashboardHeaderHidden = true
+            }
+        } label: {
+            Image(systemName: "chevron.up")
+                .font(layout.headerToggleIconFont)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(width: layout.headerToggleButtonSize, height: layout.headerToggleButtonSize)
+                .background(themePalette.dashboardNeutralButton, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Hide Top Bar"))
+    }
+
+    private func showDashboardHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDashboardHeaderHidden = false
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(layout.headerToggleIconFont)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(width: layout.headerToggleButtonSize, height: layout.headerToggleButtonSize)
+                .background(themePalette.dashboardNeutralButton, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Show Top Bar"))
     }
 
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
@@ -12319,6 +12379,8 @@ private struct InterfaceLayout {
     var headerBadgeHorizontalPadding: CGFloat { denseControls ? 10 : isTabletSized ? 9 : 12 }
     var headerBadgeVerticalPadding: CGFloat { denseControls ? 6 : isTabletSized ? 5 : 8 }
     var headerActionVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 10 }
+    var headerToggleButtonSize: CGFloat { denseControls ? 34 : 38 }
+    var headerToggleIconFont: Font { denseControls ? .subheadline.weight(.bold) : .headline.weight(.bold) }
     var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
 

@@ -4967,6 +4967,16 @@
         }
       }
     },
+    "Hide Top Bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏顶部栏"
+          }
+        }
+      }
+    },
     "Guest" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10148,6 +10158,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示队伍标志"
+          }
+        }
+      }
+    },
+    "Show Top Bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示顶部栏"
           }
         }
       }
