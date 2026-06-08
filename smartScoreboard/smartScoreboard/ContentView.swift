@@ -8963,7 +8963,7 @@ struct ContentView: View {
                             ActionDescriptor(title: "+1s", tint: tint, foreground: .white) {
                                 store.adjustPenaltyTimer(for: side, timerID: timer.id, by: 1)
                             },
-                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white) {
                                 pendingGameConfirmation = .clearPenalty(side, timer.id)
                             }
                         ],
@@ -11500,11 +11500,9 @@ struct ContentView: View {
         }.count
 
         return localizedAppFormat(
-            "Remote Display %d/%d (%d paired %d connected)",
+            "Remote Display %d/%d",
             connectedDisplayCount,
-            pairedDisplayCount,
-            pairedDisplayCount,
-            connectedDisplayCount
+            pairedDisplayCount
         )
     }
 

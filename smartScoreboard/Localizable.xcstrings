@@ -8021,12 +8021,12 @@
         }
       }
     },
-    "Remote Display %d/%d (%d paired %d connected)" : {
+    "Remote Display %d/%d" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "远程显示 %1$d/%2$d（%3$d 已配对，%4$d 已连接）"
+            "value" : "远程显示 %1$d/%2$d"
           }
         }
       }
@@ -8891,7 +8891,14 @@
       }
     },
     "Rotate iPhone to landscape to use Debate Designer." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将 iPhone 旋转至横屏以使用辩论设计器。"
+          }
+        }
+      }
     },
     "Round" : {
       "localizations" : {
@@ -11371,7 +11378,14 @@
       }
     },
     "The control board is easier to use in landscape mode. Rotate iPhone for wider controls and fewer stacked panels." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制面板在横屏模式下更易使用。旋转 iPhone 可获得更宽的控件空间，并减少堆叠面板。"
+          }
+        }
+      }
     },
     "This debate format includes Dual Clock segments. Those blocks run separate side clocks, starting from the configured side and optionally allowing operators to switch active sides during the segment." : {
       "localizations" : {
@@ -12137,7 +12151,14 @@
       }
     },
     "Use landscape on iPhone" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 iPhone 上使用横屏"
+          }
+        }
+      }
     },
     "Use Logs to review the sequence of actions captured during a scoreboard run. Sessions can be inspected for audit or replay context, exported for review, or removed when they are no longer needed." : {
       "localizations" : {
