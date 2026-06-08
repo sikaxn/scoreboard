@@ -747,6 +747,7 @@ struct ContentView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
     }
 
@@ -771,6 +772,7 @@ struct ContentView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
     }
 
@@ -874,14 +876,7 @@ struct ContentView: View {
     }
 
     private func settingsPageTip(_ message: String, title: String = "Page Overview", systemImage: String = "lightbulb") -> some View {
-        scoreboardInlineTip(
-            ScoreboardTips.ParagraphTip(
-                id: scoreboardTipID(prefix: "settings.page", message: "\(title).\(message)"),
-                titleText: title,
-                messageText: message,
-                systemImage: systemImage
-            )
-        )
+        settingsGuidanceRow(title: title, message: message, systemImage: systemImage)
     }
 
     @ViewBuilder
@@ -889,15 +884,36 @@ struct ContentView: View {
         if store.areTipsEnabled {
             let title = settingsOptionTipTitle(for: message)
             let resolvedSystemImage = settingsOptionTipSystemImage(for: message, fallback: systemImage)
-            scoreboardInlineTip(
-                ScoreboardTips.ParagraphTip(
-                    id: scoreboardTipID(prefix: "settings.option", message: message),
-                    titleText: title,
-                    messageText: message,
-                    systemImage: resolvedSystemImage
-                )
-            )
+            settingsGuidanceRow(title: title, message: message, systemImage: resolvedSystemImage)
         }
+    }
+
+    private func settingsGuidanceRow(title: String, message: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(settingsPalette.accent)
+                .frame(width: 30, height: 30)
+                .background(settingsPalette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText(title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                Text(localizedAppString(message))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(settingsPalette.cardBorder, lineWidth: 1)
+        )
     }
 
     private func settingsOptionTipTitle(for message: String) -> String {
