@@ -12,6 +12,7 @@ enum ScoreboardTips {
     static let shotClockControls = ShotClockControlsTip()
     static let playerShortcut = PlayerShortcutTip()
     static let resetInterlock = ResetInterlockTip()
+    static let iPhoneLandscape = IPhoneLandscapeTip()
     static let players = PlayersTip()
     static let filesAndLogs = FilesAndLogsTip()
     static let integrations = IntegrationsTip()
@@ -27,6 +28,7 @@ enum ScoreboardTips {
         shotClockControls,
         playerShortcut,
         resetInterlock,
+        iPhoneLandscape,
         players,
         filesAndLogs,
         integrations,
@@ -117,6 +119,13 @@ enum ScoreboardTips {
         var title: Text { ScoreboardTips.localizedText("Pause before resetting") }
         var message: Text? { ScoreboardTips.localizedText("Reset buttons stay locked while timers are running so live games are not reset accidentally.") }
         var image: Image? { Image(systemName: "lock.shield") }
+        var options: [any TipOption] { Tips.MaxDisplayCount(1) }
+    }
+
+    struct IPhoneLandscapeTip: Tip {
+        var title: Text { ScoreboardTips.localizedText("Use landscape on iPhone") }
+        var message: Text? { ScoreboardTips.localizedText("The control board is easier to use in landscape mode. Rotate iPhone for wider controls and fewer stacked panels.") }
+        var image: Image? { Image(systemName: "iphone.landscape") }
         var options: [any TipOption] { Tips.MaxDisplayCount(1) }
     }
 

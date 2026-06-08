@@ -77,6 +77,7 @@ struct ContentView: View {
     @State private var isGettingStartedAutoPresentation = false
     @State private var tipHistoryResetGeneration = UserDefaults.standard.integer(forKey: Self.tipHistoryResetGenerationKey)
     @State private var selectedSettingsPane: SettingsPane = .game
+    @State private var isSettingsSidebarCollapsed = false
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
     @State private var renameGameFileNameDraft = ""
@@ -129,6 +130,13 @@ struct ContentView: View {
         settingsKeyboardHeight > 0 ? min(88, max(24, settingsKeyboardHeight * 0.18)) : 0
         #else
         0
+        #endif
+    }
+    private var isIPhoneInterface: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
         #endif
     }
     private var homeTint: Color { themePalette.homeAccent }
@@ -625,20 +633,39 @@ struct ContentView: View {
     }
 
     private func settingsSetupScreen(layout: InterfaceLayout) -> some View {
-        HStack(spacing: 0) {
-            settingsSidebar(layout: layout)
-                .frame(width: max(220, min(layout.size.width * 0.24, 280)))
+        let usesCompactNavigation = layout.settingsUsesCompactNavigation || isSettingsSidebarCollapsed
+        let shellCornerRadius = layout.settingsShellCornerRadius
+        let shellContent: AnyView
 
-            settingsDetailPane(layout: layout)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if usesCompactNavigation {
+            shellContent = AnyView(
+                VStack(spacing: 0) {
+                    settingsCompactNavigationBar(layout: layout, showsSidebarToggle: !layout.settingsUsesCompactNavigation)
+
+                    settingsDetailPane(layout: layout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            )
+        } else {
+            shellContent = AnyView(
+                HStack(spacing: 0) {
+                    settingsSidebar(layout: layout)
+                        .frame(width: layout.settingsSidebarWidth)
+
+                    settingsDetailPane(layout: layout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            )
         }
+
+        return shellContent
         .background(settingsPalette.shellBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: shellCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
+            RoundedRectangle(cornerRadius: shellCornerRadius, style: .continuous)
                 .strokeBorder(settingsPalette.divider)
         )
-        .padding(layout.outerPadding)
+        .padding(layout.settingsOuterPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -680,6 +707,21 @@ struct ContentView: View {
                         .background(settingsPalette.secondaryButtonBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSettingsSidebarCollapsed = true
+                    }
+                } label: {
+                    Label(localizedAppString("Hide Sidebar"), systemImage: "sidebar.leading")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(localizedAppString("Hide Settings Sidebar"))
             }
             .padding(.horizontal, 24)
             .padding(.top, 12)
@@ -694,12 +736,88 @@ struct ContentView: View {
         }
     }
 
+    private func settingsCompactNavigationBar(layout: InterfaceLayout, showsSidebarToggle: Bool) -> some View {
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(SettingsPane.allCases) { pane in
+                    Button {
+                        selectSettingsPane(pane)
+                    } label: {
+                        Label(localizedAppString(pane.title), systemImage: pane.systemImage)
+                    }
+                    .disabled(!isSettingsPaneEnabled(pane))
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: selectedSettingsPane.systemImage)
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 22)
+
+                    localizedAppText(selectedSettingsPane.title)
+                        .font(.headline.weight(.bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .layoutPriority(1)
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.black))
+                }
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(localizedAppString("Settings Section"))
+
+            if showsSidebarToggle {
+                settingsCompactNavigationIconButton("Show Sidebar", systemImage: "sidebar.leading") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSettingsSidebarCollapsed = false
+                    }
+                }
+            }
+
+            settingsCompactNavigationIconButton(
+                store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board",
+                systemImage: store.didCompleteSetup ? "play.rectangle.fill" : "play.fill"
+            ) {
+                openSetupGame()
+            }
+        }
+        .padding(.horizontal, layout.settingsCompactNavigationHorizontalPadding)
+        .padding(.vertical, layout.settingsCompactNavigationVerticalPadding)
+        .background(settingsPalette.sidebarBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(settingsPalette.divider)
+                .frame(height: 1)
+        }
+    }
+
+    private func settingsCompactNavigationIconButton(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(settingsPalette.primaryText)
+                .frame(width: 44, height: 44)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
+    }
+
     private func settingsSidebarButton(_ pane: SettingsPane) -> some View {
         let isEnabled = isSettingsPaneEnabled(pane)
         return Button {
-            guard isEnabled else { return }
-            focusedSettingsTextFieldID = nil
-            selectedSettingsPane = pane
+            selectSettingsPane(pane)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: pane.systemImage)
@@ -724,11 +842,17 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private func selectSettingsPane(_ pane: SettingsPane) {
+        guard isSettingsPaneEnabled(pane) else { return }
+        focusedSettingsTextFieldID = nil
+        selectedSettingsPane = pane
+    }
+
     private func settingsDetailPane(layout: InterfaceLayout) -> some View {
         Group {
             if selectedSettingsPane == .files {
                 settingsLibraryDetailPane(layout: layout)
-            } else if selectedSettingsPane == .logs {
+            } else if selectedSettingsPane == .logs, !layout.settingsUsesCompactNavigation {
                 settingsFixedManagerDetailPane(layout: layout)
             } else {
                 settingsScrollableDetailPane(layout: layout)
@@ -739,12 +863,12 @@ struct ContentView: View {
 
     private func settingsLibraryDetailPane(layout: InterfaceLayout) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                settingsPaneHeader
+            VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
+                settingsPaneHeader(layout: layout)
                 settingsPaneIntroTip
                 settingsFilesPane(layout: layout, fillsAvailableHeight: false)
             }
-            .padding(28)
+            .padding(layout.settingsDetailPadding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .id(selectedSettingsPane.id)
@@ -752,40 +876,44 @@ struct ContentView: View {
     }
 
     private func settingsFixedManagerDetailPane(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            settingsPaneHeader
+        VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
+            settingsPaneHeader(layout: layout)
             settingsPaneIntroTip
             settingsPaneContent(layout: layout)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(28)
+        .padding(layout.settingsDetailPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func settingsScrollableDetailPane(layout: InterfaceLayout) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                settingsPaneHeader
+            VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
+                settingsPaneHeader(layout: layout)
                 settingsPaneIntroTip
                 settingsPaneContent(layout: layout)
             }
-            .padding(28)
+            .padding(layout.settingsDetailPadding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
     }
 
-    private var settingsPaneHeader: some View {
+    private func settingsPaneHeader(layout: InterfaceLayout) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 localizedAppText(selectedSettingsPane.title)
-                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .font(.system(size: layout.settingsHeaderTitleSize, weight: .black, design: .rounded))
                     .foregroundStyle(settingsPalette.primaryText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
 
                 localizedAppText(selectedSettingsPane.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(settingsPalette.secondaryText)
+                    .lineLimit(layout.settingsUsesCompactNavigation ? 3 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
@@ -1037,6 +1165,9 @@ struct ContentView: View {
 
     private func settingsGamePane(layout: InterfaceLayout) -> AnyView {
         if isDebateDesignerVisible {
+            if debateDesignerRequiresLandscape(layout: layout) {
+                return AnyView(debateDesignerLandscapeRequiredPage(layout: layout))
+            }
             return AnyView(debateDesignerPage(layout: layout))
         }
 
@@ -1047,7 +1178,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 22) {
             settingsGameIdentitySections(layout: layout)
             settingsSportSetupGuidanceTip
-            settingsGameRulesSections()
+            settingsGameRulesSections(layout: layout)
             settingsSubstitutionTrackingSection()
         }
     }
@@ -1073,11 +1204,11 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func settingsGameRulesSections() -> some View {
+    private func settingsGameRulesSections(layout: InterfaceLayout) -> some View {
         if setupSport == .custom {
             customSportSettingsSections()
         } else if setupSport == .debate {
-            debateSettingsSections()
+            debateSettingsSections(layout: layout)
         } else {
             builtInSportGameSettingsSection()
         }
@@ -1401,7 +1532,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func debateSettingsSections() -> some View {
+    private func debateSettingsSections(layout: InterfaceLayout) -> some View {
         settingsSection(title: "General", footer: "Choose the debate format, round title, side labels, and whether score is tracked.") {
             settingsOptionTip("Use General to choose the debate format, label each side, and decide whether the round has score tracking. Presets fill in standard flows, while Custom Debate lets you design a format for this event.", systemImage: "quote.bubble")
             settingsPickerRow(
@@ -1413,7 +1544,7 @@ struct ContentView: View {
             }
             if setupDebatePresetID == DebatePreset.customID {
                 settingsDivider()
-                debateDesignerLauncherRow()
+                debateDesignerLauncherRow(layout: layout)
                 settingsDivider()
                 settingsTextEntryRow(
                     title: "Format Title",
@@ -1471,32 +1602,53 @@ struct ContentView: View {
         }
     }
 
-    private func debateDesignerLauncherRow() -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "square.grid.2x2")
-                .font(.title3.weight(.black))
-                .foregroundStyle(settingsPalette.accent)
-                .frame(width: 42, height: 42)
-                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    private func debateDesignerLauncherRow(layout: InterfaceLayout) -> some View {
+        let requiresLandscape = debateDesignerRequiresLandscape(layout: layout)
 
-            VStack(alignment: .leading, spacing: 4) {
-                localizedAppText("Debate Designer")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(settingsPalette.primaryText)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.title3.weight(.black))
+                    .foregroundStyle(settingsPalette.accent)
+                    .frame(width: 42, height: 42)
+                    .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                Text(localizedAppFormat("%lld blocks · %@ speech time", setupCustomDebatePreset.segments.count, formatClock(debateTotalDurationSeconds(setupCustomDebatePreset))))
-                    .font(.subheadline)
-                    .foregroundStyle(settingsPalette.secondaryText)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 4) {
+                    localizedAppText("Debate Designer")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Text(localizedAppFormat("%lld blocks · %@ speech time", setupCustomDebatePreset.segments.count, formatClock(debateTotalDurationSeconds(setupCustomDebatePreset))))
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                settingsCompactIconButton(
+                    "Open Designer",
+                    systemImage: "arrow.right",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: !requiresLandscape
+                ) {
+                    openDebateDesigner()
+                }
             }
 
-            Spacer(minLength: 0)
-
-            settingsCompactIconButton("Open Designer", systemImage: "arrow.right", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                openDebateDesigner()
+            if requiresLandscape {
+                Text("Rotate iPhone to landscape to use Debate Designer.")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 12)
+    }
+
+    private func debateDesignerRequiresLandscape(layout: InterfaceLayout) -> Bool {
+        isIPhoneInterface && layout.size.height >= layout.size.width
     }
 
     private func debateSegmentPreviewList(preset: DebatePreset) -> some View {
@@ -1555,6 +1707,34 @@ struct ContentView: View {
             debateDesignerTemplatesSection(layout: layout)
             debateDesignerFormatSection()
             debateDesignerSegmentsSection()
+        }
+    }
+
+    private func debateDesignerLandscapeRequiredPage(layout _: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            debateDesignerHeader()
+
+            settingsSection(title: "Landscape Required", footer: "Debate Designer remains available on iPhone after rotating to landscape.") {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "iphone.landscape")
+                        .font(.title2.weight(.black))
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 44, height: 44)
+                        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        localizedAppText("Rotate iPhone")
+                            .font(.body.weight(.bold))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        localizedAppText("Debate Designer needs the wider landscape layout for segment editing, timers, side controls, and action buttons.")
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 10)
+            }
         }
     }
 
@@ -2540,7 +2720,7 @@ struct ContentView: View {
 
     private func settingsFilesPane(layout: InterfaceLayout, fillsAvailableHeight: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            settingsBackupSection()
+            settingsBackupSection(layout: layout)
 
             settingsTwoColumnLayout(
                 layout: layout,
@@ -2562,7 +2742,7 @@ struct ContentView: View {
         }
     }
 
-    private func settingsBackupSection() -> some View {
+    private func settingsBackupSection(layout: InterfaceLayout) -> some View {
         settingsSection(title: "App Backup", footer: "Back up or restore app settings, current game state, stored game files, and log sessions. Remote Display pairings are excluded; pair displays again after restoring on another device.") {
             HStack(spacing: 16) {
                 localizedAppText("Full App Backup")
@@ -2570,64 +2750,81 @@ struct ContentView: View {
 
                 Spacer(minLength: 0)
 
-                HStack(spacing: 10) {
-                    #if os(macOS)
-                    Menu {
-                        Button {
-                            prepareFullBackup(destination: .file)
-                        } label: {
-                            Label("Save to File", systemImage: "folder")
-                        }
-
-                        Button {
-                            prepareFullBackup(destination: .share)
-                        } label: {
-                            Label("System Share", systemImage: "square.and.arrow.up")
-                        }
-                    } label: {
-                        Label("Backup", systemImage: "externaldrive")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(settingsPalette.accentText)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(settingsPalette.accent, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    #else
-                    settingsIconButton("Backup", systemImage: "externaldrive", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
-                        prepareFullBackup(destination: .share)
-                    }
-                    #endif
-
-                    settingsIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
-                        beginBackupRestore()
-                    }
-                }
+                settingsBackupActions(layout: layout)
             }
             .padding(.vertical, 10)
         }
     }
 
+    @ViewBuilder
+    private func settingsBackupActions(layout: InterfaceLayout) -> some View {
+        HStack(spacing: layout.settingsUsesCompactNavigation ? 8 : 10) {
+            if layout.settingsUsesCompactNavigation {
+                settingsToolbarIconButton("Backup", systemImage: "externaldrive", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    prepareFullBackup(destination: .share)
+                }
+
+                settingsToolbarIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
+                    beginBackupRestore()
+                }
+            } else {
+                #if os(macOS)
+                Menu {
+                    Button {
+                        prepareFullBackup(destination: .file)
+                    } label: {
+                        Label("Save to File", systemImage: "folder")
+                    }
+
+                    Button {
+                        prepareFullBackup(destination: .share)
+                    } label: {
+                        Label("System Share", systemImage: "square.and.arrow.up")
+                    }
+                } label: {
+                    Label("Backup", systemImage: "externaldrive")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(settingsPalette.accentText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(settingsPalette.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                #else
+                settingsIconButton("Backup", systemImage: "externaldrive", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                    prepareFullBackup(destination: .share)
+                }
+                #endif
+
+                settingsIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
+                    beginBackupRestore()
+                }
+            }
+        }
+    }
+
     private func settingsLogsPane(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let fillsManagerHeight = !layout.settingsTwoColumnUsesVerticalFlow
+
+        return VStack(alignment: .leading, spacing: 18) {
             settingsTwoColumnLayout(
                 layout: layout,
                 primaryColumnWidth: layout.settingsFileManagerPrimaryColumnWidth,
-                fillsHeight: true
+                fillsHeight: fillsManagerHeight
             ) {
-                settingsFileManagerPanel(title: "Sessions") {
+                settingsFileManagerPanel(title: "Sessions", fillsHeight: fillsManagerHeight) {
                     settingsLogSessionManagerToolbar
                 } content: {
                     settingsLogSessionManagerList()
                 }
             } right: {
-                settingsFileManagerPanel(title: "Playback") {
+                settingsFileManagerPanel(title: "Playback", fillsHeight: fillsManagerHeight) {
                     settingsLogPlaybackToolbar
                 } content: {
                     settingsLogPlaybackDetailPane
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: fillsManagerHeight ? .infinity : nil)
         }
     }
 
@@ -2801,8 +2998,8 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsRemoteDisplayThisDeviceSection() -> some View {
         #if !os(tvOS)
-        settingsSection(title: "Remote Display Mode", footer: "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen.") {
-            settingsOptionTip("Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available.", systemImage: "rectangle.on.rectangle")
+        settingsSection(title: "Remote Display Mode", footer: remoteDisplayViewerModeFooter) {
+            settingsOptionTip(remoteDisplayViewerModeTip, systemImage: "rectangle.on.rectangle")
             settingsButtonRow(
                 title: "Enter Remote Display Mode",
                 buttonTitle: "Enter",
@@ -2810,6 +3007,23 @@ struct ContentView: View {
                 foreground: settingsPalette.accentText
             ) {
                 store.setRemoteDisplayViewerModeEnabled(true)
+            }
+
+            if isIPhoneInterface {
+                settingsDivider()
+                Text("iPhone can enter Remote Display Mode. In portrait, keep this screen available for the pairing code; if an external display is connected, it will show the remote scoreboard output.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 10)
+
+                Text("Some scoreboard content, including player lists and longer text, may not display fully on the iPhone screen because of the limited space. For the best viewing experience, connect an external display.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 10)
             }
 
             #if os(macOS)
@@ -2826,6 +3040,20 @@ struct ContentView: View {
             #endif
         }
         #endif
+    }
+
+    private var remoteDisplayViewerModeFooter: String {
+        if isIPhoneInterface {
+            return "Remote Display Mode replaces the operator interface. On iPhone, portrait can show the pairing code while a connected external display shows the scoreboard."
+        }
+        return "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen."
+    }
+
+    private var remoteDisplayViewerModeTip: String {
+        if isIPhoneInterface {
+            return "Use Remote Display Mode on iPhone when the phone should show the pairing code or drive a connected external display. For the phone screen itself, landscape still gives the scoreboard more room."
+        }
+        return "Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available."
     }
 
     private func settingsRemoteDisplayAboutSection() -> some View {
@@ -6118,6 +6346,7 @@ struct ContentView: View {
         systemImage: String,
         tint: Color,
         foreground: Color,
+        isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -6125,6 +6354,8 @@ struct ContentView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.42)
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel(localizedAppString(title))
         .help(localizedAppString(title))
@@ -6346,7 +6577,18 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
-        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
+        .scoreboardPopoverTip(dashboardHeaderTip(layout: layout), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
+    }
+
+    private func dashboardHeaderTip(layout: InterfaceLayout) -> (any Tip)? {
+        if shouldShowIPhonePortraitLandscapeTip(layout: layout) {
+            return ScoreboardTips.iPhoneLandscape
+        }
+        return dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard)
+    }
+
+    private func shouldShowIPhonePortraitLandscapeTip(layout: InterfaceLayout) -> Bool {
+        isIPhoneInterface && layout.size.height > layout.size.width && dashboardPage == .main
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
@@ -6656,6 +6898,14 @@ struct ContentView: View {
                     systemImage: "eye",
                     layout: layout
                 )
+
+                if isIPhoneInterface {
+                    dashboardInlineTip(
+                        "On iPhone, this preview may not look correct because the screen is small. For the best viewing experience and the most accurate public display check, connect an external display.",
+                        systemImage: "iphone.and.arrow.forward",
+                        layout: layout
+                    )
+                }
 
                 previewPanel(
                     title: "External Scoreboard",
@@ -12125,6 +12375,27 @@ private struct InterfaceLayout {
     var previewPanelPadding: CGFloat { denseControls ? 16 : isCompactWidth ? 18 : 24 }
     var previewHeaderUsesVerticalFlow: Bool { isCompactWidth }
     var previewUsesCompactBoard: Bool { width < 1280 || height < 780 }
+    var settingsUsesCompactNavigation: Bool { width < 700 }
+    var settingsOuterPadding: CGFloat {
+        if width < 430 { return 8 }
+        if width < 700 { return 10 }
+        return outerPadding
+    }
+    var settingsShellCornerRadius: CGFloat { width < 430 ? 20 : 30 }
+    var settingsSidebarWidth: CGFloat { max(220, min(width * 0.24, 280)) }
+    var settingsCompactNavigationHorizontalPadding: CGFloat { width < 430 ? 10 : 14 }
+    var settingsCompactNavigationVerticalPadding: CGFloat { width < 430 ? 8 : 12 }
+    var settingsDetailPadding: CGFloat {
+        if width < 430 { return 14 }
+        if width < 700 { return 18 }
+        return 28
+    }
+    var settingsDetailSpacing: CGFloat { width < 700 ? 18 : 24 }
+    var settingsHeaderTitleSize: CGFloat {
+        if width < 430 { return 24 }
+        if width < 700 { return 26 }
+        return 30
+    }
     var settingsFileManagerPrimaryColumnWidth: CGFloat {
         if width < 860 { return 240 }
         if width < 1180 { return 300 }
@@ -12371,6 +12642,10 @@ struct ContentView_Previews: PreviewProvider {
             ContentView()
                 .frame(width: 744, height: 1133)
                 .previewDisplayName("iPad Narrow")
+
+            ContentView()
+                .frame(width: 393, height: 852)
+                .previewDisplayName("iPhone")
         }
         .environmentObject(ScoreboardStore.shared)
         .environmentObject(PublicBoardState.shared)

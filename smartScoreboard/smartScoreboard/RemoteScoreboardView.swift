@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 private func localizedRemoteDisplayString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
@@ -62,34 +65,42 @@ struct RemoteScoreboardView: View {
                     GeometryReader { proxy in
                         let displaySize = proxy.size
 
-                        ZStack(alignment: .topTrailing) {
-                            RemoteScoreboardFace(
-                                state: state,
-                                backgroundImageData: receiver.imageData(for: state.display?.backgroundImage?.id),
-                                homeLogoData: receiver.imageData(for: state.teams.home.logo?.id),
-                                guestLogoData: receiver.imageData(for: state.teams.guest.logo?.id),
-                                eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
-                                lastReceivedAt: receiver.lastReceivedAt,
-                                masterClockOffset: receiver.masterClockOffset,
-                                now: timeline.date,
-                                usesExternalDisplayDirection: usesExternalDisplayDirection
+                        if shouldShowIPhonePortraitLandscapePrompt(in: displaySize) {
+                            RemoteDisplayIPhoneLandscapePrompt(
+                                health: health,
+                                returnToConfiguration: { showsConfiguration = true },
+                                exitRemoteDisplayMode: exitRemoteDisplayMode
                             )
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .focusable(true)
-                            .onTapGesture {
-                                if showsPairingControls {
-                                    showsConfiguration = true
+                        } else {
+                            ZStack(alignment: .topTrailing) {
+                                RemoteScoreboardFace(
+                                    state: state,
+                                    backgroundImageData: receiver.imageData(for: state.display?.backgroundImage?.id),
+                                    homeLogoData: receiver.imageData(for: state.teams.home.logo?.id),
+                                    guestLogoData: receiver.imageData(for: state.teams.guest.logo?.id),
+                                    eventLogoData: receiver.imageData(for: state.display?.eventLogo?.id),
+                                    lastReceivedAt: receiver.lastReceivedAt,
+                                    masterClockOffset: receiver.masterClockOffset,
+                                    now: timeline.date,
+                                    usesExternalDisplayDirection: usesExternalDisplayDirection
+                                )
+                                .ignoresSafeArea()
+                                .contentShape(Rectangle())
+                                .focusable(true)
+                                .onTapGesture {
+                                    if showsPairingControls {
+                                        showsConfiguration = true
+                                    }
                                 }
-                            }
 
-                            RemoteDisplayLiveBadge(health: health) {
-                                if showsPairingControls {
-                                    showsConfiguration = true
+                                RemoteDisplayLiveBadge(health: health) {
+                                    if showsPairingControls {
+                                        showsConfiguration = true
+                                    }
                                 }
+                                .padding(.top, PublicScoreboardDisplayView.dateTimeOverlayTopInset(in: displaySize))
+                                .padding(.trailing, PublicScoreboardDisplayView.dateTimeOverlayHorizontalInset(in: displaySize))
                             }
-                            .padding(.top, PublicScoreboardDisplayView.dateTimeOverlayTopInset(in: displaySize))
-                            .padding(.trailing, PublicScoreboardDisplayView.dateTimeOverlayHorizontalInset(in: displaySize))
                         }
                     }
                 }
@@ -178,6 +189,17 @@ struct RemoteScoreboardView: View {
     private func clearSleepPolicy() {
         AppSleepPrevention.setReason(.receiverRemoteDisplayConnected(sleepPolicyViewID), active: false)
         AppSleepPrevention.setReason(.remoteScoreboardVisible(sleepPolicyViewID), active: false)
+    }
+
+    private func shouldShowIPhonePortraitLandscapePrompt(in size: CGSize) -> Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+            && showsPairingControls
+            && !usesExternalDisplayDirection
+            && size.height > size.width
+        #else
+        false
+        #endif
     }
 }
 
@@ -720,25 +742,23 @@ private struct RemoteDisplayConfigurationView: View {
 
             GeometryReader { proxy in
                 let usesStackedLayout = proxy.size.width < stackedLayoutBreakpoint
+                let usesCompactContent = usesCompactConfigurationContent(in: proxy.size)
 
                 Group {
                     if usesStackedLayout {
-                        VStack(spacing: 24) {
-                            RemoteDisplayAboutHeader()
-                            pairingPanel
-                        }
+                        stackedConfigurationLayout(isCompact: usesCompactContent, size: proxy.size)
                     } else {
                         HStack(alignment: .center, spacing: horizontalSpacing) {
                             RemoteDisplayAboutHeader()
                                 .frame(maxWidth: aboutHeaderMaxWidth, alignment: .leading)
 
-                            pairingPanel
+                            pairingPanel(isCompact: false)
                                 .frame(width: pairingPanelWidth(in: proxy.size.width))
                         }
+                        .padding(configurationPadding)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
                     }
                 }
-                .padding(configurationPadding)
-                .frame(width: proxy.size.width, height: proxy.size.height)
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: receiver.status)
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: receiver.pairingCode)
             }
@@ -799,6 +819,49 @@ private struct RemoteDisplayConfigurationView: View {
         #endif
     }
 
+    private func usesCompactConfigurationContent(in size: CGSize) -> Bool {
+        #if os(tvOS)
+        false
+        #else
+        size.width < 560 || size.height < 620
+        #endif
+    }
+
+    @ViewBuilder
+    private func stackedConfigurationLayout(isCompact: Bool, size: CGSize) -> some View {
+        #if os(tvOS)
+        VStack(spacing: 24) {
+            RemoteDisplayAboutHeader()
+            pairingPanel(isCompact: false)
+        }
+        .padding(configurationPadding)
+        .frame(width: size.width, height: size.height)
+        #else
+        if isCompact {
+            ScrollView {
+                VStack(spacing: 16) {
+                    RemoteDisplayAboutHeader(isCompact: true)
+                    pairingPanel(isCompact: true)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
+            }
+            .safeAreaPadding(.top, 8)
+            .frame(width: size.width, height: size.height)
+        } else {
+            VStack(spacing: 24) {
+                RemoteDisplayAboutHeader()
+                pairingPanel(isCompact: false)
+            }
+            .padding(configurationPadding)
+            .frame(width: size.width, height: size.height)
+        }
+        #endif
+    }
+
     private func pairingPanelWidth(in availableWidth: CGFloat) -> CGFloat {
         #if os(tvOS)
         min(max(availableWidth * 0.36, 430), 620)
@@ -807,23 +870,25 @@ private struct RemoteDisplayConfigurationView: View {
         #endif
     }
 
-    private var pairingPanel: some View {
-        VStack(spacing: 22) {
-            VStack(spacing: 10) {
+    private func pairingPanel(isCompact: Bool) -> some View {
+        VStack(spacing: isCompact ? 16 : 22) {
+            VStack(spacing: isCompact ? 8 : 10) {
                 Text(localizedRemoteDisplayReceiverStatusTitle(receiver.status))
-                    .font(.title2.weight(.semibold))
+                    .font((isCompact ? Font.title3 : Font.title2).weight(.semibold))
                     .foregroundStyle(.white.opacity(0.86))
                     .contentTransition(.opacity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
                 Text(showsPairingControls ? localizedRemoteDisplayReceiverStatusDetail(receiver.status) : passiveDisplayDetail)
-                    .font(.body)
+                    .font(isCompact ? .callout : .body)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if showsPairingControls {
-                VStack(spacing: 10) {
+                VStack(spacing: isCompact ? 8 : 10) {
                     HStack(spacing: 8) {
                         scanningIndicator
                         Text("Pairing Code")
@@ -832,12 +897,16 @@ private struct RemoteDisplayConfigurationView: View {
                     }
 
                     Text(receiver.pairingCode)
-                        .font(.system(size: 82, weight: .black, design: .rounded))
+                        .font(.system(size: isCompact ? 62 : 82, weight: .black, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.42)
+                        .allowsTightening(true)
+                        .frame(maxWidth: .infinity)
                         .contentTransition(.numericText())
-                        .padding(.horizontal, 34)
-                        .padding(.vertical, 18)
+                        .padding(.horizontal, isCompact ? 18 : 34)
+                        .padding(.vertical, isCompact ? 14 : 18)
                         .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
@@ -860,8 +929,8 @@ private struct RemoteDisplayConfigurationView: View {
                 actionControls
             }
         }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 30)
+        .padding(.horizontal, isCompact ? 18 : 34)
+        .padding(.vertical, isCompact ? 20 : 30)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1317,6 +1386,84 @@ private struct RemoteDisplayConnectionSweep: View {
     }
 }
 
+private struct RemoteDisplayIPhoneLandscapePrompt: View {
+    let health: RemoteDisplayConnectionHealth
+    let returnToConfiguration: () -> Void
+    let exitRemoteDisplayMode: (() -> Void)?
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.03, blue: 0.05),
+                    Color(red: 0.04, green: 0.09, blue: 0.08),
+                    .black
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "iphone.landscape")
+                    .font(.system(size: 46, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .frame(width: 76, height: 76)
+                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(.white.opacity(0.16), lineWidth: 1)
+                    )
+
+                VStack(spacing: 10) {
+                    Text("Turn iPhone to Landscape")
+                        .font(.title2.weight(.black))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+
+                    Text("Remote Display is live. Rotate iPhone to show the scoreboard on this screen. A connected external display will keep showing the scoreboard.")
+                        .font(.callout.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 12) {
+                    RemoteDisplayControlButton(
+                        title: "Pairing & Controls",
+                        systemImage: "number.square",
+                        tone: .primary,
+                        action: returnToConfiguration
+                    )
+
+                    if let exitRemoteDisplayMode {
+                        RemoteDisplayControlButton(
+                            title: "Exit Display Mode",
+                            systemImage: "rectangle.portrait.and.arrow.right",
+                            tone: .neutral,
+                            action: exitRemoteDisplayMode
+                        )
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 28)
+            .frame(maxWidth: 430)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .safeAreaPadding(.horizontal, 18)
+        .safeAreaPadding(.vertical, 16)
+        .overlay(alignment: .topTrailing) {
+            RemoteDisplayLiveBadge(health: health, action: returnToConfiguration)
+                .padding(.top, 12)
+                .padding(.trailing, 16)
+        }
+    }
+}
+
 private enum RemoteDisplayControlButtonTone {
     case neutral
     case primary
@@ -1528,6 +1675,8 @@ private struct RemoteDisplayControlButtonStyle: ButtonStyle {
 }
 
 private struct RemoteDisplayAboutHeader: View {
+    var isCompact = false
+
     private var appDisplayName: String {
         "Smart Scoreboard"
     }
@@ -1537,17 +1686,16 @@ private struct RemoteDisplayAboutHeader: View {
     }
 
     var body: some View {
+        if isCompact {
+            compactBody
+        } else {
+            regularBody
+        }
+    }
+
+    private var regularBody: some View {
         HStack(alignment: .center, spacing: 22) {
-            Image("ScoreboardIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 112, height: 112)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
+            appIcon(size: 112, cornerRadius: 24)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Remote Display")
@@ -1577,6 +1725,10 @@ private struct RemoteDisplayAboutHeader: View {
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
 
+                if shouldShowIPhoneNotice {
+                    iPhoneScoreboardFitNotice
+                }
+
                 #if os(tvOS)
                 Text("Apple TV can only act as a Remote Display. It requires the full Smart Scoreboard app on macOS or iPad to pair, control, and run the scoreboard.")
                     .font(.body.weight(.medium))
@@ -1587,6 +1739,73 @@ private struct RemoteDisplayAboutHeader: View {
             .frame(maxWidth: 820, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var compactBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
+                appIcon(size: 76, cornerRadius: 18)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Remote Display")
+                        .font(.subheadline.weight(.black))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .lineLimit(1)
+
+                    Text(appDisplayName)
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .allowsTightening(true)
+
+                    Text(appVersionLine)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.66))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Text("This device is a Remote Display. Enter this pairing code from Settings > Integration > Remote Display on the operator device.")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if shouldShowIPhoneNotice {
+                iPhoneScoreboardFitNotice
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func appIcon(size: CGFloat, cornerRadius: CGFloat) -> some View {
+        Image("ScoreboardIcon")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
+    }
+
+    private var shouldShowIPhoneNotice: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    private var iPhoneScoreboardFitNotice: some View {
+        Text("Some scoreboard content, including player lists and longer text, may not display fully on the iPhone screen because of the limited space. For the best viewing experience, connect an external display.")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.white.opacity(0.68))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
