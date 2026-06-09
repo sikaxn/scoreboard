@@ -211,7 +211,11 @@ struct RemoteScoreboardView: View {
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         #if os(tvOS)
-        if newPhase != .active {
+        if newPhase == .active {
+            receiver.resumeAfterAppLifecycle(networkMode: activeNetworkMode)
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
+        } else {
             showsConfiguration = true
         }
         #else

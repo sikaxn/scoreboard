@@ -771,6 +771,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     static let pairingCodeLength = 4
     private static let heartbeatInterval: TimeInterval = 0.2
     private static let periodicStateSyncInterval: TimeInterval = 1.0
+    private static let reconnectRetryInterval: TimeInterval = 2.0
+    private static let discoveryRefreshInterval: TimeInterval = 1.0
 
     @Published private(set) var status: ScoreboardRemoteDisplayHostStatus = .off
     @Published private(set) var sources: [ScoreboardRemoteDisplaySource] = []
@@ -798,6 +800,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     private var endpointsResettingPairing = Set<NWEndpoint>()
     private var operatorDisconnectedDisplayIDs = Set<String>()
     private var displayInitiatedDisconnectSequence: UInt64 = 0
+    private var lastDiscoveryRefreshAt: Date?
 
     func migrateDisplayDirectionsIfNeeded(areSidesSwapped: Bool) {
         guard ScoreboardRemoteDisplayPairingStore.displayDirectionModelVersion() < ScoreboardStore.displayDirectionModelVersion else {
@@ -823,6 +826,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         self.currentStateProvider = currentStateProvider
         self.currentImageResponsesProvider = currentImageResponsesProvider
         latestStateData = currentStateProvider?(nil) ?? initialState
+        lastDiscoveryRefreshAt = nil
         startBrowser()
         startHeartbeatTimer()
         updateBrowsingStatus()
@@ -848,6 +852,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         operatorDisconnectedDisplayIDs.removeAll()
         displayInitiatedDisconnectNotice = nil
         displayInitiatedDisconnectSequence = 0
+        lastDiscoveryRefreshAt = nil
         status = .off
     }
 
@@ -1112,22 +1117,46 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func startBrowser() {
+        browser?.cancel()
+        browser = nil
         let browser = NWBrowser(
             for: .bonjourWithTXTRecord(type: Self.bonjourServiceType, domain: nil),
             using: ScoreboardRemoteDisplayNetworkTransport.browserParameters(for: networkMode)
         )
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
-            Task { @MainActor [weak self] in
-                self?.handleBrowserResults(results)
+        browser.browseResultsChangedHandler = { [weak self, weak browser] results, _ in
+            Task { @MainActor [weak self, weak browser] in
+                guard let self, self.browser === browser else {
+                    return
+                }
+                self.handleBrowserResults(results)
             }
         }
-        browser.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
-                self?.handleBrowserStateChanged(state)
+        browser.stateUpdateHandler = { [weak self, weak browser] state in
+            Task { @MainActor [weak self, weak browser] in
+                guard let self, self.browser === browser else {
+                    return
+                }
+                self.handleBrowserStateChanged(state)
             }
         }
         self.browser = browser
         browser.start(queue: .main)
+    }
+
+    private func refreshDiscoveryAfterConnectionDrop() {
+        guard browser != nil else {
+            return
+        }
+
+        let now = Date()
+        if let lastDiscoveryRefreshAt,
+           now.timeIntervalSince(lastDiscoveryRefreshAt) < Self.discoveryRefreshInterval {
+            return
+        }
+        lastDiscoveryRefreshAt = now
+        sources.removeAll()
+        startBrowser()
+        updateBrowsingStatus()
     }
 
     private func handleBrowserStateChanged(_ state: NWBrowser.State) {
@@ -1216,12 +1245,11 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             sendMuteState(to: [endpoint])
             sendHeartbeat()
         case .failed(let error):
-            displayConnectionsByEndpoint.removeValue(forKey: endpoint)
-            status = .failed(String(describing: error))
+            handleDroppedConnection(endpoint: endpoint, error: error)
         case .cancelled:
-            displayConnectionsByEndpoint.removeValue(forKey: endpoint)
+            handleDroppedConnection(endpoint: endpoint)
         case .waiting(let error):
-            status = .failed(String(describing: error))
+            handleTransientConnectionWait(endpoint: endpoint, error: error)
         case .setup, .preparing:
             break
         @unknown default:
@@ -1258,8 +1286,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if error != nil {
-                    self.displayConnectionsByEndpoint.removeValue(forKey: endpoint)
-                    self.updateBrowsingStatus()
+                    self.handleDroppedConnection(endpoint: endpoint, error: error)
                     return
                 }
                 if let data, !data.isEmpty {
@@ -1494,7 +1521,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         guard !isConnected(to: source) else {
             return
         }
-        if !force, let lastAttempt = lastTrustedInviteAttemptByID[source.id], Date().timeIntervalSince(lastAttempt) < 5 {
+        if !force, let lastAttempt = lastTrustedInviteAttemptByID[source.id], Date().timeIntervalSince(lastAttempt) < Self.reconnectRetryInterval {
             return
         }
         guard let trustedDisplay = trustedDisplays.first(where: { $0.id == source.id }),
@@ -1734,6 +1761,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         let targetEndpoints = readyEndpoints
         guard !targetEndpoints.isEmpty else {
             updateBrowsingStatus()
+            retryTrustedReconnectsForAvailableSources()
             return
         }
 
@@ -1758,6 +1786,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             sendCurrentState(to: targetEndpoints)
         }
         updateBrowsingStatus()
+        retryTrustedReconnectsForAvailableSources()
     }
 
     private func sendData(_ data: Data, to endpoints: [NWEndpoint]? = nil, completion: ((NWError?) -> Void)? = nil) {
@@ -1772,8 +1801,57 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 continue
             }
             ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { error in
+                if let error {
+                    Task { @MainActor [weak self] in
+                        self?.handleDroppedConnection(endpoint: endpoint, error: error)
+                    }
+                }
                 completion?(error)
             }
+        }
+    }
+
+    private func handleTransientConnectionWait(endpoint: NWEndpoint, error: NWError) {
+        guard var display = displayConnectionsByEndpoint[endpoint], display.lastAckAt == nil else {
+            return
+        }
+        display.isReady = false
+        displayConnectionsByEndpoint[endpoint] = display
+        status = .browsing(displayCount: sources.count, pairedCount: connectedDisplays.count)
+        _ = error
+    }
+
+    private func handleDroppedConnection(endpoint: NWEndpoint, error: NWError? = nil) {
+        guard let display = displayConnectionsByEndpoint.removeValue(forKey: endpoint) else {
+            updateBrowsingStatus()
+            return
+        }
+
+        display.connection.cancel()
+        clearReconnectBookkeeping(for: display, endpoint: endpoint)
+        lastPeriodicStateSyncAt = nil
+        refreshDiscoveryAfterConnectionDrop()
+        updateBrowsingStatus()
+        retryTrustedReconnectsForAvailableSources()
+        _ = error
+    }
+
+    private func clearReconnectBookkeeping(for display: NetworkDisplayConnection, endpoint: NWEndpoint) {
+        let knownIDs = Set([
+            display.displayID,
+            display.pendingTrustedDisplay?.id,
+            sources.first { $0.endpoint == endpoint }?.id
+        ].compactMap { $0 })
+
+        for displayID in knownIDs {
+            invitedPeerIDs.remove(displayID)
+        }
+        endpointsResettingPairing.remove(endpoint)
+    }
+
+    private func retryTrustedReconnectsForAvailableSources() {
+        for source in sources {
+            autoReconnectTrustedDisplayIfNeeded(source)
         }
     }
 
@@ -1824,6 +1902,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 @MainActor
 final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     static let shared = ScoreboardRemoteDisplayReceiver()
+    private static let networkRecoveryInterval: TimeInterval = 1.0
 
     @Published private(set) var status: ScoreboardRemoteDisplayReceiverStatus = .waiting
     @Published private(set) var state: ScoreboardWebAPIState?
@@ -1867,6 +1946,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var isForgettingTrustedHosts = false
     private var requestedImageAssetIDs = Set<String>()
     private var failedPairingAttemptsByHostID: [String: [Date]] = [:]
+    private var lastNetworkRecoveryAt: Date?
     private let soundTestPlayer = BuzzerPlayer()
 
     func acquire(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
@@ -1891,6 +1971,15 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
     }
 
+    func resumeAfterAppLifecycle(networkMode: ScoreboardRemoteDisplayNetworkMode) {
+        self.networkMode = networkMode
+        guard activeConsumerCount > 0 else {
+            return
+        }
+
+        recoverReceiverNetworkingAfterFailure(force: true)
+    }
+
     func start(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
         if listener != nil {
             updateNetworkMode(networkMode)
@@ -1912,6 +2001,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        lastNetworkRecoveryAt = nil
 
         startOrRefreshListener()
         startPairingCodeTimer()
@@ -1943,7 +2033,48 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         masterClockOffset = nil
         imageAssetsByID.removeAll()
         requestedImageAssetIDs.removeAll()
+        lastNetworkRecoveryAt = nil
         status = .disconnected(statusMessage)
+    }
+
+    private func cancelActiveConnections() {
+        for connection in connectionsByID.values {
+            connection.cancel()
+        }
+        connectionsByID.removeAll()
+        pairedConnection = nil
+    }
+
+    private func recoverReceiverNetworkingAfterFailure(error: NWError? = nil, force: Bool = false) {
+        guard activeConsumerCount > 0 else {
+            return
+        }
+
+        let now = Date()
+        if !force, let lastNetworkRecoveryAt,
+           now.timeIntervalSince(lastNetworkRecoveryAt) < Self.networkRecoveryInterval {
+            return
+        }
+
+        lastNetworkRecoveryAt = now
+        let operatorName = pairedHostName ?? lastActiveOperatorName
+        cancelActiveConnections()
+        listener?.cancel()
+        listener = nil
+        listenerNetworkMode = nil
+        pairedHostID = nil
+        pairedHostName = nil
+        isDisconnectingFromOperator = false
+        lastHeartbeatAt = nil
+        masterClockOffset = nil
+        requestedImageAssetIDs.removeAll()
+        status = operatorName.map {
+            .disconnected(localizedRemoteDisplayFormat("Waiting for %@ to reconnect.", $0))
+        } ?? .waiting
+        startPairingCodeTimer()
+        startHeartbeatMonitorTimer()
+        startOrRefreshListener(recreate: true)
+        _ = error
     }
 
     func setPairingScreenVisible(_ isVisible: Bool) {
@@ -2161,14 +2292,21 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         do {
             let listener = try NWListener(using: ScoreboardRemoteDisplayNetworkTransport.parameters(for: networkMode))
             listener.service = currentListenerService()
-            listener.newConnectionHandler = { [weak self] connection in
-                Task { @MainActor [weak self] in
-                    self?.handleNewConnection(connection)
+            listener.newConnectionHandler = { [weak self, weak listener] connection in
+                Task { @MainActor [weak self, weak listener] in
+                    guard let self, self.listener === listener else {
+                        connection.cancel()
+                        return
+                    }
+                    self.handleNewConnection(connection)
                 }
             }
-            listener.stateUpdateHandler = { [weak self] state in
-                Task { @MainActor [weak self] in
-                    self?.handleListenerStateChanged(state)
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                Task { @MainActor [weak self, weak listener] in
+                    guard let self, self.listener === listener else {
+                        return
+                    }
+                    self.handleListenerStateChanged(state)
                 }
             }
             self.listener = listener
@@ -2182,8 +2320,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private func handleListenerStateChanged(_ state: NWListener.State) {
         switch state {
         case .failed(let error):
-            status = .failed(String(describing: error))
-        case .cancelled, .ready, .setup, .waiting:
+            recoverReceiverNetworkingAfterFailure(error: error)
+        case .waiting(let error):
+            if Self.isDefunctNetworkError(error) {
+                recoverReceiverNetworkingAfterFailure(error: error)
+            }
+        case .cancelled, .ready, .setup:
             break
         @unknown default:
             break
@@ -2205,9 +2347,19 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         switch state {
         case .ready:
             receiveNextMessage(from: connection)
-        case .failed, .cancelled:
+        case .failed(let error):
+            if pairedConnection === connection || Self.isDefunctNetworkError(error) {
+                recoverReceiverNetworkingAfterFailure(error: error)
+            } else {
+                removeConnection(connection)
+            }
+        case .cancelled:
             removeConnection(connection)
-        case .waiting, .setup, .preparing:
+        case .waiting(let error):
+            if pairedConnection === connection || Self.isDefunctNetworkError(error) {
+                recoverReceiverNetworkingAfterFailure(error: error)
+            }
+        case .setup, .preparing:
             break
         @unknown default:
             break
@@ -2612,7 +2764,22 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
         for connection in targetConnections {
-            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection)
+            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { [weak self, weak connection] error in
+                guard let error, let connection else {
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    self?.handleControlMessageSendFailure(error, connection: connection)
+                }
+            }
+        }
+    }
+
+    private func handleControlMessageSendFailure(_ error: NWError, connection: NWConnection) {
+        if pairedConnection === connection || Self.isDefunctNetworkError(error) {
+            recoverReceiverNetworkingAfterFailure(error: error)
+        } else {
+            removeConnection(connection)
         }
     }
 
@@ -2638,6 +2805,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private static func makePairingCode() -> String {
         String(format: "%04d", Int.random(in: 0...9999))
+    }
+
+    private static func isDefunctNetworkError(_ error: NWError) -> Bool {
+        let description = String(describing: error)
+        return description.localizedCaseInsensitiveContains("DefunctConnection")
+            || description.contains("-65569")
     }
 
     private static var appDisplayName: String {
