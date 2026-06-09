@@ -89,7 +89,7 @@ enum ScoreboardTips {
 
     struct MatchControlsTip: Tip {
         var title: Text { ScoreboardTips.localizedText("Run the clock and period") }
-        var message: Text? { ScoreboardTips.localizedText("Start or pause the timer, jog time, swap sides, advance periods, and pause before reset actions.") }
+        var message: Text? { ScoreboardTips.localizedText("Run timers, swap sides, advance periods manually when needed, award periods when period wins are enabled, and pause before reset actions.") }
         var image: Image? { Image(systemName: "timer") }
         var options: [any TipOption] { Tips.MaxDisplayCount(1) }
     }
@@ -103,7 +103,7 @@ enum ScoreboardTips {
 
     struct ShotClockControlsTip: Tip {
         var title: Text { ScoreboardTips.localizedText("Manage the short timer") }
-        var message: Text? { ScoreboardTips.localizedText("Assign the active side, start or pause the shot or serve timer, reset it, and adjust it one second at a time.") }
+        var message: Text? { ScoreboardTips.localizedText("Assign the active side, use shot presets or Serve Here, start or pause the shot or serve timer, reset it, and adjust it one second at a time.") }
         var image: Image? { Image(systemName: "timer.circle") }
         var options: [any TipOption] { Tips.MaxDisplayCount(1) }
     }

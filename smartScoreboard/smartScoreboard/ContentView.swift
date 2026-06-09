@@ -1565,7 +1565,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the secondary timer." : "Enable Secondary Timer first to use the possession arrow.") {
-            settingsOptionTip("Use Possession to show which side currently controls play. The arrow is tied to shot-clock workflows, so it becomes available after the custom sport has shot-clock support enabled.", systemImage: "arrow.left.and.right")
+            settingsOptionTip("Use Possession to show which side currently controls play. It is available for custom sports that use the Shot Clock timer type; Serve Timer uses serving side instead.", systemImage: "arrow.left.and.right")
             settingsToggleRow(title: "Possession Arrow", isOn: Binding(
                 get: { setupCustomSportConfig.isPossessionEnabled },
                 set: { setupCustomSportConfig.isPossessionEnabled = $0 }
@@ -7374,7 +7374,7 @@ struct ContentView: View {
             )
         case .volleyball:
             return (
-                "Volleyball controls reflect the match timer, period format, serve timer, substitutions, and player-card choices from setup. Use period-award actions to record winners, reset the rally score, and advance the match.",
+                "Volleyball controls reflect the match timer, period format, serve timer, substitutions, and player-card choices from setup. Use the period-win actions to record winners, reset the rally score, and advance the match.",
                 "person.3"
             )
         case .soccer:
