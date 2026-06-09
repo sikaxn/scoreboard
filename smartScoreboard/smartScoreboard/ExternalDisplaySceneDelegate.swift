@@ -75,7 +75,14 @@ private struct ExternalDisplayRootView: View {
 
     var body: some View {
         if store.isRemoteDisplayViewerModeEnabled {
-            RemoteScoreboardView(showsPairingControls: false, usesExternalDisplayDirection: true)
+            RemoteScoreboardView(
+                networkMode: store.remoteDisplayNetworkMode,
+                setNetworkMode: {
+                    store.setRemoteDisplayNetworkMode($0)
+                },
+                showsPairingControls: false,
+                usesExternalDisplayDirection: true
+            )
         } else {
             ExternalScoreboardView()
                 .environmentObject(store)

@@ -12,9 +12,25 @@ private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...
     String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
 }
 
+private enum RemoteDisplayReceiverNetworkModeStore {
+    private static let key = "smartScoreboard.remoteDisplayReceiverNetworkMode"
+
+    static var mode: ScoreboardRemoteDisplayNetworkMode {
+        get {
+            UserDefaults.standard.string(forKey: key)
+                .flatMap(ScoreboardRemoteDisplayNetworkMode.init(rawValue:)) ?? .nearbyAndLocalNetwork
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: key)
+        }
+    }
+}
+
 struct RemoteScoreboardView: View {
     var exitRemoteDisplayMode: (() -> Void)?
     var openScoreboardWindow: (() -> Void)?
+    var networkMode: ScoreboardRemoteDisplayNetworkMode
+    var setNetworkMode: ((ScoreboardRemoteDisplayNetworkMode) -> Void)?
     var showsPairingControls: Bool
     var usesExternalDisplayDirection: Bool
 
@@ -22,34 +38,47 @@ struct RemoteScoreboardView: View {
     @ObservedObject private var receiver: ScoreboardRemoteDisplayReceiver
     @State private var showsConfiguration = false
     @State private var hasAcquiredReceiver = false
+    @State private var activeNetworkMode: ScoreboardRemoteDisplayNetworkMode
     @State private var sleepPolicyViewID = UUID()
 
     @MainActor
     init(
         exitRemoteDisplayMode: (() -> Void)? = nil,
         openScoreboardWindow: (() -> Void)? = nil,
+        networkMode: ScoreboardRemoteDisplayNetworkMode? = nil,
+        setNetworkMode: ((ScoreboardRemoteDisplayNetworkMode) -> Void)? = nil,
         showsPairingControls: Bool = true,
         usesExternalDisplayDirection: Bool = false
     ) {
+        let resolvedNetworkMode = networkMode ?? RemoteDisplayReceiverNetworkModeStore.mode
         self.receiver = ScoreboardRemoteDisplayReceiver.shared
         self.exitRemoteDisplayMode = exitRemoteDisplayMode
         self.openScoreboardWindow = openScoreboardWindow
+        self.networkMode = resolvedNetworkMode
+        self.setNetworkMode = setNetworkMode
         self.showsPairingControls = showsPairingControls
         self.usesExternalDisplayDirection = usesExternalDisplayDirection
+        _activeNetworkMode = State(initialValue: resolvedNetworkMode)
     }
 
     init(
         receiver: ScoreboardRemoteDisplayReceiver,
         exitRemoteDisplayMode: (() -> Void)? = nil,
         openScoreboardWindow: (() -> Void)? = nil,
+        networkMode: ScoreboardRemoteDisplayNetworkMode? = nil,
+        setNetworkMode: ((ScoreboardRemoteDisplayNetworkMode) -> Void)? = nil,
         showsPairingControls: Bool = true,
         usesExternalDisplayDirection: Bool = false
     ) {
+        let resolvedNetworkMode = networkMode ?? RemoteDisplayReceiverNetworkModeStore.mode
         self.receiver = receiver
         self.exitRemoteDisplayMode = exitRemoteDisplayMode
         self.openScoreboardWindow = openScoreboardWindow
+        self.networkMode = resolvedNetworkMode
+        self.setNetworkMode = setNetworkMode
         self.showsPairingControls = showsPairingControls
         self.usesExternalDisplayDirection = usesExternalDisplayDirection
+        _activeNetworkMode = State(initialValue: resolvedNetworkMode)
     }
 
     var body: some View {
@@ -111,6 +140,8 @@ struct RemoteScoreboardView: View {
                     returnToLive: { showsConfiguration = false },
                     exitRemoteDisplayMode: exitRemoteDisplayMode,
                     openScoreboardWindow: openScoreboardWindow,
+                    networkMode: activeNetworkMode,
+                    setNetworkMode: { applyNetworkMode($0, propagatesToParent: true) },
                     showsPairingControls: showsPairingControls
                 )
             }
@@ -139,6 +170,9 @@ struct RemoteScoreboardView: View {
             updatePairingScreenVisibility()
             updateSleepPolicy()
         }
+        .onChange(of: networkMode) { _, newMode in
+            applyNetworkMode(newMode, propagatesToParent: false)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             handleScenePhaseChange(newPhase)
         }
@@ -149,7 +183,22 @@ struct RemoteScoreboardView: View {
             return
         }
         hasAcquiredReceiver = true
-        receiver.acquire()
+        receiver.acquire(networkMode: activeNetworkMode)
+    }
+
+    private func applyNetworkMode(
+        _ mode: ScoreboardRemoteDisplayNetworkMode,
+        propagatesToParent: Bool
+    ) {
+        guard activeNetworkMode != mode else {
+            return
+        }
+        activeNetworkMode = mode
+        RemoteDisplayReceiverNetworkModeStore.mode = mode
+        receiver.updateNetworkMode(mode)
+        if propagatesToParent {
+            setNetworkMode?(mode)
+        }
     }
 
     private func releaseReceiverIfNeeded() {
@@ -707,6 +756,8 @@ private struct RemoteDisplayConfigurationView: View {
     let returnToLive: () -> Void
     let exitRemoteDisplayMode: (() -> Void)?
     let openScoreboardWindow: (() -> Void)?
+    let networkMode: ScoreboardRemoteDisplayNetworkMode
+    let setNetworkMode: (ScoreboardRemoteDisplayNetworkMode) -> Void
     let showsPairingControls: Bool
     @State private var isForgetPairingConfirmationPresented = false
     #if os(tvOS)
@@ -926,6 +977,7 @@ private struct RemoteDisplayConfigurationView: View {
             }
 
             if showsPairingControls {
+                networkModeControl(isCompact: isCompact)
                 actionControls
             }
         }
@@ -974,6 +1026,75 @@ private struct RemoteDisplayConfigurationView: View {
         #else
         12
         #endif
+    }
+
+    private func networkModeControl(isCompact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: isCompact ? 8 : 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Text("Connection")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    networkModePicker
+                        .frame(maxWidth: networkModePickerMaxWidth)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Connection")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .lineLimit(1)
+
+                    networkModePicker
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            Text(networkMode.detail)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.58))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(isCompact ? 10 : 12)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private var networkModePicker: some View {
+        Picker("Connection", selection: Binding(
+            get: { networkMode },
+            set: setNetworkMode
+        )) {
+            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+                Text(networkModePickerTitle(for: mode)).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var networkModePickerMaxWidth: CGFloat {
+        #if os(tvOS)
+        420
+        #else
+        320
+        #endif
+    }
+
+    private func networkModePickerTitle(for mode: ScoreboardRemoteDisplayNetworkMode) -> String {
+        switch mode {
+        case .localNetworkOnly:
+            return localizedRemoteDisplayString("LAN Only")
+        case .nearbyAndLocalNetwork:
+            return localizedRemoteDisplayString("Nearby")
+        }
     }
 
     private var forgetButtonMaxWidth: CGFloat {

@@ -3076,6 +3076,8 @@ struct ContentView: View {
                 set: { store.setRemoteDisplayHostEnabled($0) }
             ))
             settingsDivider()
+            settingsRemoteDisplayNetworkModeRow()
+            settingsDivider()
             settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
             settingsDivider()
             settingsSummaryValueRow(title: "Connected Displays", value: remoteDisplayConnectedDisplayCountLabel)
@@ -3086,6 +3088,48 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 10)
         }
+    }
+
+    private func settingsRemoteDisplayNetworkModeRow() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    localizedAppText("Connection")
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    Spacer(minLength: 0)
+
+                    remoteDisplayNetworkModePicker
+                        .frame(maxWidth: 360)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    localizedAppText("Connection")
+                        .foregroundStyle(settingsPalette.primaryText)
+
+                    remoteDisplayNetworkModePicker
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            localizedAppText(store.remoteDisplayNetworkMode.detail)
+                .font(.subheadline)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var remoteDisplayNetworkModePicker: some View {
+        Picker("Connection", selection: Binding(
+            get: { store.remoteDisplayNetworkMode },
+            set: { store.setRemoteDisplayNetworkMode($0) }
+        )) {
+            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+                localizedAppText(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
     }
 
     private func settingsRemoteDisplayDisplaysSection(_ displayRows: [RemoteDisplaySettingsRow]) -> some View {

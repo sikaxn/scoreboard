@@ -602,6 +602,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var webAPILocalAddresses: [String] = []
     @Published var isRemoteDisplayHostEnabled = false
     @Published var isRemoteDisplayViewerModeEnabled = false
+    @Published var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     @Published private(set) var remoteDisplayHostStatus: ScoreboardRemoteDisplayHostStatus = .off
     @Published private(set) var remoteDisplaySources: [ScoreboardRemoteDisplaySource] = []
     @Published private(set) var remoteDisplayConnectedDisplays: [ScoreboardRemoteDisplayConnection] = []
@@ -3897,6 +3898,17 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    func setRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
+        guard remoteDisplayNetworkMode != mode else {
+            return
+        }
+        remoteDisplayNetworkMode = mode
+        remoteDisplayWarningNotice = nil
+        if isRemoteDisplayViewerModeEnabled {
+            ScoreboardRemoteDisplayReceiver.shared.updateNetworkMode(mode)
+        }
+    }
+
     func pairRemoteDisplay(
         _ source: ScoreboardRemoteDisplaySource,
         pairingCode: String,
@@ -4128,11 +4140,12 @@ final class ScoreboardStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Publishers.CombineLatest(
+        Publishers.CombineLatest3(
             $isRemoteDisplayHostEnabled.removeDuplicates(),
-            $isRemoteDisplayViewerModeEnabled.removeDuplicates()
+            $isRemoteDisplayViewerModeEnabled.removeDuplicates(),
+            $remoteDisplayNetworkMode.removeDuplicates()
         )
-        .sink { [weak self] isHostEnabled, isViewerModeEnabled in
+        .sink { [weak self] isHostEnabled, isViewerModeEnabled, _ in
             guard let self else { return }
             if isHostEnabled && !isViewerModeEnabled {
                 self.startRemoteDisplayHostService()
@@ -4292,6 +4305,7 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayState(),
             displayName: remoteDisplayHostName,
+            networkMode: remoteDisplayNetworkMode,
             currentStateProvider: { [weak self] displayID in
                 self?.encodedRemoteDisplayState(forDisplayID: displayID) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
             },
@@ -4429,7 +4443,8 @@ final class ScoreboardStore: ObservableObject {
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
             $isRemoteDisplayHostEnabled.map { _ in () }.eraseToAnyPublisher(),
-            $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher()
+            $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $remoteDisplayNetworkMode.map { _ in () }.eraseToAnyPublisher()
         ]
 
         let stateChanges = Publishers.MergeMany(persistencePublishers)
@@ -4633,6 +4648,7 @@ final class ScoreboardStore: ObservableObject {
             webAPIUpdateMode = persistedState.webAPIUpdateMode
             isRemoteDisplayHostEnabled = persistedState.isRemoteDisplayHostEnabled
             isRemoteDisplayViewerModeEnabled = persistedState.isRemoteDisplayViewerModeEnabled
+            remoteDisplayNetworkMode = persistedState.remoteDisplayNetworkMode
             if !currentRules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
@@ -4929,7 +4945,8 @@ final class ScoreboardStore: ObservableObject {
             isWebAPIEnabled: isWebAPIEnabled,
             webAPIUpdateMode: webAPIUpdateMode,
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
-            isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled
+            isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
+            remoteDisplayNetworkMode: remoteDisplayNetworkMode
         )
     }
 
@@ -5172,6 +5189,7 @@ private struct PersistedState: Codable {
     var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
     var isRemoteDisplayHostEnabled: Bool
     var isRemoteDisplayViewerModeEnabled: Bool
+    var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
@@ -5269,6 +5287,7 @@ private struct PersistedState: Codable {
         case webAPIUpdateMode
         case isRemoteDisplayHostEnabled
         case isRemoteDisplayViewerModeEnabled
+        case remoteDisplayNetworkMode
     }
 
     init(
@@ -5362,7 +5381,8 @@ private struct PersistedState: Codable {
         isWebAPIEnabled: Bool,
         webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
         isRemoteDisplayHostEnabled: Bool,
-        isRemoteDisplayViewerModeEnabled: Bool
+        isRemoteDisplayViewerModeEnabled: Bool,
+        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
@@ -5455,6 +5475,7 @@ private struct PersistedState: Codable {
         self.webAPIUpdateMode = webAPIUpdateMode
         self.isRemoteDisplayHostEnabled = isRemoteDisplayHostEnabled
         self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
+        self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
     }
 
     init(from decoder: Decoder) throws {
@@ -5590,6 +5611,7 @@ private struct PersistedState: Codable {
         webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
         isRemoteDisplayHostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayHostEnabled) ?? false
         isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
+        remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
     }
 
     func encode(to encoder: Encoder) throws {
@@ -5686,6 +5708,7 @@ private struct PersistedState: Codable {
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
         try container.encode(isRemoteDisplayHostEnabled, forKey: .isRemoteDisplayHostEnabled)
         try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
+        try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
     }
 }
 
@@ -5790,7 +5813,8 @@ private extension PersistedState {
             isWebAPIEnabled: false,
             webAPIUpdateMode: .fixedInterval,
             isRemoteDisplayHostEnabled: false,
-            isRemoteDisplayViewerModeEnabled: false
+            isRemoteDisplayViewerModeEnabled: false,
+            remoteDisplayNetworkMode: .nearbyAndLocalNetwork
         )
     }
 }

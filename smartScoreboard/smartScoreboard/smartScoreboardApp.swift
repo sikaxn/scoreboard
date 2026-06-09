@@ -62,6 +62,8 @@ struct SmartScoreboardApp: App {
                 if store.isRemoteDisplayViewerModeEnabled {
                     RemoteScoreboardView(exitRemoteDisplayMode: {
                         store.setRemoteDisplayViewerModeEnabled(false)
+                    }, networkMode: store.remoteDisplayNetworkMode, setNetworkMode: {
+                        store.setRemoteDisplayNetworkMode($0)
                     })
                 } else {
                     ContentView()
@@ -92,6 +94,10 @@ private struct MacControlBoardRootView: View {
                 openScoreboardWindow: {
                     publicBoardState.requestFullscreen()
                     openWindow(id: "public-scoreboard")
+                },
+                networkMode: store.remoteDisplayNetworkMode,
+                setNetworkMode: {
+                    store.setRemoteDisplayNetworkMode($0)
                 }
             )
         } else {
@@ -108,7 +114,14 @@ private struct MacPublicScoreboardRootView: View {
 
     var body: some View {
         if store.isRemoteDisplayViewerModeEnabled {
-            RemoteScoreboardView(showsPairingControls: false, usesExternalDisplayDirection: true)
+            RemoteScoreboardView(
+                networkMode: store.remoteDisplayNetworkMode,
+                setNetworkMode: {
+                    store.setRemoteDisplayNetworkMode($0)
+                },
+                showsPairingControls: false,
+                usesExternalDisplayDirection: true
+            )
         } else {
             ExternalScoreboardView()
                 .environmentObject(store)
