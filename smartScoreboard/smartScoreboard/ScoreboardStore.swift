@@ -69,7 +69,7 @@ enum PossessionDirection: String, Codable, CaseIterable {
     }
 }
 
-enum TeamSide: String, Codable, CaseIterable, Identifiable {
+enum TeamSide: String, Codable, CaseIterable, Identifiable, Sendable {
     case home
     case guest
 
@@ -83,6 +83,53 @@ enum TeamSide: String, Codable, CaseIterable, Identifiable {
             return NSLocalizedString("Guest", comment: "")
         }
     }
+}
+
+enum VolleyballMatchFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    case bestOf3
+    case bestOf5
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bestOf3:
+            return NSLocalizedString("Best of 3", comment: "")
+        case .bestOf5:
+            return NSLocalizedString("Best of 5", comment: "")
+        }
+    }
+
+    var maximumSets: Int {
+        switch self {
+        case .bestOf3:
+            return 3
+        case .bestOf5:
+            return 5
+        }
+    }
+
+    var setsToWin: Int {
+        switch self {
+        case .bestOf3:
+            return 2
+        case .bestOf5:
+            return 3
+        }
+    }
+
+    func targetPoints(forSet set: Int) -> Int {
+        set == maximumSets ? 15 : 25
+    }
+}
+
+struct VolleyballSetResult: Codable, Equatable, Identifiable, Sendable {
+    var setNumber: Int
+    var winner: TeamSide
+    var homeScore: Int
+    var guestScore: Int
+
+    var id: Int { setNumber }
 }
 
 enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -505,6 +552,8 @@ final class ScoreboardStore: ObservableObject {
     @Published var homeScore = 0
     @Published var guestScore = 0
     @Published var period = 1
+    @Published var volleyballMatchFormat: VolleyballMatchFormat = .bestOf5
+    @Published var volleyballSetResults: [VolleyballSetResult] = []
     @Published var gameClockSeconds = 10 * 60
     @Published var defaultClockSeconds = 10 * 60
     @Published var isGameClockEnabled = true
@@ -771,6 +820,80 @@ final class ScoreboardStore: ObservableObject {
         currentRules.supportsPossession
     }
 
+    var usesServeTimer: Bool {
+        selectedSport == .volleyball ||
+            (selectedSport == .custom && customSportConfig.isShotClockEnabled && customSportConfig.shotClockMode == .serve)
+    }
+
+    var secondaryTimerTitle: String {
+        usesServeTimer ? localizedStoreString("Serve Timer") : localizedStoreString("Shot Clock")
+    }
+
+    var secondaryTimerShortTitle: String {
+        usesServeTimer ? localizedStoreString("SERVE") : localizedStoreString("SHOT")
+    }
+
+    var secondaryTimerActionTitle: String {
+        usesServeTimer ? localizedStoreString("Serve") : localizedStoreString("Shot")
+    }
+
+    var secondaryTimerOwnerTitle: String {
+        usesServeTimer ? localizedStoreString("Serving") : localizedStoreString("Possession")
+    }
+
+    var supportsPeriodWinTracking: Bool {
+        selectedSport == .volleyball ||
+            (selectedSport == .custom && customSportConfig.isPeriodWinTrackingEnabled && supportsPeriod && supportsScore)
+    }
+
+    var homePeriodWins: Int {
+        periodWins(for: .home)
+    }
+
+    var guestPeriodWins: Int {
+        periodWins(for: .guest)
+    }
+
+    var homeVolleyballSetsWon: Int {
+        periodWins(for: .home)
+    }
+
+    var guestVolleyballSetsWon: Int {
+        periodWins(for: .guest)
+    }
+
+    var volleyballMatchWinner: TeamSide? {
+        guard selectedSport == .volleyball else {
+            return nil
+        }
+
+        if homeVolleyballSetsWon >= volleyballMatchFormat.setsToWin {
+            return .home
+        }
+
+        if guestVolleyballSetsWon >= volleyballMatchFormat.setsToWin {
+            return .guest
+        }
+
+        return nil
+    }
+
+    var periodWinMatchWinner: TeamSide? {
+        selectedSport == .volleyball ? volleyballMatchWinner : nil
+    }
+
+    var volleyballCurrentSetTarget: Int {
+        volleyballMatchFormat.targetPoints(forSet: period)
+    }
+
+    var isVolleyballSetScoreLegalForHome: Bool {
+        isLegalVolleyballSetWin(for: .home)
+    }
+
+    var isVolleyballSetScoreLegalForGuest: Bool {
+        isLegalVolleyballSetWin(for: .guest)
+    }
+
     var supportsFouls: Bool {
         if isDebateMode {
             return isDebatePlayerTrackingEnabled && isDebatePlayerFoulsEnabled
@@ -817,6 +940,10 @@ final class ScoreboardStore: ObservableObject {
         }
 
         return currentRules.supportsPeriod
+    }
+
+    var periodUpperBound: Int {
+        selectedSport == .volleyball ? volleyballMatchFormat.maximumSets : 9
     }
 
     var supportsHockeyPenalties: Bool {
@@ -1019,6 +1146,24 @@ final class ScoreboardStore: ObservableObject {
         side == .home ? homeTeamFouls : guestTeamFouls
     }
 
+    func periodWins(for side: TeamSide) -> Int {
+        volleyballSetResults.filter { $0.winner == side }.count
+    }
+
+    func volleyballSetsWon(for side: TeamSide) -> Int {
+        periodWins(for: side)
+    }
+
+    func isLegalVolleyballSetWin(for side: TeamSide) -> Bool {
+        guard selectedSport == .volleyball else {
+            return false
+        }
+
+        let winnerScore = side == .home ? homeScore : guestScore
+        let loserScore = side == .home ? guestScore : homeScore
+        return winnerScore >= volleyballCurrentSetTarget && winnerScore - loserScore >= 2
+    }
+
     func currentLogContext() -> ScoreboardLogContext {
         ScoreboardLogContext(
             gameFileName: nil,
@@ -1177,8 +1322,139 @@ final class ScoreboardStore: ObservableObject {
             value: updatedScore
         )
         if updatedScore != previousScore {
+            if usesServeTimer, delta > 0 {
+                resetServeTimer(for: isHome ? .home : .guest)
+            }
             handleScoreboardEvent(.scoreChanged)
         }
+    }
+
+    func setVolleyballServingSide(_ side: TeamSide) {
+        setServeTimerSide(side)
+    }
+
+    func setServeTimerSide(_ side: TeamSide) {
+        guard usesServeTimer, supportsShotClock else {
+            recordLog(
+                kind: .possessionChange,
+                summary: localizedStoreFormat("Set serving side %@", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Current sport does not support serving side")
+            )
+            return
+        }
+
+        let previousDirection = possessionDirection
+        let wasShotClockRunning = isShotClockRunning
+        resetServeTimer(for: side)
+        startShotClock()
+        recordLog(
+            kind: .possessionChange,
+            summary: localizedStoreFormat("Start serve timer for %@", side.title),
+            outcome: .applied,
+            teamSide: side,
+            notes: localizedStoreString("Serve timer auto-started")
+        )
+        if previousDirection != possessionDirection {
+            handleScoreboardEvent(.possessionChanged)
+        }
+        if !wasShotClockRunning, isShotClockRunning {
+            handleScoreboardEvent(.shotClockStarted)
+            requestShotClockAutosave()
+        }
+    }
+
+    func awardVolleyballSet(to side: TeamSide) {
+        awardPeriod(to: side)
+    }
+
+    func awardPeriod(to side: TeamSide) {
+        guard supportsPeriodWinTracking else {
+            recordLog(
+                kind: .volleyballSetAward,
+                summary: localizedStoreFormat("%@ wins period", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Current sport does not track period wins")
+            )
+            return
+        }
+
+        guard periodWinMatchWinner == nil else {
+            recordLog(
+                kind: .volleyballSetAward,
+                summary: localizedStoreFormat("%@ wins period", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Match already has a winner")
+            )
+            return
+        }
+
+        let result = VolleyballSetResult(
+            setNumber: period,
+            winner: side,
+            homeScore: homeScore,
+            guestScore: guestScore
+        )
+        volleyballSetResults.removeAll { $0.setNumber >= period }
+        volleyballSetResults.append(result)
+
+        homeScore = 0
+        guestScore = 0
+        pauseShotClock()
+        possessionDirection = .none
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+
+        if periodWinMatchWinner == nil {
+            period = min(periodUpperBound, period + 1)
+        }
+
+        recordLog(
+            kind: .volleyballSetAward,
+            summary: localizedStoreFormat("%@ wins Period %d", side.title, result.setNumber),
+            outcome: .applied,
+            teamSide: side,
+            value: periodWins(for: side),
+            notes: localizedStoreFormat("%d-%d", result.homeScore, result.guestScore)
+        )
+        handleScoreboardEvent(.periodChanged)
+        requestShotClockAutosave()
+    }
+
+    func undoLastVolleyballSet() {
+        undoLastPeriodWin()
+    }
+
+    func undoLastPeriodWin() {
+        guard supportsPeriodWinTracking, let result = volleyballSetResults.last else {
+            recordLog(
+                kind: .volleyballSetUndo,
+                summary: localizedStoreString("Undo last period win"),
+                outcome: .ignored
+            )
+            return
+        }
+
+        volleyballSetResults.removeLast()
+        period = max(1, min(periodUpperBound, result.setNumber))
+        homeScore = result.homeScore
+        guestScore = result.guestScore
+        pauseShotClock()
+        possessionDirection = .none
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        recordLog(
+            kind: .volleyballSetUndo,
+            summary: localizedStoreFormat("Undo Period %d", result.setNumber),
+            outcome: .applied,
+            teamSide: result.winner,
+            notes: localizedStoreFormat("%d-%d", result.homeScore, result.guestScore)
+        )
+        handleScoreboardEvent(.periodChanged)
+        requestShotClockAutosave()
     }
 
     func adjustPeriod(by delta: Int) {
@@ -1193,7 +1469,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let previousPeriod = period
-        period = max(1, min(9, period + delta))
+        period = max(1, min(periodUpperBound, period + delta))
         recordLog(
             kind: .periodAdjustment,
             summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
@@ -1208,7 +1484,7 @@ final class ScoreboardStore: ObservableObject {
 
     func setPeriod(_ value: Int) {
         if supportsPeriod {
-            period = max(1, min(9, value))
+            period = max(1, min(periodUpperBound, value))
         } else {
             period = 1
         }
@@ -1265,7 +1541,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAdjustment,
-                summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
+                summary: localizedStoreFormat("%@ %@", secondaryTimerTitle, signedStoreDelta(delta, suffix: "s")),
                 outcome: .ignored,
                 delta: delta
             )
@@ -1280,7 +1556,7 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .shotClockAdjustment,
-            summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
+            summary: localizedStoreFormat("%@ %@", secondaryTimerTitle, signedStoreDelta(delta, suffix: "s")),
             outcome: shotClockMilliseconds == previousMilliseconds ? .ignored : .applied,
             delta: delta,
             value: shotClockMilliseconds / 1_000
@@ -1336,7 +1612,7 @@ final class ScoreboardStore: ObservableObject {
             pauseShotClock()
             recordLog(
                 kind: .shotClockReset,
-                summary: localizedStoreString("Reset shot clock"),
+                summary: localizedStoreFormat("Reset %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored,
                 value: 0
             )
@@ -1347,10 +1623,12 @@ final class ScoreboardStore: ObservableObject {
         let targetSeconds = boundedShotClockSeconds(seconds ?? defaultShotClockSeconds)
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
-        possessionDirection = .none
+        if !usesServeTimer {
+            possessionDirection = .none
+        }
         recordLog(
             kind: .shotClockReset,
-            summary: localizedStoreString("Reset shot clock"),
+            summary: localizedStoreFormat("Reset %@", secondaryTimerTitle.lowercased()),
             outcome: .applied,
             value: targetSeconds
         )
@@ -1630,7 +1908,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockToggle,
-                summary: localizedStoreString("Toggle shot clock"),
+                summary: localizedStoreFormat("Toggle %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored
             )
             return
@@ -1640,7 +1918,7 @@ final class ScoreboardStore: ObservableObject {
         isShotClockRunning ? pauseShotClock() : startShotClock()
         recordLog(
             kind: .shotClockToggle,
-            summary: localizedStoreString(wasRunning ? "Pause shot clock" : "Start shot clock"),
+            summary: localizedStoreFormat(wasRunning ? "Pause %@" : "Start %@", secondaryTimerTitle.lowercased()),
             outcome: wasRunning == isShotClockRunning ? .ignored : .applied
         )
         if wasRunning != isShotClockRunning {
@@ -1758,7 +2036,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockReset,
-                summary: localizedStoreString("Reset active shot clock"),
+                summary: localizedStoreFormat("Reset active %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored
             )
             return
@@ -1772,11 +2050,13 @@ final class ScoreboardStore: ObservableObject {
         accumulatedShotClockElapsed = 0
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
-        possessionDirection = .none
+        if !usesServeTimer {
+            possessionDirection = .none
+        }
         updateTimerState()
         recordLog(
             kind: .shotClockReset,
-            summary: localizedStoreString("Reset active shot clock"),
+            summary: localizedStoreFormat("Reset active %@", secondaryTimerTitle.lowercased()),
             outcome: .applied,
             value: targetSeconds
         )
@@ -1791,6 +2071,7 @@ final class ScoreboardStore: ObservableObject {
         homeScore = 0
         guestScore = 0
         period = supportsPeriod ? 1 : period
+        volleyballSetResults = []
         possessionDirection = .none
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
@@ -2807,6 +3088,8 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds = defaultShotClockSeconds
             shotClockMilliseconds = boundedShotClockMilliseconds(defaultShotClockSeconds * 1_000)
             period = rules.supportsPeriod ? 1 : 1
+            volleyballMatchFormat = .bestOf5
+            volleyballSetResults = []
             possessionDirection = .none
             isShotClockRunning = false
             homeSubstitutionsAllowed = rules.defaultSubstitutionLimit
@@ -2849,12 +3132,20 @@ final class ScoreboardStore: ObservableObject {
             if sport != .volleyball && sport != .custom {
                 isGameClockEnabled = true
             }
+            if !supportsPeriodWinTracking {
+                volleyballMatchFormat = .bestOf5
+                volleyballSetResults = []
+            }
             if !rules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
                 shotClockMilliseconds = 0
                 possessionDirection = .none
                 isShotClockRunning = false
+            }
+            if !rules.supportsHockeyPenalties {
+                homePenaltyTimers = []
+                guestPenaltyTimers = []
             }
             if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
@@ -2980,7 +3271,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 10,
+            fileVersion: 11,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -2990,6 +3281,8 @@ final class ScoreboardStore: ObservableObject {
             homeScore: homeScore,
             guestScore: guestScore,
             period: period,
+            volleyballMatchFormat: selectedSport == .volleyball ? volleyballMatchFormat : nil,
+            volleyballSetResults: supportsPeriodWinTracking ? volleyballSetResults : nil,
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
@@ -3036,8 +3329,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
             isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
-            homePenaltyTimers: homePenaltyTimers,
-            guestPenaltyTimers: guestPenaltyTimers,
+            homePenaltyTimers: supportsHockeyPenalties ? homePenaltyTimers : [],
+            guestPenaltyTimers: supportsHockeyPenalties ? guestPenaltyTimers : [],
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
@@ -3155,15 +3448,27 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             pauseShotClock()
 
+            let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
             customDebatePreset = snapshot.customDebatePreset ?? .customDefault
-            setSelectedSport(snapshot.sport ?? .basketball, applyDefaults: false)
+            setSelectedSport(snapshotSport, applyDefaults: false)
             homeTeamName = normalizedTeamName(snapshot.homeTeamName)
             guestTeamName = normalizedTeamName(snapshot.guestTeamName)
             eventName = normalizedEventName(snapshot.eventName)
             homeScore = max(0, snapshot.homeScore)
             guestScore = max(0, snapshot.guestScore)
             period = max(1, min(9, snapshot.period))
+            volleyballMatchFormat = selectedSport == .volleyball ? (snapshot.volleyballMatchFormat ?? .bestOf5) : .bestOf5
+            if supportsPeriodWinTracking {
+                volleyballSetResults = selectedSport == .volleyball
+                    ? normalizedVolleyballSetResults(snapshot.volleyballSetResults ?? [], format: volleyballMatchFormat)
+                    : normalizedPeriodWinResults(snapshot.volleyballSetResults ?? [], maximumPeriod: periodUpperBound)
+            } else {
+                volleyballSetResults = []
+            }
+            if supportsPeriodWinTracking {
+                period = max(1, min(periodUpperBound, period))
+            }
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.gameClockSeconds) : boundedGameClockSeconds(snapshot.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
             isGameClockEnabled = snapshot.isGameClockEnabled ?? true
@@ -3214,8 +3519,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled = snapshot.isDebatePlayerTrackingEnabled ?? debatePreset.defaultPlayerTrackingEnabled
             isDebatePlayerFoulsEnabled = snapshot.isDebatePlayerFoulsEnabled ?? debatePreset.defaultPlayerFoulsEnabled
             isDebatePlayerCardsEnabled = snapshot.isDebatePlayerCardsEnabled ?? debatePreset.defaultPlayerCardsEnabled
-            homePenaltyTimers = snapshot.homePenaltyTimers ?? []
-            guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
+            homePenaltyTimers = supportsHockeyPenalties ? (snapshot.homePenaltyTimers ?? []) : []
+            guestPenaltyTimers = supportsHockeyPenalties ? (snapshot.guestPenaltyTimers ?? []) : []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
             externalDisplayAnimatedLogoStyle = snapshot.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee
@@ -3418,6 +3723,24 @@ final class ScoreboardStore: ObservableObject {
         }
         isShotClockRunning = false
         updateTimerState()
+    }
+
+    private func resetServeTimer(for side: TeamSide) {
+        guard usesServeTimer, supportsShotClock else {
+            return
+        }
+
+        if isShotClockRunning {
+            pauseShotClock()
+        } else {
+            isShotClockRunning = false
+            updateTimerState()
+        }
+
+        possessionDirection = side == .home ? .home : .guest
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        requestShotClockAutosave()
     }
 
     private func requestGameClockAutosave() {
@@ -4354,6 +4677,8 @@ final class ScoreboardStore: ObservableObject {
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
             $guestScore.map { _ in () }.eraseToAnyPublisher(),
             $period.map { _ in () }.eraseToAnyPublisher(),
+            $volleyballMatchFormat.map { _ in () }.eraseToAnyPublisher(),
+            $volleyballSetResults.map { _ in () }.eraseToAnyPublisher(),
             $gameClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockEnabled.map { _ in () }.eraseToAnyPublisher(),
@@ -4561,6 +4886,17 @@ final class ScoreboardStore: ObservableObject {
             homeScore = persistedState.homeScore
             guestScore = persistedState.guestScore
             period = max(1, min(9, persistedState.period))
+            volleyballMatchFormat = selectedSport == .volleyball ? persistedState.volleyballMatchFormat : .bestOf5
+            if supportsPeriodWinTracking {
+                volleyballSetResults = selectedSport == .volleyball
+                    ? normalizedVolleyballSetResults(persistedState.volleyballSetResults, format: volleyballMatchFormat)
+                    : normalizedPeriodWinResults(persistedState.volleyballSetResults, maximumPeriod: periodUpperBound)
+            } else {
+                volleyballSetResults = []
+            }
+            if supportsPeriodWinTracking {
+                period = max(1, min(periodUpperBound, period))
+            }
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.gameClockSeconds) : boundedGameClockSeconds(persistedState.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.defaultClockSeconds) : boundedGameClockSeconds(persistedState.defaultClockSeconds)
             isGameClockEnabled = persistedState.isGameClockEnabled
@@ -4613,8 +4949,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
             isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
             isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
-            homePenaltyTimers = persistedState.homePenaltyTimers
-            guestPenaltyTimers = persistedState.guestPenaltyTimers
+            homePenaltyTimers = supportsHockeyPenalties ? persistedState.homePenaltyTimers : []
+            guestPenaltyTimers = supportsHockeyPenalties ? persistedState.guestPenaltyTimers : []
             homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
             theme = persistedState.theme
@@ -4863,6 +5199,8 @@ final class ScoreboardStore: ObservableObject {
             homeScore: homeScore,
             guestScore: guestScore,
             period: period,
+            volleyballMatchFormat: volleyballMatchFormat,
+            volleyballSetResults: volleyballSetResults,
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
@@ -4912,8 +5250,8 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
             isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
-            homePenaltyTimers: homePenaltyTimers,
-            guestPenaltyTimers: guestPenaltyTimers,
+            homePenaltyTimers: supportsHockeyPenalties ? homePenaltyTimers : [],
+            guestPenaltyTimers: supportsHockeyPenalties ? guestPenaltyTimers : [],
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
@@ -5068,6 +5406,23 @@ final class ScoreboardStore: ObservableObject {
         return resolved
     }
 
+    private func normalizedVolleyballSetResults(_ results: [VolleyballSetResult], format: VolleyballMatchFormat) -> [VolleyballSetResult] {
+        normalizedPeriodWinResults(results, maximumPeriod: format.maximumSets)
+    }
+
+    private func normalizedPeriodWinResults(_ results: [VolleyballSetResult], maximumPeriod: Int) -> [VolleyballSetResult] {
+        var seenSetNumbers = Set<Int>()
+        return results
+            .filter { result in
+                result.setNumber >= 1 &&
+                    result.setNumber <= maximumPeriod &&
+                    result.homeScore >= 0 &&
+                    result.guestScore >= 0 &&
+                    seenSetNumbers.insert(result.setNumber).inserted
+            }
+            .sorted { $0.setNumber < $1.setNumber }
+    }
+
     private func normalizeActiveLineup(in roster: inout TeamRoster) {
         let activeIndices = roster.players.indices.filter { roster.players[$0].isInActiveLineup }
         if activeIndices.count > activeLineupCountLimit {
@@ -5106,6 +5461,8 @@ private struct PersistedState: Codable {
     var homeScore: Int
     var guestScore: Int
     var period: Int
+    var volleyballMatchFormat: VolleyballMatchFormat
+    var volleyballSetResults: [VolleyballSetResult]
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool
@@ -5200,6 +5557,8 @@ private struct PersistedState: Codable {
         case homeScore
         case guestScore
         case period
+        case volleyballMatchFormat
+        case volleyballSetResults
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
@@ -5299,6 +5658,8 @@ private struct PersistedState: Codable {
         homeScore: Int,
         guestScore: Int,
         period: Int,
+        volleyballMatchFormat: VolleyballMatchFormat,
+        volleyballSetResults: [VolleyballSetResult],
         gameClockSeconds: Int,
         defaultClockSeconds: Int,
         isGameClockEnabled: Bool,
@@ -5392,6 +5753,8 @@ private struct PersistedState: Codable {
         self.homeScore = homeScore
         self.guestScore = guestScore
         self.period = period
+        self.volleyballMatchFormat = volleyballMatchFormat
+        self.volleyballSetResults = volleyballSetResults
         self.gameClockSeconds = gameClockSeconds
         self.defaultClockSeconds = defaultClockSeconds
         self.isGameClockEnabled = isGameClockEnabled
@@ -5488,6 +5851,8 @@ private struct PersistedState: Codable {
         homeScore = try container.decode(Int.self, forKey: .homeScore)
         guestScore = try container.decode(Int.self, forKey: .guestScore)
         period = try container.decode(Int.self, forKey: .period)
+        volleyballMatchFormat = try container.decodeIfPresent(VolleyballMatchFormat.self, forKey: .volleyballMatchFormat) ?? .bestOf5
+        volleyballSetResults = try container.decodeIfPresent([VolleyballSetResult].self, forKey: .volleyballSetResults) ?? []
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled) ?? true
@@ -5624,6 +5989,8 @@ private struct PersistedState: Codable {
         try container.encode(homeScore, forKey: .homeScore)
         try container.encode(guestScore, forKey: .guestScore)
         try container.encode(period, forKey: .period)
+        try container.encode(volleyballMatchFormat, forKey: .volleyballMatchFormat)
+        try container.encode(volleyballSetResults, forKey: .volleyballSetResults)
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(isGameClockEnabled, forKey: .isGameClockEnabled)
@@ -5731,6 +6098,8 @@ private extension PersistedState {
             homeScore: 0,
             guestScore: 0,
             period: 1,
+            volleyballMatchFormat: .bestOf5,
+            volleyballSetResults: [],
             gameClockSeconds: 10 * 60,
             defaultClockSeconds: 10 * 60,
             isGameClockEnabled: true,

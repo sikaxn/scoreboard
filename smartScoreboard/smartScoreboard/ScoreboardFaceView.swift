@@ -67,6 +67,10 @@ struct ScoreboardFaceView: View {
     let playerLineupScrollDirection: PlayerLineupScrollDirection
     let homeScore: Int
     let guestScore: Int
+    let homeSetsWon: Int
+    let guestSetsWon: Int
+    let showsPeriodWins: Bool
+    let usesServeTimer: Bool
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
@@ -171,8 +175,18 @@ struct ScoreboardFaceView: View {
                 rightRequestedPlayerCount: rightRequestedPlayerCount
             )
             let showsSidePlayerStrip = leftSidePlayerLimit > 0 && rightSidePlayerLimit > 0 && !usesCenterPlayerStripLayout
-            let leftPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: leftHasLogo) : 0
-            let rightPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: rightHasLogo) : 0
+            let leftUsesCrowdedSideLayout = usesCrowdedSidePanelLayout(
+                side: leftTeam.side,
+                showsPlayerStrip: showsSidePlayerStrip,
+                hasDisplayedPlayers: !leftDisplayedPlayers.isEmpty
+            )
+            let rightUsesCrowdedSideLayout = usesCrowdedSidePanelLayout(
+                side: rightTeam.side,
+                showsPlayerStrip: showsSidePlayerStrip,
+                hasDisplayedPlayers: !rightDisplayedPlayers.isEmpty
+            )
+            let leftPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: leftHasLogo, usesCrowdedLayout: leftUsesCrowdedSideLayout) : 0
+            let rightPlayerViewportHeight = showsSidePlayerStrip ? sidePlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: rightHasLogo, usesCrowdedLayout: rightUsesCrowdedSideLayout) : 0
             let centerHasLogo = leftHasLogo || rightHasLogo
             let centerPlayerViewportHeight = centerPlayerViewportHeight(for: size, condensed: condensed, ultraCondensed: ultraCondensed)
             let leftOverflowMode = resolvedPlayerLineupOverflowMode(hasLogo: leftHasLogo)
@@ -194,6 +208,7 @@ struct ScoreboardFaceView: View {
                                 placeholder: leftTeam.role,
                                 logoData: leftTeam.logoData,
                                 score: leftTeam.score,
+                                setsWon: volleyballSetsWon(for: leftTeam.side),
                                 accent: leftTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: leftTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
@@ -203,6 +218,7 @@ struct ScoreboardFaceView: View {
                                 showsPlayerStrip: showsSidePlayerStrip,
                                 playerViewportHeight: leftPlayerViewportHeight,
                                 playerOverflowMode: leftOverflowMode,
+                                usesCrowdedLayout: leftUsesCrowdedSideLayout,
                                 base: base,
                                 condensed: condensed,
                                 ultraCondensed: ultraCondensed
@@ -227,6 +243,7 @@ struct ScoreboardFaceView: View {
                                 placeholder: rightTeam.role,
                                 logoData: rightTeam.logoData,
                                 score: rightTeam.score,
+                                setsWon: volleyballSetsWon(for: rightTeam.side),
                                 accent: rightTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: rightTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
@@ -236,6 +253,7 @@ struct ScoreboardFaceView: View {
                                 showsPlayerStrip: showsSidePlayerStrip,
                                 playerViewportHeight: rightPlayerViewportHeight,
                                 playerOverflowMode: rightOverflowMode,
+                                usesCrowdedLayout: rightUsesCrowdedSideLayout,
                                 base: base,
                                 condensed: condensed,
                                 ultraCondensed: ultraCondensed
@@ -312,6 +330,7 @@ struct ScoreboardFaceView: View {
         placeholder: String,
         logoData: Data?,
         score: Int,
+        setsWon: Int,
         accent: Color,
         substitutionsUsed: Int,
         substitutionsAllowed: Int,
@@ -321,11 +340,14 @@ struct ScoreboardFaceView: View {
         showsPlayerStrip: Bool,
         playerViewportHeight: CGFloat,
         playerOverflowMode: PlayerLineupOverflowMode,
+        usesCrowdedLayout: Bool,
         base: CGFloat,
         condensed: Bool,
         ultraCondensed: Bool
     ) -> some View {
-        VStack(spacing: ultraCondensed ? max(8, base * 0.016) : condensed ? max(12, base * 0.02) : max(22, base * 0.035)) {
+        let panelSpacing = teamPanelSpacing(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout)
+
+        return VStack(spacing: panelSpacing) {
             VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
                 if let logoData {
                     TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 10)
@@ -357,7 +379,7 @@ struct ScoreboardFaceView: View {
 
             if showsScore {
                 Text("\(score)")
-                    .font(.system(size: ultraCondensed ? base * 0.15 : condensed ? base * 0.22 : base * 0.28, weight: .black, design: .rounded))
+                    .font(.system(size: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout), weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.32)
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
@@ -365,6 +387,16 @@ struct ScoreboardFaceView: View {
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                     .frame(maxWidth: .infinity)
                     .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+
+            if showsPeriodWins {
+                setsWonStrip(
+                    setsWon: setsWon,
+                    accent: accent,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
             if sport == .debate && showsDebatePrepTime {
@@ -650,7 +682,7 @@ struct ScoreboardFaceView: View {
 
         return ZStack {
             headerBadge(
-                title: "SHOT",
+                title: usesServeTimer ? "SERVE" : "SHOT",
                 value: value,
                 condensed: condensed,
                 ultraCondensed: ultraCondensed,
@@ -950,6 +982,35 @@ struct ScoreboardFaceView: View {
                 .strokeBorder(boardBadgeBorderColor)
         )
         .animation(.spring(response: 0.28, dampingFraction: 0.74), value: boundedUsed)
+    }
+
+    private func setsWonStrip(
+        setsWon: Int,
+        accent: Color,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        HStack(spacing: ultraCondensed ? 6 : 8) {
+            localizedBoardText("PERIODS")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            Text("\(setsWon)")
+                .font(.system(size: ultraCondensed ? 20 : condensed ? 24 : 28, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(accent)
+                .contentTransition(.numericText())
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: setsWon)
     }
 
     private func teamFoulStrip(
@@ -1559,6 +1620,32 @@ struct ScoreboardFaceView: View {
         style == .side ? 0.66 : 0.72
     }
 
+    private func teamPanelSpacing(
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        usesCrowdedLayout: Bool
+    ) -> CGFloat {
+        if usesCrowdedLayout {
+            return ultraCondensed ? max(6, base * 0.01) : condensed ? max(8, base * 0.012) : max(12, base * 0.014)
+        }
+
+        return ultraCondensed ? max(8, base * 0.016) : condensed ? max(12, base * 0.02) : max(22, base * 0.035)
+    }
+
+    private func teamScoreFontSize(
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        usesCrowdedLayout: Bool
+    ) -> CGFloat {
+        if usesCrowdedLayout {
+            return ultraCondensed ? base * 0.12 : condensed ? base * 0.17 : base * 0.20
+        }
+
+        return ultraCondensed ? base * 0.15 : condensed ? base * 0.22 : base * 0.28
+    }
+
     private func resolvedTitle(_ title: String, placeholder: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? localizedBoardString(placeholder) : trimmed
@@ -1610,6 +1697,37 @@ struct ScoreboardFaceView: View {
         let rightNeedsRows = rightRequestedPlayerCount > 0
         let sideLayoutMissingRows = (leftNeedsRows && leftSidePlayerLimit == 0) || (rightNeedsRows && rightSidePlayerLimit == 0)
         return sideLayoutMissingRows
+    }
+
+    private func usesCrowdedSidePanelLayout(
+        side: TeamSide,
+        showsPlayerStrip: Bool,
+        hasDisplayedPlayers: Bool
+    ) -> Bool {
+        var moduleCount = 0
+        if showsScore {
+            moduleCount += 1
+        }
+        if showsPeriodWins {
+            moduleCount += 1
+        }
+        if sport == .debate && showsDebatePrepTime {
+            moduleCount += 1
+        }
+        if shouldShowSubstitutionTracking, substitutionsAllowed(for: side) > 0 {
+            moduleCount += 1
+        }
+        if rules.supportsTeamFouls {
+            moduleCount += 1
+        }
+        if rules.supportsHockeyPenalties {
+            moduleCount += 1
+        }
+        if showsPlayerStrip && hasDisplayedPlayers {
+            moduleCount += 1
+        }
+
+        return moduleCount >= 6
     }
 
     private func centerPlayerDisplayLimit(for size: CGSize, condensed: Bool, ultraCondensed: Bool) -> Int {
@@ -1694,7 +1812,13 @@ struct ScoreboardFaceView: View {
         return 6
     }
 
-    private func sidePlayerViewportHeight(for size: CGSize, condensed: Bool, ultraCondensed: Bool, hasLogo: Bool) -> CGFloat {
+    private func sidePlayerViewportHeight(
+        for size: CGSize,
+        condensed: Bool,
+        ultraCondensed: Bool,
+        hasLogo: Bool,
+        usesCrowdedLayout: Bool
+    ) -> CGFloat {
         let base = min(size.width, size.height)
         let capacity = sidePlayerDisplayLimit(for: size, condensed: condensed, ultraCondensed: ultraCondensed, hasLogo: hasLogo)
         guard capacity > 0 else {
@@ -1709,7 +1833,12 @@ struct ScoreboardFaceView: View {
             style: .side,
             scale: 1
         )
-        let maxShare = size.height * (ultraCondensed ? 0.32 : condensed ? 0.36 : 0.38)
+        let maxShare: CGFloat
+        if usesCrowdedLayout {
+            maxShare = size.height * (ultraCondensed ? 0.16 : condensed ? 0.17 : 0.18)
+        } else {
+            maxShare = size.height * (ultraCondensed ? 0.32 : condensed ? 0.36 : 0.38)
+        }
         return min(max(preferredHeight, 44), maxShare)
     }
 
@@ -1810,6 +1939,10 @@ struct ScoreboardFaceView: View {
 
     private func teamFouls(for side: TeamSide) -> Int {
         side == .home ? homeTeamFouls : guestTeamFouls
+    }
+
+    private func volleyballSetsWon(for side: TeamSide) -> Int {
+        side == .home ? homeSetsWon : guestSetsWon
     }
 
     private func debatePrepStrip(side: TeamSide, accent: Color, condensed: Bool, ultraCondensed: Bool) -> some View {

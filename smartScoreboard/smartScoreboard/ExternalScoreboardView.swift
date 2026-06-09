@@ -39,6 +39,10 @@ struct ExternalScoreboardView: View {
             playerLineupScrollDirection: store.playerLineupScrollDirection,
             homeScore: store.homeScore,
             guestScore: store.guestScore,
+            homeSetsWon: store.homePeriodWins,
+            guestSetsWon: store.guestPeriodWins,
+            showsPeriodWins: store.supportsPeriodWinTracking,
+            usesServeTimer: store.usesServeTimer,
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
@@ -200,6 +204,10 @@ struct PublicScoreboardDisplayView: View {
     let playerLineupScrollDirection: PlayerLineupScrollDirection
     let homeScore: Int
     let guestScore: Int
+    let homeSetsWon: Int
+    let guestSetsWon: Int
+    let showsPeriodWins: Bool
+    let usesServeTimer: Bool
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
@@ -507,6 +515,10 @@ struct PublicScoreboardDisplayView: View {
             playerLineupScrollDirection: playerLineupScrollDirection,
             homeScore: homeScore,
             guestScore: guestScore,
+            homeSetsWon: homeSetsWon,
+            guestSetsWon: guestSetsWon,
+            showsPeriodWins: showsPeriodWins,
+            usesServeTimer: usesServeTimer,
             period: period,
             formattedClock: formattedClock,
             showsGameClock: showsGameClock,

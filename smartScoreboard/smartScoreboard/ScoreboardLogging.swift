@@ -35,6 +35,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case clockAdjustment
     case clockReset
     case periodAdjustment
+    case volleyballSetAward
+    case volleyballSetUndo
     case shotClockAssignment
     case shotClockToggle
     case shotClockExpired
@@ -98,6 +100,10 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Game Clock Reset"
         case .periodAdjustment:
             return "Period Change"
+        case .volleyballSetAward:
+            return "Period Win Award"
+        case .volleyballSetUndo:
+            return "Period Win Undo"
         case .shotClockAssignment:
             return "Shot Clock Preset"
         case .shotClockToggle:

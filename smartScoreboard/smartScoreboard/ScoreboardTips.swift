@@ -102,8 +102,8 @@ enum ScoreboardTips {
     }
 
     struct ShotClockControlsTip: Tip {
-        var title: Text { ScoreboardTips.localizedText("Manage the shot clock") }
-        var message: Text? { ScoreboardTips.localizedText("Assign possession presets by side, pause or reset the active shot clock, and adjust it one second at a time.") }
+        var title: Text { ScoreboardTips.localizedText("Manage the short timer") }
+        var message: Text? { ScoreboardTips.localizedText("Assign the active side, start or pause the shot or serve timer, reset it, and adjust it one second at a time.") }
         var image: Image? { Image(systemName: "timer.circle") }
         var options: [any TipOption] { Tips.MaxDisplayCount(1) }
     }

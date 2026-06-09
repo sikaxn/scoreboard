@@ -52,6 +52,7 @@ struct ContentView: View {
     @State private var setupClockSeconds = 10 * 60
     @State private var setupUsesGameClock = true
     @State private var setupShotClockSeconds = 24
+    @State private var setupVolleyballMatchFormat: VolleyballMatchFormat = .bestOf5
     @State private var setupGuestClockSeconds = ChessClockPreset.rapid.seconds
     @State private var setupClockSecondsBaseline = 10 * 60
     @State private var setupShotClockSecondsBaseline = 24
@@ -159,11 +160,25 @@ struct ContentView: View {
         return localizedAppString("Version unavailable")
     }
     private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
+    private var setupPeriodUpperBound: Int {
+        setupSport == .volleyball ? setupVolleyballMatchFormat.maximumSets : 9
+    }
+    private var setupUsesServeTimer: Bool {
+        setupSport == .volleyball ||
+            (setupSport == .custom && setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode == .serve)
+    }
     private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
     private var resolvedSetupCustomSportConfig: CustomSportConfig {
         var config = setupCustomSportConfig
         config.defaultClockSeconds = setupClockSeconds
         config.defaultShotClockSeconds = setupShotClockSeconds
+        if !config.isScoreEnabled || !config.isPeriodEnabled {
+            config.isPeriodWinTrackingEnabled = false
+        }
+        if !config.isShotClockEnabled {
+            config.shotClockMode = .shot
+            config.isPossessionEnabled = false
+        }
         return config
     }
     private var resolvedSetupCustomDebatePreset: DebatePreset {
@@ -308,6 +323,10 @@ struct ContentView: View {
         .onChange(of: setupClockSeconds) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupUsesGameClock) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupShotClockSeconds) { _, _ in handleSetupDraftChanged() }
+        .onChange(of: setupVolleyballMatchFormat) { _, _ in
+            setupPeriod = min(setupPeriod, setupPeriodUpperBound)
+            handleSetupDraftChanged()
+        }
         .onChange(of: setupGuestClockSeconds) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupChessPreset) { _, _ in
             guard !isSetupDraftUpdateSuppressed else { return }
@@ -968,7 +987,7 @@ struct ContentView: View {
             )
         case .volleyball:
             return (
-                "For Volleyball, decide whether the match timer should be enabled, set the starting set, and configure substitution and player/card tracking as needed. The live board focuses on sets, swaps, cards, score, and optional timing.",
+                "For Volleyball, choose best-of-3 or best-of-5, confirm the starting period, and keep the serve timer at 8 seconds for indoor rules. The live board records period winners, serving side, substitutions, cards, score, and optional match timing.",
                 "person.3"
             )
         case .soccer:
@@ -993,7 +1012,7 @@ struct ContentView: View {
             )
         case .custom:
             return (
-                "For Custom, build the sport from modules: score behavior, clock mode, period labels, shot clock, possession, player tracking, substitutions, and team counters. Turn on only the pieces operators need, then set the starting clock and period values before going live.",
+                "For Custom, build the sport from modules: score behavior, clock mode, period labels, secondary timer, possession, player tracking, substitutions, penalty timers, and team counters. Turn on only the pieces operators need, then set the starting clock and period values before going live.",
                 "slider.horizontal.3"
             )
         }
@@ -1232,11 +1251,23 @@ struct ContentView: View {
                 title: "Starting \(setupRules.periodTitle)",
                 value: "\(setupPeriod)",
                 decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                increment: { setupPeriod = min(9, setupPeriod + 1) }
+                increment: { setupPeriod = min(setupPeriodUpperBound, setupPeriod + 1) }
             )
         }
 
         if setupSport == .volleyball {
+            settingsDivider()
+            settingsSegmentRow(
+                title: "Match Format",
+                options: [
+                    (VolleyballMatchFormat.bestOf5.title, VolleyballMatchFormat.bestOf5.maximumSets),
+                    (VolleyballMatchFormat.bestOf3.title, VolleyballMatchFormat.bestOf3.maximumSets)
+                ],
+                selection: Binding(
+                    get: { setupVolleyballMatchFormat.maximumSets },
+                    set: { setupVolleyballMatchFormat = $0 == VolleyballMatchFormat.bestOf3.maximumSets ? .bestOf3 : .bestOf5 }
+                )
+            )
             settingsDivider()
             settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
         }
@@ -1315,20 +1346,30 @@ struct ContentView: View {
     private func shotClockSetupRows() -> some View {
         settingsDivider()
         settingsStepperValueRow(
-            title: "Shot Clock",
+            title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock",
             value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
             decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
             increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
         )
         settingsDivider()
-        settingsSegmentRow(
-            title: "Shot Preset",
-            options: [
-                ("24", 24),
-                ("14", 14)
-            ],
-            selection: $setupShotClockSeconds
-        )
+        if setupUsesServeTimer {
+            settingsSegmentRow(
+                title: "Serve Preset",
+                options: [
+                    ("8", 8)
+                ],
+                selection: $setupShotClockSeconds
+            )
+        } else {
+            settingsSegmentRow(
+                title: "Shot Preset",
+                options: [
+                    ("24", 24),
+                    ("14", 14)
+                ],
+                selection: $setupShotClockSeconds
+            )
+        }
     }
 
     @ViewBuilder
@@ -1364,7 +1405,12 @@ struct ContentView: View {
             settingsDivider()
             settingsToggleRow(title: "Score Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isScoreEnabled },
-                set: { setupCustomSportConfig.isScoreEnabled = $0 }
+                set: {
+                    setupCustomSportConfig.isScoreEnabled = $0
+                    if !$0 {
+                        setupCustomSportConfig.isPeriodWinTrackingEnabled = false
+                    }
+                }
             ))
             if setupCustomSportConfig.isScoreEnabled {
                 settingsDivider()
@@ -1429,10 +1475,15 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Period", footer: "Enable period tracking and define the labels shown on the board.") {
-            settingsOptionTip("Use Period when the custom sport has halves, sets, innings, rounds, segments, or another phase label. The full and short labels are used by the public board, live controls, and logs.", systemImage: "number")
+            settingsOptionTip("Use Period when the custom sport has halves, innings, rounds, segments, or another phase label. The full and short labels are used by the public board, live controls, and logs.", systemImage: "number")
             settingsToggleRow(title: "Period Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isPeriodEnabled },
-                set: { setupCustomSportConfig.isPeriodEnabled = $0 }
+                set: {
+                    setupCustomSportConfig.isPeriodEnabled = $0
+                    if !$0 {
+                        setupCustomSportConfig.isPeriodWinTrackingEnabled = false
+                    }
+                }
             ))
             if setupCustomSportConfig.isPeriodEnabled {
                 settingsDivider()
@@ -1452,48 +1503,75 @@ struct ContentView: View {
                     get: { setupCustomSportConfig.periodShortTitle },
                     set: { setupCustomSportConfig.periodShortTitle = $0 }
                 ))
+                if setupCustomSportConfig.isScoreEnabled {
+                    settingsDivider()
+                    settingsToggleRow(title: "Track Period Wins", isOn: Binding(
+                        get: { setupCustomSportConfig.isPeriodWinTrackingEnabled },
+                        set: { setupCustomSportConfig.isPeriodWinTrackingEnabled = $0 }
+                    ))
+                }
             }
         }
 
-        settingsSection(title: "Shot Clock", footer: "Enable a separate shot timer and configure how it resets.") {
-            settingsOptionTip("Use Shot Clock when the sport needs a secondary possession timer beside the main game clock. The default and preset values appear on the live board so operators can reset possession quickly.", systemImage: "timer.circle")
-            settingsToggleRow(title: "Shot Clock", isOn: Binding(
+        settingsSection(title: "Secondary Timer", footer: "Enable a separate shot or serve timer and configure how it resets.") {
+            settingsOptionTip("Use Secondary Timer when the sport needs a possession-style timer beside the main game clock. Shot Clock gives operators preset reset buttons; Serve Timer gives each side a Serve Here action that resets and starts the timer.", systemImage: "timer.circle")
+            settingsToggleRow(title: "Secondary Timer", isOn: Binding(
                 get: { setupCustomSportConfig.isShotClockEnabled },
                 set: {
                     setupCustomSportConfig.isShotClockEnabled = $0
                     if !$0 {
+                        setupCustomSportConfig.shotClockMode = .shot
                         setupCustomSportConfig.isPossessionEnabled = false
                     }
                 }
             ))
             if setupCustomSportConfig.isShotClockEnabled {
                 settingsDivider()
+                settingsPickerRow(
+                    title: "Timer Type",
+                    selection: Binding(
+                        get: { setupCustomSportConfig.shotClockMode },
+                        set: { setupCustomSportConfig.shotClockMode = $0 }
+                    ),
+                    options: CustomShotClockMode.allCases
+                ) { $0.title }
+                settingsDivider()
                 settingsStepperValueRow(
-                    title: "Shot Default",
+                    title: setupCustomSportConfig.shotClockMode == .serve ? "Serve Default" : "Shot Default",
                     value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
                     decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
                     increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
                 )
                 settingsDivider()
-                settingsSegmentRow(
-                    title: "Shot Preset",
-                    options: [
-                        ("24", 24),
-                        ("14", 14)
-                    ],
-                    selection: $setupShotClockSeconds
-                )
+                if setupCustomSportConfig.shotClockMode == .serve {
+                    settingsSegmentRow(
+                        title: "Serve Preset",
+                        options: [
+                            ("8", 8)
+                        ],
+                        selection: $setupShotClockSeconds
+                    )
+                } else {
+                    settingsSegmentRow(
+                        title: "Shot Preset",
+                        options: [
+                            ("24", 24),
+                            ("14", 14)
+                        ],
+                        selection: $setupShotClockSeconds
+                    )
+                }
             }
         }
 
-        settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the shot clock." : "Enable Shot Clock first to use the possession arrow.") {
+        settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the secondary timer." : "Enable Secondary Timer first to use the possession arrow.") {
             settingsOptionTip("Use Possession to show which side currently controls play. The arrow is tied to shot-clock workflows, so it becomes available after the custom sport has shot-clock support enabled.", systemImage: "arrow.left.and.right")
             settingsToggleRow(title: "Possession Arrow", isOn: Binding(
                 get: { setupCustomSportConfig.isPossessionEnabled },
                 set: { setupCustomSportConfig.isPossessionEnabled = $0 }
             ))
-            .disabled(!setupCustomSportConfig.isShotClockEnabled)
-            .opacity(setupCustomSportConfig.isShotClockEnabled ? 1 : 0.42)
+            .disabled(!setupCustomSportConfig.isShotClockEnabled || setupCustomSportConfig.shotClockMode == .serve)
+            .opacity(setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode != .serve ? 1 : 0.42)
         }
 
         settingsSection(title: "Player", footer: "Enable player tracking, lineup style, and player-specific state.") {
@@ -1522,7 +1600,7 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
-            settingsOptionTip("Use Team settings for counters that belong to a side rather than an individual player. Substitutions and team fouls add live controls, reset actions, public display state, and log entries for both sides.", systemImage: "person.2")
+            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
             settingsToggleRow(title: "Substitutions", isOn: Binding(
                 get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
                 set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
@@ -1531,6 +1609,11 @@ struct ContentView: View {
             settingsToggleRow(title: "Team Fouls", isOn: Binding(
                 get: { setupCustomSportConfig.isTeamFoulsEnabled },
                 set: { setupCustomSportConfig.isTeamFoulsEnabled = $0 }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Penalty Timers", isOn: Binding(
+                get: { setupCustomSportConfig.isPenaltyTimerEnabled },
+                set: { setupCustomSportConfig.isPenaltyTimerEnabled = $0 }
             ))
         }
     }
@@ -2199,7 +2282,7 @@ struct ContentView: View {
         case .basketball:
             return "Score, clock, shot clock"
         case .volleyball:
-            return "Sets, swaps, cards"
+            return "Periods, swaps, cards"
         case .soccer:
             return "Halves and lineup cards"
         case .hockey:
@@ -2511,14 +2594,15 @@ struct ContentView: View {
                 )
 
                 if store.supportsShotClock {
+                    let timerTitle = store.selectedSport == .volleyball ? "Serve Timer" : "Shot Clock"
                     settingsDivider()
-                    settingsToggleRow(title: "Turn Shot Clock Red", isOn: Binding(
+                    settingsToggleRow(title: "Turn \(timerTitle) Red", isOn: Binding(
                         get: { store.isShotClockRedEnabled },
                         set: { store.isShotClockRedEnabled = $0 }
                     ))
                     settingsDivider()
                     settingsStepperValueRow(
-                        title: "Shot Clock Red At",
+                        title: "\(timerTitle) Red At",
                         value: "\(store.shotClockRedThresholdSeconds)s",
                         decrement: { store.shotClockRedThresholdSeconds = max(0, store.shotClockRedThresholdSeconds - 1) },
                         increment: { store.shotClockRedThresholdSeconds = min(ScoreboardStore.maxShotClockSeconds, store.shotClockRedThresholdSeconds + 1) }
@@ -4731,6 +4815,23 @@ struct ContentView: View {
         if setupRules.supportsPeriod {
             rows.append(SettingsDetailRow(id: "period", title: setupRules.periodTitle, value: "\(setupPeriod)"))
         }
+        if setupSport == .volleyball {
+            rows.append(SettingsDetailRow(id: "matchFormat", title: "Match Format", value: setupVolleyballMatchFormat.title))
+        }
+        if setupSport == .custom, setupCustomSportConfig.isScoreEnabled, setupCustomSportConfig.isPeriodEnabled {
+            rows.append(SettingsDetailRow(
+                id: "periodWins",
+                title: "Period Wins",
+                value: localizedAppString(setupCustomSportConfig.isPeriodWinTrackingEnabled ? "Enabled" : "Disabled")
+            ))
+        }
+        if setupSport == .custom {
+            rows.append(SettingsDetailRow(
+                id: "penaltyTimers",
+                title: "Penalty Timers",
+                value: localizedAppString(setupCustomSportConfig.isPenaltyTimerEnabled ? "Enabled" : "Disabled")
+            ))
+        }
 
         let clockValue = (setupSport == .volleyball || setupSport == .custom) && !setupUsesGameClock
             ? localizedAppString("Disabled")
@@ -4746,7 +4847,7 @@ struct ContentView: View {
         }
 
         if setupRules.supportsShotClock {
-            rows.append(SettingsDetailRow(id: "shotClock", title: "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds)))
+            rows.append(SettingsDetailRow(id: "shotClock", title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock", value: ScoreboardStore.formatShotClock(setupShotClockSeconds)))
         }
 
         rows.append(SettingsDetailRow(id: "playerTracking", title: "Player Tracking", value: localizedAppString(store.isPlayerTrackingEnabled ? "Enabled" : "Disabled")))
@@ -6842,16 +6943,55 @@ struct ContentView: View {
     }
 
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let usesServeTimer = store.usesServeTimer
+        let timerAction = store.secondaryTimerActionTitle
+        let timerButtons: [ActionDescriptor] = usesServeTimer ? [
+            ActionDescriptor(
+                title: store.isShotClockRunning ? "\(timerAction) Pause" : "Start \(timerAction)",
+                tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardSuccessButton,
+                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardSuccessButtonText
+            ) {
+                store.toggleShotClock()
+            },
+            ActionDescriptor(title: "\(timerAction) Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.resetActiveShotClock()
+            },
+            ActionDescriptor(title: "\(timerAction) -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.adjustShotClock(by: -1)
+            },
+            ActionDescriptor(title: "\(timerAction) +1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.adjustShotClock(by: 1)
+            }
+        ] : [
+            ActionDescriptor(
+                title: store.isShotClockRunning ? "Shot Pause" : "Shot Reset",
+                tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardNeutralButton,
+                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardNeutralButtonText
+            ) {
+                if store.isShotClockRunning {
+                    store.toggleShotClock()
+                } else {
+                    store.resetActiveShotClock()
+                }
+            },
+            ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.adjustShotClock(by: -1)
+            },
+            ActionDescriptor(title: "Shot +1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.adjustShotClock(by: 1)
+            }
+        ]
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Shot Clock")
+                Text(store.secondaryTimerTitle)
                     .font(.title3.weight(.bold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
                 Spacer(minLength: 0)
 
-                Text("Possession: \(store.possessionDirection.displayName)")
+                Text("\(store.secondaryTimerOwnerTitle): \(store.possessionDirection.displayName)")
                     .font(.subheadline.weight(.semibold))
                     .singleLineFitted(minScale: 0.7)
                     .foregroundStyle(themePalette.dashboardMutedText)
@@ -6865,26 +7005,8 @@ struct ContentView: View {
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             buttonGrid(
-                columns: max(1, layout.shotClockButtonColumns - 2),
-                buttons: [
-                    ActionDescriptor(
-                        title: store.isShotClockRunning ? "Shot Pause" : "Shot Reset",
-                        tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardNeutralButton,
-                        foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardNeutralButtonText
-                    ) {
-                        if store.isShotClockRunning {
-                            store.toggleShotClock()
-                        } else {
-                            store.resetActiveShotClock()
-                        }
-                    },
-                    ActionDescriptor(title: "Shot -1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustShotClock(by: -1)
-                    },
-                    ActionDescriptor(title: "Shot +1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.adjustShotClock(by: 1)
-                    }
-                ],
+                columns: usesServeTimer ? max(2, layout.shotClockButtonColumns - 1) : max(1, layout.shotClockButtonColumns - 2),
+                buttons: timerButtons,
                 style: .compact,
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -7252,7 +7374,7 @@ struct ContentView: View {
             )
         case .volleyball:
             return (
-                "Volleyball controls reflect the match timer, set, substitution, and player-card choices from setup. Use this panel for optional timing, set changes, side swaps, and score resets during dead-ball moments.",
+                "Volleyball controls reflect the match timer, period format, serve timer, substitutions, and player-card choices from setup. Use period-award actions to record winners, reset the rally score, and advance the match.",
                 "person.3"
             )
         case .soccer:
@@ -7267,7 +7389,7 @@ struct ContentView: View {
             )
         case .custom:
             return (
-                "Custom controls reflect the modules enabled in Game Setup. If clock, period, shot clock, substitutions, fouls, cards, or player tools are missing, return to Settings and turn on that custom option before going live.",
+                "Custom controls reflect the modules enabled in Game Setup. If clock, period, secondary timer, substitutions, penalty timers, fouls, cards, or player tools are missing, return to Settings and turn on that custom option before going live.",
                 "slider.horizontal.3"
             )
         case .chess, .debate:
@@ -7602,10 +7724,13 @@ struct ContentView: View {
                 spacing: 10
             ) {
                 if store.supportsShotClock {
-                    gameMetricCard(title: "Shot", value: store.formattedShotClock, monospaced: true, animatesValue: false, layout: layout)
+                    gameMetricCard(title: store.secondaryTimerActionTitle, value: store.formattedShotClock, monospaced: true, animatesValue: false, layout: layout)
                 }
                 if store.supportsPeriod {
                     gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                }
+                if store.supportsPeriodWinTracking {
+                    gameMetricCard(title: "Periods", value: "\(store.homePeriodWins)-\(store.guestPeriodWins)", layout: layout)
                 }
             }
 
@@ -7875,28 +8000,47 @@ struct ContentView: View {
             }
 
             if store.supportsShotClock {
-                buttonGrid(
-                    columns: 2,
-                    buttons: [
-                        ActionDescriptor(
-                            title: "Shot 24",
-                            tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
-                            foreground: .white
-                        ) {
-                            store.assignShotClock(to: 24, forHomeTeam: isHome)
-                        },
-                        ActionDescriptor(
-                            title: "Shot 14",
-                            tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
-                            foreground: .white
-                        ) {
-                            store.assignShotClock(to: 14, forHomeTeam: isHome)
-                        }
-                    ],
-                    dense: layout.denseControls,
-                    compactVerticalPadding: layout.advancedButtonVerticalPadding
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
+                if store.usesServeTimer {
+                    let side: TeamSide = isHome ? .home : .guest
+                    buttonGrid(
+                        columns: 1,
+                        buttons: [
+                            ActionDescriptor(
+                                title: "Serve Here",
+                                tint: store.possessionDirection == (isHome ? .home : .guest) ? tint : themePalette.dashboardNeutralButton,
+                                foreground: .white
+                            ) {
+                                store.setServeTimerSide(side)
+                            }
+                        ],
+                        dense: layout.denseControls,
+                        compactVerticalPadding: layout.advancedButtonVerticalPadding
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                } else {
+                    buttonGrid(
+                        columns: 2,
+                        buttons: [
+                            ActionDescriptor(
+                                title: "Shot 24",
+                                tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
+                                foreground: .white
+                            ) {
+                                store.assignShotClock(to: 24, forHomeTeam: isHome)
+                            },
+                            ActionDescriptor(
+                                title: "Shot 14",
+                                tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
+                                foreground: .white
+                            ) {
+                                store.assignShotClock(to: 14, forHomeTeam: isHome)
+                            }
+                        ],
+                        dense: layout.denseControls,
+                        compactVerticalPadding: layout.advancedButtonVerticalPadding
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
 
             if store.showsSubstitutionTracking {
@@ -8289,25 +8433,38 @@ struct ContentView: View {
             }
 
             buttonGrid(
-                columns: store.supportsPeriod ? 3 : 1,
-                buttons: store.supportsPeriod ? [
-                    ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
-                        requestGameConfirmation(.previousPeriod)
-                    },
-                    ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.swapSides()
-                    },
-                    ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                        store.adjustPeriod(by: 1)
-                    }
-                ] : [
-                    ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.swapSides()
-                    }
-                ],
+                columns: matchNavigationButtons.count,
+                buttons: matchNavigationButtons,
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
+
+            if store.supportsPeriodWinTracking {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(periodWinStatusText)
+                        .font(.subheadline.weight(.semibold))
+                        .singleLineFitted(minScale: 0.7)
+                        .foregroundStyle(themePalette.dashboardMutedText)
+
+                    buttonGrid(
+                        columns: store.volleyballSetResults.isEmpty ? 2 : 3,
+                        buttons: [
+                            ActionDescriptor(title: "Home Wins Period", tint: homeTint, foreground: .white, isEnabled: store.periodWinMatchWinner == nil) {
+                                requestGameConfirmation(.awardVolleyballSet(.home))
+                            },
+                            ActionDescriptor(title: "Guest Wins Period", tint: guestTint, foreground: .white, isEnabled: store.periodWinMatchWinner == nil) {
+                                requestGameConfirmation(.awardVolleyballSet(.guest))
+                            }
+                        ] + (store.volleyballSetResults.isEmpty ? [] : [
+                            ActionDescriptor(title: "Undo & Return", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, isEnabled: !isResetInterlockActive) {
+                                requestGameConfirmation(.undoVolleyballSet)
+                            }
+                        ]),
+                        dense: layout.denseControls,
+                        compactVerticalPadding: layout.advancedButtonVerticalPadding
+                    )
+                }
+            }
 
             buttonGrid(
                 columns: store.showsGameClock ? 2 : 1,
@@ -8385,18 +8542,8 @@ struct ContentView: View {
 
             if store.supportsPeriod {
                 buttonGrid(
-                    columns: 3,
-                    buttons: [
-                        ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
-                            requestGameConfirmation(.previousPeriod)
-                        },
-                        ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                            store.swapSides()
-                        },
-                        ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
-                            store.adjustPeriod(by: 1)
-                        }
-                    ],
+                    columns: matchNavigationButtons.count,
+                    buttons: matchNavigationButtons,
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
@@ -8812,6 +8959,43 @@ struct ContentView: View {
         }
     }
 
+    private var periodWinStatusText: String {
+        let periodLine: String
+        if store.selectedSport == .volleyball {
+            periodLine = "Periods \(store.homePeriodWins)-\(store.guestPeriodWins) • \(store.volleyballMatchFormat.title)"
+        } else {
+            periodLine = "Periods \(store.homePeriodWins)-\(store.guestPeriodWins)"
+        }
+
+        guard let winner = store.periodWinMatchWinner else {
+            return periodLine
+        }
+
+        return "\(periodLine) • \(store.sideRoleLabel(for: winner)) wins match"
+    }
+
+    private var matchNavigationButtons: [ActionDescriptor] {
+        if !store.supportsPeriod || store.supportsPeriodWinTracking {
+            return [
+                ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                    store.swapSides()
+                }
+            ]
+        }
+
+        return [
+            ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                requestGameConfirmation(.previousPeriod)
+            },
+            ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.swapSides()
+            },
+            ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
+                store.adjustPeriod(by: 1)
+            }
+        ]
+    }
+
     private func buttonGrid(
         columns: Int,
         buttons: [ActionDescriptor],
@@ -8978,9 +9162,9 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 120) },
-                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 240) },
-                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: 300) }
+                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { addPenaltyTimer(side: side, seconds: 120) },
+                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { addPenaltyTimer(side: side, seconds: 240) },
+                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { addPenaltyTimer(side: side, seconds: 300) }
                 ],
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -9021,6 +9205,14 @@ struct ContentView: View {
                 .padding(10)
                 .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
+        }
+    }
+
+    private func addPenaltyTimer(side: TeamSide, seconds: Int) {
+        if store.supportsPlayerTracking {
+            pendingPenaltySelection = PendingPenaltySelection(side: side, seconds: seconds)
+        } else {
+            store.addPenaltyTimer(for: side, seconds: seconds, player: nil, startsRunning: true)
         }
     }
 
@@ -9466,9 +9658,11 @@ struct ContentView: View {
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         let draftClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupClockSeconds
         let draftGuestClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupGuestClockSeconds
+        let tracksPeriodWins = setupSport == .volleyball ||
+            (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 10,
+            fileVersion: 11,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -9480,6 +9674,8 @@ struct ContentView: View {
             homeScore: 0,
             guestScore: 0,
             period: setupPeriod,
+            volleyballMatchFormat: setupSport == .volleyball ? setupVolleyballMatchFormat : nil,
+            volleyballSetResults: tracksPeriodWins ? [] : nil,
             gameClockSeconds: draftClockSeconds,
             defaultClockSeconds: draftClockSeconds,
             isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
@@ -10428,6 +10624,7 @@ struct ContentView: View {
         setupClockSeconds = store.defaultClockSeconds
         setupUsesGameClock = store.isGameClockEnabled
         setupShotClockSeconds = store.activeShotClockPresetSeconds
+        setupVolleyballMatchFormat = store.volleyballMatchFormat
         setupGuestClockSeconds = store.guestChessClockSeconds
         setupChessPreset = store.chessClockPreset
         setupCustomSportConfig = store.customSportConfig
@@ -10738,6 +10935,9 @@ struct ContentView: View {
         if sport != .volleyball && sport != .custom {
             setupUsesGameClock = true
         }
+        if sport == .volleyball {
+            setupVolleyballMatchFormat = .bestOf5
+        }
         if setupRules.usesChessClocks {
             if sport == .chess {
                 setupClockSeconds = setupChessPreset.seconds
@@ -11020,9 +11220,11 @@ struct ContentView: View {
         let activeChessClockSide = setupRules.usesChessClocks
             ? ((setupSport == .debate ? isSameDebateFormat : isSameSport) ? currentSnapshot.activeChessClockSide : .home)
             : currentSnapshot.activeChessClockSide
+        let tracksPeriodWins = setupSport == .volleyball ||
+            (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 10,
+            fileVersion: 11,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -11034,6 +11236,8 @@ struct ContentView: View {
             homeScore: currentSnapshot.homeScore,
             guestScore: currentSnapshot.guestScore,
             period: setupPeriod,
+            volleyballMatchFormat: setupSport == .volleyball ? setupVolleyballMatchFormat : nil,
+            volleyballSetResults: tracksPeriodWins ? currentSnapshot.volleyballSetResults : nil,
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: setupDefaultClockSeconds,
             isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
@@ -11080,8 +11284,8 @@ struct ContentView: View {
             isDebatePlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled && setupDebatePlayerFoulsEnabled : currentSnapshot.isDebatePlayerFoulsEnabled,
             isDebatePlayerCardsEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled && setupDebatePlayerCardsEnabled : currentSnapshot.isDebatePlayerCardsEnabled,
-            homePenaltyTimers: currentSnapshot.homePenaltyTimers,
-            guestPenaltyTimers: currentSnapshot.guestPenaltyTimers,
+            homePenaltyTimers: setupRules.supportsHockeyPenalties ? currentSnapshot.homePenaltyTimers : [],
+            guestPenaltyTimers: setupRules.supportsHockeyPenalties ? currentSnapshot.guestPenaltyTimers : [],
             homeRoster: currentSnapshot.homeRoster,
             guestRoster: currentSnapshot.guestRoster,
             externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
@@ -11268,7 +11472,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 10,
+                    fileVersion: 11,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
@@ -11278,6 +11482,8 @@ struct ContentView: View {
                     homeScore: 0,
                     guestScore: 0,
                     period: preset.period,
+                    volleyballMatchFormat: preset.sport == .volleyball ? .bestOf5 : nil,
+                    volleyballSetResults: preset.sport == .volleyball ? [] : nil,
                     gameClockSeconds: preset.clockSeconds,
                     defaultClockSeconds: preset.clockSeconds,
                     isGameClockEnabled: true,
@@ -11453,6 +11659,10 @@ struct ContentView: View {
             playerLineupScrollDirection: store.playerLineupScrollDirection,
             homeScore: store.homeScore,
             guestScore: store.guestScore,
+            homeSetsWon: store.homePeriodWins,
+            guestSetsWon: store.guestPeriodWins,
+            showsPeriodWins: store.supportsPeriodWinTracking,
+            usesServeTimer: store.usesServeTimer,
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
@@ -11648,12 +11858,16 @@ struct ContentView: View {
 
     private func gameConfirmationTitle(for action: GameConfirmationAction) -> String {
         switch action {
+        case .awardVolleyballSet(let side):
+            return localizedAppFormat("Confirm %@ Period Win", store.sideRoleLabel(for: side))
+        case .undoVolleyballSet:
+            return localizedAppString("Confirm Undo and Return")
         case .previousPeriod:
             return localizedAppFormat("Confirm Previous %@", localizedAppString(store.periodTitle))
         case .resetClock:
             return localizedAppString("Confirm Clock Reset")
         case .resetShotClock:
-            return localizedAppString("Confirm Shot Clock Reset")
+            return localizedAppFormat("Confirm %@ Reset", store.secondaryTimerTitle)
         case .zeroScores:
             return localizedAppString("Confirm Zero Scores")
         case .resetChessClocks:
@@ -11687,12 +11901,21 @@ struct ContentView: View {
 
     private func gameConfirmationMessage(for action: GameConfirmationAction) -> String {
         switch action {
+        case .awardVolleyballSet(let side):
+            let isLegalScore = store.selectedSport != .volleyball || store.isLegalVolleyballSetWin(for: side)
+            let scoreLine = localizedAppFormat("Current score is %d-%d.", store.homeScore, store.guestScore)
+            if isLegalScore {
+                return localizedAppFormat("%@ Award Period %d to %@, reset the score to 0-0, and reset the timer?", scoreLine, store.period, store.sideRoleLabel(for: side))
+            }
+            return localizedAppFormat("%@ This is not a standard period-winning score for Period %d, which is played to %d and must be won by two. Award it anyway?", scoreLine, store.period, store.volleyballCurrentSetTarget)
+        case .undoVolleyballSet:
+            return localizedAppString("Restore the last recorded period score, remove that period result, and return to that period?")
         case .previousPeriod:
             return localizedAppFormat("Move back one %@?", localizedAppString(store.periodTitle).lowercased())
         case .resetClock:
             return localizedAppFormat("Reset the game clock to %@?", formatClock(store.defaultClockSeconds))
         case .resetShotClock:
-            return localizedAppString("Reset the shot clock to its active preset?")
+            return localizedAppFormat("Reset the %@ to its active preset?", store.secondaryTimerTitle.lowercased())
         case .zeroScores:
             return localizedAppString("Set both team scores back to zero?")
         case .resetChessClocks:
@@ -11726,12 +11949,16 @@ struct ContentView: View {
 
     private func gameConfirmationButtonTitle(for action: GameConfirmationAction) -> String {
         switch action {
+        case .awardVolleyballSet:
+            return localizedAppString("Award Period")
+        case .undoVolleyballSet:
+            return localizedAppString("Undo & Return")
         case .previousPeriod:
             return localizedAppFormat("Previous %@", localizedAppString(store.periodTitle))
         case .resetClock:
             return localizedAppString("Reset Clock")
         case .resetShotClock:
-            return localizedAppString("Reset Shot")
+            return localizedAppFormat("Reset %@", store.secondaryTimerActionTitle)
         case .zeroScores:
             return localizedAppString("Zero Scores")
         case .resetChessClocks:
@@ -11770,6 +11997,10 @@ struct ContentView: View {
 
     private func performConfirmedGameAction(_ action: GameConfirmationAction) {
         switch action {
+        case .awardVolleyballSet(let side):
+            store.awardPeriod(to: side)
+        case .undoVolleyballSet:
+            store.undoLastPeriodWin()
         case .previousPeriod:
             store.adjustPeriod(by: -1)
         case .resetClock:
@@ -12321,6 +12552,8 @@ private enum DashboardPage: Hashable {
 }
 
 private enum GameConfirmationAction: Identifiable {
+    case awardVolleyballSet(TeamSide)
+    case undoVolleyballSet
     case previousPeriod
     case resetClock
     case resetShotClock
@@ -12341,6 +12574,10 @@ private enum GameConfirmationAction: Identifiable {
 
     var id: String {
         switch self {
+        case .awardVolleyballSet(let side):
+            return "awardVolleyballSet-\(side.rawValue)"
+        case .undoVolleyballSet:
+            return "undoVolleyballSet"
         case .previousPeriod:
             return "previousPeriod"
         case .resetClock:

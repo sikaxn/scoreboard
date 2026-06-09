@@ -21,7 +21,7 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 10
+    var fileVersion = 11
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
@@ -31,6 +31,8 @@ struct ScoreboardGameSnapshot: Sendable {
     var homeScore: Int
     var guestScore: Int
     var period: Int
+    var volleyballMatchFormat: VolleyballMatchFormat? = nil
+    var volleyballSetResults: [VolleyballSetResult]? = nil
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool?
@@ -107,6 +109,8 @@ struct ScoreboardGameSnapshot: Sendable {
         homeScore: 0,
         guestScore: 0,
         period: 1,
+        volleyballMatchFormat: .bestOf5,
+        volleyballSetResults: [],
         gameClockSeconds: 10 * 60,
         defaultClockSeconds: 10 * 60,
         isGameClockEnabled: true,
@@ -189,6 +193,8 @@ extension ScoreboardGameSnapshot: Codable {
         case homeScore
         case guestScore
         case period
+        case volleyballMatchFormat
+        case volleyballSetResults
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
@@ -269,6 +275,8 @@ extension ScoreboardGameSnapshot: Codable {
         homeScore = try container.decode(Int.self, forKey: .homeScore)
         guestScore = try container.decode(Int.self, forKey: .guestScore)
         period = try container.decode(Int.self, forKey: .period)
+        volleyballMatchFormat = try container.decodeIfPresent(VolleyballMatchFormat.self, forKey: .volleyballMatchFormat)
+        volleyballSetResults = try container.decodeIfPresent([VolleyballSetResult].self, forKey: .volleyballSetResults)
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled)
@@ -349,6 +357,8 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(homeScore, forKey: .homeScore)
         try container.encode(guestScore, forKey: .guestScore)
         try container.encode(period, forKey: .period)
+        try container.encodeIfPresent(volleyballMatchFormat, forKey: .volleyballMatchFormat)
+        try container.encodeIfPresent(volleyballSetResults, forKey: .volleyballSetResults)
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encodeIfPresent(isGameClockEnabled, forKey: .isGameClockEnabled)

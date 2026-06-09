@@ -197,7 +197,9 @@ nonisolated struct ScoreboardWebAPIRules: Codable, Sendable {
     let scoreStepOptions: [Int]
     let supportsScore: Bool
     let supportsPeriod: Bool
+    let supportsPeriodWins: Bool?
     let supportsShotClock: Bool
+    let usesServeTimer: Bool?
     let supportsPossession: Bool
     let supportsFouls: Bool
     let supportsTeamFouls: Bool
@@ -219,6 +221,8 @@ nonisolated struct ScoreboardWebAPITeam: Codable, Sendable {
     let roleLabel: String
     let logo: ScoreboardWebAPITeamLogo?
     let score: Int
+    let periodsWon: Int?
+    let setsWon: Int?
     let teamFouls: Int
     let substitutionsAllowed: Int
     let substitutionsUsed: Int
@@ -1228,7 +1232,9 @@ extension ScoreboardStore {
                 scoreStepOptions: rules.scoreStepOptions,
                 supportsScore: supportsScore,
                 supportsPeriod: supportsPeriod,
+                supportsPeriodWins: supportsPeriodWinTracking,
                 supportsShotClock: supportsShotClock,
+                usesServeTimer: usesServeTimer,
                 supportsPossession: supportsPossession,
                 supportsFouls: supportsFouls,
                 supportsTeamFouls: supportsTeamFouls,
@@ -1308,6 +1314,8 @@ extension ScoreboardStore {
             roleLabel: sideRoleLabel(for: side),
             logo: webAPITeamLogoMetadata(for: side),
             score: side == .home ? homeScore : guestScore,
+            periodsWon: supportsPeriodWinTracking ? periodWins(for: side) : nil,
+            setsWon: supportsPeriodWinTracking ? periodWins(for: side) : nil,
             teamFouls: teamFouls(for: side),
             substitutionsAllowed: substitutionsAllowed(for: side),
             substitutionsUsed: substitutionsUsed(for: side),

@@ -89,17 +89,35 @@ enum CustomScoreStepPreset: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CustomShotClockMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case shot
+    case serve
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .shot:
+            return "Shot Clock"
+        case .serve:
+            return "Serve Timer"
+        }
+    }
+}
+
 struct CustomSportConfig: Codable, Equatable, Sendable {
     var title: String
     var isPeriodEnabled: Bool
     var periodTitle: String
     var periodShortTitle: String
+    var isPeriodWinTrackingEnabled: Bool
     var usesChessClocks: Bool
     var mainClockMode: MainClockMode
     var defaultClockSeconds: Int
     var isScoreEnabled: Bool
     var scoreStepPreset: CustomScoreStepPreset
     var isShotClockEnabled: Bool
+    var shotClockMode: CustomShotClockMode
     var defaultShotClockSeconds: Int
     var isPossessionEnabled: Bool
     var isPlayerTrackingEnabled: Bool
@@ -108,6 +126,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
     var isSubstitutionTrackingEnabled: Bool
     var defaultSubstitutionLimit: Int
     var isTeamFoulsEnabled: Bool
+    var isPenaltyTimerEnabled: Bool
     var isPlayerCardsEnabled: Bool
     var defaultRosterSize: Int
     var defaultDisplayLineupSize: Int
@@ -117,12 +136,14 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPeriodEnabled: Bool,
         periodTitle: String,
         periodShortTitle: String,
+        isPeriodWinTrackingEnabled: Bool,
         usesChessClocks: Bool,
         mainClockMode: MainClockMode,
         defaultClockSeconds: Int,
         isScoreEnabled: Bool,
         scoreStepPreset: CustomScoreStepPreset,
         isShotClockEnabled: Bool,
+        shotClockMode: CustomShotClockMode,
         defaultShotClockSeconds: Int,
         isPossessionEnabled: Bool,
         isPlayerTrackingEnabled: Bool,
@@ -131,6 +152,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isSubstitutionTrackingEnabled: Bool,
         defaultSubstitutionLimit: Int,
         isTeamFoulsEnabled: Bool,
+        isPenaltyTimerEnabled: Bool,
         isPlayerCardsEnabled: Bool,
         defaultRosterSize: Int,
         defaultDisplayLineupSize: Int
@@ -139,12 +161,14 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         self.isPeriodEnabled = isPeriodEnabled
         self.periodTitle = periodTitle
         self.periodShortTitle = periodShortTitle
+        self.isPeriodWinTrackingEnabled = isPeriodWinTrackingEnabled
         self.usesChessClocks = usesChessClocks
         self.mainClockMode = mainClockMode
         self.defaultClockSeconds = defaultClockSeconds
         self.isScoreEnabled = isScoreEnabled
         self.scoreStepPreset = scoreStepPreset
         self.isShotClockEnabled = isShotClockEnabled
+        self.shotClockMode = shotClockMode
         self.defaultShotClockSeconds = defaultShotClockSeconds
         self.isPossessionEnabled = isPossessionEnabled
         self.isPlayerTrackingEnabled = isPlayerTrackingEnabled
@@ -153,6 +177,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         self.isSubstitutionTrackingEnabled = isSubstitutionTrackingEnabled
         self.defaultSubstitutionLimit = defaultSubstitutionLimit
         self.isTeamFoulsEnabled = isTeamFoulsEnabled
+        self.isPenaltyTimerEnabled = isPenaltyTimerEnabled
         self.isPlayerCardsEnabled = isPlayerCardsEnabled
         self.defaultRosterSize = defaultRosterSize
         self.defaultDisplayLineupSize = defaultDisplayLineupSize
@@ -163,12 +188,14 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPeriodEnabled: true,
         periodTitle: "Period",
         periodShortTitle: "P",
+        isPeriodWinTrackingEnabled: false,
         usesChessClocks: false,
         mainClockMode: .countdown,
         defaultClockSeconds: 10 * 60,
         isScoreEnabled: true,
         scoreStepPreset: .oneTwoThree,
         isShotClockEnabled: false,
+        shotClockMode: .shot,
         defaultShotClockSeconds: 24,
         isPossessionEnabled: false,
         isPlayerTrackingEnabled: false,
@@ -177,6 +204,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isSubstitutionTrackingEnabled: false,
         defaultSubstitutionLimit: 0,
         isTeamFoulsEnabled: false,
+        isPenaltyTimerEnabled: false,
         isPlayerCardsEnabled: false,
         defaultRosterSize: 12,
         defaultDisplayLineupSize: 5
@@ -187,12 +215,14 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         case isPeriodEnabled
         case periodTitle
         case periodShortTitle
+        case isPeriodWinTrackingEnabled
         case usesChessClocks
         case mainClockMode
         case defaultClockSeconds
         case isScoreEnabled
         case scoreStepPreset
         case isShotClockEnabled
+        case shotClockMode
         case defaultShotClockSeconds
         case isPossessionEnabled
         case isPlayerTrackingEnabled
@@ -201,6 +231,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         case isSubstitutionTrackingEnabled
         case defaultSubstitutionLimit
         case isTeamFoulsEnabled
+        case isPenaltyTimerEnabled
         case isPlayerCardsEnabled
         case defaultRosterSize
         case defaultDisplayLineupSize
@@ -212,12 +243,14 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPeriodEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPeriodEnabled) ?? Self.default.isPeriodEnabled
         periodTitle = try container.decodeIfPresent(String.self, forKey: .periodTitle) ?? Self.default.periodTitle
         periodShortTitle = try container.decodeIfPresent(String.self, forKey: .periodShortTitle) ?? Self.default.periodShortTitle
+        isPeriodWinTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPeriodWinTrackingEnabled) ?? Self.default.isPeriodWinTrackingEnabled
         usesChessClocks = try container.decodeIfPresent(Bool.self, forKey: .usesChessClocks) ?? Self.default.usesChessClocks
         mainClockMode = try container.decodeIfPresent(MainClockMode.self, forKey: .mainClockMode) ?? Self.default.mainClockMode
         defaultClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultClockSeconds) ?? Self.default.defaultClockSeconds
         isScoreEnabled = try container.decodeIfPresent(Bool.self, forKey: .isScoreEnabled) ?? Self.default.isScoreEnabled
         scoreStepPreset = try container.decodeIfPresent(CustomScoreStepPreset.self, forKey: .scoreStepPreset) ?? Self.default.scoreStepPreset
         isShotClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isShotClockEnabled) ?? Self.default.isShotClockEnabled
+        shotClockMode = try container.decodeIfPresent(CustomShotClockMode.self, forKey: .shotClockMode) ?? Self.default.shotClockMode
         defaultShotClockSeconds = try container.decodeIfPresent(Int.self, forKey: .defaultShotClockSeconds) ?? Self.default.defaultShotClockSeconds
         isPossessionEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPossessionEnabled) ?? Self.default.isPossessionEnabled
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? Self.default.isPlayerTrackingEnabled
@@ -226,6 +259,7 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isSubstitutionTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSubstitutionTrackingEnabled) ?? Self.default.isSubstitutionTrackingEnabled
         defaultSubstitutionLimit = try container.decodeIfPresent(Int.self, forKey: .defaultSubstitutionLimit) ?? Self.default.defaultSubstitutionLimit
         isTeamFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isTeamFoulsEnabled) ?? Self.default.isTeamFoulsEnabled
+        isPenaltyTimerEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPenaltyTimerEnabled) ?? Self.default.isPenaltyTimerEnabled
         isPlayerCardsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerCardsEnabled) ?? Self.default.isPlayerCardsEnabled
         defaultRosterSize = try container.decodeIfPresent(Int.self, forKey: .defaultRosterSize) ?? Self.default.defaultRosterSize
         defaultDisplayLineupSize = try container.decodeIfPresent(Int.self, forKey: .defaultDisplayLineupSize) ?? Self.default.defaultDisplayLineupSize
@@ -349,19 +383,19 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
             return SportRules(
                 sport: self,
                 title: "Volleyball",
-                periodTitle: "Set",
-                periodShortTitle: "S",
+                periodTitle: "Period",
+                periodShortTitle: "P",
                 scoreStepOptions: [1],
                 defaultClockSeconds: 0,
-                defaultShotClockSeconds: 0,
+                defaultShotClockSeconds: 8,
                 defaultRosterSize: 12,
                 defaultDisplayLineupSize: 6,
                 defaultSubstitutionLimit: 6,
                 mainClockMode: .countUp,
                 supportsScore: true,
                 supportsPeriod: true,
-                supportsShotClock: false,
-                supportsPossession: false,
+                supportsShotClock: true,
+                supportsPossession: true,
                 supportsFouls: false,
                 supportsTeamFouls: true,
                 supportsPlayerTracking: true,
@@ -492,14 +526,14 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 supportsScore: config.isScoreEnabled,
                 supportsPeriod: config.isPeriodEnabled,
                 supportsShotClock: config.isShotClockEnabled,
-                supportsPossession: config.isShotClockEnabled && config.isPossessionEnabled,
+                supportsPossession: config.isShotClockEnabled && (config.isPossessionEnabled || config.shotClockMode == .serve),
                 supportsFouls: config.isPlayerFoulsEnabled,
                 supportsTeamFouls: config.isTeamFoulsEnabled,
                 supportsPlayerTracking: config.isPlayerTrackingEnabled,
                 usesCenterPlayerStrip: config.usesCenterPlayerStrip,
                 supportsCards: config.isPlayerCardsEnabled,
                 showsSubstitutionTracking: config.isSubstitutionTrackingEnabled,
-                supportsHockeyPenalties: false,
+                supportsHockeyPenalties: config.isPenaltyTimerEnabled,
                 usesChessClocks: config.usesChessClocks
             )
         }
