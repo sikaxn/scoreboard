@@ -433,26 +433,29 @@ struct ContentView: View {
                 settingsKeyboardHeight = 0
             }
         }
-        .fileImporter(
-            isPresented: $showsGameImporter,
-            allowedContentTypes: iOSGameImportContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            importGameIntoLibrary(result)
+        .sheet(isPresented: $showsGameImporter) {
+            ScoreboardDocumentPicker(
+                isPresented: $showsGameImporter,
+                contentTypes: iOSGameImportContentTypes,
+                allowsMultipleSelection: false,
+                onCompletion: importGameIntoLibrary
+            )
         }
-        .fileImporter(
-            isPresented: $showsBackupImporter,
-            allowedContentTypes: iOSBackupImportContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            importBackupForRestore(result)
+        .sheet(isPresented: $showsBackupImporter) {
+            ScoreboardDocumentPicker(
+                isPresented: $showsBackupImporter,
+                contentTypes: iOSBackupImportContentTypes,
+                allowsMultipleSelection: false,
+                onCompletion: importBackupForRestore
+            )
         }
-        .fileImporter(
-            isPresented: $showsRosterCSVImporter,
-            allowedContentTypes: iOSRosterCSVImportContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            importRosterCSV(result)
+        .sheet(isPresented: $showsRosterCSVImporter) {
+            ScoreboardDocumentPicker(
+                isPresented: $showsRosterCSVImporter,
+                contentTypes: iOSRosterCSVImportContentTypes,
+                allowsMultipleSelection: false,
+                onCompletion: importRosterCSV
+            )
         }
         .photosPicker(
             isPresented: $showsExternalBackgroundPhotoPicker,
@@ -12682,6 +12685,50 @@ private struct DeferredSettingsTextField: View {
 }
 
 #if os(iOS)
+private struct ScoreboardDocumentPicker: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let contentTypes: [UTType]
+    let allowsMultipleSelection: Bool
+    let onCompletion: (Result<[URL], Error>) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented, onCompletion: onCompletion)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: true)
+        picker.allowsMultipleSelection = allowsMultipleSelection
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {
+        uiViewController.allowsMultipleSelection = allowsMultipleSelection
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private var isPresented: Binding<Bool>
+        private let onCompletion: (Result<[URL], Error>) -> Void
+
+        init(
+            isPresented: Binding<Bool>,
+            onCompletion: @escaping (Result<[URL], Error>) -> Void
+        ) {
+            self.isPresented = isPresented
+            self.onCompletion = onCompletion
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            isPresented.wrappedValue = false
+            onCompletion(.success(urls))
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            isPresented.wrappedValue = false
+        }
+    }
+}
+
 private struct ScoreboardActivityView: UIViewControllerRepresentable {
     let activityItems: [Any]
 

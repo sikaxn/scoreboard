@@ -13,6 +13,8 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
 			<key>CFBundleTypeName</key>
 			<string>Scoreboard Game</string>
 			<key>LSHandlerRank</key>
@@ -20,6 +22,18 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.ironmaple.smartscoreboard.game</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleTypeName</key>
+			<string>Scoreboard Backup</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.ironmaple.smartscoreboard.backup</string>
 			</array>
 		</dict>
 	</array>
@@ -102,6 +116,23 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>scoreboardgame</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Scoreboard Backup</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.ironmaple.smartscoreboard.backup</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>scoreboardbackup</string>
 				</array>
 			</dict>
 		</dict>
