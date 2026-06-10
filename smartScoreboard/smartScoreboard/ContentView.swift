@@ -75,7 +75,9 @@ struct ContentView: View {
     @State private var gameFileNameDraft = ""
     @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var showsGettingStarted = false
+    @State private var showsBunnyEasterEgg = false
     @State private var isGettingStartedAutoPresentation = false
+    @AppStorage(ScoreboardEasterEggIcon.userDefaultsKey) private var isBunnyIconEnabled = false
     @State private var tipHistoryResetGeneration = UserDefaults.standard.integer(forKey: Self.tipHistoryResetGenerationKey)
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var isSettingsSidebarCollapsed = false
@@ -147,9 +149,10 @@ struct ContentView: View {
     private var guestTintText: Color { themePalette.guestAccentText }
     private var destructiveText: Color { themePalette.destructiveText }
     private var appDisplayName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "ScoreBoard"
+        "Smart Scoreboard"
+    }
+    private var currentAppIconAssetName: String {
+        ScoreboardEasterEggIcon.assetName(isBunnyEnabled: isBunnyIconEnabled)
     }
     private var appVersionLine: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -627,6 +630,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showsGettingStarted, onDismiss: handleGettingStartedDismissed) {
             gettingStartedSheet
+        }
+        .sheet(isPresented: $showsBunnyEasterEgg) {
+            bunnyEasterEggSheet
         }
         .sheet(item: $pendingPenaltySelection) { selection in
             penaltyPlayerSelectionSheet(selection)
@@ -4213,7 +4219,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 22) {
             settingsSection(title: "Application") {
                 HStack(alignment: .center, spacing: 18) {
-                    Image("ScoreboardIcon")
+                    Image(currentAppIconAssetName)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 96, height: 96)
@@ -4221,12 +4227,19 @@ struct ContentView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
                                 .strokeBorder(settingsPalette.cardBorder)
-                        )
+                    )
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(appDisplayName)
-                            .font(.title3.weight(.black))
-                            .foregroundStyle(settingsPalette.primaryText)
+                        Button {
+                            handleApplicationNameTapped()
+                        } label: {
+                            Text(appDisplayName)
+                                .font(.title3.weight(.black))
+                                .foregroundStyle(settingsPalette.primaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(localizedAppString(isBunnyIconEnabled ? "Restore the original app icon" : "Unlock a hidden app icon"))
+                        .help(localizedAppString(isBunnyIconEnabled ? "Restore the original app icon" : "Unlock a hidden app icon"))
 
                         Text(appVersionLine)
                             .font(.subheadline)
@@ -4236,6 +4249,18 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, 12)
+
+                if isBunnyIconEnabled {
+                    settingsDivider()
+                    settingsButtonRow(
+                        title: "App Icon",
+                        buttonTitle: "Restore Original",
+                        tint: settingsPalette.accent,
+                        foreground: settingsPalette.accentText
+                    ) {
+                        restoreOriginalAppIcon()
+                    }
+                }
             }
 
             settingsSection(title: "Help", footer: "Tips guide you through setup and key controls around the app. Turn them off here, or reset them to show dismissed tips again.") {
@@ -4358,6 +4383,136 @@ struct ContentView: View {
         }
     }
 
+    private var bunnyEasterEggSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 16) {
+                    Image(currentAppIconAssetName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(settingsPalette.cardBorder)
+                        )
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Hey, you found the bunny")
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .foregroundStyle(settingsPalette.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("The hidden app icon is now active on this device.")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+                }
+
+                VStack(spacing: 0) {
+                    bunnyEasterEggFeatureRow(
+                        title: "Bunny Icon",
+                        detail: "About and welcome now use the hidden icon.",
+                        systemImage: "app"
+                    )
+                    settingsDivider()
+                    #if os(macOS)
+                    bunnyEasterEggFeatureRow(
+                        title: "In-App Only",
+                        detail: "On Mac, the hidden icon appears inside the app.",
+                        systemImage: "desktopcomputer"
+                    )
+                    #else
+                    bunnyEasterEggFeatureRow(
+                        title: "Home Screen",
+                        detail: "iPhone and iPad may ask before changing the Home Screen icon.",
+                        systemImage: "iphone"
+                    )
+                    #endif
+                    settingsDivider()
+                    bunnyEasterEggFeatureRow(
+                        title: "Change It Back",
+                        detail: "Tap Smart Scoreboard again in About, or use Restore Original.",
+                        systemImage: "arrow.uturn.backward"
+                    )
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(settingsPalette.cardBorder)
+                )
+
+                HStack(spacing: 12) {
+                    Button {
+                        restoreOriginalAppIcon()
+                    } label: {
+                        Label("Restore Original", systemImage: "arrow.uturn.backward")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(settingsPalette.primaryText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(settingsPalette.fieldBackground, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        showsBunnyEasterEgg = false
+                    } label: {
+                        Label("Keep Bunny", systemImage: "checkmark")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(settingsPalette.accentText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(settingsPalette.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(settingsPalette.shellBackground)
+        #if os(iOS)
+        .presentationDetents([.height(440)])
+        .presentationDragIndicator(.visible)
+        #endif
+        #if os(macOS)
+        .frame(minWidth: 620, idealWidth: 700, maxWidth: 760, minHeight: 420, idealHeight: 430, maxHeight: 470)
+        #endif
+    }
+
+    private func bunnyEasterEggFeatureRow(title: String, detail: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(settingsPalette.accentText)
+                .frame(width: 34, height: 34)
+                .background(settingsPalette.accent, in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText(title)
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(settingsPalette.primaryText)
+
+                localizedAppText(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 9)
+    }
+
     private var gettingStartedSheet: some View {
         GeometryReader { proxy in
             let isCompact = proxy.size.width < 620
@@ -4365,7 +4520,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     HStack(alignment: .center, spacing: 16) {
-                        Image("ScoreboardIcon")
+                        Image(currentAppIconAssetName)
                             .resizable()
                             .scaledToFit()
                             .frame(width: 72, height: 72)
@@ -9349,6 +9504,7 @@ struct ContentView: View {
         refreshStoredLogSessions()
         syncCurrentLogGameFile()
         store.refreshWebAPILocalAddresses()
+        ScoreboardEasterEggIcon.applyPersistedSystemIcon()
         #if os(iOS)
         store.reconcileRunningTimersWithWallClock()
         store.syncLiveActivityForCurrentState()
@@ -9377,6 +9533,39 @@ struct ContentView: View {
 
     private func closeGettingStarted() {
         showsGettingStarted = false
+    }
+
+    private func handleApplicationNameTapped() {
+        if isBunnyIconEnabled {
+            restoreOriginalAppIcon()
+        } else {
+            setBunnyIconEnabled(true, presentsSheet: true)
+        }
+    }
+
+    private func restoreOriginalAppIcon() {
+        setBunnyIconEnabled(false, presentsSheet: false)
+        showsBunnyEasterEgg = false
+    }
+
+    private func setBunnyIconEnabled(_ isEnabled: Bool, presentsSheet: Bool) {
+        let previousValue = isBunnyIconEnabled
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isBunnyIconEnabled = isEnabled
+        }
+        if presentsSheet {
+            showsBunnyEasterEgg = true
+        }
+
+        ScoreboardEasterEggIcon.applySystemIcon(isBunnyEnabled: isEnabled) { error in
+            guard let error else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isBunnyIconEnabled = previousValue
+            }
+            fileOperationError = FileOperationAlert(
+                message: localizedAppFormat("Could not change app icon: %@", error.localizedDescription)
+            )
+        }
     }
 
     private func skipGettingStartedAndDisableTips() {

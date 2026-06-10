@@ -36,6 +36,9 @@ struct SmartScoreboardApp: App {
             MacControlBoardRootView()
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
+                .onAppear {
+                    ScoreboardEasterEggIcon.applyPersistedSystemIcon()
+                }
                 .reportsSceneActivityForSleepPolicy()
                 .reportsExternalDisplaysForSleepPolicy()
                 .reportsScoreboardSleepPolicy(store: store, publicBoardState: publicBoardState)
@@ -70,6 +73,9 @@ struct SmartScoreboardApp: App {
                         .environmentObject(store)
                         .environmentObject(publicBoardState)
                 }
+            }
+            .onAppear {
+                ScoreboardEasterEggIcon.applyPersistedSystemIcon()
             }
             .reportsSceneActivityForSleepPolicy()
             .reportsExternalDisplaysForSleepPolicy()
