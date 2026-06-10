@@ -13,6 +13,45 @@ private func signedStoreDelta(_ delta: Int, suffix: String = "") -> String {
     "\(delta >= 0 ? "+" : "")\(delta)\(suffix)"
 }
 
+struct ScoreboardRemoteDisplayWarningNotice: Equatable, Identifiable {
+    enum Kind: Equatable {
+        case disconnected
+        case unresponsive
+    }
+
+    let id: UUID
+    let kind: Kind
+    let displayIDs: Set<String>
+    let message: String
+    let detail: String
+
+    init(kind: Kind, displaysByID: [String: String]) {
+        id = UUID()
+        self.kind = kind
+        displayIDs = Set(displaysByID.keys)
+
+        let names = displaysByID.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let joinedNames = names.joined(separator: ", ")
+
+        switch kind {
+        case .disconnected:
+            message = localizedStoreString("Remote Display disconnected")
+            if names.count == 1, let name = names.first {
+                detail = localizedStoreFormat("%@ disconnected. Waiting for Remote Display to reconnect.", name)
+            } else {
+                detail = localizedStoreFormat("%d Remote Displays disconnected: %@", names.count, joinedNames)
+            }
+        case .unresponsive:
+            message = localizedStoreString("Remote Display not responding")
+            if names.count == 1, let name = names.first {
+                detail = localizedStoreFormat("No reply from %@. Check the Remote Display connection.", name)
+            } else {
+                detail = localizedStoreFormat("%d Remote Displays are not replying: %@", names.count, joinedNames)
+            }
+        }
+    }
+}
+
 enum PossessionDirection: String, Codable, CaseIterable {
     case home
     case none
@@ -30,7 +69,7 @@ enum PossessionDirection: String, Codable, CaseIterable {
     }
 }
 
-enum TeamSide: String, Codable, CaseIterable, Identifiable {
+enum TeamSide: String, Codable, CaseIterable, Identifiable, Sendable {
     case home
     case guest
 
@@ -43,6 +82,98 @@ enum TeamSide: String, Codable, CaseIterable, Identifiable {
         case .guest:
             return NSLocalizedString("Guest", comment: "")
         }
+    }
+}
+
+enum VolleyballMatchFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    case bestOf3
+    case bestOf5
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bestOf3:
+            return NSLocalizedString("Best of 3", comment: "")
+        case .bestOf5:
+            return NSLocalizedString("Best of 5", comment: "")
+        }
+    }
+
+    var maximumSets: Int {
+        switch self {
+        case .bestOf3:
+            return 3
+        case .bestOf5:
+            return 5
+        }
+    }
+
+    var setsToWin: Int {
+        switch self {
+        case .bestOf3:
+            return 2
+        case .bestOf5:
+            return 3
+        }
+    }
+
+    func targetPoints(forSet set: Int) -> Int {
+        set == maximumSets ? 15 : 25
+    }
+}
+
+struct VolleyballSetResult: Codable, Equatable, Identifiable, Sendable {
+    var setNumber: Int
+    var winner: TeamSide
+    var homeScore: Int
+    var guestScore: Int
+
+    var id: Int { setNumber }
+}
+
+enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case homeLeft
+    case guestLeft
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .homeLeft:
+            return NSLocalizedString("Home Left", comment: "")
+        case .guestLeft:
+            return NSLocalizedString("Guest Left", comment: "")
+        }
+    }
+
+    var leftSide: TeamSide {
+        switch self {
+        case .homeLeft:
+            return .home
+        case .guestLeft:
+            return .guest
+        }
+    }
+
+    var rightSide: TeamSide {
+        leftSide == .home ? .guest : .home
+    }
+
+    var areSidesSwapped: Bool {
+        self == .guestLeft
+    }
+
+    init(areSidesSwapped: Bool) {
+        self = areSidesSwapped ? .guestLeft : .homeLeft
+    }
+
+    func toggled() -> ScoreboardDisplayDirection {
+        self == .homeLeft ? .guestLeft : .homeLeft
+    }
+
+    func applyingSideSwap(_ areSidesSwapped: Bool) -> ScoreboardDisplayDirection {
+        areSidesSwapped ? toggled() : self
     }
 }
 
@@ -61,6 +192,135 @@ enum PlayerFoulHighlightColor: String, Codable, CaseIterable, Identifiable {
             return NSLocalizedString("Orange", comment: "")
         case .yellow:
             return NSLocalizedString("Yellow", comment: "")
+        }
+    }
+}
+
+enum PlayerLineupOverflowMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case scroll
+    case fade
+    case fit
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .scroll:
+            return NSLocalizedString("Auto Scroll", comment: "")
+        case .fade:
+            return NSLocalizedString("Paged Fade", comment: "")
+        case .fit:
+            return NSLocalizedString("Adaptive Fit", comment: "")
+        }
+    }
+}
+
+enum PlayerLineupScrollDirection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case continuousUp
+    case throughUp
+    case continuousDown
+    case throughDown
+    case bounce
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .continuousUp:
+            return NSLocalizedString("Scroll Up Continuous", comment: "")
+        case .throughUp:
+            return NSLocalizedString("Scroll Up Through", comment: "")
+        case .continuousDown:
+            return NSLocalizedString("Scroll Down Continuous", comment: "")
+        case .throughDown:
+            return NSLocalizedString("Scroll Down Through", comment: "")
+        case .bounce:
+            return NSLocalizedString("Bounce Back and Forth", comment: "")
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = (try? container.decode(String.self)) ?? ""
+        switch rawValue {
+        case Self.continuousUp.rawValue:
+            self = .continuousUp
+        case Self.throughUp.rawValue:
+            self = .throughUp
+        case Self.continuousDown.rawValue:
+            self = .continuousDown
+        case Self.throughDown.rawValue:
+            self = .throughDown
+        case Self.bounce.rawValue, "up", "down":
+            self = .bounce
+        default:
+            self = .continuousUp
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+enum ScoreboardDisplayViewMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case scoreboard
+    case blackScreen
+    case backgroundOnly
+    case teamView
+    case playerView
+    case eventLogo
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .scoreboard:
+            return NSLocalizedString("Scoreboard", comment: "")
+        case .blackScreen:
+            return NSLocalizedString("Black Screen", comment: "")
+        case .backgroundOnly:
+            return NSLocalizedString("Background Only", comment: "")
+        case .teamView:
+            return NSLocalizedString("Team View", comment: "")
+        case .playerView:
+            return NSLocalizedString("Player View", comment: "")
+        case .eventLogo:
+            return NSLocalizedString("Event Logo", comment: "")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .scoreboard:
+            return "display"
+        case .blackScreen:
+            return "rectangle.fill"
+        case .backgroundOnly:
+            return "photo"
+        case .teamView:
+            return "person.2"
+        case .playerView:
+            return "list.bullet"
+        case .eventLogo:
+            return "seal"
+        }
+    }
+}
+
+enum PlayerViewRosterScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case activeLineup
+    case fullRoster
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .activeLineup:
+            return NSLocalizedString("Active Lineup", comment: "")
+        case .fullRoster:
+            return NSLocalizedString("Full Roster", comment: "")
         }
     }
 }
@@ -225,12 +485,30 @@ struct SetupPreset: Identifiable, Codable, Equatable {
 final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
     nonisolated static let maxGameClockSeconds = 59 * 60 + 59
+    nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
     nonisolated static let defaultRosterSize = 12
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
     nonisolated static let defaultDisplayLineupSize = 5
+    nonisolated static let defaultPlayerLineupFadePageSeconds = 4
+    nonisolated static let minPlayerLineupFadePageSeconds = 2
+    nonisolated static let maxPlayerLineupFadePageSeconds = 15
+    nonisolated static let defaultPlayerLineupScrollSpeed = 14
+    nonisolated static let minPlayerLineupScrollSpeed = 6
+    nonisolated static let maxPlayerLineupScrollSpeed = 40
+    private static let automaticDiskWriteThrottleSeconds = 5
+    nonisolated static let defaultAnimatedLogoSpeed = 42
+    nonisolated static let minAnimatedLogoSpeed = 8
+    nonisolated static let maxAnimatedLogoSpeed = 180
+    nonisolated static let defaultAnimatedLogoSize = 112
+    nonisolated static let minAnimatedLogoSize = 44
+    nonisolated static let maxAnimatedLogoSize = 240
+    nonisolated static let defaultAnimatedLogoOpacity = 0.23
+    nonisolated static let minAnimatedLogoOpacity = 0.05
+    nonisolated static let maxAnimatedLogoOpacity = 0.75
+    nonisolated static let displayDirectionModelVersion = 2
     nonisolated static let defaultSoundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect] = [
         .gameClockExpired: .classicBuzzer,
         .shotClockExpired: .shotClockBeep,
@@ -260,14 +538,22 @@ final class ScoreboardStore: ObservableObject {
         .playerOverlayShown: .none,
         .playerOverlayPaused: .none
     ]
+    nonisolated static let defaultSoundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]] = {
+        Dictionary(uniqueKeysWithValues: SportType.allCases.map { sport in
+            (sport, defaultSoundAssignments)
+        })
+    }()
 
     @Published var selectedSport: SportType = .simple
     @Published var customSportConfig: CustomSportConfig = .default
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
+    @Published var eventName = ""
     @Published var homeScore = 0
     @Published var guestScore = 0
     @Published var period = 1
+    @Published var volleyballMatchFormat: VolleyballMatchFormat = .bestOf5
+    @Published var volleyballSetResults: [VolleyballSetResult] = []
     @Published var gameClockSeconds = 10 * 60
     @Published var defaultClockSeconds = 10 * 60
     @Published var isGameClockEnabled = true
@@ -276,10 +562,19 @@ final class ScoreboardStore: ObservableObject {
     @Published var activeShotClockPresetSeconds = 0
     @Published var possessionDirection: PossessionDirection = .none
     @Published var areSidesSwapped = false
+    @Published var controlBoardDisplayDirection: ScoreboardDisplayDirection = .homeLeft
     @Published var isPlayerTrackingEnabled = false
     @Published var isPlayerOverlayPaused = false
     @Published var rosterSizePerTeam = defaultRosterSize
     @Published var displayLineupSize = defaultDisplayLineupSize
+    @Published var playerLineupOverflowMode: PlayerLineupOverflowMode = .scroll
+    @Published var playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    @Published var playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    @Published var playerLineupFadePageSeconds = defaultPlayerLineupFadePageSeconds
+    @Published var playerLineupScrollSpeed = defaultPlayerLineupScrollSpeed
+    @Published var playerLineupScrollDirection: PlayerLineupScrollDirection = .continuousUp
+    @Published var publicDisplayViewMode: ScoreboardDisplayViewMode = .scoreboard
+    @Published var playerViewRosterScope: PlayerViewRosterScope = .fullRoster
     @Published var playerFoulHighlightColor: PlayerFoulHighlightColor = .yellow
     @Published var isGameClockRedEnabled = false
     @Published var gameClockRedThresholdSeconds = 60
@@ -314,14 +609,73 @@ final class ScoreboardStore: ObservableObject {
     @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
+    @Published var showsLiveActivityWhenTimerRunning = true
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
+    @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
+    @Published var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle = .horizontalMarquee
+    @Published var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor = .themeBackground
+    @Published var externalDisplayAnimatedLogoSpeed = defaultAnimatedLogoSpeed
+    @Published var externalDisplayAnimatedLogoSize = defaultAnimatedLogoSize
+    @Published var externalDisplayAnimatedLogoOpacity = defaultAnimatedLogoOpacity
+    @Published var showsExternalDisplayDateTime = false
+    @Published var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat = .time24Hour
+    @Published var showsExternalDisplayDateTimeSeconds = true
+    @Published var externalDisplayDirection: ScoreboardDisplayDirection = .homeLeft
+    @Published var showsTeamLogos = true
+    @Published var showsEventLogo = true
+    @Published var homeTeamLogoImage: TeamLogoImage?
+    @Published var guestTeamLogoImage: TeamLogoImage?
+    @Published var eventLogoImage: EventLogoImage?
     @Published var isSoundEnabled = true
-    @Published var soundAssignments = ScoreboardStore.defaultSoundAssignments
+    @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
+    @Published var isCompanionVisible = false
+    @Published var isCompanionEnabled = false
+    @Published var companionHost = ""
+    @Published var companionMode: ScoreboardCompanionMode = .tcp
+    @Published var companionPort = ScoreboardCompanionMode.tcp.defaultPort
+    @Published var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]] = [:]
+    @Published private(set) var companionLastError: String?
+    @Published private(set) var companionFailureNotice: ScoreboardCompanionFailureNotice?
     @Published var isClockRunning = false
+    @Published private(set) var gameClockAutosaveRevision = 0
     @Published var isShotClockRunning = false
+    @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
+    @Published var areTipsEnabled = true
+    @Published var showGettingStartedOnStartup = true
+    @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
+    @Published var isWebAPIEnabled = false
+    @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
+    @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
+    @Published private(set) var webAPILocalAddresses: [String] = []
+    @Published var isRemoteDisplayHostEnabled = false
+    @Published var isRemoteDisplayViewerModeEnabled = false
+    @Published var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
+    @Published private(set) var remoteDisplayHostStatus: ScoreboardRemoteDisplayHostStatus = .off
+    @Published private(set) var remoteDisplaySources: [ScoreboardRemoteDisplaySource] = []
+    @Published private(set) var remoteDisplayConnectedDisplays: [ScoreboardRemoteDisplayConnection] = []
+    @Published private(set) var remoteDisplayTrustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = []
+    @Published private(set) var remoteDisplayMutedDisplayIDs: Set<String> = []
+    @Published private(set) var remoteDisplayDirectionsByID: [String: ScoreboardRemoteDisplayDirectionSettings] = [:]
+    @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
+
+    var remoteDisplayHostID: String {
+        remoteDisplayHostService.hostID
+    }
+
+    var resolvedControlBoardDisplayDirection: ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: controlBoardDisplayDirection)
+    }
+
+    var resolvedExternalDisplayDirection: ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: externalDisplayDirection)
+    }
+
+    func resolvedDisplayDirection(for configuredDirection: ScoreboardDisplayDirection) -> ScoreboardDisplayDirection {
+        configuredDirection.applyingSideSwap(areSidesSwapped)
+    }
 
     private var timer: Timer?
     private var lastTimerFireDate: Date?
@@ -331,13 +685,31 @@ final class ScoreboardStore: ObservableObject {
     private var accumulatedDebatePrepElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
+    private var isReconcilingTimersFromWallClock = false
     private let persistenceKey = "smartScoreboard.persistedState"
+    private let primaryTimerPersistenceKey = "smartScoreboard.primaryTimerPersistence"
+    private var lastPrimaryTimerPersistenceSignature: String?
     private let buzzerPlayer = BuzzerPlayer()
     private let logManager = ScoreboardLogManager.shared
+    private let webAPIService = ScoreboardWebAPIService()
+    private let remoteDisplayHostService = ScoreboardRemoteDisplayHostService()
+    private let companionService = ScoreboardCompanionService()
+    private var isWebAPIAppLifecycleActive = true
+    private var companionFailureClearTask: Task<Void, Never>?
+    private var remoteDisplayConnectedDisplaysByID: [String: ScoreboardRemoteDisplayConnection] = [:]
+    private var remoteDisplayDisconnectedDisplaysByID: [String: String] = [:]
+    private var dismissedRemoteDisplayWarningDisplayIDs = Set<String>()
+    private var intentionallyDisconnectedRemoteDisplayIDs = Set<String>()
+    private var isStateSideEffectRefreshScheduled = false
 
     private init() {
         loadPersistedState()
+        remoteDisplayHostService.migrateDisplayDirectionsIfNeeded(areSidesSwapped: areSidesSwapped)
         configurePersistence()
+        configureWebAPIService()
+        configureRemoteDisplayService()
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
     }
 
     var formattedClock: String {
@@ -376,6 +748,10 @@ final class ScoreboardStore: ObservableObject {
         currentDebateSegment?.title ?? "Debate Segment"
     }
 
+    var debateSpeakingSide: TeamSide? {
+        currentDebateSegment?.speakingSide
+    }
+
     var formattedDebatePrepHomeClock: String {
         Self.formatGameClock(debatePrepHomeSeconds)
     }
@@ -392,12 +768,20 @@ final class ScoreboardStore: ObservableObject {
         showsGameClock && isClockRunning
     }
 
-    var isResetInterlockActive: Bool {
+    var isAnyTimerRunning: Bool {
         isClockRunning ||
             isShotClockRunning ||
             isDebatePrepClockRunning ||
             homePenaltyTimers.contains(where: \.isRunning) ||
             guestPenaltyTimers.contains(where: \.isRunning)
+    }
+
+    var isGameRunning: Bool {
+        isClockRunning || isDebatePrepClockRunning
+    }
+
+    var isResetInterlockActive: Bool {
+        isAnyTimerRunning
     }
 
     var showsGameClock: Bool {
@@ -435,6 +819,80 @@ final class ScoreboardStore: ObservableObject {
 
     var supportsPossession: Bool {
         currentRules.supportsPossession
+    }
+
+    var usesServeTimer: Bool {
+        selectedSport == .volleyball ||
+            (selectedSport == .custom && customSportConfig.isShotClockEnabled && customSportConfig.shotClockMode == .serve)
+    }
+
+    var secondaryTimerTitle: String {
+        usesServeTimer ? localizedStoreString("Serve Timer") : localizedStoreString("Shot Clock")
+    }
+
+    var secondaryTimerShortTitle: String {
+        usesServeTimer ? localizedStoreString("SERVE") : localizedStoreString("SHOT")
+    }
+
+    var secondaryTimerActionTitle: String {
+        usesServeTimer ? localizedStoreString("Serve") : localizedStoreString("Shot")
+    }
+
+    var secondaryTimerOwnerTitle: String {
+        usesServeTimer ? localizedStoreString("Serving") : localizedStoreString("Possession")
+    }
+
+    var supportsPeriodWinTracking: Bool {
+        selectedSport == .volleyball ||
+            (selectedSport == .custom && customSportConfig.isPeriodWinTrackingEnabled && supportsPeriod && supportsScore)
+    }
+
+    var homePeriodWins: Int {
+        periodWins(for: .home)
+    }
+
+    var guestPeriodWins: Int {
+        periodWins(for: .guest)
+    }
+
+    var homeVolleyballSetsWon: Int {
+        periodWins(for: .home)
+    }
+
+    var guestVolleyballSetsWon: Int {
+        periodWins(for: .guest)
+    }
+
+    var volleyballMatchWinner: TeamSide? {
+        guard selectedSport == .volleyball else {
+            return nil
+        }
+
+        if homeVolleyballSetsWon >= volleyballMatchFormat.setsToWin {
+            return .home
+        }
+
+        if guestVolleyballSetsWon >= volleyballMatchFormat.setsToWin {
+            return .guest
+        }
+
+        return nil
+    }
+
+    var periodWinMatchWinner: TeamSide? {
+        selectedSport == .volleyball ? volleyballMatchWinner : nil
+    }
+
+    var volleyballCurrentSetTarget: Int {
+        volleyballMatchFormat.targetPoints(forSet: period)
+    }
+
+    var isVolleyballSetScoreLegalForHome: Bool {
+        isLegalVolleyballSetWin(for: .home)
+    }
+
+    var isVolleyballSetScoreLegalForGuest: Bool {
+        isLegalVolleyballSetWin(for: .guest)
     }
 
     var supportsFouls: Bool {
@@ -483,6 +941,10 @@ final class ScoreboardStore: ObservableObject {
         }
 
         return currentRules.supportsPeriod
+    }
+
+    var periodUpperBound: Int {
+        selectedSport == .volleyball ? volleyballMatchFormat.maximumSets : 9
     }
 
     var supportsHockeyPenalties: Bool {
@@ -553,100 +1015,94 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var assignableSoundEventsForCurrentSport: [ScoreboardSoundEvent] {
-        var events: [ScoreboardSoundEvent] = []
+        assignableSoundEvents(for: selectedSport)
+    }
 
-        if isDebateMode {
-            if let timerMode = currentDebateSegment?.timerMode, timerMode != .none {
-                events.append(.debateSegmentExpired)
-                events.append(.gameClockStarted)
-                events.append(.gameClockPaused)
-                if timerMode == .dualClock {
-                    events.append(.sideSwitched)
-                }
-            }
-            if isDebatePrepTimeEnabled {
-                events.append(.debatePrepExpired)
-                events.append(.gameClockStarted)
-                events.append(.gameClockPaused)
-            }
-            events.append(.periodChanged)
-            if supportsScore {
-                events.append(.scoreChanged)
-            }
-            if supportsPlayerTracking {
-                events.append(.playerShown)
-                events.append(.playerBenched)
-                events.append(.playerOverlayShown)
-                events.append(.playerOverlayPaused)
-            }
-            if supportsFouls {
-                events.append(.playerFoulApplied)
-            }
-            if supportsCards {
-                events.append(.yellowCardAssigned)
-                events.append(.redCardAssigned)
-            }
-            return uniqueSoundEvents(events)
+    func assignableSoundEvents(for sport: SportType) -> [ScoreboardSoundEvent] {
+        if sport == .debate {
+            return uniqueSoundEvents([
+                .debateSegmentExpired,
+                .debatePrepExpired,
+                .gameClockStarted,
+                .gameClockPaused,
+                .sideSwitched,
+                .periodChanged,
+                .scoreChanged,
+                .playerShown,
+                .playerBenched,
+                .playerOverlayShown,
+                .playerOverlayPaused,
+                .playerFoulApplied,
+                .yellowCardAssigned,
+                .redCardAssigned
+            ])
         }
 
-        if usesChessClocks {
+        let rules = sport.rules(customConfig: sport == .custom ? customSportConfig : nil)
+        return assignableSoundEvents(for: rules)
+    }
+
+    private func assignableSoundEvents(for rules: SportRules) -> [ScoreboardSoundEvent] {
+        var events: [ScoreboardSoundEvent] = []
+
+        if rules.usesChessClocks {
             events.append(.chessClockExpired)
             events.append(.gameClockStarted)
             events.append(.gameClockPaused)
             events.append(.sideSwitched)
-        } else if currentRules.mainClockMode == .countdown {
+        } else if rules.mainClockMode == .countdown {
             events.append(.gameClockExpired)
             events.append(.gameClockStarted)
             events.append(.gameClockPaused)
-        } else if currentRules.mainClockMode == .countUp {
+        } else if rules.mainClockMode == .countUp {
             events.append(.gameClockStarted)
             events.append(.gameClockPaused)
         }
 
-        if supportsShotClock {
+        if rules.supportsShotClock {
             events.append(.shotClockExpired)
             events.append(.shotClockStarted)
             events.append(.shotClockPaused)
             events.append(.shotClockReset)
         }
 
-        if supportsScore {
+        if rules.supportsScore {
             events.append(.scoreChanged)
         }
 
-        if supportsPeriod {
+        if rules.supportsPeriod {
             events.append(.periodChanged)
         }
 
-        if supportsPossession {
+        if rules.supportsPossession {
             events.append(.possessionChanged)
         }
 
-        if currentRules.showsSubstitutionTracking || showsSubstitutionTracking {
+        if rules.showsSubstitutionTracking {
             events.append(.substitutionUsed)
         }
 
-        if supportsTeamFouls {
+        if rules.supportsTeamFouls {
             events.append(.teamFoulApplied)
         }
 
-        if supportsPlayerTracking {
+        if rules.supportsPlayerTracking {
             events.append(.playerShown)
             events.append(.playerBenched)
             events.append(.playerOverlayShown)
             events.append(.playerOverlayPaused)
         }
 
-        if supportsFouls {
+        if rules.supportsFouls {
             events.append(.playerFoulApplied)
         }
 
-        if supportsCards {
+        if rules.supportsCards {
             events.append(.yellowCardAssigned)
             events.append(.redCardAssigned)
         }
 
-        if supportsHockeyPenalties {
+        if rules.supportsHockeyPenalties {
             events.append(.hockeyPenaltyExpired)
             events.append(.hockeyPenaltyAdded)
             events.append(.hockeyPenaltyStarted)
@@ -691,6 +1147,24 @@ final class ScoreboardStore: ObservableObject {
         side == .home ? homeTeamFouls : guestTeamFouls
     }
 
+    func periodWins(for side: TeamSide) -> Int {
+        volleyballSetResults.filter { $0.winner == side }.count
+    }
+
+    func volleyballSetsWon(for side: TeamSide) -> Int {
+        periodWins(for: side)
+    }
+
+    func isLegalVolleyballSetWin(for side: TeamSide) -> Bool {
+        guard selectedSport == .volleyball else {
+            return false
+        }
+
+        let winnerScore = side == .home ? homeScore : guestScore
+        let loserScore = side == .home ? guestScore : homeScore
+        return winnerScore >= volleyballCurrentSetTarget && winnerScore - loserScore >= 2
+    }
+
     func currentLogContext() -> ScoreboardLogContext {
         ScoreboardLogContext(
             gameFileName: nil,
@@ -730,7 +1204,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     nonisolated static func formatGameClock(_ totalSeconds: Int) -> String {
-        let boundedSeconds = max(0, min(maxGameClockSeconds, totalSeconds))
+        let boundedSeconds = max(0, totalSeconds)
         let minutes = boundedSeconds / 60
         let seconds = boundedSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
@@ -749,6 +1223,62 @@ final class ScoreboardStore: ObservableObject {
         (0..<count).map { index in
             TrackedPlayer(number: "\(index + 1)", isInActiveLineup: index < defaultDisplayLineupSize)
         }
+    }
+
+    private static func asciiDigits(in value: String) -> String {
+        var digits = ""
+        for scalar in value.unicodeScalars where scalar.value >= 48 && scalar.value <= 57 {
+            digits.unicodeScalars.append(scalar)
+        }
+        return digits
+    }
+
+    private static func formattedCompanionLocationText(_ value: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return ""
+        }
+
+        let separatorSet = CharacterSet(charactersIn: ":/")
+        if trimmedValue.unicodeScalars.contains(where: { separatorSet.contains($0) }) {
+            let normalizedValue = trimmedValue.replacingOccurrences(of: "/", with: ":")
+            let parts = normalizedValue
+                .split(separator: ":", omittingEmptySubsequences: false)
+                .prefix(3)
+                .map { asciiDigits(in: String($0)) }
+
+            if parts.contains(where: { $0.count > 2 }) {
+                return groupedCompanionLocationDigits(asciiDigits(in: trimmedValue))
+            }
+
+            var displayParts = Array(parts)
+            while displayParts.last == "" {
+                displayParts.removeLast()
+            }
+            return displayParts.joined(separator: ":")
+        }
+
+        let digits = asciiDigits(in: trimmedValue)
+        guard !digits.isEmpty else {
+            return ""
+        }
+
+        return groupedCompanionLocationDigits(digits)
+    }
+
+    private static func groupedCompanionLocationDigits(_ digits: String) -> String {
+        var groups: [String] = []
+        var currentIndex = digits.startIndex
+        while currentIndex < digits.endIndex && groups.count < 3 {
+            let endIndex = digits.index(
+                currentIndex,
+                offsetBy: 2,
+                limitedBy: digits.endIndex
+            ) ?? digits.endIndex
+            groups.append(String(digits[currentIndex..<endIndex]))
+            currentIndex = endIndex
+        }
+        return groups.joined(separator: ":")
     }
 
     func updateTeamName(_ name: String, isHome: Bool) {
@@ -793,8 +1323,139 @@ final class ScoreboardStore: ObservableObject {
             value: updatedScore
         )
         if updatedScore != previousScore {
-            playSound(.scoreChanged)
+            if usesServeTimer, delta > 0 {
+                resetServeTimer(for: isHome ? .home : .guest)
+            }
+            handleScoreboardEvent(.scoreChanged)
         }
+    }
+
+    func setVolleyballServingSide(_ side: TeamSide) {
+        setServeTimerSide(side)
+    }
+
+    func setServeTimerSide(_ side: TeamSide) {
+        guard usesServeTimer, supportsShotClock else {
+            recordLog(
+                kind: .possessionChange,
+                summary: localizedStoreFormat("Set serving side %@", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Current sport does not support serving side")
+            )
+            return
+        }
+
+        let previousDirection = possessionDirection
+        let wasShotClockRunning = isShotClockRunning
+        resetServeTimer(for: side)
+        startShotClock()
+        recordLog(
+            kind: .possessionChange,
+            summary: localizedStoreFormat("Start serve timer for %@", side.title),
+            outcome: .applied,
+            teamSide: side,
+            notes: localizedStoreString("Serve timer auto-started")
+        )
+        if previousDirection != possessionDirection {
+            handleScoreboardEvent(.possessionChanged)
+        }
+        if !wasShotClockRunning, isShotClockRunning {
+            handleScoreboardEvent(.shotClockStarted)
+            requestShotClockAutosave()
+        }
+    }
+
+    func awardVolleyballSet(to side: TeamSide) {
+        awardPeriod(to: side)
+    }
+
+    func awardPeriod(to side: TeamSide) {
+        guard supportsPeriodWinTracking else {
+            recordLog(
+                kind: .volleyballSetAward,
+                summary: localizedStoreFormat("%@ wins period", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Current sport does not track period wins")
+            )
+            return
+        }
+
+        guard periodWinMatchWinner == nil else {
+            recordLog(
+                kind: .volleyballSetAward,
+                summary: localizedStoreFormat("%@ wins period", side.title),
+                outcome: .ignored,
+                teamSide: side,
+                notes: localizedStoreString("Match already has a winner")
+            )
+            return
+        }
+
+        let result = VolleyballSetResult(
+            setNumber: period,
+            winner: side,
+            homeScore: homeScore,
+            guestScore: guestScore
+        )
+        volleyballSetResults.removeAll { $0.setNumber >= period }
+        volleyballSetResults.append(result)
+
+        homeScore = 0
+        guestScore = 0
+        pauseShotClock()
+        possessionDirection = .none
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+
+        if periodWinMatchWinner == nil {
+            period = min(periodUpperBound, period + 1)
+        }
+
+        recordLog(
+            kind: .volleyballSetAward,
+            summary: localizedStoreFormat("%@ wins Period %d", side.title, result.setNumber),
+            outcome: .applied,
+            teamSide: side,
+            value: periodWins(for: side),
+            notes: localizedStoreFormat("%d-%d", result.homeScore, result.guestScore)
+        )
+        handleScoreboardEvent(.periodChanged)
+        requestShotClockAutosave()
+    }
+
+    func undoLastVolleyballSet() {
+        undoLastPeriodWin()
+    }
+
+    func undoLastPeriodWin() {
+        guard supportsPeriodWinTracking, let result = volleyballSetResults.last else {
+            recordLog(
+                kind: .volleyballSetUndo,
+                summary: localizedStoreString("Undo last period win"),
+                outcome: .ignored
+            )
+            return
+        }
+
+        volleyballSetResults.removeLast()
+        period = max(1, min(periodUpperBound, result.setNumber))
+        homeScore = result.homeScore
+        guestScore = result.guestScore
+        pauseShotClock()
+        possessionDirection = .none
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        recordLog(
+            kind: .volleyballSetUndo,
+            summary: localizedStoreFormat("Undo Period %d", result.setNumber),
+            outcome: .applied,
+            teamSide: result.winner,
+            notes: localizedStoreFormat("%d-%d", result.homeScore, result.guestScore)
+        )
+        handleScoreboardEvent(.periodChanged)
+        requestShotClockAutosave()
     }
 
     func adjustPeriod(by delta: Int) {
@@ -809,7 +1470,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let previousPeriod = period
-        period = max(1, min(9, period + delta))
+        period = max(1, min(periodUpperBound, period + delta))
         recordLog(
             kind: .periodAdjustment,
             summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
@@ -818,19 +1479,21 @@ final class ScoreboardStore: ObservableObject {
             value: period
         )
         if period != previousPeriod {
-            playSound(.periodChanged)
+            handleScoreboardEvent(.periodChanged)
         }
     }
 
     func setPeriod(_ value: Int) {
         if supportsPeriod {
-            period = max(1, min(9, value))
+            period = max(1, min(periodUpperBound, value))
         } else {
             period = 1
         }
     }
 
     func adjustClock(by delta: Int) {
+        reconcileRunningTimersWithWallClock()
+
         if isDebateMode {
             guard currentDebateSegment?.timerMode == .masterClock else {
                 recordLog(
@@ -854,9 +1517,11 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let previousClock = gameClockSeconds
-        gameClockSeconds = boundedGameClockSeconds(gameClockSeconds + delta)
+        gameClockSeconds = boundedRuntimeClockSeconds(gameClockSeconds + delta)
         if gameClockMode == .countdown && gameClockSeconds == 0 {
             pauseClock()
+        } else if isClockRunning {
+            refreshPrimaryTimerPersistence()
         }
 
         recordLog(
@@ -866,13 +1531,18 @@ final class ScoreboardStore: ObservableObject {
             delta: delta,
             value: gameClockSeconds
         )
+        if gameClockSeconds != previousClock, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func adjustShotClock(by delta: Int) {
+        reconcileRunningTimersWithWallClock()
+
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAdjustment,
-                summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
+                summary: localizedStoreFormat("%@ %@", secondaryTimerTitle, signedStoreDelta(delta, suffix: "s")),
                 outcome: .ignored,
                 delta: delta
             )
@@ -887,11 +1557,14 @@ final class ScoreboardStore: ObservableObject {
 
         recordLog(
             kind: .shotClockAdjustment,
-            summary: localizedStoreFormat("Shot clock %@", signedStoreDelta(delta, suffix: "s")),
+            summary: localizedStoreFormat("%@ %@", secondaryTimerTitle, signedStoreDelta(delta, suffix: "s")),
             outcome: shotClockMilliseconds == previousMilliseconds ? .ignored : .applied,
             delta: delta,
             value: shotClockMilliseconds / 1_000
         )
+        if shotClockMilliseconds != previousMilliseconds, !isShotClockRunning {
+            requestShotClockAutosave()
+        }
     }
 
     func resetClock(to seconds: Int? = nil) {
@@ -929,6 +1602,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             value: gameClockSeconds
         )
+        requestGameClockAutosave()
     }
 
     func resetShotClock(to seconds: Int? = nil) {
@@ -939,7 +1613,7 @@ final class ScoreboardStore: ObservableObject {
             pauseShotClock()
             recordLog(
                 kind: .shotClockReset,
-                summary: localizedStoreString("Reset shot clock"),
+                summary: localizedStoreFormat("Reset %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored,
                 value: 0
             )
@@ -950,15 +1624,19 @@ final class ScoreboardStore: ObservableObject {
         let targetSeconds = boundedShotClockSeconds(seconds ?? defaultShotClockSeconds)
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = boundedShotClockMilliseconds(targetSeconds * 1_000)
+        if !usesServeTimer {
+            possessionDirection = .none
+        }
         recordLog(
             kind: .shotClockReset,
-            summary: localizedStoreString("Reset shot clock"),
+            summary: localizedStoreFormat("Reset %@", secondaryTimerTitle.lowercased()),
             outcome: .applied,
             value: targetSeconds
         )
         if !isAuditLoggingSuspended {
-            playSound(.shotClockReset)
+            handleScoreboardEvent(.shotClockReset)
         }
+        requestShotClockAutosave()
     }
 
     func toggleClock() {
@@ -980,7 +1658,8 @@ final class ScoreboardStore: ObservableObject {
             outcome: wasRunning == isClockRunning ? .ignored : .applied
         )
         if wasRunning != isClockRunning {
-            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -1006,7 +1685,8 @@ final class ScoreboardStore: ObservableObject {
             notes: segment.title
         )
         if wasRunning != isClockRunning {
-            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -1022,22 +1702,168 @@ final class ScoreboardStore: ObservableObject {
         setSoundEnabled(!isSoundEnabled)
     }
 
+    func setCompanionVisible(_ isVisible: Bool) {
+        isCompanionVisible = isVisible
+        if !isVisible {
+            isCompanionEnabled = false
+            dismissCompanionFailureNotice()
+        }
+    }
+
+    func setCompanionEnabled(_ isEnabled: Bool) {
+        isCompanionEnabled = isEnabled && isCompanionVisible
+    }
+
+    func toggleCompanionEnabled() {
+        guard isCompanionVisible else {
+            setCompanionEnabled(false)
+            return
+        }
+
+        setCompanionEnabled(!isCompanionEnabled)
+    }
+
+    func dismissRemoteDisplayWarningNotice() {
+        if let notice = remoteDisplayWarningNotice {
+            dismissedRemoteDisplayWarningDisplayIDs.formUnion(notice.displayIDs)
+        }
+        remoteDisplayWarningNotice = nil
+    }
+
+    func setCompanionHost(_ host: String) {
+        companionHost = host
+    }
+
+    func setCompanionMode(_ mode: ScoreboardCompanionMode) {
+        guard companionMode != mode else {
+            return
+        }
+
+        companionMode = mode
+        companionPort = mode.defaultPort
+    }
+
+    func setCompanionPort(_ port: Int) {
+        companionPort = UInt16(max(1, min(65_535, port)))
+    }
+
+    func companionPortText() -> String {
+        "\(companionPort)"
+    }
+
+    func setCompanionPortText(_ value: String) {
+        let digits = Self.asciiDigits(in: value)
+        guard !digits.isEmpty, let port = Int(digits) else {
+            return
+        }
+
+        setCompanionPort(port)
+    }
+
+    func companionLocationText(for event: ScoreboardSoundEvent) -> String {
+        companionLocationText(for: event, sport: selectedSport)
+    }
+
+    func companionLocationText(for event: ScoreboardSoundEvent, sport: SportType) -> String {
+        companionAssignmentsBySport[sport]?[event] ?? ""
+    }
+
+    func companionLocationDisplayText(for event: ScoreboardSoundEvent, sport: SportType) -> String {
+        Self.formattedCompanionLocationText(companionLocationText(for: event, sport: sport))
+    }
+
+    func setCompanionLocationText(_ value: String, for event: ScoreboardSoundEvent) {
+        setCompanionLocationText(value, for: event, sport: selectedSport)
+    }
+
+    func setCompanionLocationText(_ value: String, for event: ScoreboardSoundEvent, sport: SportType) {
+        guard event != .general else {
+            return
+        }
+
+        var assignmentsBySport = companionAssignmentsBySport
+        var sportAssignments = assignmentsBySport[sport] ?? [:]
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sportAssignments.removeValue(forKey: event)
+        } else {
+            sportAssignments[event] = value
+        }
+        if sportAssignments.isEmpty {
+            assignmentsBySport.removeValue(forKey: sport)
+        } else {
+            assignmentsBySport[sport] = sportAssignments
+        }
+        companionAssignmentsBySport = assignmentsBySport
+    }
+
+    func setCompanionLocationDisplayText(_ value: String, for event: ScoreboardSoundEvent, sport: SportType) {
+        setCompanionLocationText(Self.formattedCompanionLocationText(value), for: event, sport: sport)
+    }
+
+    func companionLocationValidationMessage(for event: ScoreboardSoundEvent) -> String? {
+        companionLocationValidationMessage(for: event, sport: selectedSport)
+    }
+
+    func companionLocationValidationMessage(for event: ScoreboardSoundEvent, sport: SportType) -> String? {
+        ScoreboardCompanionLocation.validationMessage(for: companionLocationText(for: event, sport: sport))
+    }
+
+    func canTestCompanionCommand(for event: ScoreboardSoundEvent) -> Bool {
+        canTestCompanionCommand(for: event, sport: selectedSport)
+    }
+
+    func canTestCompanionCommand(for event: ScoreboardSoundEvent, sport: SportType) -> Bool {
+        isCompanionVisible &&
+            isCompanionEnabled &&
+            !companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            companionLocation(for: event, sport: sport) != nil
+    }
+
+    func testCompanionCommand(for event: ScoreboardSoundEvent) {
+        testCompanionCommand(for: event, sport: selectedSport)
+    }
+
+    func testCompanionCommand(for event: ScoreboardSoundEvent, sport: SportType) {
+        guard let location = companionLocation(for: event, sport: sport) else {
+            handleCompanionSendResult(.failure(.invalidLocation))
+            return
+        }
+
+        sendCompanionPress(location)
+    }
+
     func selectedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
-        soundAssignments[event] ?? Self.defaultSoundAssignments[event] ?? .none
+        selectedSoundEffect(for: event, sport: selectedSport)
+    }
+
+    func selectedSoundEffect(for event: ScoreboardSoundEvent, sport: SportType) -> ScoreboardSoundEffect {
+        soundAssignmentsBySport[sport]?[event] ?? Self.defaultSoundAssignments[event] ?? .none
     }
 
     func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent) {
-        soundAssignments[event] = effect
+        setSoundEffect(effect, for: event, sport: selectedSport)
+    }
+
+    func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent, sport: SportType) {
+        var assignmentsBySport = soundAssignmentsBySport
+        var sportAssignments = assignmentsBySport[sport] ?? Self.defaultSoundAssignments
+        sportAssignments[event] = effect
+        assignmentsBySport[sport] = sportAssignments
+        soundAssignmentsBySport = assignmentsBySport
     }
 
     func resetSoundSettingsToDefaults() {
         stopTestSound()
         isSoundEnabled = true
-        soundAssignments = Self.defaultSoundAssignments
+        soundAssignmentsBySport = Self.defaultSoundAssignmentsBySport
     }
 
     func playTestSound(_ event: ScoreboardSoundEvent) {
-        toggleTestSound(selectedSoundEffect(for: event))
+        playTestSound(event, sport: selectedSport)
+    }
+
+    func playTestSound(_ event: ScoreboardSoundEvent, sport: SportType) {
+        toggleTestSound(selectedSoundEffect(for: event, sport: sport))
     }
 
     func playTestEffect(_ effect: ScoreboardSoundEffect) {
@@ -1083,7 +1909,7 @@ final class ScoreboardStore: ObservableObject {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockToggle,
-                summary: localizedStoreString("Toggle shot clock"),
+                summary: localizedStoreFormat("Toggle %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored
             )
             return
@@ -1093,11 +1919,12 @@ final class ScoreboardStore: ObservableObject {
         isShotClockRunning ? pauseShotClock() : startShotClock()
         recordLog(
             kind: .shotClockToggle,
-            summary: localizedStoreString(wasRunning ? "Pause shot clock" : "Start shot clock"),
+            summary: localizedStoreFormat(wasRunning ? "Pause %@" : "Start %@", secondaryTimerTitle.lowercased()),
             outcome: wasRunning == isShotClockRunning ? .ignored : .applied
         )
         if wasRunning != isShotClockRunning {
-            playSound(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+            handleScoreboardEvent(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+            requestShotClockAutosave()
         }
     }
 
@@ -1126,7 +1953,7 @@ final class ScoreboardStore: ObservableObject {
                 outcome: previousDirection == direction ? .ignored : .applied
             )
             if previousDirection != direction {
-                playSound(.possessionChanged)
+                handleScoreboardEvent(.possessionChanged)
             }
             return
         }
@@ -1138,11 +1965,12 @@ final class ScoreboardStore: ObservableObject {
                 outcome: previousDirection == direction ? .ignored : .applied
             )
             if previousDirection != direction {
-                playSound(.possessionChanged)
+                handleScoreboardEvent(.possessionChanged)
             }
             return
         }
 
+        let wasShotClockRunning = isShotClockRunning
         startShotClock()
         recordLog(
             kind: .possessionChange,
@@ -1150,7 +1978,10 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: localizedStoreString("Shot clock auto-started")
         )
-        playSound(.possessionChanged)
+        handleScoreboardEvent(.possessionChanged)
+        if wasShotClockRunning != isShotClockRunning {
+            requestShotClockAutosave()
+        }
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
@@ -1181,7 +2012,8 @@ final class ScoreboardStore: ObservableObject {
                 value: seconds
             )
             if wasRunning != isShotClockRunning {
-                playSound(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+                handleScoreboardEvent(isShotClockRunning ? .shotClockStarted : .shotClockPaused)
+                requestShotClockAutosave()
             }
             return
         }
@@ -1197,14 +2029,15 @@ final class ScoreboardStore: ObservableObject {
             teamSide: isHome ? .home : .guest,
             value: targetSeconds
         )
-        playSound(.shotClockStarted)
+        handleScoreboardEvent(.shotClockStarted)
+        requestShotClockAutosave()
     }
 
     func resetActiveShotClock() {
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockReset,
-                summary: localizedStoreString("Reset active shot clock"),
+                summary: localizedStoreFormat("Reset active %@", secondaryTimerTitle.lowercased()),
                 outcome: .ignored
             )
             return
@@ -1218,14 +2051,18 @@ final class ScoreboardStore: ObservableObject {
         accumulatedShotClockElapsed = 0
         activeShotClockPresetSeconds = targetSeconds
         shotClockMilliseconds = targetMilliseconds
+        if !usesServeTimer {
+            possessionDirection = .none
+        }
         updateTimerState()
         recordLog(
             kind: .shotClockReset,
-            summary: localizedStoreString("Reset active shot clock"),
+            summary: localizedStoreFormat("Reset active %@", secondaryTimerTitle.lowercased()),
             outcome: .applied,
             value: targetSeconds
         )
-        playSound(.shotClockReset)
+        handleScoreboardEvent(.shotClockReset)
+        requestShotClockAutosave()
     }
 
     func newGame() {
@@ -1235,6 +2072,7 @@ final class ScoreboardStore: ObservableObject {
         homeScore = 0
         guestScore = 0
         period = supportsPeriod ? 1 : period
+        volleyballSetResults = []
         possessionDirection = .none
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
@@ -1255,6 +2093,7 @@ final class ScoreboardStore: ObservableObject {
             configureDebateSegment(index: 0, preserveRunningState: false)
         }
         resetPlayerTrackingForNewGame()
+        requestGameClockAutosave()
     }
 
     func resetScores() {
@@ -1292,7 +2131,11 @@ final class ScoreboardStore: ObservableObject {
             summary: localizedStoreString("Swap home and guest sides"),
             outcome: .applied
         )
-        playSound(.sideSwitched)
+        handleScoreboardEvent(.sideSwitched)
+    }
+
+    func setControlBoardDisplayDirection(_ direction: ScoreboardDisplayDirection) {
+        controlBoardDisplayDirection = direction
     }
 
     func setPlayerTrackingEnabled(_ isEnabled: Bool) {
@@ -1311,7 +2154,7 @@ final class ScoreboardStore: ObservableObject {
             summary: localizedStoreString(isPlayerOverlayPaused ? "Pause public player overlay" : "Resume public player overlay"),
             outcome: .applied
         )
-        playSound(isPlayerOverlayPaused ? .playerOverlayPaused : .playerOverlayShown)
+        handleScoreboardEvent(isPlayerOverlayPaused ? .playerOverlayPaused : .playerOverlayShown)
     }
 
     func setRosterSizePerTeam(_ size: Int) {
@@ -1326,6 +2169,14 @@ final class ScoreboardStore: ObservableObject {
         displayLineupSize = max(1, min(rosterSizePerTeam, size))
         homeRoster = normalizedRoster(homeRoster, fallbackCount: rosterSizePerTeam)
         guestRoster = normalizedRoster(guestRoster, fallbackCount: rosterSizePerTeam)
+    }
+
+    func setPlayerLineupFadePageSeconds(_ seconds: Int) {
+        playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, seconds))
+    }
+
+    func setPlayerLineupScrollSpeed(_ speed: Int) {
+        playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, speed))
     }
 
     func trackedPlayers(for side: TeamSide) -> [TrackedPlayer] {
@@ -1383,7 +2234,7 @@ final class ScoreboardStore: ObservableObject {
             value: updatedPlayer?.foulCount
         )
         if delta > 0, playerSummary?.foulCount != updatedPlayer?.foulCount {
-            playSound(.playerFoulApplied)
+            handleScoreboardEvent(.playerFoulApplied)
         }
     }
 
@@ -1477,9 +2328,9 @@ final class ScoreboardStore: ObservableObject {
         if previousPlayer?.cardStatus != updatedPlayer?.cardStatus {
             switch status {
             case .yellow:
-                playSound(.yellowCardAssigned)
+                handleScoreboardEvent(.yellowCardAssigned)
             case .red:
-                playSound(.redCardAssigned)
+                handleScoreboardEvent(.redCardAssigned)
             case .none:
                 break
             }
@@ -1544,7 +2395,7 @@ final class ScoreboardStore: ObservableObject {
             value: teamFouls(for: side)
         )
         if delta > 0, teamFouls(for: side) != previousValue {
-            playSound(.teamFoulApplied)
+            handleScoreboardEvent(.teamFoulApplied)
         }
     }
 
@@ -1619,7 +2470,7 @@ final class ScoreboardStore: ObservableObject {
         }
         resolved.prepSecondsPerSide = boundedGameClockSeconds(resolved.prepSecondsPerSide)
         for index in resolved.segments.indices {
-            resolved.segments[index].durationSeconds = boundedGameClockSeconds(resolved.segments[index].durationSeconds)
+            resolved.segments[index].durationSeconds = boundedDebateSegmentSeconds(resolved.segments[index].durationSeconds)
             if resolved.segments[index].timerMode != .dualClock {
                 resolved.segments[index].startingSide = nil
                 resolved.segments[index].allowsSideSwitching = false
@@ -1723,6 +2574,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: notes ?? currentDebatePreset.title
         )
+        requestGameClockAutosave()
     }
 
     func resetDebateCurrentSegment() {
@@ -1735,6 +2587,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: debateSegmentTitle
         )
+        requestGameClockAutosave()
     }
 
     func advanceDebateSegment(by delta: Int) {
@@ -1759,12 +2612,15 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: debateSegmentTitle
         )
-        playSound(.periodChanged)
+        handleScoreboardEvent(.periodChanged)
+        requestGameClockAutosave()
     }
 
     func toggleDebatePrepClock(for side: TeamSide) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
+        let wasClockRunning = isClockRunning
         if debateActiveTimer != target {
             pauseClock()
             debateActiveTimer = target
@@ -1778,10 +2634,14 @@ final class ScoreboardStore: ObservableObject {
                 outcome: .ignored,
                 teamSide: side
             )
+            if wasClockRunning, !isClockRunning {
+                requestGameClockAutosave()
+            }
             return
         }
         isDebatePrepClockRunning.toggle()
         updateTimerState()
+        refreshPrimaryTimerPersistence()
         recordLog(
             kind: .debatePrepToggle,
             summary: localizedStoreFormat("%@ prep clock %@", sideRoleLabel(for: side), localizedStoreString(isDebatePrepClockRunning ? "start" : "pause")),
@@ -1789,11 +2649,15 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             value: currentSeconds
         )
-        playSound(isDebatePrepClockRunning ? .gameClockStarted : .gameClockPaused)
+        handleScoreboardEvent(isDebatePrepClockRunning ? .gameClockStarted : .gameClockPaused)
+        if wasClockRunning, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
         guard isDebateMode else { return }
+        reconcileRunningTimersWithWallClock()
 
         let wasOnPrepTimer = debateActiveTimer != .segment
         debateActiveTimer = .segment
@@ -1812,12 +2676,14 @@ final class ScoreboardStore: ObservableObject {
             notes: debateSegmentTitle
         )
         if wasOnPrepTimer {
-            playSound(resume ? .gameClockStarted : .gameClockPaused)
+            handleScoreboardEvent(resume ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
     func resetDebatePrepClock(for side: TeamSide) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let value = currentDebatePreset.prepSecondsPerSide
         switch side {
         case .home:
@@ -1828,6 +2694,7 @@ final class ScoreboardStore: ObservableObject {
         if debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
             isDebatePrepClockRunning = false
             updateTimerState()
+            refreshPrimaryTimerPersistence()
         }
         recordLog(
             kind: .debatePrepReset,
@@ -1840,12 +2707,16 @@ final class ScoreboardStore: ObservableObject {
 
     func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
+        reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
         switch side {
         case .home:
             debatePrepHomeSeconds = boundedGameClockSeconds(debatePrepHomeSeconds + delta)
         case .guest:
             debatePrepGuestSeconds = boundedGameClockSeconds(debatePrepGuestSeconds + delta)
+        }
+        if isDebatePrepClockRunning && debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
+            refreshPrimaryTimerPersistence()
         }
         let updatedValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
         recordLog(
@@ -1886,7 +2757,8 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if wasRunning != isClockRunning {
-            playSound(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            requestGameClockAutosave()
         }
     }
 
@@ -1900,6 +2772,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
         switch activeChessClockSide {
         case .home:
@@ -1918,7 +2791,8 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if previousSide != activeChessClockSide {
-            playSound(.sideSwitched)
+            handleScoreboardEvent(.sideSwitched)
+            refreshPrimaryTimerPersistence()
         }
     }
 
@@ -1933,6 +2807,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
         activeChessClockSide = side
         recordLog(
@@ -1943,7 +2818,8 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if previousSide != side {
-            playSound(.sideSwitched)
+            handleScoreboardEvent(.sideSwitched)
+            refreshPrimaryTimerPersistence()
         }
     }
 
@@ -1959,17 +2835,20 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
         switch side {
         case .home:
-            homeChessClockSeconds = boundedGameClockSeconds(homeChessClockSeconds + delta)
+            homeChessClockSeconds = boundedRuntimeClockSeconds(homeChessClockSeconds + delta)
         case .guest:
-            guestChessClockSeconds = boundedGameClockSeconds(guestChessClockSeconds + delta)
+            guestChessClockSeconds = boundedRuntimeClockSeconds(guestChessClockSeconds + delta)
         }
 
         let updatedValue = side == .home ? homeChessClockSeconds : guestChessClockSeconds
         if updatedValue == 0, activeChessClockSide == side {
             pauseClock()
+        } else if isClockRunning {
+            refreshPrimaryTimerPersistence()
         }
 
         recordLog(
@@ -1981,6 +2860,9 @@ final class ScoreboardStore: ObservableObject {
             value: updatedValue,
             notes: isDebateMode ? debateSegmentTitle : nil
         )
+        if previousValue != updatedValue, !isClockRunning {
+            requestGameClockAutosave()
+        }
     }
 
     func resetChessClocks() {
@@ -1994,7 +2876,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         pauseClock()
-        let resetSeconds = boundedGameClockSeconds(defaultClockSeconds)
+        let resetSeconds = boundedRuntimeClockSeconds(defaultClockSeconds)
         homeChessClockSeconds = resetSeconds
         guestChessClockSeconds = usesChessClocks && selectedSport == .chess && defaultClockSeconds == 0
             ? chessClockPreset.seconds
@@ -2007,6 +2889,7 @@ final class ScoreboardStore: ObservableObject {
             outcome: .applied,
             notes: isDebateMode ? debateSegmentTitle : (selectedSport == .chess ? chessClockPreset.title : selectedSport.title)
         )
+        requestGameClockAutosave()
     }
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int) {
@@ -2049,7 +2932,7 @@ final class ScoreboardStore: ObservableObject {
             value: timer.remainingSeconds,
             notes: penaltySummaryItem(timer)
         )
-        playSound(.hockeyPenaltyAdded)
+        handleScoreboardEvent(.hockeyPenaltyAdded)
     }
 
     func removePenaltyTimer(for side: TeamSide, timerID: UUID) {
@@ -2092,7 +2975,7 @@ final class ScoreboardStore: ObservableObject {
             value: updated?.remainingSeconds
         )
         if previous?.isRunning != updated?.isRunning {
-            playSound(updated?.isRunning == true ? .hockeyPenaltyStarted : .hockeyPenaltyPaused)
+            handleScoreboardEvent(updated?.isRunning == true ? .hockeyPenaltyStarted : .hockeyPenaltyPaused)
         }
     }
 
@@ -2206,6 +3089,8 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds = defaultShotClockSeconds
             shotClockMilliseconds = boundedShotClockMilliseconds(defaultShotClockSeconds * 1_000)
             period = rules.supportsPeriod ? 1 : 1
+            volleyballMatchFormat = .bestOf5
+            volleyballSetResults = []
             possessionDirection = .none
             isShotClockRunning = false
             homeSubstitutionsAllowed = rules.defaultSubstitutionLimit
@@ -2248,12 +3133,20 @@ final class ScoreboardStore: ObservableObject {
             if sport != .volleyball && sport != .custom {
                 isGameClockEnabled = true
             }
+            if !supportsPeriodWinTracking {
+                volleyballMatchFormat = .bestOf5
+                volleyballSetResults = []
+            }
             if !rules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
                 shotClockMilliseconds = 0
                 possessionDirection = .none
                 isShotClockRunning = false
+            }
+            if !rules.supportsHockeyPenalties {
+                homePenaltyTimers = []
+                guestPenaltyTimers = []
             }
             if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
@@ -2303,7 +3196,7 @@ final class ScoreboardStore: ObservableObject {
             value: substitutionsUsed(for: side)
         )
         if delta > 0, substitutionsUsed(for: side) != previousValue {
-            playSound(.substitutionUsed)
+            handleScoreboardEvent(.substitutionUsed)
         }
     }
 
@@ -2337,7 +3230,7 @@ final class ScoreboardStore: ObservableObject {
             notes: localizedStoreString(updatedPlayer?.isInActiveLineup == true ? "Active lineup" : "Bench")
         )
         if previousPlayer?.isInActiveLineup != updatedPlayer?.isInActiveLineup {
-            playSound(updatedPlayer?.isInActiveLineup == true ? .playerShown : .playerBenched)
+            handleScoreboardEvent(updatedPlayer?.isInActiveLineup == true ? .playerShown : .playerBenched)
         }
     }
 
@@ -2352,11 +3245,11 @@ final class ScoreboardStore: ObservableObject {
 
         switch segment.timerMode {
         case .masterClock:
-            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            defaultClockSeconds = boundedDebateSegmentSeconds(segment.durationSeconds)
             gameClockSeconds = defaultClockSeconds
             activeChessClockSide = nil
         case .dualClock:
-            defaultClockSeconds = boundedGameClockSeconds(segment.durationSeconds)
+            defaultClockSeconds = boundedDebateSegmentSeconds(segment.durationSeconds)
             homeChessClockSeconds = defaultClockSeconds
             guestChessClockSeconds = defaultClockSeconds
             activeChessClockSide = segment.startingSide ?? .home
@@ -2379,15 +3272,18 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 7,
+            fileVersion: 11,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
+            eventName: eventName,
             homeScore: homeScore,
             guestScore: guestScore,
             period: period,
+            volleyballMatchFormat: selectedSport == .volleyball ? volleyballMatchFormat : nil,
+            volleyballSetResults: supportsPeriodWinTracking ? volleyballSetResults : nil,
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
@@ -2395,11 +3291,17 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
-            areSidesSwapped: areSidesSwapped,
+            areSidesSwapped: false,
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
             displayLineupSize: displayLineupSize,
+            playerLineupOverflowMode: playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: playerLineupScrollSpeed,
+            playerLineupScrollDirection: playerLineupScrollDirection,
             playerFoulHighlightColor: playerFoulHighlightColor,
             isGameClockRedEnabled: isGameClockRedEnabled,
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
@@ -2428,11 +3330,118 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
             isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
-            homePenaltyTimers: homePenaltyTimers,
-            guestPenaltyTimers: guestPenaltyTimers,
+            homePenaltyTimers: supportsHockeyPenalties ? homePenaltyTimers : [],
+            guestPenaltyTimers: supportsHockeyPenalties ? guestPenaltyTimers : [],
             homeRoster: homeRoster,
-            guestRoster: guestRoster
+            guestRoster: guestRoster,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            externalDisplayBackgroundImage: embeddedExternalDisplayBackgroundImage(),
+            externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: showsExternalDisplayDateTimeSeconds,
+            showsTeamLogos: showsTeamLogos,
+            showsEventLogo: showsEventLogo,
+            playerViewRosterScope: .fullRoster,
+            homeTeamLogoImage: embeddedTeamLogoImage(for: .home),
+            guestTeamLogoImage: embeddedTeamLogoImage(for: .guest),
+            eventLogoImage: embeddedEventLogoImage()
         )
+    }
+
+    private func embeddedExternalDisplayBackgroundImage() -> ScoreboardGameEmbeddedImage? {
+        guard let externalDisplayBackgroundImage else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(backgroundImage: externalDisplayBackgroundImage)
+    }
+
+    private func embeddedTeamLogoImage(for side: TeamSide) -> ScoreboardGameEmbeddedImage? {
+        guard let logo = teamLogoImage(for: side) else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(teamLogoImage: logo)
+    }
+
+    private func embeddedEventLogoImage() -> ScoreboardGameEmbeddedImage? {
+        guard let eventLogoImage else {
+            return nil
+        }
+
+        return ScoreboardGameEmbeddedImage(eventLogoImage: eventLogoImage)
+    }
+
+    func setExternalDisplayBackgroundImage(_ image: ExternalDisplayBackgroundImage) {
+        externalDisplayBackgroundImage = image
+        externalDisplayBackgroundMode = .image
+    }
+
+    func updateExternalDisplayBackgroundPlacement(scale: Double, offsetX: Double, offsetY: Double) {
+        guard let image = externalDisplayBackgroundImage else {
+            return
+        }
+
+        externalDisplayBackgroundImage = image.withPlacement(scale: scale, offsetX: offsetX, offsetY: offsetY)
+    }
+
+    func setExternalDisplayAnimatedLogoSpeed(_ value: Int) {
+        externalDisplayAnimatedLogoSpeed = max(Self.minAnimatedLogoSpeed, min(Self.maxAnimatedLogoSpeed, value))
+    }
+
+    func setExternalDisplayAnimatedLogoSize(_ value: Int) {
+        externalDisplayAnimatedLogoSize = max(Self.minAnimatedLogoSize, min(Self.maxAnimatedLogoSize, value))
+    }
+
+    func setExternalDisplayAnimatedLogoOpacity(_ value: Double) {
+        externalDisplayAnimatedLogoOpacity = max(Self.minAnimatedLogoOpacity, min(Self.maxAnimatedLogoOpacity, value))
+    }
+
+    func clearExternalDisplayBackgroundImage() {
+        externalDisplayBackgroundImage = nil
+        if externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo {
+            externalDisplayBackgroundMode = .blurred
+        }
+    }
+
+    func teamLogoImage(for side: TeamSide) -> TeamLogoImage? {
+        switch side {
+        case .home:
+            return homeTeamLogoImage
+        case .guest:
+            return guestTeamLogoImage
+        }
+    }
+
+    func setTeamLogoImage(_ image: TeamLogoImage, for side: TeamSide) {
+        switch side {
+        case .home:
+            homeTeamLogoImage = image
+        case .guest:
+            guestTeamLogoImage = image
+        }
+    }
+
+    func clearTeamLogoImage(for side: TeamSide) {
+        switch side {
+        case .home:
+            homeTeamLogoImage = nil
+        case .guest:
+            guestTeamLogoImage = nil
+        }
+    }
+
+    func setEventLogoImage(_ image: EventLogoImage) {
+        eventLogoImage = image
+    }
+
+    func clearEventLogoImage() {
+        eventLogoImage = nil
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
@@ -2440,26 +3449,44 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             pauseShotClock()
 
+            let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
             customDebatePreset = snapshot.customDebatePreset ?? .customDefault
-            setSelectedSport(snapshot.sport ?? .basketball, applyDefaults: false)
+            setSelectedSport(snapshotSport, applyDefaults: false)
             homeTeamName = normalizedTeamName(snapshot.homeTeamName)
             guestTeamName = normalizedTeamName(snapshot.guestTeamName)
+            eventName = normalizedEventName(snapshot.eventName)
             homeScore = max(0, snapshot.homeScore)
             guestScore = max(0, snapshot.guestScore)
             period = max(1, min(9, snapshot.period))
-            gameClockSeconds = boundedGameClockSeconds(snapshot.gameClockSeconds)
-            defaultClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
+            volleyballMatchFormat = selectedSport == .volleyball ? (snapshot.volleyballMatchFormat ?? .bestOf5) : .bestOf5
+            if supportsPeriodWinTracking {
+                volleyballSetResults = selectedSport == .volleyball
+                    ? normalizedVolleyballSetResults(snapshot.volleyballSetResults ?? [], format: volleyballMatchFormat)
+                    : normalizedPeriodWinResults(snapshot.volleyballSetResults ?? [], maximumPeriod: periodUpperBound)
+            } else {
+                volleyballSetResults = []
+            }
+            if supportsPeriodWinTracking {
+                period = max(1, min(periodUpperBound, period))
+            }
+            gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.gameClockSeconds) : boundedGameClockSeconds(snapshot.gameClockSeconds)
+            defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
             isGameClockEnabled = snapshot.isGameClockEnabled ?? true
             shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
             possessionDirection = supportsPossession ? snapshot.possessionDirection : .none
-            areSidesSwapped = snapshot.areSidesSwapped
             isPlayerTrackingEnabled = currentRules.supportsPlayerTracking ? (snapshot.isPlayerTrackingEnabled ?? false) : false
             isPlayerOverlayPaused = snapshot.isPlayerOverlayPaused ?? false
             rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, snapshot.rosterSizePerTeam ?? Self.defaultRosterSize))
             displayLineupSize = max(1, min(rosterSizePerTeam, snapshot.displayLineupSize ?? Self.defaultDisplayLineupSize))
+            playerLineupOverflowMode = snapshot.playerLineupOverflowMode ?? .scroll
+            playerLineupOverflowLogoOverride = snapshot.playerLineupOverflowLogoOverride
+            playerLineupOverflowNoLogoOverride = snapshot.playerLineupOverflowNoLogoOverride
+            playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, snapshot.playerLineupFadePageSeconds ?? Self.defaultPlayerLineupFadePageSeconds))
+            playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, snapshot.playerLineupScrollSpeed ?? Self.defaultPlayerLineupScrollSpeed))
+            playerLineupScrollDirection = snapshot.playerLineupScrollDirection ?? .continuousUp
             playerFoulHighlightColor = snapshot.playerFoulHighlightColor ?? .yellow
             isGameClockRedEnabled = snapshot.isGameClockRedEnabled ?? false
             gameClockRedThresholdSeconds = boundedGameClockSeconds(snapshot.gameClockRedThresholdSeconds ?? 60)
@@ -2474,9 +3501,9 @@ final class ScoreboardStore: ObservableObject {
             }
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
-            let defaultDualClockSeconds = boundedGameClockSeconds(snapshot.defaultClockSeconds)
-            homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
-            guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
+            let defaultDualClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
+            homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds) : boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+            guestChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds) : boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
             activeChessClockSide = snapshot.activeChessClockSide ?? .home
             chessClockPreset = snapshot.chessClockPreset ?? .rapid
             selectedDebatePresetID = snapshot.selectedDebatePresetID ?? DebatePreset.publicForum.id
@@ -2493,20 +3520,32 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled = snapshot.isDebatePlayerTrackingEnabled ?? debatePreset.defaultPlayerTrackingEnabled
             isDebatePlayerFoulsEnabled = snapshot.isDebatePlayerFoulsEnabled ?? debatePreset.defaultPlayerFoulsEnabled
             isDebatePlayerCardsEnabled = snapshot.isDebatePlayerCardsEnabled ?? debatePreset.defaultPlayerCardsEnabled
-            homePenaltyTimers = snapshot.homePenaltyTimers ?? []
-            guestPenaltyTimers = snapshot.guestPenaltyTimers ?? []
+            homePenaltyTimers = supportsHockeyPenalties ? (snapshot.homePenaltyTimers ?? []) : []
+            guestPenaltyTimers = supportsHockeyPenalties ? (snapshot.guestPenaltyTimers ?? []) : []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            externalDisplayAnimatedLogoStyle = snapshot.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee
+            externalDisplayAnimatedLogoBackgroundColor = snapshot.externalDisplayAnimatedLogoBackgroundColor ?? .themeBackground
+            setExternalDisplayAnimatedLogoSpeed(snapshot.externalDisplayAnimatedLogoSpeed ?? Self.defaultAnimatedLogoSpeed)
+            setExternalDisplayAnimatedLogoSize(snapshot.externalDisplayAnimatedLogoSize ?? Self.defaultAnimatedLogoSize)
+            setExternalDisplayAnimatedLogoOpacity(snapshot.externalDisplayAnimatedLogoOpacity ?? Self.defaultAnimatedLogoOpacity)
+            showsExternalDisplayDateTime = snapshot.showsExternalDisplayDateTime ?? false
+            externalDisplayDateTimeFormat = snapshot.externalDisplayDateTimeFormat ?? .time24Hour
+            showsExternalDisplayDateTimeSeconds = snapshot.showsExternalDisplayDateTimeSeconds ?? true
+            showsTeamLogos = snapshot.showsTeamLogos ?? true
+            showsEventLogo = snapshot.showsEventLogo ?? true
+            playerViewRosterScope = .fullRoster
+            restoreDisplayImages(from: snapshot)
             if isDebateMode {
                 let preset = currentDebatePreset
                 debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
                 configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
                 switch currentDebateSegment?.timerMode {
                 case .masterClock:
-                    gameClockSeconds = boundedGameClockSeconds(snapshot.gameClockSeconds)
+                    gameClockSeconds = boundedDebateSegmentSeconds(snapshot.gameClockSeconds)
                 case .dualClock:
-                    homeChessClockSeconds = boundedGameClockSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
-                    guestChessClockSeconds = boundedGameClockSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
+                    homeChessClockSeconds = boundedDebateSegmentSeconds(snapshot.homeChessClockSeconds ?? defaultDualClockSeconds)
+                    guestChessClockSeconds = boundedDebateSegmentSeconds(snapshot.guestChessClockSeconds ?? defaultDualClockSeconds)
                 case .some(.none), nil:
                     gameClockSeconds = 0
                 }
@@ -2527,6 +3566,20 @@ final class ScoreboardStore: ObservableObject {
                 pauseClock()
             }
             didCompleteSetup = true
+        }
+    }
+
+    private func restoreDisplayImages(from snapshot: ScoreboardGameSnapshot) {
+        externalDisplayBackgroundImage = snapshot.externalDisplayBackgroundImage.flatMap(ExternalDisplayBackgroundImage.init(embeddedImage:))
+        homeTeamLogoImage = snapshot.homeTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:))
+        guestTeamLogoImage = snapshot.guestTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:))
+        eventLogoImage = snapshot.eventLogoImage.flatMap(EventLogoImage.init(embeddedImage:))
+
+        let restoredBackgroundMode = snapshot.externalDisplayBackgroundMode ?? .blurred
+        if (restoredBackgroundMode == .image || restoredBackgroundMode == .animatedLogo), externalDisplayBackgroundImage == nil {
+            externalDisplayBackgroundMode = .blurred
+        } else {
+            externalDisplayBackgroundMode = restoredBackgroundMode
         }
     }
 
@@ -2555,7 +3608,6 @@ final class ScoreboardStore: ObservableObject {
             defaultShotClockSeconds = currentRules.supportsShotClock ? boundedShotClockSeconds(shotClockSeconds) : 0
             activeShotClockPresetSeconds = defaultShotClockSeconds
             possessionDirection = .none
-            areSidesSwapped = false
             isPlayerOverlayPaused = false
             resetPlayerTrackingForNewGame()
             didCompleteSetup = true
@@ -2613,6 +3665,7 @@ final class ScoreboardStore: ObservableObject {
             }
             isClockRunning = true
             updateTimerState()
+            refreshPrimaryTimerPersistence()
             return
         }
 
@@ -2636,11 +3689,16 @@ final class ScoreboardStore: ObservableObject {
 
         isClockRunning = true
         updateTimerState()
+        refreshPrimaryTimerPersistence()
     }
 
     private func pauseClock() {
+        if isClockRunning, !isAuditLoggingSuspended {
+            reconcileRunningTimersWithWallClock()
+        }
         isClockRunning = false
         updateTimerState()
+        refreshPrimaryTimerPersistence()
     }
 
     private func startShotClock() {
@@ -2661,8 +3719,37 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func pauseShotClock() {
+        if isShotClockRunning, !isAuditLoggingSuspended {
+            reconcileRunningTimersWithWallClock()
+        }
         isShotClockRunning = false
         updateTimerState()
+    }
+
+    private func resetServeTimer(for side: TeamSide) {
+        guard usesServeTimer, supportsShotClock else {
+            return
+        }
+
+        if isShotClockRunning {
+            pauseShotClock()
+        } else {
+            isShotClockRunning = false
+            updateTimerState()
+        }
+
+        possessionDirection = side == .home ? .home : .guest
+        activeShotClockPresetSeconds = defaultShotClockSeconds
+        shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        requestShotClockAutosave()
+    }
+
+    private func requestGameClockAutosave() {
+        gameClockAutosaveRevision &+= 1
+    }
+
+    private func requestShotClockAutosave() {
+        shotClockAutosaveRevision &+= 1
     }
 
     private func updateTimerState() {
@@ -2689,12 +3776,41 @@ final class ScoreboardStore: ObservableObject {
             }
 
             Task { @MainActor in
-                let now = Date()
-                let elapsed = now.timeIntervalSince(self.lastTimerFireDate ?? now)
-                self.lastTimerFireDate = now
-                self.tick(elapsed: elapsed)
+                self.reconcileRunningTimersWithWallClock()
             }
         }
+    }
+
+    func reconcileRunningTimersWithWallClock() {
+        reconcileRunningTimersWithWallClock(now: Date())
+    }
+
+    private func reconcileRunningTimersWithWallClock(now: Date) {
+        guard !isReconcilingTimersFromWallClock else {
+            return
+        }
+
+        let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+            lastTimerFireDate = nil
+            return
+        }
+
+        guard let lastTimerFireDate else {
+            self.lastTimerFireDate = now
+            return
+        }
+
+        let elapsed = now.timeIntervalSince(lastTimerFireDate)
+        guard elapsed > 0 else {
+            return
+        }
+
+        self.lastTimerFireDate = now
+        isReconcilingTimersFromWallClock = true
+        tick(elapsed: elapsed)
+        isReconcilingTimersFromWallClock = false
+        refreshPrimaryTimerPersistence()
     }
 
     private func tick(elapsed: TimeInterval) {
@@ -2714,6 +3830,7 @@ final class ScoreboardStore: ObservableObject {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
                             soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            requestGameClockAutosave()
                         }
                     case .guest:
                         guestChessClockSeconds = max(0, guestChessClockSeconds - elapsedWholeSeconds)
@@ -2721,9 +3838,11 @@ final class ScoreboardStore: ObservableObject {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
                             soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            requestGameClockAutosave()
                         }
                     case .none:
                         isClockRunning = false
+                        requestGameClockAutosave()
                     }
                 } else {
                     switch gameClockMode {
@@ -2740,6 +3859,7 @@ final class ScoreboardStore: ObservableObject {
                                 outcome: .applied,
                                 value: gameClockSeconds
                             )
+                            requestGameClockAutosave()
                         }
                     case .countUp:
                         gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
@@ -2747,6 +3867,7 @@ final class ScoreboardStore: ObservableObject {
                         if gameClockSeconds == Self.maxGameClockSeconds {
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
+                            requestGameClockAutosave()
                         }
                     }
                 }
@@ -2778,6 +3899,7 @@ final class ScoreboardStore: ObservableObject {
                         outcome: .applied,
                         value: 0
                     )
+                    requestShotClockAutosave()
                 }
             }
         }
@@ -2829,7 +3951,7 @@ final class ScoreboardStore: ObservableObject {
         updateTimerState()
 
         if let soundEvent = highestPrioritySoundEvent(from: soundEvents) {
-            playSound(soundEvent)
+            handleScoreboardEvent(soundEvent)
         }
     }
 
@@ -2841,6 +3963,11 @@ final class ScoreboardStore: ObservableObject {
         name
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
+    }
+
+    private func normalizedEventName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func normalizedPlayerName(_ name: String) -> String {
@@ -2855,6 +3982,14 @@ final class ScoreboardStore: ObservableObject {
 
     private func boundedGameClockSeconds(_ value: Int) -> Int {
         max(0, min(Self.maxGameClockSeconds, value))
+    }
+
+    private func boundedDebateSegmentSeconds(_ value: Int) -> Int {
+        max(0, min(Self.maxDebateSegmentSeconds, value))
+    }
+
+    private func boundedRuntimeClockSeconds(_ value: Int) -> Int {
+        isDebateMode ? boundedDebateSegmentSeconds(value) : boundedGameClockSeconds(value)
     }
 
     private func boundedShotClockSeconds(_ value: Int) -> Int {
@@ -2909,7 +4044,12 @@ final class ScoreboardStore: ObservableObject {
         return "\(playerText) \(Self.formatGameClock(timer.remainingSeconds)) \(timer.isRunning ? "RUN" : "STOP")"
     }
 
-    private func playSound(_ event: ScoreboardSoundEvent) {
+    private func handleScoreboardEvent(_ event: ScoreboardSoundEvent) {
+        playSound(for: event)
+        triggerCompanionCommand(for: event)
+    }
+
+    private func playSound(for event: ScoreboardSoundEvent) {
         guard isSoundEnabled else {
             return
         }
@@ -2917,7 +4057,70 @@ final class ScoreboardStore: ObservableObject {
         if playingTestSoundEffect != nil {
             stopTestSound()
         }
-        buzzerPlayer.play(resolvedSoundEffect(for: event))
+        let effect = resolvedSoundEffect(for: event)
+        buzzerPlayer.play(effect)
+        remoteDisplayHostService.sendSoundEffect(effect)
+    }
+
+    private func triggerCompanionCommand(for event: ScoreboardSoundEvent) {
+        guard isCompanionVisible, isCompanionEnabled, let location = companionLocation(for: event) else {
+            return
+        }
+
+        sendCompanionPress(location)
+    }
+
+    private func companionLocation(for event: ScoreboardSoundEvent) -> ScoreboardCompanionLocation? {
+        companionLocation(for: event, sport: selectedSport)
+    }
+
+    private func companionLocation(for event: ScoreboardSoundEvent, sport: SportType) -> ScoreboardCompanionLocation? {
+        ScoreboardCompanionLocation(rawValue: companionLocationText(for: event, sport: sport))
+    }
+
+    private func sendCompanionPress(_ location: ScoreboardCompanionLocation) {
+        companionService.sendPress(
+            host: companionHost,
+            port: companionPort,
+            mode: companionMode,
+            location: location
+        ) { [weak self] result in
+            Task { @MainActor in
+                self?.handleCompanionSendResult(result)
+            }
+        }
+    }
+
+    private func handleCompanionSendResult(_ result: Result<Void, ScoreboardCompanionSendError>) {
+        switch result {
+        case .success:
+            companionLastError = nil
+        case .failure(let error):
+            presentCompanionFailure(error)
+        }
+    }
+
+    private func presentCompanionFailure(_ error: ScoreboardCompanionSendError) {
+        let detail = error.localizedDescription
+        companionLastError = detail
+        let notice = ScoreboardCompanionFailureNotice(detail: detail)
+        companionFailureNotice = notice
+        companionFailureClearTask?.cancel()
+        companionFailureClearTask = Task { [weak self, notice] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            await MainActor.run {
+                guard self?.companionFailureNotice?.id == notice.id else {
+                    return
+                }
+                self?.companionFailureNotice = nil
+            }
+        }
+    }
+
+    func dismissCompanionFailureNotice() {
+        companionFailureClearTask?.cancel()
+        companionFailureClearTask = nil
+        companionFailureNotice = nil
     }
 
     private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
@@ -2989,15 +4192,494 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    func setWebAPIEnabled(_ isEnabled: Bool) {
+        isWebAPIEnabled = isEnabled
+    }
+
+    func setWebAPIUpdateMode(_ mode: ScoreboardWebAPIUpdateMode) {
+        webAPIUpdateMode = mode
+    }
+
+    func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
+        isRemoteDisplayHostEnabled = isEnabled
+        if !isEnabled {
+            resetRemoteDisplayWarningState()
+        }
+    }
+
+    func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
+        #if !os(tvOS)
+        if isEnabled {
+            stopRemoteDisplayHostService()
+        } else {
+            ScoreboardRemoteDisplayReceiver.shared.stop()
+        }
+        #endif
+
+        isRemoteDisplayViewerModeEnabled = isEnabled
+        if isEnabled {
+            resetRemoteDisplayWarningState()
+        }
+    }
+
+    func setRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
+        guard remoteDisplayNetworkMode != mode else {
+            return
+        }
+        remoteDisplayNetworkMode = mode
+        remoteDisplayWarningNotice = nil
+        if isRemoteDisplayViewerModeEnabled {
+            ScoreboardRemoteDisplayReceiver.shared.updateNetworkMode(mode)
+        }
+    }
+
+    func pairRemoteDisplay(
+        _ source: ScoreboardRemoteDisplaySource,
+        pairingCode: String,
+        takeoverConfirmed: Bool = false
+    ) {
+        remoteDisplayHostService.pair(
+            with: source,
+            pairingCode: pairingCode,
+            takeoverConfirmed: takeoverConfirmed
+        )
+    }
+
+    func connectTrustedRemoteDisplay(
+        _ source: ScoreboardRemoteDisplaySource,
+        takeoverConfirmed: Bool = false
+    ) {
+        remoteDisplayHostService.connectTrustedDisplay(
+            source,
+            takeoverConfirmed: takeoverConfirmed
+        )
+    }
+
+    func removeRemoteDisplayPairing(displayID: String) {
+        if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
+            intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
+        }
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+        dismissedRemoteDisplayWarningDisplayIDs.remove(displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
+        remoteDisplayHostService.removeTrustedDisplay(id: displayID)
+    }
+
+    func isTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
+        remoteDisplayHostService.isTrustedDisplay(source)
+    }
+
+    func disconnectRemoteDisplays() {
+        intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        remoteDisplayWarningNotice = nil
+        remoteDisplayHostService.disconnectDisplays()
+    }
+
+    func disconnectRemoteDisplay(displayID: String) {
+        if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
+            intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
+        }
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
+        remoteDisplayHostService.disconnectDisplay(id: displayID)
+    }
+
+    func sendRemoteDisplaySoundTest(displayID: String) {
+        remoteDisplayHostService.sendSoundTest(toDisplayID: displayID)
+    }
+
+    func setRemoteDisplayMuted(displayID: String, isMuted: Bool) {
+        remoteDisplayHostService.setDisplayMuted(id: displayID, isMuted: isMuted)
+    }
+
+    func isRemoteDisplayMuted(displayID: String) -> Bool {
+        remoteDisplayMutedDisplayIDs.contains(displayID)
+    }
+
+    func remoteDisplayDirection(displayID: String) -> ScoreboardDisplayDirection {
+        remoteDisplayHostService.displayDirection(id: displayID)
+    }
+
+    func remoteDisplayExternalDirection(displayID: String) -> ScoreboardDisplayDirection {
+        remoteDisplayHostService.externalDisplayDirection(id: displayID)
+    }
+
+    func resolvedRemoteDisplayDirection(displayID: String) -> ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: remoteDisplayDirection(displayID: displayID))
+    }
+
+    func resolvedRemoteDisplayExternalDirection(displayID: String) -> ScoreboardDisplayDirection {
+        resolvedDisplayDirection(for: remoteDisplayExternalDirection(displayID: displayID))
+    }
+
+    func setRemoteDisplayDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        remoteDisplayHostService.setDisplayDirection(id: displayID, direction: direction)
+        refreshRemoteDisplayState()
+    }
+
+    func setRemoteDisplayExternalDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        remoteDisplayHostService.setExternalDisplayDirection(id: displayID, direction: direction)
+        refreshRemoteDisplayState()
+    }
+
+    func refreshWebAPILocalAddresses() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+    }
+
+    func resumeWebAPIForAppLifecycle() {
+        #if os(iOS)
+        isWebAPIAppLifecycleActive = true
+        guard isWebAPIEnabled else {
+            return
+        }
+        startWebAPIService()
+        #endif
+    }
+
+    func suspendWebAPIForAppLifecycle() {
+        #if os(iOS)
+        guard isWebAPIAppLifecycleActive else {
+            return
+        }
+        isWebAPIAppLifecycleActive = false
+        guard isWebAPIEnabled else {
+            return
+        }
+        webAPIService.stop(notify: false)
+        webAPIStatus = .suspended
+        #endif
+    }
+
+    #if os(iOS)
+    func prepareForBackgroundRuntime() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+    }
+
+    func resumeFromBackgroundRuntime() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+        resumeWebAPIForAppLifecycle()
+        refreshWebAPILocalAddresses()
+    }
+
+    func expireBackgroundWebAPIGrace() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+        isWebAPIAppLifecycleActive = false
+        guard isWebAPIEnabled else {
+            return
+        }
+        webAPIService.stop(notify: false)
+        webAPIStatus = .suspended
+    }
+
+    func performBackgroundTimerMaintenance() {
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+        persistState()
+        syncLiveActivityForCurrentState()
+    }
+    #endif
+
+    private func configureWebAPIService() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+
+        $webAPIUpdateMode
+            .removeDuplicates()
+            .sink { [weak self] mode in
+                self?.webAPIService.setUpdateMode(mode)
+            }
+            .store(in: &cancellables)
+
+        $isWebAPIEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                if isEnabled {
+                    if self.isWebAPIAppLifecycleActive {
+                        self.startWebAPIService()
+                    } else {
+                        self.webAPIStatus = .suspended
+                    }
+                } else {
+                    self.stopWebAPIService()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func configureRemoteDisplayService() {
+        remoteDisplayHostService.$status
+            .sink { [weak self] status in
+                self?.remoteDisplayHostStatus = status
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$sources
+            .sink { [weak self] sources in
+                self?.remoteDisplaySources = sources
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$connectedDisplays
+            .sink { [weak self] connectedDisplays in
+                self?.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$trustedDisplays
+            .sink { [weak self] trustedDisplays in
+                self?.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$mutedDisplayIDs
+            .sink { [weak self] mutedDisplayIDs in
+                self?.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$displayDirectionsByID
+            .sink { [weak self] displayDirectionsByID in
+                self?.remoteDisplayDirectionsByID = displayDirectionsByID
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$displayInitiatedDisconnectNotice
+            .compactMap { $0 }
+            .sink { [weak self] notice in
+                self?.handleRemoteDisplayInitiatedDisconnect(notice)
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest3(
+            $isRemoteDisplayHostEnabled.removeDuplicates(),
+            $isRemoteDisplayViewerModeEnabled.removeDuplicates(),
+            $remoteDisplayNetworkMode.removeDuplicates()
+        )
+        .sink { [weak self] isHostEnabled, isViewerModeEnabled, _ in
+            guard let self else { return }
+            if isHostEnabled && !isViewerModeEnabled {
+                self.startRemoteDisplayHostService()
+            } else {
+                self.stopRemoteDisplayHostService()
+            }
+        }
+        .store(in: &cancellables)
+    }
+
+    private func handleRemoteDisplayInitiatedDisconnect(_ notice: ScoreboardRemoteDisplayDisconnectNotice) {
+        intentionallyDisconnectedRemoteDisplayIDs.insert(notice.displayID)
+        remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: notice.displayID)
+        dismissedRemoteDisplayWarningDisplayIDs.remove(notice.displayID)
+        if remoteDisplayWarningNotice?.displayIDs.contains(notice.displayID) == true {
+            remoteDisplayWarningNotice = nil
+        }
+    }
+
+    private func handleRemoteDisplayConnectedDisplaysChanged(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) {
+        let uniqueConnectedDisplays = uniqueRemoteDisplayConnections(connectedDisplays)
+        remoteDisplayConnectedDisplays = uniqueConnectedDisplays
+
+        guard isRemoteDisplayHostEnabled, !isRemoteDisplayViewerModeEnabled else {
+            resetRemoteDisplayWarningState(connectedDisplays: uniqueConnectedDisplays)
+            return
+        }
+
+        let connectedDisplaysByID = keyedRemoteDisplayConnections(uniqueConnectedDisplays)
+        let droppedDisplays = remoteDisplayConnectedDisplaysByID.filter { connectedDisplaysByID[$0.key] == nil }
+
+        for (displayID, display) in droppedDisplays {
+            if intentionallyDisconnectedRemoteDisplayIDs.remove(displayID) != nil {
+                continue
+            }
+            remoteDisplayDisconnectedDisplaysByID[displayID] = display.name
+        }
+
+        for displayID in connectedDisplaysByID.keys {
+            remoteDisplayDisconnectedDisplaysByID.removeValue(forKey: displayID)
+            dismissedRemoteDisplayWarningDisplayIDs.remove(displayID)
+            intentionallyDisconnectedRemoteDisplayIDs.remove(displayID)
+        }
+
+        remoteDisplayConnectedDisplaysByID = connectedDisplaysByID
+        refreshRemoteDisplayWarningNotice(
+            unresponsiveDisplays: uniqueConnectedDisplays.filter { $0.quality == .unresponsive }
+        )
+    }
+
+    private func handleRemoteDisplayTrustedDisplaysChanged(_ trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer]) {
+        remoteDisplayTrustedDisplays = trustedDisplays
+
+        let trustedDisplayIDs = Set(trustedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID = remoteDisplayDisconnectedDisplaysByID.filter { trustedDisplayIDs.contains($0.key) }
+        dismissedRemoteDisplayWarningDisplayIDs.formIntersection(
+            trustedDisplayIDs.union(remoteDisplayConnectedDisplays.map(\.id))
+        )
+        refreshRemoteDisplayWarningNotice(
+            unresponsiveDisplays: remoteDisplayConnectedDisplays.filter { $0.quality == .unresponsive }
+        )
+    }
+
+    private func refreshRemoteDisplayWarningNotice(unresponsiveDisplays: [ScoreboardRemoteDisplayConnection]) {
+        let unresponsiveDisplaysByID = keyedRemoteDisplayNames(unresponsiveDisplays)
+        let problemDisplayIDs = Set(remoteDisplayDisconnectedDisplaysByID.keys).union(unresponsiveDisplaysByID.keys)
+
+        dismissedRemoteDisplayWarningDisplayIDs.formIntersection(problemDisplayIDs)
+
+        guard !problemDisplayIDs.isEmpty else {
+            remoteDisplayWarningNotice = nil
+            return
+        }
+
+        let unsuppressedDisconnectedDisplays = remoteDisplayDisconnectedDisplaysByID.filter {
+            !dismissedRemoteDisplayWarningDisplayIDs.contains($0.key)
+        }
+        if !unsuppressedDisconnectedDisplays.isEmpty {
+            presentRemoteDisplayWarningNotice(kind: .disconnected, displaysByID: unsuppressedDisconnectedDisplays)
+            return
+        }
+
+        let unsuppressedUnresponsiveDisplays = unresponsiveDisplaysByID.filter {
+            !dismissedRemoteDisplayWarningDisplayIDs.contains($0.key)
+        }
+        if !unsuppressedUnresponsiveDisplays.isEmpty {
+            presentRemoteDisplayWarningNotice(kind: .unresponsive, displaysByID: unsuppressedUnresponsiveDisplays)
+            return
+        }
+
+        remoteDisplayWarningNotice = nil
+    }
+
+    private func presentRemoteDisplayWarningNotice(
+        kind: ScoreboardRemoteDisplayWarningNotice.Kind,
+        displaysByID: [String: String]
+    ) {
+        let displayIDs = Set(displaysByID.keys)
+        if remoteDisplayWarningNotice?.kind == kind, remoteDisplayWarningNotice?.displayIDs == displayIDs {
+            return
+        }
+        remoteDisplayWarningNotice = ScoreboardRemoteDisplayWarningNotice(kind: kind, displaysByID: displaysByID)
+    }
+
+    private func resetRemoteDisplayWarningState(connectedDisplays: [ScoreboardRemoteDisplayConnection] = []) {
+        remoteDisplayConnectedDisplaysByID = keyedRemoteDisplayConnections(connectedDisplays)
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        dismissedRemoteDisplayWarningDisplayIDs.removeAll()
+        intentionallyDisconnectedRemoteDisplayIDs.removeAll()
+        remoteDisplayWarningNotice = nil
+    }
+
+    private func keyedRemoteDisplayConnections(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [String: ScoreboardRemoteDisplayConnection] {
+        connectedDisplays.reduce(into: [:]) { displaysByID, display in
+            displaysByID[display.id] = display
+        }
+    }
+
+    private func keyedRemoteDisplayNames(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [String: String] {
+        connectedDisplays.reduce(into: [:]) { namesByID, display in
+            namesByID[display.id] = display.name
+        }
+    }
+
+    private func uniqueRemoteDisplayConnections(_ connectedDisplays: [ScoreboardRemoteDisplayConnection]) -> [ScoreboardRemoteDisplayConnection] {
+        keyedRemoteDisplayConnections(connectedDisplays).values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func startWebAPIService() {
+        webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        webAPIStatus = .starting
+        webAPIService.start(
+            initialState: encodedWebAPIState(),
+            updateMode: webAPIUpdateMode,
+            imageResponses: currentWebAPIImageResponses()
+        ) { [weak self] status in
+            Task { @MainActor in
+                guard let self else { return }
+                self.webAPIStatus = status
+                self.webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+            }
+        }
+    }
+
+    private func stopWebAPIService() {
+        webAPIService.stop()
+        webAPIStatus = .off
+    }
+
+    private func refreshWebAPIState() {
+        webAPIService.updateState(encodedWebAPIState(), imageResponses: currentWebAPIImageResponses())
+    }
+
+    private func startRemoteDisplayHostService() {
+        remoteDisplayHostService.start(
+            initialState: encodedRemoteDisplayState(),
+            displayName: remoteDisplayHostName,
+            networkMode: remoteDisplayNetworkMode,
+            currentStateProvider: { [weak self] displayID in
+                self?.encodedRemoteDisplayState(forDisplayID: displayID) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+            },
+            currentImageResponsesProvider: { [weak self] in
+                self?.currentWebAPIImageResponses() ?? [:]
+            }
+        )
+    }
+
+    private func stopRemoteDisplayHostService() {
+        resetRemoteDisplayWarningState()
+        remoteDisplayHostService.stop()
+    }
+
+    private func refreshRemoteDisplayState() {
+        remoteDisplayHostService.updateState(encodedRemoteDisplayState())
+    }
+
+    private func encodedWebAPIState() -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(currentWebAPIState())) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
+    private func encodedRemoteDisplayState() -> Data {
+        encodedRemoteDisplayState(forDisplayID: nil)
+    }
+
+    private func encodedRemoteDisplayState(forDisplayID displayID: String?) -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(currentRemoteDisplayState(forDisplayID: displayID))) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
+    private var remoteDisplayHostName: String {
+        ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Operator"
+    }
+
     private func configurePersistence() {
         let persistencePublishers: [AnyPublisher<Void, Never>] = [
             $selectedSport.map { _ in () }.eraseToAnyPublisher(),
             $customSportConfig.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
+            $eventName.map { _ in () }.eraseToAnyPublisher(),
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
             $guestScore.map { _ in () }.eraseToAnyPublisher(),
             $period.map { _ in () }.eraseToAnyPublisher(),
+            $volleyballMatchFormat.map { _ in () }.eraseToAnyPublisher(),
+            $volleyballSetResults.map { _ in () }.eraseToAnyPublisher(),
             $gameClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockEnabled.map { _ in () }.eraseToAnyPublisher(),
@@ -3006,10 +4688,19 @@ final class ScoreboardStore: ObservableObject {
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
             $possessionDirection.map { _ in () }.eraseToAnyPublisher(),
             $areSidesSwapped.map { _ in () }.eraseToAnyPublisher(),
+            $controlBoardDisplayDirection.map { _ in () }.eraseToAnyPublisher(),
             $isPlayerTrackingEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isPlayerOverlayPaused.map { _ in () }.eraseToAnyPublisher(),
             $rosterSizePerTeam.map { _ in () }.eraseToAnyPublisher(),
             $displayLineupSize.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowMode.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowLogoOverride.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupOverflowNoLogoOverride.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupFadePageSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupScrollSpeed.map { _ in () }.eraseToAnyPublisher(),
+            $playerLineupScrollDirection.map { _ in () }.eraseToAnyPublisher(),
+            $publicDisplayViewMode.map { _ in () }.eraseToAnyPublisher(),
+            $playerViewRosterScope.map { _ in () }.eraseToAnyPublisher(),
             $playerFoulHighlightColor.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockRedEnabled.map { _ in () }.eraseToAnyPublisher(),
             $gameClockRedThresholdSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -3044,20 +4735,127 @@ final class ScoreboardStore: ObservableObject {
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
+            $showsLiveActivityWhenTimerRunning.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoStyle.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoBackgroundColor.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSpeed.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSize.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoOpacity.map { _ in () }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTime.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayDateTimeFormat.map { _ in () }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTimeSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayDirection.map { _ in () }.eraseToAnyPublisher(),
+            $showsTeamLogos.map { _ in () }.eraseToAnyPublisher(),
+            $showsEventLogo.map { _ in () }.eraseToAnyPublisher(),
+            $homeTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
+            $guestTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
+            $eventLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
-            $soundAssignments.map { _ in () }.eraseToAnyPublisher(),
+            $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
+            $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
+            $isCompanionEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $companionHost.map { _ in () }.eraseToAnyPublisher(),
+            $companionMode.map { _ in () }.eraseToAnyPublisher(),
+            $companionPort.map { _ in () }.eraseToAnyPublisher(),
+            $companionAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
-            $setupPresets.map { _ in () }.eraseToAnyPublisher()
+            $areTipsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $showGettingStartedOnStartup.map { _ in () }.eraseToAnyPublisher(),
+            $didAutoShowGettingStarted.map { _ in () }.eraseToAnyPublisher(),
+            $setupPresets.map { _ in () }.eraseToAnyPublisher(),
+            $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
+            $isRemoteDisplayHostEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $remoteDisplayNetworkMode.map { _ in () }.eraseToAnyPublisher()
         ]
 
-        Publishers.MergeMany(persistencePublishers)
+        let stateChanges = Publishers.MergeMany(persistencePublishers)
+
+        stateChanges
+            .sink { [weak self] _ in
+                self?.scheduleStateSideEffectRefresh()
+            }
+            .store(in: &cancellables)
+
+        stateChanges
+            .throttle(for: .seconds(Self.automaticDiskWriteThrottleSeconds), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] _ in
                 self?.persistState()
             }
             .store(in: &cancellables)
+    }
+
+    private func scheduleStateSideEffectRefresh() {
+        guard !isStateSideEffectRefreshScheduled else {
+            return
+        }
+
+        isStateSideEffectRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.isStateSideEffectRefreshScheduled = false
+            self.refreshPrimaryTimerPersistence()
+            self.refreshWebAPIState()
+            self.refreshRemoteDisplayState()
+            #if os(iOS)
+            self.syncLiveActivityForCurrentState()
+            #endif
+        }
+    }
+
+    func exportPersistedStateData() throws -> Data {
+        try JSONEncoder().encode(currentPersistedState().excludingRemoteDisplayPairingState)
+    }
+
+    func validatePersistedStateData(_ data: Data) throws {
+        _ = try JSONDecoder().decode(PersistedState.self, from: data)
+    }
+
+    func restorePersistedStateData(_ data: Data) throws {
+        let persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
+        clearPrimaryTimerPersistence()
+        applyPersistedState(persistedState.excludingRemoteDisplayPairingState)
+        persistState()
+    }
+
+    func resetToFactoryDefaults() {
+        clearPrimaryTimerPersistence()
+        applyPersistedState(.factoryDefault)
+        UserDefaults.standard.removeObject(forKey: persistenceKey)
+        persistState()
+    }
+
+    func setGettingStartedStartupEnabled(_ isEnabled: Bool) {
+        showGettingStartedOnStartup = isEnabled
+        if isEnabled {
+            didAutoShowGettingStarted = false
+        }
+    }
+
+    func markGettingStartedAutoShown() {
+        didAutoShowGettingStarted = true
+        showGettingStartedOnStartup = false
+    }
+
+    func skipGettingStartedAndDisableTips() {
+        areTipsEnabled = false
+        showGettingStartedOnStartup = false
+        didAutoShowGettingStarted = true
+    }
+
+    func replaceRosters(home: TeamRoster, guest: TeamRoster, rosterSize: Int) {
+        let boundedSize = max(Self.minRosterSize, min(Self.maxRosterSize, rosterSize))
+        rosterSizePerTeam = boundedSize
+        displayLineupSize = max(1, min(boundedSize, displayLineupSize))
+        homeRoster = normalizedRoster(home, fallbackCount: boundedSize)
+        guestRoster = normalizedRoster(guest, fallbackCount: boundedSize)
     }
 
     private func loadPersistedState() {
@@ -3065,101 +4863,346 @@ final class ScoreboardStore: ObservableObject {
             let data = UserDefaults.standard.data(forKey: persistenceKey),
             let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data)
         else {
+            clearPrimaryTimerPersistence()
             return
         }
 
-        selectedSport = persistedState.selectedSport
-        customSportConfig = persistedState.customSportConfig
-        homeTeamName = persistedState.homeTeamName
-        guestTeamName = persistedState.guestTeamName
-        homeScore = persistedState.homeScore
-        guestScore = persistedState.guestScore
-        period = max(1, min(9, persistedState.period))
-        gameClockSeconds = boundedGameClockSeconds(persistedState.gameClockSeconds)
-        defaultClockSeconds = boundedGameClockSeconds(persistedState.defaultClockSeconds)
-        isGameClockEnabled = persistedState.isGameClockEnabled
-        shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
-        defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
-        activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
-        possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
-        areSidesSwapped = persistedState.areSidesSwapped
-        isPlayerTrackingEnabled = selectedSport == .debate
-            ? persistedState.isDebatePlayerTrackingEnabled
-            : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
-        isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
-        rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
-        displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
-        playerFoulHighlightColor = persistedState.playerFoulHighlightColor
-        isGameClockRedEnabled = persistedState.isGameClockRedEnabled
-        gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
-        isShotClockRedEnabled = persistedState.isShotClockRedEnabled
-        shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
-        homeSubstitutionsAllowed = max(0, persistedState.homeSubstitutionsAllowed)
-        guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
-        homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
-        guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
-        homeTeamFouls = max(0, persistedState.homeTeamFouls)
-        guestTeamFouls = max(0, persistedState.guestTeamFouls)
-        homeChessClockSeconds = boundedGameClockSeconds(persistedState.homeChessClockSeconds)
-        guestChessClockSeconds = boundedGameClockSeconds(persistedState.guestChessClockSeconds)
-        activeChessClockSide = persistedState.activeChessClockSide
-        chessClockPreset = persistedState.chessClockPreset
-        selectedDebatePresetID = persistedState.selectedDebatePresetID
-        customDebatePreset = persistedState.customDebatePreset
-        debateHomeSideLabel = persistedState.debateHomeSideLabel
-        debateGuestSideLabel = persistedState.debateGuestSideLabel
-        debateCurrentSegmentIndex = persistedState.debateCurrentSegmentIndex
-        isDebatePrepTimeEnabled = persistedState.isDebatePrepTimeEnabled
-        debatePrepHomeSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepHomeSeconds) : 0
-        debatePrepGuestSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepGuestSeconds) : 0
-        debateActiveTimer = persistedState.debateActiveTimer
-        isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
-        isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
-        isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
-        isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
-        isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
-        homePenaltyTimers = persistedState.homePenaltyTimers
-        guestPenaltyTimers = persistedState.guestPenaltyTimers
-        homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
-        guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
-        theme = persistedState.theme
-        externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode
-        isSoundEnabled = persistedState.isSoundEnabled
-        soundAssignments = normalizedSoundAssignments(persistedState.soundAssignments)
-        didCompleteSetup = persistedState.didCompleteSetup
-        setupPresets = persistedState.setupPresets
-        if !currentRules.supportsShotClock {
-            defaultShotClockSeconds = 0
-            activeShotClockPresetSeconds = 0
-            shotClockMilliseconds = 0
-        }
-        if selectedSport != .volleyball {
-            isGameClockEnabled = selectedSport == .custom ? isGameClockEnabled : true
-        }
-        if isDebateMode {
-            let preset = currentDebatePreset
-            debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
-            configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
-            if debateActiveTimer != .segment {
-                pauseClock()
+        applyPersistedState(persistedState)
+        restorePrimaryTimerPersistenceIfNeeded()
+    }
+
+    private func applyPersistedState(_ persistedState: PersistedState) {
+        performWithoutAuditLogging {
+            pauseClock()
+            pauseShotClock()
+            stopTestSound()
+            dismissCompanionFailureNotice()
+            resetRemoteDisplayWarningState()
+            companionLastError = nil
+
+            selectedSport = persistedState.selectedSport
+            customSportConfig = persistedState.customSportConfig
+            homeTeamName = persistedState.homeTeamName
+            guestTeamName = persistedState.guestTeamName
+            eventName = persistedState.eventName
+            homeScore = persistedState.homeScore
+            guestScore = persistedState.guestScore
+            period = max(1, min(9, persistedState.period))
+            volleyballMatchFormat = selectedSport == .volleyball ? persistedState.volleyballMatchFormat : .bestOf5
+            if supportsPeriodWinTracking {
+                volleyballSetResults = selectedSport == .volleyball
+                    ? normalizedVolleyballSetResults(persistedState.volleyballSetResults, format: volleyballMatchFormat)
+                    : normalizedPeriodWinResults(persistedState.volleyballSetResults, maximumPeriod: periodUpperBound)
+            } else {
+                volleyballSetResults = []
             }
-            if !isDebatePlayerTrackingEnabled {
-                isPlayerTrackingEnabled = false
+            if supportsPeriodWinTracking {
+                period = max(1, min(periodUpperBound, period))
             }
+            gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.gameClockSeconds) : boundedGameClockSeconds(persistedState.gameClockSeconds)
+            defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.defaultClockSeconds) : boundedGameClockSeconds(persistedState.defaultClockSeconds)
+            isGameClockEnabled = persistedState.isGameClockEnabled
+            shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
+            defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
+            activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
+            possessionDirection = currentRules.supportsPossession ? persistedState.possessionDirection : .none
+            controlBoardDisplayDirection = persistedState.controlBoardDisplayDirection
+            areSidesSwapped = persistedState.areSidesSwapped
+            isPlayerTrackingEnabled = selectedSport == .debate
+                ? persistedState.isDebatePlayerTrackingEnabled
+                : (currentRules.supportsPlayerTracking ? persistedState.isPlayerTrackingEnabled : false)
+            isPlayerOverlayPaused = persistedState.isPlayerOverlayPaused
+            rosterSizePerTeam = max(Self.minRosterSize, min(Self.maxRosterSize, persistedState.rosterSizePerTeam))
+            displayLineupSize = max(1, min(rosterSizePerTeam, persistedState.displayLineupSize))
+            playerLineupOverflowMode = persistedState.playerLineupOverflowMode
+            playerLineupOverflowLogoOverride = persistedState.playerLineupOverflowLogoOverride
+            playerLineupOverflowNoLogoOverride = persistedState.playerLineupOverflowNoLogoOverride
+            playerLineupFadePageSeconds = max(Self.minPlayerLineupFadePageSeconds, min(Self.maxPlayerLineupFadePageSeconds, persistedState.playerLineupFadePageSeconds))
+            playerLineupScrollSpeed = max(Self.minPlayerLineupScrollSpeed, min(Self.maxPlayerLineupScrollSpeed, persistedState.playerLineupScrollSpeed))
+            playerLineupScrollDirection = persistedState.playerLineupScrollDirection
+            publicDisplayViewMode = .scoreboard
+            playerViewRosterScope = .fullRoster
+            playerFoulHighlightColor = persistedState.playerFoulHighlightColor
+            isGameClockRedEnabled = persistedState.isGameClockRedEnabled
+            gameClockRedThresholdSeconds = boundedGameClockSeconds(persistedState.gameClockRedThresholdSeconds)
+            isShotClockRedEnabled = persistedState.isShotClockRedEnabled
+            shotClockRedThresholdSeconds = boundedShotClockSeconds(persistedState.shotClockRedThresholdSeconds)
+            homeSubstitutionsAllowed = max(0, persistedState.homeSubstitutionsAllowed)
+            guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
+            homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
+            guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+            homeTeamFouls = max(0, persistedState.homeTeamFouls)
+            guestTeamFouls = max(0, persistedState.guestTeamFouls)
+            homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.homeChessClockSeconds) : boundedGameClockSeconds(persistedState.homeChessClockSeconds)
+            guestChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.guestChessClockSeconds) : boundedGameClockSeconds(persistedState.guestChessClockSeconds)
+            activeChessClockSide = persistedState.activeChessClockSide
+            chessClockPreset = persistedState.chessClockPreset
+            selectedDebatePresetID = persistedState.selectedDebatePresetID
+            customDebatePreset = persistedState.customDebatePreset
+            debateHomeSideLabel = persistedState.debateHomeSideLabel
+            debateGuestSideLabel = persistedState.debateGuestSideLabel
+            debateCurrentSegmentIndex = persistedState.debateCurrentSegmentIndex
+            isDebatePrepTimeEnabled = persistedState.isDebatePrepTimeEnabled
+            debatePrepHomeSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepHomeSeconds) : 0
+            debatePrepGuestSeconds = isDebatePrepTimeEnabled ? boundedGameClockSeconds(persistedState.debatePrepGuestSeconds) : 0
+            debateActiveTimer = persistedState.debateActiveTimer
+            isDebatePrepClockRunning = persistedState.isDebatePrepClockRunning
+            isDebateScoreTrackingEnabled = persistedState.isDebateScoreTrackingEnabled
+            isDebatePlayerTrackingEnabled = persistedState.isDebatePlayerTrackingEnabled
+            isDebatePlayerFoulsEnabled = persistedState.isDebatePlayerFoulsEnabled
+            isDebatePlayerCardsEnabled = persistedState.isDebatePlayerCardsEnabled
+            homePenaltyTimers = supportsHockeyPenalties ? persistedState.homePenaltyTimers : []
+            guestPenaltyTimers = supportsHockeyPenalties ? persistedState.guestPenaltyTimers : []
+            homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
+            guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
+            theme = persistedState.theme
+            externalDisplayBackgroundImage = nil
+            externalDisplayAnimatedLogoStyle = persistedState.externalDisplayAnimatedLogoStyle
+            externalDisplayAnimatedLogoBackgroundColor = persistedState.externalDisplayAnimatedLogoBackgroundColor
+            setExternalDisplayAnimatedLogoSpeed(persistedState.externalDisplayAnimatedLogoSpeed)
+            setExternalDisplayAnimatedLogoSize(persistedState.externalDisplayAnimatedLogoSize)
+            setExternalDisplayAnimatedLogoOpacity(persistedState.externalDisplayAnimatedLogoOpacity)
+            showsExternalDisplayDateTime = persistedState.showsExternalDisplayDateTime
+            externalDisplayDateTimeFormat = persistedState.externalDisplayDateTimeFormat
+            showsExternalDisplayDateTimeSeconds = persistedState.showsExternalDisplayDateTimeSeconds
+            externalDisplayDirection = persistedState.externalDisplayDirection
+            showsTeamLogos = persistedState.showsTeamLogos
+            showsEventLogo = persistedState.showsEventLogo
+            homeTeamLogoImage = nil
+            guestTeamLogoImage = nil
+            eventLogoImage = nil
+            externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image || persistedState.externalDisplayBackgroundMode == .animatedLogo ? .blurred : persistedState.externalDisplayBackgroundMode
+            isSoundEnabled = persistedState.isSoundEnabled
+            soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
+            isCompanionVisible = persistedState.isCompanionVisible
+            isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
+            companionHost = persistedState.companionHost
+            companionMode = persistedState.companionMode
+            companionPort = persistedState.companionPort == 0 ? persistedState.companionMode.defaultPort : persistedState.companionPort
+            companionAssignmentsBySport = normalizedCompanionAssignmentsBySport(persistedState.companionAssignmentsBySport)
+            didCompleteSetup = persistedState.didCompleteSetup
+            setupPresets = persistedState.setupPresets
+            isWebAPIEnabled = persistedState.isWebAPIEnabled
+            webAPIUpdateMode = persistedState.webAPIUpdateMode
+            isRemoteDisplayHostEnabled = persistedState.isRemoteDisplayHostEnabled
+            isRemoteDisplayViewerModeEnabled = persistedState.isRemoteDisplayViewerModeEnabled
+            remoteDisplayNetworkMode = persistedState.remoteDisplayNetworkMode
+            if !currentRules.supportsShotClock {
+                defaultShotClockSeconds = 0
+                activeShotClockPresetSeconds = 0
+                shotClockMilliseconds = 0
+            }
+            if selectedSport != .volleyball {
+                isGameClockEnabled = selectedSport == .custom ? isGameClockEnabled : true
+            }
+            if isDebateMode {
+                let preset = currentDebatePreset
+                debateCurrentSegmentIndex = min(debateCurrentSegmentIndex, max(preset.segments.count - 1, 0))
+                configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: true)
+                if debateActiveTimer != .segment {
+                    pauseClock()
+                }
+                if !isDebatePlayerTrackingEnabled {
+                    isPlayerTrackingEnabled = false
+                }
+            }
+            isClockRunning = false
+            isShotClockRunning = false
+            isDebatePrepClockRunning = false
+            areTipsEnabled = persistedState.areTipsEnabled
+            showGettingStartedOnStartup = persistedState.showGettingStartedOnStartup
+            didAutoShowGettingStarted = persistedState.didAutoShowGettingStarted
+            updateTimerState()
+            refreshWebAPIState()
+            refreshRemoteDisplayState()
         }
-        isClockRunning = false
-        isShotClockRunning = false
     }
 
     private func persistState() {
-        let persistedState = PersistedState(
+        guard let data = try? encodedPersistedStateData() else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: persistenceKey)
+    }
+
+    private func refreshPrimaryTimerPersistence() {
+        guard let snapshot = currentPrimaryTimerPersistenceSnapshot(now: Date()) else {
+            clearPrimaryTimerPersistence()
+            return
+        }
+
+        guard snapshot.signature != lastPrimaryTimerPersistenceSignature else {
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: primaryTimerPersistenceKey)
+            lastPrimaryTimerPersistenceSignature = snapshot.signature
+        }
+    }
+
+    private func clearPrimaryTimerPersistence() {
+        UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
+        lastPrimaryTimerPersistenceSignature = nil
+    }
+
+    private func restorePrimaryTimerPersistenceIfNeeded() {
+        guard
+            let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
+            let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
+        else {
+            return
+        }
+
+        switch snapshot.kind {
+        case .standardClock:
+            guard showsGameClock, !usesChessClocks else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            gameClockSeconds = boundedRuntimeClockSeconds(snapshot.gameClockSeconds)
+            isClockRunning = gameClockSeconds > 0 || gameClockMode == .countUp
+            isDebatePrepClockRunning = false
+
+        case .dualClock:
+            guard usesChessClocks else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            homeChessClockSeconds = boundedRuntimeClockSeconds(snapshot.homeChessClockSeconds)
+            guestChessClockSeconds = boundedRuntimeClockSeconds(snapshot.guestChessClockSeconds)
+            activeChessClockSide = snapshot.activeChessClockSide ?? activeChessClockSide ?? .home
+            isClockRunning = homeChessClockSeconds > 0 || guestChessClockSeconds > 0
+            isDebatePrepClockRunning = false
+
+        case .debatePrep:
+            guard isDebateMode, isDebatePrepTimeEnabled else {
+                clearPrimaryTimerPersistence()
+                return
+            }
+            debateActiveTimer = snapshot.debateActiveTimer
+            debatePrepHomeSeconds = boundedGameClockSeconds(snapshot.debatePrepHomeSeconds)
+            debatePrepGuestSeconds = boundedGameClockSeconds(snapshot.debatePrepGuestSeconds)
+            isClockRunning = false
+            switch debateActiveTimer {
+            case .prepHome:
+                isDebatePrepClockRunning = debatePrepHomeSeconds > 0
+            case .prepGuest:
+                isDebatePrepClockRunning = debatePrepGuestSeconds > 0
+            case .segment:
+                isDebatePrepClockRunning = false
+            }
+        }
+
+        lastTimerFireDate = Date(timeIntervalSince1970: snapshot.savedAtUnixTime)
+        lastPrimaryTimerPersistenceSignature = snapshot.signature
+        updateTimerState()
+        reconcileRunningTimersWithWallClock()
+        refreshPrimaryTimerPersistence()
+    }
+
+    private func currentPrimaryTimerPersistenceSnapshot(now: Date) -> PrimaryTimerPersistenceSnapshot? {
+        guard isGameRunning else {
+            return nil
+        }
+
+        let roundedNow = floor(now.timeIntervalSince1970)
+        if isDebatePrepClockRunning {
+            let signature: String
+            switch debateActiveTimer {
+            case .prepHome:
+                signature = "debatePrep-home-\(Int(roundedNow) + debatePrepHomeSeconds)-\(debatePrepGuestSeconds)"
+            case .prepGuest:
+                signature = "debatePrep-guest-\(Int(roundedNow) + debatePrepGuestSeconds)-\(debatePrepHomeSeconds)"
+            case .segment:
+                return nil
+            }
+
+            return PrimaryTimerPersistenceSnapshot(
+                kind: .debatePrep,
+                savedAtUnixTime: now.timeIntervalSince1970,
+                signature: signature,
+                gameClockSeconds: gameClockSeconds,
+                homeChessClockSeconds: homeChessClockSeconds,
+                guestChessClockSeconds: guestChessClockSeconds,
+                activeChessClockSide: activeChessClockSide,
+                debateActiveTimer: debateActiveTimer,
+                debatePrepHomeSeconds: debatePrepHomeSeconds,
+                debatePrepGuestSeconds: debatePrepGuestSeconds
+            )
+        }
+
+        if isClockRunning, usesChessClocks {
+            let activeSeconds: Int
+            let inactiveSeconds: Int
+            switch activeChessClockSide {
+            case .home:
+                activeSeconds = homeChessClockSeconds
+                inactiveSeconds = guestChessClockSeconds
+            case .guest:
+                activeSeconds = guestChessClockSeconds
+                inactiveSeconds = homeChessClockSeconds
+            case .none:
+                return nil
+            }
+            let signature = "dual-\(activeChessClockSide?.rawValue ?? "none")-\(Int(roundedNow) + activeSeconds)-\(inactiveSeconds)"
+            return PrimaryTimerPersistenceSnapshot(
+                kind: .dualClock,
+                savedAtUnixTime: now.timeIntervalSince1970,
+                signature: signature,
+                gameClockSeconds: gameClockSeconds,
+                homeChessClockSeconds: homeChessClockSeconds,
+                guestChessClockSeconds: guestChessClockSeconds,
+                activeChessClockSide: activeChessClockSide,
+                debateActiveTimer: debateActiveTimer,
+                debatePrepHomeSeconds: debatePrepHomeSeconds,
+                debatePrepGuestSeconds: debatePrepGuestSeconds
+            )
+        }
+
+        guard isClockRunning else {
+            return nil
+        }
+
+        let signature: String
+        switch gameClockMode {
+        case .countdown:
+            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)"
+        case .countUp:
+            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)"
+        }
+
+        return PrimaryTimerPersistenceSnapshot(
+            kind: .standardClock,
+            savedAtUnixTime: now.timeIntervalSince1970,
+            signature: signature,
+            gameClockSeconds: gameClockSeconds,
+            homeChessClockSeconds: homeChessClockSeconds,
+            guestChessClockSeconds: guestChessClockSeconds,
+            activeChessClockSide: activeChessClockSide,
+            debateActiveTimer: debateActiveTimer,
+            debatePrepHomeSeconds: debatePrepHomeSeconds,
+            debatePrepGuestSeconds: debatePrepGuestSeconds
+        )
+    }
+
+    private func encodedPersistedStateData() throws -> Data {
+        try JSONEncoder().encode(currentPersistedState())
+    }
+
+    private func currentPersistedState() -> PersistedState {
+        PersistedState(
             selectedSport: selectedSport,
             customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
             guestTeamName: guestTeamName,
+            eventName: eventName,
             homeScore: homeScore,
             guestScore: guestScore,
             period: period,
+            volleyballMatchFormat: volleyballMatchFormat,
+            volleyballSetResults: volleyballSetResults,
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
@@ -3168,10 +5211,18 @@ final class ScoreboardStore: ObservableObject {
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
             possessionDirection: possessionDirection,
             areSidesSwapped: areSidesSwapped,
+            controlBoardDisplayDirection: controlBoardDisplayDirection,
             isPlayerTrackingEnabled: isPlayerTrackingEnabled,
             isPlayerOverlayPaused: isPlayerOverlayPaused,
             rosterSizePerTeam: rosterSizePerTeam,
             displayLineupSize: displayLineupSize,
+            playerLineupOverflowMode: playerLineupOverflowMode,
+            playerLineupOverflowLogoOverride: playerLineupOverflowLogoOverride,
+            playerLineupOverflowNoLogoOverride: playerLineupOverflowNoLogoOverride,
+            playerLineupFadePageSeconds: playerLineupFadePageSeconds,
+            playerLineupScrollSpeed: playerLineupScrollSpeed,
+            playerLineupScrollDirection: playerLineupScrollDirection,
+            playerViewRosterScope: .fullRoster,
             playerFoulHighlightColor: playerFoulHighlightColor,
             isGameClockRedEnabled: isGameClockRedEnabled,
             gameClockRedThresholdSeconds: gameClockRedThresholdSeconds,
@@ -3201,30 +5252,71 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerTrackingEnabled: isDebatePlayerTrackingEnabled,
             isDebatePlayerFoulsEnabled: isDebatePlayerFoulsEnabled,
             isDebatePlayerCardsEnabled: isDebatePlayerCardsEnabled,
-            homePenaltyTimers: homePenaltyTimers,
-            guestPenaltyTimers: guestPenaltyTimers,
+            homePenaltyTimers: supportsHockeyPenalties ? homePenaltyTimers : [],
+            guestPenaltyTimers: supportsHockeyPenalties ? guestPenaltyTimers : [],
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
-            externalDisplayBackgroundMode: externalDisplayBackgroundMode,
+            showsLiveActivityWhenTimerRunning: showsLiveActivityWhenTimerRunning,
+            externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo ? .blurred : externalDisplayBackgroundMode,
+            externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
+            externalDisplayAnimatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
+            externalDisplayAnimatedLogoSpeed: externalDisplayAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: externalDisplayAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: externalDisplayAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: showsExternalDisplayDateTime,
+            externalDisplayDateTimeFormat: externalDisplayDateTimeFormat,
+            showsExternalDisplayDateTimeSeconds: showsExternalDisplayDateTimeSeconds,
+            externalDisplayDirection: externalDisplayDirection,
+            showsTeamLogos: showsTeamLogos,
+            showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
-            soundAssignments: soundAssignments,
+            soundAssignmentsBySport: soundAssignmentsBySport,
+            isCompanionVisible: isCompanionVisible,
+            isCompanionEnabled: isCompanionEnabled,
+            companionHost: companionHost,
+            companionMode: companionMode,
+            companionPort: companionPort,
+            companionAssignmentsBySport: companionAssignmentsBySport,
             didCompleteSetup: didCompleteSetup,
-            setupPresets: setupPresets
+            areTipsEnabled: areTipsEnabled,
+            showGettingStartedOnStartup: showGettingStartedOnStartup,
+            didAutoShowGettingStarted: didAutoShowGettingStarted,
+            setupPresets: setupPresets,
+            isWebAPIEnabled: isWebAPIEnabled,
+            webAPIUpdateMode: webAPIUpdateMode,
+            isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
+            isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
+            remoteDisplayNetworkMode: remoteDisplayNetworkMode
         )
-
-        guard let data = try? JSONEncoder().encode(persistedState) else {
-            return
-        }
-
-        UserDefaults.standard.set(data, forKey: persistenceKey)
     }
 
-    private func normalizedSoundAssignments(_ assignments: [ScoreboardSoundEvent: ScoreboardSoundEffect]) -> [ScoreboardSoundEvent: ScoreboardSoundEffect] {
-        var resolved = Self.defaultSoundAssignments
-        for (event, effect) in assignments {
-            guard event != .general else { continue }
-            resolved[event] = effect
+    private func normalizedSoundAssignmentsBySport(_ assignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]) -> [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]] {
+        var resolved = Self.defaultSoundAssignmentsBySport
+        for sport in SportType.allCases {
+            var sportAssignments = Self.defaultSoundAssignments
+            for (event, effect) in assignmentsBySport[sport] ?? [:] {
+                guard event != .general else { continue }
+                sportAssignments[event] = effect
+            }
+            resolved[sport] = sportAssignments
+        }
+        return resolved
+    }
+
+    private func normalizedCompanionAssignmentsBySport(_ assignmentsBySport: [SportType: [ScoreboardSoundEvent: String]]) -> [SportType: [ScoreboardSoundEvent: String]] {
+        var resolved: [SportType: [ScoreboardSoundEvent: String]] = [:]
+        for sport in SportType.allCases {
+            var sportAssignments: [ScoreboardSoundEvent: String] = [:]
+            for (event, locationText) in assignmentsBySport[sport] ?? [:] {
+                guard event != .general, !locationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    continue
+                }
+                sportAssignments[event] = locationText
+            }
+            if !sportAssignments.isEmpty {
+                resolved[sport] = sportAssignments
+            }
         }
         return resolved
     }
@@ -3281,11 +5373,17 @@ final class ScoreboardStore: ObservableObject {
         case .home:
             var roster = homeRoster
             mutate(&roster)
-            homeRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            let normalized = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            if normalized != homeRoster {
+                homeRoster = normalized
+            }
         case .guest:
             var roster = guestRoster
             mutate(&roster)
-            guestRoster = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            let normalized = normalizedRoster(roster, fallbackCount: rosterSizePerTeam)
+            if normalized != guestRoster {
+                guestRoster = normalized
+            }
         }
     }
 
@@ -3311,6 +5409,23 @@ final class ScoreboardStore: ObservableObject {
         return resolved
     }
 
+    private func normalizedVolleyballSetResults(_ results: [VolleyballSetResult], format: VolleyballMatchFormat) -> [VolleyballSetResult] {
+        normalizedPeriodWinResults(results, maximumPeriod: format.maximumSets)
+    }
+
+    private func normalizedPeriodWinResults(_ results: [VolleyballSetResult], maximumPeriod: Int) -> [VolleyballSetResult] {
+        var seenSetNumbers = Set<Int>()
+        return results
+            .filter { result in
+                result.setNumber >= 1 &&
+                    result.setNumber <= maximumPeriod &&
+                    result.homeScore >= 0 &&
+                    result.guestScore >= 0 &&
+                    seenSetNumbers.insert(result.setNumber).inserted
+            }
+            .sorted { $0.setNumber < $1.setNumber }
+    }
+
     private func normalizeActiveLineup(in roster: inout TeamRoster) {
         let activeIndices = roster.players.indices.filter { roster.players[$0].isInActiveLineup }
         if activeIndices.count > activeLineupCountLimit {
@@ -3321,14 +5436,36 @@ final class ScoreboardStore: ObservableObject {
     }
 }
 
+private enum PrimaryTimerPersistenceKind: String, Codable {
+    case standardClock
+    case dualClock
+    case debatePrep
+}
+
+private struct PrimaryTimerPersistenceSnapshot: Codable {
+    var kind: PrimaryTimerPersistenceKind
+    var savedAtUnixTime: TimeInterval
+    var signature: String
+    var gameClockSeconds: Int
+    var homeChessClockSeconds: Int
+    var guestChessClockSeconds: Int
+    var activeChessClockSide: TeamSide?
+    var debateActiveTimer: DebateActiveTimer
+    var debatePrepHomeSeconds: Int
+    var debatePrepGuestSeconds: Int
+}
+
 private struct PersistedState: Codable {
     var selectedSport: SportType
     var customSportConfig: CustomSportConfig
     var homeTeamName: String
     var guestTeamName: String
+    var eventName: String
     var homeScore: Int
     var guestScore: Int
     var period: Int
+    var volleyballMatchFormat: VolleyballMatchFormat
+    var volleyballSetResults: [VolleyballSetResult]
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool
@@ -3337,10 +5474,18 @@ private struct PersistedState: Codable {
     var activeShotClockPresetSeconds: Int
     var possessionDirection: PossessionDirection
     var areSidesSwapped: Bool
+    var controlBoardDisplayDirection: ScoreboardDisplayDirection
     var isPlayerTrackingEnabled: Bool
     var isPlayerOverlayPaused: Bool
     var rosterSizePerTeam: Int
     var displayLineupSize: Int
+    var playerLineupOverflowMode: PlayerLineupOverflowMode
+    var playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupFadePageSeconds: Int
+    var playerLineupScrollSpeed: Int
+    var playerLineupScrollDirection: PlayerLineupScrollDirection
+    var playerViewRosterScope: PlayerViewRosterScope
     var playerFoulHighlightColor: PlayerFoulHighlightColor
     var isGameClockRedEnabled: Bool
     var gameClockRedThresholdSeconds: Int
@@ -3375,20 +5520,49 @@ private struct PersistedState: Codable {
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
+    var showsLiveActivityWhenTimerRunning: Bool
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
+    var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle
+    var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor
+    var externalDisplayAnimatedLogoSpeed: Int
+    var externalDisplayAnimatedLogoSize: Int
+    var externalDisplayAnimatedLogoOpacity: Double
+    var showsExternalDisplayDateTime: Bool
+    var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat
+    var showsExternalDisplayDateTimeSeconds: Bool
+    var externalDisplayDirection: ScoreboardDisplayDirection
+    var showsTeamLogos: Bool
+    var showsEventLogo: Bool
     var isSoundEnabled: Bool
-    var soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect]
+    var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
+    var isCompanionVisible: Bool
+    var isCompanionEnabled: Bool
+    var companionHost: String
+    var companionMode: ScoreboardCompanionMode
+    var companionPort: UInt16
+    var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]]
     var didCompleteSetup: Bool
+    var areTipsEnabled: Bool
+    var showGettingStartedOnStartup: Bool
+    var didAutoShowGettingStarted: Bool
     var setupPresets: [SetupPreset]
+    var isWebAPIEnabled: Bool
+    var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
+    var isRemoteDisplayHostEnabled: Bool
+    var isRemoteDisplayViewerModeEnabled: Bool
+    var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
         case selectedSport
         case customSportConfig
         case guestTeamName
+        case eventName
         case homeScore
         case guestScore
         case period
+        case volleyballMatchFormat
+        case volleyballSetResults
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
@@ -3398,10 +5572,19 @@ private struct PersistedState: Codable {
         case activeShotClockPresetSeconds
         case possessionDirection
         case areSidesSwapped
+        case displayDirectionModelVersion
+        case controlBoardDisplayDirection
         case isPlayerTrackingEnabled
         case isPlayerOverlayPaused
         case rosterSizePerTeam
         case displayLineupSize
+        case playerLineupOverflowMode
+        case playerLineupOverflowLogoOverride
+        case playerLineupOverflowNoLogoOverride
+        case playerLineupFadePageSeconds
+        case playerLineupScrollSpeed
+        case playerLineupScrollDirection
+        case playerViewRosterScope
         case playerFoulHighlightColor
         case isGameClockRedEnabled
         case gameClockRedThresholdSeconds
@@ -3436,11 +5619,39 @@ private struct PersistedState: Codable {
         case homeRoster
         case guestRoster
         case theme
+        case showsLiveActivityWhenTimerRunning
         case externalDisplayBackgroundMode
+        case externalDisplayAnimatedLogoStyle
+        case externalDisplayAnimatedLogoBackgroundColor
+        case externalDisplayAnimatedLogoSpeed
+        case externalDisplayAnimatedLogoSize
+        case externalDisplayAnimatedLogoOpacity
+        case showsExternalDisplayDateTime
+        case externalDisplayDateTimeFormat
+        case showsExternalDisplayDateTimeSeconds
+        case externalDisplayDirection
+        case showsTeamLogos
+        case showsEventLogo
         case isSoundEnabled
         case soundAssignments
+        case soundAssignmentsBySport
+        case isCompanionVisible
+        case isCompanionEnabled
+        case companionHost
+        case companionMode
+        case companionPort
+        case companionAssignments
+        case companionAssignmentsBySport
         case didCompleteSetup
+        case areTipsEnabled
+        case showGettingStartedOnStartup
+        case didAutoShowGettingStarted
         case setupPresets
+        case isWebAPIEnabled
+        case webAPIUpdateMode
+        case isRemoteDisplayHostEnabled
+        case isRemoteDisplayViewerModeEnabled
+        case remoteDisplayNetworkMode
     }
 
     init(
@@ -3448,9 +5659,12 @@ private struct PersistedState: Codable {
         customSportConfig: CustomSportConfig,
         homeTeamName: String,
         guestTeamName: String,
+        eventName: String,
         homeScore: Int,
         guestScore: Int,
         period: Int,
+        volleyballMatchFormat: VolleyballMatchFormat,
+        volleyballSetResults: [VolleyballSetResult],
         gameClockSeconds: Int,
         defaultClockSeconds: Int,
         isGameClockEnabled: Bool,
@@ -3459,10 +5673,18 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds: Int,
         possessionDirection: PossessionDirection,
         areSidesSwapped: Bool,
+        controlBoardDisplayDirection: ScoreboardDisplayDirection,
         isPlayerTrackingEnabled: Bool,
         isPlayerOverlayPaused: Bool,
         rosterSizePerTeam: Int,
         displayLineupSize: Int,
+        playerLineupOverflowMode: PlayerLineupOverflowMode,
+        playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?,
+        playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?,
+        playerLineupFadePageSeconds: Int,
+        playerLineupScrollSpeed: Int,
+        playerLineupScrollDirection: PlayerLineupScrollDirection,
+        playerViewRosterScope: PlayerViewRosterScope,
         playerFoulHighlightColor: PlayerFoulHighlightColor,
         isGameClockRedEnabled: Bool,
         gameClockRedThresholdSeconds: Int,
@@ -3497,19 +5719,48 @@ private struct PersistedState: Codable {
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
+        showsLiveActivityWhenTimerRunning: Bool,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
+        externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle,
+        externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor,
+        externalDisplayAnimatedLogoSpeed: Int,
+        externalDisplayAnimatedLogoSize: Int,
+        externalDisplayAnimatedLogoOpacity: Double,
+        showsExternalDisplayDateTime: Bool,
+        externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat,
+        showsExternalDisplayDateTimeSeconds: Bool,
+        externalDisplayDirection: ScoreboardDisplayDirection,
+        showsTeamLogos: Bool,
+        showsEventLogo: Bool,
         isSoundEnabled: Bool,
-        soundAssignments: [ScoreboardSoundEvent: ScoreboardSoundEffect],
+        soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
+        isCompanionVisible: Bool,
+        isCompanionEnabled: Bool,
+        companionHost: String,
+        companionMode: ScoreboardCompanionMode,
+        companionPort: UInt16,
+        companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]],
         didCompleteSetup: Bool,
-        setupPresets: [SetupPreset]
+        areTipsEnabled: Bool,
+        showGettingStartedOnStartup: Bool,
+        didAutoShowGettingStarted: Bool,
+        setupPresets: [SetupPreset],
+        isWebAPIEnabled: Bool,
+        webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
+        isRemoteDisplayHostEnabled: Bool,
+        isRemoteDisplayViewerModeEnabled: Bool,
+        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
         self.homeTeamName = homeTeamName
         self.guestTeamName = guestTeamName
+        self.eventName = eventName
         self.homeScore = homeScore
         self.guestScore = guestScore
         self.period = period
+        self.volleyballMatchFormat = volleyballMatchFormat
+        self.volleyballSetResults = volleyballSetResults
         self.gameClockSeconds = gameClockSeconds
         self.defaultClockSeconds = defaultClockSeconds
         self.isGameClockEnabled = isGameClockEnabled
@@ -3518,10 +5769,18 @@ private struct PersistedState: Codable {
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
         self.possessionDirection = possessionDirection
         self.areSidesSwapped = areSidesSwapped
+        self.controlBoardDisplayDirection = controlBoardDisplayDirection
         self.isPlayerTrackingEnabled = isPlayerTrackingEnabled
         self.isPlayerOverlayPaused = isPlayerOverlayPaused
         self.rosterSizePerTeam = rosterSizePerTeam
         self.displayLineupSize = displayLineupSize
+        self.playerLineupOverflowMode = playerLineupOverflowMode
+        self.playerLineupOverflowLogoOverride = playerLineupOverflowLogoOverride
+        self.playerLineupOverflowNoLogoOverride = playerLineupOverflowNoLogoOverride
+        self.playerLineupFadePageSeconds = playerLineupFadePageSeconds
+        self.playerLineupScrollSpeed = playerLineupScrollSpeed
+        self.playerLineupScrollDirection = playerLineupScrollDirection
+        self.playerViewRosterScope = playerViewRosterScope
         self.playerFoulHighlightColor = playerFoulHighlightColor
         self.isGameClockRedEnabled = isGameClockRedEnabled
         self.gameClockRedThresholdSeconds = gameClockRedThresholdSeconds
@@ -3556,11 +5815,37 @@ private struct PersistedState: Codable {
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
+        self.showsLiveActivityWhenTimerRunning = showsLiveActivityWhenTimerRunning
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
+        self.externalDisplayAnimatedLogoStyle = externalDisplayAnimatedLogoStyle
+        self.externalDisplayAnimatedLogoBackgroundColor = externalDisplayAnimatedLogoBackgroundColor
+        self.externalDisplayAnimatedLogoSpeed = externalDisplayAnimatedLogoSpeed
+        self.externalDisplayAnimatedLogoSize = externalDisplayAnimatedLogoSize
+        self.externalDisplayAnimatedLogoOpacity = externalDisplayAnimatedLogoOpacity
+        self.showsExternalDisplayDateTime = showsExternalDisplayDateTime
+        self.externalDisplayDateTimeFormat = externalDisplayDateTimeFormat
+        self.showsExternalDisplayDateTimeSeconds = showsExternalDisplayDateTimeSeconds
+        self.externalDisplayDirection = externalDisplayDirection
+        self.showsTeamLogos = showsTeamLogos
+        self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
-        self.soundAssignments = soundAssignments
+        self.soundAssignmentsBySport = soundAssignmentsBySport
+        self.isCompanionVisible = isCompanionVisible
+        self.isCompanionEnabled = isCompanionEnabled
+        self.companionHost = companionHost
+        self.companionMode = companionMode
+        self.companionPort = companionPort
+        self.companionAssignmentsBySport = companionAssignmentsBySport
         self.didCompleteSetup = didCompleteSetup
+        self.areTipsEnabled = areTipsEnabled
+        self.showGettingStartedOnStartup = showGettingStartedOnStartup
+        self.didAutoShowGettingStarted = didAutoShowGettingStarted
         self.setupPresets = setupPresets
+        self.isWebAPIEnabled = isWebAPIEnabled
+        self.webAPIUpdateMode = webAPIUpdateMode
+        self.isRemoteDisplayHostEnabled = isRemoteDisplayHostEnabled
+        self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
+        self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
     }
 
     init(from decoder: Decoder) throws {
@@ -3569,9 +5854,12 @@ private struct PersistedState: Codable {
         customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig) ?? .default
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
+        eventName = try container.decodeIfPresent(String.self, forKey: .eventName) ?? ""
         homeScore = try container.decode(Int.self, forKey: .homeScore)
         guestScore = try container.decode(Int.self, forKey: .guestScore)
         period = try container.decode(Int.self, forKey: .period)
+        volleyballMatchFormat = try container.decodeIfPresent(VolleyballMatchFormat.self, forKey: .volleyballMatchFormat) ?? .bestOf5
+        volleyballSetResults = try container.decodeIfPresent([VolleyballSetResult].self, forKey: .volleyballSetResults) ?? []
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled) ?? true
@@ -3585,10 +5873,23 @@ private struct PersistedState: Codable {
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds) ?? defaultShotClockSeconds
         possessionDirection = try container.decodeIfPresent(PossessionDirection.self, forKey: .possessionDirection) ?? .none
         areSidesSwapped = try container.decodeIfPresent(Bool.self, forKey: .areSidesSwapped) ?? false
+        let displayDirectionModelVersion = try container.decodeIfPresent(Int.self, forKey: .displayDirectionModelVersion) ?? 1
+        let legacyDisplayDirection = ScoreboardDisplayDirection(areSidesSwapped: areSidesSwapped)
+        let decodedControlBoardDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .controlBoardDisplayDirection) ?? legacyDisplayDirection
+        controlBoardDisplayDirection = displayDirectionModelVersion < ScoreboardStore.displayDirectionModelVersion
+            ? decodedControlBoardDisplayDirection.applyingSideSwap(areSidesSwapped)
+            : decodedControlBoardDisplayDirection
         isPlayerTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerTrackingEnabled) ?? false
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused) ?? false
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam) ?? ScoreboardStore.defaultRosterSize
         displayLineupSize = try container.decodeIfPresent(Int.self, forKey: .displayLineupSize) ?? ScoreboardStore.defaultDisplayLineupSize
+        playerLineupOverflowMode = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowMode) ?? .scroll
+        playerLineupOverflowLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowLogoOverride)
+        playerLineupOverflowNoLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowNoLogoOverride)
+        playerLineupFadePageSeconds = try container.decodeIfPresent(Int.self, forKey: .playerLineupFadePageSeconds) ?? ScoreboardStore.defaultPlayerLineupFadePageSeconds
+        playerLineupScrollSpeed = try container.decodeIfPresent(Int.self, forKey: .playerLineupScrollSpeed) ?? ScoreboardStore.defaultPlayerLineupScrollSpeed
+        playerLineupScrollDirection = try container.decodeIfPresent(PlayerLineupScrollDirection.self, forKey: .playerLineupScrollDirection) ?? .continuousUp
+        playerViewRosterScope = try container.decodeIfPresent(PlayerViewRosterScope.self, forKey: .playerViewRosterScope) ?? .fullRoster
         playerFoulHighlightColor = try container.decodeIfPresent(PlayerFoulHighlightColor.self, forKey: .playerFoulHighlightColor) ?? .yellow
         isGameClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockRedEnabled) ?? false
         gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds) ?? 60
@@ -3624,11 +5925,66 @@ private struct PersistedState: Codable {
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
+        showsLiveActivityWhenTimerRunning = try container.decodeIfPresent(Bool.self, forKey: .showsLiveActivityWhenTimerRunning) ?? true
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
+        externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle) ?? .horizontalMarquee
+        externalDisplayAnimatedLogoBackgroundColor = try container.decodeIfPresent(ExternalDisplayAnimatedLogoBackgroundColor.self, forKey: .externalDisplayAnimatedLogoBackgroundColor) ?? .themeBackground
+        externalDisplayAnimatedLogoSpeed = max(
+            ScoreboardStore.minAnimatedLogoSpeed,
+            min(ScoreboardStore.maxAnimatedLogoSpeed, try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSpeed) ?? ScoreboardStore.defaultAnimatedLogoSpeed)
+        )
+        externalDisplayAnimatedLogoSize = max(
+            ScoreboardStore.minAnimatedLogoSize,
+            min(ScoreboardStore.maxAnimatedLogoSize, try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSize) ?? ScoreboardStore.defaultAnimatedLogoSize)
+        )
+        externalDisplayAnimatedLogoOpacity = max(
+            ScoreboardStore.minAnimatedLogoOpacity,
+            min(ScoreboardStore.maxAnimatedLogoOpacity, try container.decodeIfPresent(Double.self, forKey: .externalDisplayAnimatedLogoOpacity) ?? ScoreboardStore.defaultAnimatedLogoOpacity)
+        )
+        showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime) ?? false
+        externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat) ?? .time24Hour
+        showsExternalDisplayDateTimeSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTimeSeconds) ?? true
+        let decodedExternalDisplayDirection = try container.decodeIfPresent(ScoreboardDisplayDirection.self, forKey: .externalDisplayDirection) ?? legacyDisplayDirection
+        externalDisplayDirection = displayDirectionModelVersion < ScoreboardStore.displayDirectionModelVersion
+            ? decodedExternalDisplayDirection.applyingSideSwap(areSidesSwapped)
+            : decodedExternalDisplayDirection
+        showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
+        showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
-        soundAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) ?? ScoreboardStore.defaultSoundAssignments
+        if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]].self, forKey: .soundAssignmentsBySport) {
+            soundAssignmentsBySport = assignmentsBySport
+        } else if let legacyAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) {
+            soundAssignmentsBySport = Dictionary(uniqueKeysWithValues: SportType.allCases.map { sport in
+                (sport, legacyAssignments)
+            })
+        } else {
+            soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
+        }
+        isCompanionVisible = try container.decodeIfPresent(Bool.self, forKey: .isCompanionVisible) ?? false
+        let decodedCompanionEnabled = try container.decodeIfPresent(Bool.self, forKey: .isCompanionEnabled) ?? false
+        isCompanionEnabled = isCompanionVisible && decodedCompanionEnabled
+        companionHost = try container.decodeIfPresent(String.self, forKey: .companionHost) ?? ""
+        companionMode = try container.decodeIfPresent(ScoreboardCompanionMode.self, forKey: .companionMode) ?? .tcp
+        companionPort = try container.decodeIfPresent(UInt16.self, forKey: .companionPort) ?? companionMode.defaultPort
+        if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: String]].self, forKey: .companionAssignmentsBySport) {
+            companionAssignmentsBySport = assignmentsBySport
+        } else if let legacyAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: String].self, forKey: .companionAssignments) {
+            companionAssignmentsBySport = Dictionary(uniqueKeysWithValues: SportType.allCases.map { sport in
+                (sport, legacyAssignments)
+            })
+        } else {
+            companionAssignmentsBySport = [:]
+        }
         didCompleteSetup = try container.decode(Bool.self, forKey: .didCompleteSetup)
+        areTipsEnabled = try container.decodeIfPresent(Bool.self, forKey: .areTipsEnabled) ?? true
+        showGettingStartedOnStartup = try container.decodeIfPresent(Bool.self, forKey: .showGettingStartedOnStartup) ?? true
+        didAutoShowGettingStarted = try container.decodeIfPresent(Bool.self, forKey: .didAutoShowGettingStarted) ?? false
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
+        isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
+        webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
+        isRemoteDisplayHostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayHostEnabled) ?? false
+        isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
+        remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
     }
 
     func encode(to encoder: Encoder) throws {
@@ -3637,9 +5993,12 @@ private struct PersistedState: Codable {
         try container.encode(customSportConfig, forKey: .customSportConfig)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
+        try container.encode(eventName, forKey: .eventName)
         try container.encode(homeScore, forKey: .homeScore)
         try container.encode(guestScore, forKey: .guestScore)
         try container.encode(period, forKey: .period)
+        try container.encode(volleyballMatchFormat, forKey: .volleyballMatchFormat)
+        try container.encode(volleyballSetResults, forKey: .volleyballSetResults)
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(isGameClockEnabled, forKey: .isGameClockEnabled)
@@ -3648,10 +6007,19 @@ private struct PersistedState: Codable {
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
         try container.encode(possessionDirection, forKey: .possessionDirection)
         try container.encode(areSidesSwapped, forKey: .areSidesSwapped)
+        try container.encode(ScoreboardStore.displayDirectionModelVersion, forKey: .displayDirectionModelVersion)
+        try container.encode(controlBoardDisplayDirection, forKey: .controlBoardDisplayDirection)
         try container.encode(isPlayerTrackingEnabled, forKey: .isPlayerTrackingEnabled)
         try container.encode(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encode(rosterSizePerTeam, forKey: .rosterSizePerTeam)
         try container.encode(displayLineupSize, forKey: .displayLineupSize)
+        try container.encode(playerLineupOverflowMode, forKey: .playerLineupOverflowMode)
+        try container.encodeIfPresent(playerLineupOverflowLogoOverride, forKey: .playerLineupOverflowLogoOverride)
+        try container.encodeIfPresent(playerLineupOverflowNoLogoOverride, forKey: .playerLineupOverflowNoLogoOverride)
+        try container.encode(playerLineupFadePageSeconds, forKey: .playerLineupFadePageSeconds)
+        try container.encode(playerLineupScrollSpeed, forKey: .playerLineupScrollSpeed)
+        try container.encode(playerLineupScrollDirection, forKey: .playerLineupScrollDirection)
+        try container.encode(playerViewRosterScope, forKey: .playerViewRosterScope)
         try container.encode(playerFoulHighlightColor, forKey: .playerFoulHighlightColor)
         try container.encode(isGameClockRedEnabled, forKey: .isGameClockRedEnabled)
         try container.encode(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
@@ -3686,11 +6054,147 @@ private struct PersistedState: Codable {
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
+        try container.encode(showsLiveActivityWhenTimerRunning, forKey: .showsLiveActivityWhenTimerRunning)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encode(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
+        try container.encode(externalDisplayAnimatedLogoBackgroundColor, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        try container.encode(externalDisplayAnimatedLogoSpeed, forKey: .externalDisplayAnimatedLogoSpeed)
+        try container.encode(externalDisplayAnimatedLogoSize, forKey: .externalDisplayAnimatedLogoSize)
+        try container.encode(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
+        try container.encode(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
+        try container.encode(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
+        try container.encode(showsExternalDisplayDateTimeSeconds, forKey: .showsExternalDisplayDateTimeSeconds)
+        try container.encode(externalDisplayDirection, forKey: .externalDisplayDirection)
+        try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
+        try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
-        try container.encode(soundAssignments, forKey: .soundAssignments)
+        try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
+        try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
+        try container.encode(isCompanionEnabled, forKey: .isCompanionEnabled)
+        try container.encode(companionHost, forKey: .companionHost)
+        try container.encode(companionMode, forKey: .companionMode)
+        try container.encode(companionPort, forKey: .companionPort)
+        try container.encode(companionAssignmentsBySport, forKey: .companionAssignmentsBySport)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
+        try container.encode(areTipsEnabled, forKey: .areTipsEnabled)
+        try container.encode(showGettingStartedOnStartup, forKey: .showGettingStartedOnStartup)
+        try container.encode(didAutoShowGettingStarted, forKey: .didAutoShowGettingStarted)
         try container.encode(setupPresets, forKey: .setupPresets)
+        try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
+        try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
+        try container.encode(isRemoteDisplayHostEnabled, forKey: .isRemoteDisplayHostEnabled)
+        try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
+        try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
+    }
+}
+
+private extension PersistedState {
+    var excludingRemoteDisplayPairingState: PersistedState {
+        var state = self
+        state.isRemoteDisplayHostEnabled = false
+        state.isRemoteDisplayViewerModeEnabled = false
+        return state
+    }
+
+    static var factoryDefault: PersistedState {
+        let defaultRoster = TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
+        return PersistedState(
+            selectedSport: .simple,
+            customSportConfig: .default,
+            homeTeamName: "",
+            guestTeamName: "",
+            eventName: "",
+            homeScore: 0,
+            guestScore: 0,
+            period: 1,
+            volleyballMatchFormat: .bestOf5,
+            volleyballSetResults: [],
+            gameClockSeconds: 10 * 60,
+            defaultClockSeconds: 10 * 60,
+            isGameClockEnabled: true,
+            shotClockMilliseconds: 0,
+            defaultShotClockSeconds: 0,
+            activeShotClockPresetSeconds: 0,
+            possessionDirection: .none,
+            areSidesSwapped: false,
+            controlBoardDisplayDirection: .homeLeft,
+            isPlayerTrackingEnabled: false,
+            isPlayerOverlayPaused: false,
+            rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
+            displayLineupSize: ScoreboardStore.defaultDisplayLineupSize,
+            playerLineupOverflowMode: .scroll,
+            playerLineupOverflowLogoOverride: nil,
+            playerLineupOverflowNoLogoOverride: nil,
+            playerLineupFadePageSeconds: ScoreboardStore.defaultPlayerLineupFadePageSeconds,
+            playerLineupScrollSpeed: ScoreboardStore.defaultPlayerLineupScrollSpeed,
+            playerLineupScrollDirection: .continuousUp,
+            playerViewRosterScope: .fullRoster,
+            playerFoulHighlightColor: .yellow,
+            isGameClockRedEnabled: false,
+            gameClockRedThresholdSeconds: 60,
+            isShotClockRedEnabled: false,
+            shotClockRedThresholdSeconds: 5,
+            homeSubstitutionsAllowed: 0,
+            guestSubstitutionsAllowed: 0,
+            homeSubstitutionsUsed: 0,
+            guestSubstitutionsUsed: 0,
+            homeTeamFouls: 0,
+            guestTeamFouls: 0,
+            homeChessClockSeconds: ChessClockPreset.rapid.seconds,
+            guestChessClockSeconds: ChessClockPreset.rapid.seconds,
+            activeChessClockSide: .home,
+            chessClockPreset: .rapid,
+            selectedDebatePresetID: DebatePreset.publicForum.id,
+            customDebatePreset: .customDefault,
+            debateHomeSideLabel: DebatePreset.publicForum.homeSideLabel,
+            debateGuestSideLabel: DebatePreset.publicForum.guestSideLabel,
+            debateCurrentSegmentIndex: 0,
+            debatePrepHomeSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+            debatePrepGuestSeconds: DebatePreset.publicForum.prepSecondsPerSide,
+            isDebatePrepTimeEnabled: DebatePreset.publicForum.isPrepTimeEnabled,
+            debateActiveTimer: .segment,
+            isDebatePrepClockRunning: false,
+            isDebateScoreTrackingEnabled: DebatePreset.publicForum.defaultScoreTrackingEnabled,
+            isDebatePlayerTrackingEnabled: DebatePreset.publicForum.defaultPlayerTrackingEnabled,
+            isDebatePlayerFoulsEnabled: DebatePreset.publicForum.defaultPlayerFoulsEnabled,
+            isDebatePlayerCardsEnabled: DebatePreset.publicForum.defaultPlayerCardsEnabled,
+            homePenaltyTimers: [],
+            guestPenaltyTimers: [],
+            homeRoster: defaultRoster,
+            guestRoster: defaultRoster,
+            theme: .classic,
+            showsLiveActivityWhenTimerRunning: true,
+            externalDisplayBackgroundMode: .blurred,
+            externalDisplayAnimatedLogoStyle: .horizontalMarquee,
+            externalDisplayAnimatedLogoBackgroundColor: .themeBackground,
+            externalDisplayAnimatedLogoSpeed: ScoreboardStore.defaultAnimatedLogoSpeed,
+            externalDisplayAnimatedLogoSize: ScoreboardStore.defaultAnimatedLogoSize,
+            externalDisplayAnimatedLogoOpacity: ScoreboardStore.defaultAnimatedLogoOpacity,
+            showsExternalDisplayDateTime: false,
+            externalDisplayDateTimeFormat: .time24Hour,
+            showsExternalDisplayDateTimeSeconds: true,
+            externalDisplayDirection: .homeLeft,
+            showsTeamLogos: true,
+            showsEventLogo: true,
+            isSoundEnabled: true,
+            soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
+            isCompanionVisible: false,
+            isCompanionEnabled: false,
+            companionHost: "",
+            companionMode: .tcp,
+            companionPort: ScoreboardCompanionMode.tcp.defaultPort,
+            companionAssignmentsBySport: [:],
+            didCompleteSetup: false,
+            areTipsEnabled: true,
+            showGettingStartedOnStartup: true,
+            didAutoShowGettingStarted: false,
+            setupPresets: [],
+            isWebAPIEnabled: false,
+            webAPIUpdateMode: .fixedInterval,
+            isRemoteDisplayHostEnabled: false,
+            isRemoteDisplayViewerModeEnabled: false,
+            remoteDisplayNetworkMode: .nearbyAndLocalNetwork
+        )
     }
 }
 

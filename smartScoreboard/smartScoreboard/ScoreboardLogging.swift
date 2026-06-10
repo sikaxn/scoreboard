@@ -35,6 +35,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case clockAdjustment
     case clockReset
     case periodAdjustment
+    case volleyballSetAward
+    case volleyballSetUndo
     case shotClockAssignment
     case shotClockToggle
     case shotClockExpired
@@ -98,6 +100,10 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Game Clock Reset"
         case .periodAdjustment:
             return "Period Change"
+        case .volleyballSetAward:
+            return "Period Win Award"
+        case .volleyballSetUndo:
+            return "Period Win Undo"
         case .shotClockAssignment:
             return "Shot Clock Preset"
         case .shotClockToggle:
@@ -425,6 +431,7 @@ struct StoredLogSession: Identifiable {
     }
 }
 
+#if !os(tvOS)
 struct ScoreboardLogExportDocument: FileDocument {
     static var readableContentTypes: [UTType] {
         [.scoreboardLogSession, .json, .commaSeparatedText, .plainText]
@@ -448,10 +455,12 @@ struct ScoreboardLogExportDocument: FileDocument {
         FileWrapper(regularFileWithContents: data)
     }
 }
+#endif
 
 @MainActor
 final class ScoreboardLogManager {
     static let shared = ScoreboardLogManager()
+    private static let automaticDiskWriteThrottleInterval: TimeInterval = 5
 
     private let fileManager = FileManager.default
     private let encoder: JSONEncoder
@@ -459,6 +468,9 @@ final class ScoreboardLogManager {
     private var currentSessionURL: URL?
     private var currentSession: ScoreboardLogSession?
     private var currentGameFileURL: URL?
+    private var lastPersistDate: Date?
+    private var isPersistPending = false
+    private var pendingPersistWorkItem: DispatchWorkItem?
 
     private init() {
         encoder = JSONEncoder()
@@ -470,6 +482,8 @@ final class ScoreboardLogManager {
     }
 
     func startSession() {
+        cancelPendingPersist()
+
         let now = Date()
         let session = ScoreboardLogSession(startedAt: now, lastUpdatedAt: now)
         let filename = sessionFilename(for: session)
@@ -480,6 +494,7 @@ final class ScoreboardLogManager {
             currentSession = session
             currentSessionURL = sessionURL
             try persist(session, to: sessionURL)
+            lastPersistDate = Date()
             notifyChange()
         } catch {
             currentSession = session
@@ -514,14 +529,7 @@ final class ScoreboardLogManager {
         session.lastUpdatedAt = now
         currentSession = session
 
-        do {
-            if let currentSessionURL {
-                try persist(session, to: currentSessionURL)
-            }
-            notifyChange()
-        } catch {
-            NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
-        }
+        requestPersistCurrentSession()
     }
 
     func listSessions() throws -> [StoredLogSession] {
@@ -560,6 +568,7 @@ final class ScoreboardLogManager {
         try fileManager.removeItem(at: url)
 
         if currentSessionURL == url {
+            cancelPendingPersist()
             currentSession = nil
             currentSessionURL = nil
             startSession()
@@ -569,8 +578,71 @@ final class ScoreboardLogManager {
         notifyChange()
     }
 
+    func backupFiles() throws -> [ScoreboardBackupFile] {
+        flushPendingWrites()
+
+        return try listSessions().map { session in
+            ScoreboardBackupFile(
+                filename: session.url.lastPathComponent,
+                data: try Data(contentsOf: session.url)
+            )
+        }
+    }
+
+    func validateBackupFiles(_ files: [ScoreboardBackupFile]) throws {
+        var filenames = Set<String>()
+        for file in files {
+            let filename = try safeRestoredLogFilename(file.filename)
+            guard filenames.insert(filename).inserted else {
+                throw ScoreboardBackupError.invalidFilename(file.filename)
+            }
+            _ = try decoder.decode(ScoreboardLogSession.self, from: file.data)
+        }
+    }
+
+    func replaceSessions(with files: [ScoreboardBackupFile]) throws {
+        try validateBackupFiles(files)
+        cancelPendingPersist()
+
+        let directoryURL = try logsDirectory()
+        let existingURLs = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension.lowercased() == "scoreboardlog" }
+
+        for url in existingURLs {
+            try fileManager.removeItem(at: url)
+        }
+
+        for file in files {
+            let filename = try safeRestoredLogFilename(file.filename)
+            let session = try decoder.decode(ScoreboardLogSession.self, from: file.data)
+            let destinationURL = directoryURL.appendingPathComponent(filename)
+            try persist(session, to: destinationURL)
+        }
+
+        if let firstSession = try listSessions().first {
+            currentSession = firstSession.session
+            currentSessionURL = firstSession.url
+            notifyChange()
+        } else {
+            currentSession = nil
+            currentSessionURL = nil
+            startSession()
+        }
+    }
+
     func exportJSONData(for session: ScoreboardLogSession) throws -> Data {
         try encoder.encode(session)
+    }
+
+    func flushPendingWrites() {
+        guard isPersistPending else {
+            return
+        }
+
+        persistPendingCurrentSession()
     }
 
     func exportCSVData(for session: ScoreboardLogSession) -> Data {
@@ -666,6 +738,64 @@ final class ScoreboardLogManager {
         try data.write(to: url, options: .atomic)
     }
 
+    private func requestPersistCurrentSession() {
+        guard currentSession != nil else {
+            return
+        }
+
+        guard currentSessionURL != nil else {
+            notifyChange()
+            return
+        }
+
+        isPersistPending = true
+        let now = Date()
+        if let lastPersistDate {
+            let elapsed = now.timeIntervalSince(lastPersistDate)
+            if elapsed < Self.automaticDiskWriteThrottleInterval {
+                guard pendingPersistWorkItem == nil else {
+                    return
+                }
+
+                let delay = Self.automaticDiskWriteThrottleInterval - elapsed
+                let workItem = DispatchWorkItem {
+                    self.persistPendingCurrentSession()
+                }
+                pendingPersistWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+                return
+            }
+        }
+
+        persistPendingCurrentSession()
+    }
+
+    private func persistPendingCurrentSession() {
+        pendingPersistWorkItem?.cancel()
+        pendingPersistWorkItem = nil
+
+        guard isPersistPending, let currentSessionURL, let currentSession else {
+            isPersistPending = false
+            return
+        }
+
+        do {
+            try persist(currentSession, to: currentSessionURL)
+            lastPersistDate = Date()
+            isPersistPending = false
+            notifyChange()
+        } catch {
+            isPersistPending = false
+            NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
+        }
+    }
+
+    private func cancelPendingPersist() {
+        pendingPersistWorkItem?.cancel()
+        pendingPersistWorkItem = nil
+        isPersistPending = false
+    }
+
     private func mergedContext(from context: ScoreboardLogContext) -> ScoreboardLogContext {
         var merged = context
 
@@ -684,6 +814,18 @@ final class ScoreboardLogManager {
         let timestamp = session.startedAt.ISO8601Format()
             .replacingOccurrences(of: ":", with: "-")
         return "\(timestamp)-\(session.sessionID.uuidString)"
+    }
+
+    private func safeRestoredLogFilename(_ filename: String) throws -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        guard !trimmed.isEmpty,
+              trimmed == lastPathComponent,
+              (trimmed as NSString).pathExtension.lowercased() == "scoreboardlog" else {
+            throw ScoreboardBackupError.invalidFilename(filename)
+        }
+
+        return trimmed
     }
 
     private func notifyChange() {

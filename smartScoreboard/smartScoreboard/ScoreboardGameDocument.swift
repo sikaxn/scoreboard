@@ -6,16 +6,33 @@ extension UTType {
     static let scoreboardGame = UTType(exportedAs: "com.ironmaple.smartscoreboard.game", conformingTo: .json)
 }
 
+struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
+    var id: String
+    var sourceName: String?
+    var mimeType: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteCount: Int
+    var updatedAtUnixTime: TimeInterval
+    var scale: Double?
+    var offsetX: Double?
+    var offsetY: Double?
+    var data: Data
+}
+
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 7
+    var fileVersion = 11
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
     var homeTeamName: String
     var guestTeamName: String
+    var eventName: String = ""
     var homeScore: Int
     var guestScore: Int
     var period: Int
+    var volleyballMatchFormat: VolleyballMatchFormat? = nil
+    var volleyballSetResults: [VolleyballSetResult]? = nil
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool?
@@ -28,6 +45,12 @@ struct ScoreboardGameSnapshot: Sendable {
     var isPlayerOverlayPaused: Bool?
     var rosterSizePerTeam: Int?
     var displayLineupSize: Int?
+    var playerLineupOverflowMode: PlayerLineupOverflowMode?
+    var playerLineupOverflowLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupOverflowNoLogoOverride: PlayerLineupOverflowMode?
+    var playerLineupFadePageSeconds: Int?
+    var playerLineupScrollSpeed: Int?
+    var playerLineupScrollDirection: PlayerLineupScrollDirection?
     var playerFoulHighlightColor: PlayerFoulHighlightColor?
     var isGameClockRedEnabled: Bool?
     var gameClockRedThresholdSeconds: Int?
@@ -60,6 +83,22 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
+    var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode? = nil
+    var externalDisplayBackgroundImage: ScoreboardGameEmbeddedImage? = nil
+    var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle? = nil
+    var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor? = nil
+    var externalDisplayAnimatedLogoSpeed: Int? = nil
+    var externalDisplayAnimatedLogoSize: Int? = nil
+    var externalDisplayAnimatedLogoOpacity: Double? = nil
+    var showsExternalDisplayDateTime: Bool? = nil
+    var externalDisplayDateTimeFormat: ExternalDisplayDateTimeFormat? = nil
+    var showsExternalDisplayDateTimeSeconds: Bool? = nil
+    var showsTeamLogos: Bool? = nil
+    var showsEventLogo: Bool? = nil
+    var playerViewRosterScope: PlayerViewRosterScope? = nil
+    var homeTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
+    var guestTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
+    var eventLogoImage: ScoreboardGameEmbeddedImage? = nil
 
     static let empty = ScoreboardGameSnapshot(
         sport: .simple,
@@ -70,6 +109,8 @@ struct ScoreboardGameSnapshot: Sendable {
         homeScore: 0,
         guestScore: 0,
         period: 1,
+        volleyballMatchFormat: .bestOf5,
+        volleyballSetResults: [],
         gameClockSeconds: 10 * 60,
         defaultClockSeconds: 10 * 60,
         isGameClockEnabled: true,
@@ -82,6 +123,12 @@ struct ScoreboardGameSnapshot: Sendable {
         isPlayerOverlayPaused: false,
         rosterSizePerTeam: ScoreboardStore.defaultRosterSize,
         displayLineupSize: ScoreboardStore.defaultDisplayLineupSize,
+        playerLineupOverflowMode: .scroll,
+        playerLineupOverflowLogoOverride: nil,
+        playerLineupOverflowNoLogoOverride: nil,
+        playerLineupFadePageSeconds: ScoreboardStore.defaultPlayerLineupFadePageSeconds,
+        playerLineupScrollSpeed: ScoreboardStore.defaultPlayerLineupScrollSpeed,
+        playerLineupScrollDirection: .continuousUp,
         playerFoulHighlightColor: .yellow,
         isGameClockRedEnabled: false,
         gameClockRedThresholdSeconds: 60,
@@ -113,8 +160,25 @@ struct ScoreboardGameSnapshot: Sendable {
         homePenaltyTimers: [],
         guestPenaltyTimers: [],
         homeRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
-        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize))
+        guestRoster: TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: ScoreboardStore.defaultRosterSize)),
+        showsExternalDisplayDateTimeSeconds: true
     )
+
+    var excludingEmbeddedImages: ScoreboardGameSnapshot {
+        var snapshot = self
+        snapshot.externalDisplayBackgroundImage = nil
+        snapshot.homeTeamLogoImage = nil
+        snapshot.guestTeamLogoImage = nil
+        snapshot.eventLogoImage = nil
+        return snapshot
+    }
+
+    var remoteDisplayPayload: ScoreboardGameSnapshot {
+        var snapshot = excludingEmbeddedImages
+        snapshot.homeRoster = nil
+        snapshot.guestRoster = nil
+        return snapshot
+    }
 }
 
 extension ScoreboardGameSnapshot: Codable {
@@ -125,9 +189,12 @@ extension ScoreboardGameSnapshot: Codable {
         case customDebatePreset
         case homeTeamName
         case guestTeamName
+        case eventName
         case homeScore
         case guestScore
         case period
+        case volleyballMatchFormat
+        case volleyballSetResults
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
@@ -140,6 +207,12 @@ extension ScoreboardGameSnapshot: Codable {
         case isPlayerOverlayPaused
         case rosterSizePerTeam
         case displayLineupSize
+        case playerLineupOverflowMode
+        case playerLineupOverflowLogoOverride
+        case playerLineupOverflowNoLogoOverride
+        case playerLineupFadePageSeconds
+        case playerLineupScrollSpeed
+        case playerLineupScrollDirection
         case playerFoulHighlightColor
         case isGameClockRedEnabled
         case gameClockRedThresholdSeconds
@@ -172,6 +245,22 @@ extension ScoreboardGameSnapshot: Codable {
         case guestPenaltyTimers
         case homeRoster
         case guestRoster
+        case externalDisplayBackgroundMode
+        case externalDisplayBackgroundImage
+        case externalDisplayAnimatedLogoStyle
+        case externalDisplayAnimatedLogoBackgroundColor
+        case externalDisplayAnimatedLogoSpeed
+        case externalDisplayAnimatedLogoSize
+        case externalDisplayAnimatedLogoOpacity
+        case showsExternalDisplayDateTime
+        case externalDisplayDateTimeFormat
+        case showsExternalDisplayDateTimeSeconds
+        case showsTeamLogos
+        case showsEventLogo
+        case playerViewRosterScope
+        case homeTeamLogoImage
+        case guestTeamLogoImage
+        case eventLogoImage
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -182,9 +271,12 @@ extension ScoreboardGameSnapshot: Codable {
         customDebatePreset = try container.decodeIfPresent(DebatePreset.self, forKey: .customDebatePreset)
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
         guestTeamName = try container.decode(String.self, forKey: .guestTeamName)
+        eventName = try container.decodeIfPresent(String.self, forKey: .eventName) ?? ""
         homeScore = try container.decode(Int.self, forKey: .homeScore)
         guestScore = try container.decode(Int.self, forKey: .guestScore)
         period = try container.decode(Int.self, forKey: .period)
+        volleyballMatchFormat = try container.decodeIfPresent(VolleyballMatchFormat.self, forKey: .volleyballMatchFormat)
+        volleyballSetResults = try container.decodeIfPresent([VolleyballSetResult].self, forKey: .volleyballSetResults)
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled)
@@ -197,6 +289,12 @@ extension ScoreboardGameSnapshot: Codable {
         isPlayerOverlayPaused = try container.decodeIfPresent(Bool.self, forKey: .isPlayerOverlayPaused)
         rosterSizePerTeam = try container.decodeIfPresent(Int.self, forKey: .rosterSizePerTeam)
         displayLineupSize = try container.decodeIfPresent(Int.self, forKey: .displayLineupSize)
+        playerLineupOverflowMode = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowMode)
+        playerLineupOverflowLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowLogoOverride)
+        playerLineupOverflowNoLogoOverride = try container.decodeIfPresent(PlayerLineupOverflowMode.self, forKey: .playerLineupOverflowNoLogoOverride)
+        playerLineupFadePageSeconds = try container.decodeIfPresent(Int.self, forKey: .playerLineupFadePageSeconds)
+        playerLineupScrollSpeed = try container.decodeIfPresent(Int.self, forKey: .playerLineupScrollSpeed)
+        playerLineupScrollDirection = try container.decodeIfPresent(PlayerLineupScrollDirection.self, forKey: .playerLineupScrollDirection)
         playerFoulHighlightColor = try container.decodeIfPresent(PlayerFoulHighlightColor.self, forKey: .playerFoulHighlightColor)
         isGameClockRedEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockRedEnabled)
         gameClockRedThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .gameClockRedThresholdSeconds)
@@ -229,6 +327,22 @@ extension ScoreboardGameSnapshot: Codable {
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
+        externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode)
+        externalDisplayBackgroundImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .externalDisplayBackgroundImage)
+        externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle)
+        externalDisplayAnimatedLogoBackgroundColor = try container.decodeIfPresent(ExternalDisplayAnimatedLogoBackgroundColor.self, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        externalDisplayAnimatedLogoSpeed = try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSpeed)
+        externalDisplayAnimatedLogoSize = try container.decodeIfPresent(Int.self, forKey: .externalDisplayAnimatedLogoSize)
+        externalDisplayAnimatedLogoOpacity = try container.decodeIfPresent(Double.self, forKey: .externalDisplayAnimatedLogoOpacity)
+        showsExternalDisplayDateTime = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTime)
+        externalDisplayDateTimeFormat = try container.decodeIfPresent(ExternalDisplayDateTimeFormat.self, forKey: .externalDisplayDateTimeFormat)
+        showsExternalDisplayDateTimeSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsExternalDisplayDateTimeSeconds)
+        showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos)
+        showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo)
+        playerViewRosterScope = try container.decodeIfPresent(PlayerViewRosterScope.self, forKey: .playerViewRosterScope)
+        homeTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .homeTeamLogoImage)
+        guestTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .guestTeamLogoImage)
+        eventLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .eventLogoImage)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -239,9 +353,12 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(customDebatePreset, forKey: .customDebatePreset)
         try container.encode(homeTeamName, forKey: .homeTeamName)
         try container.encode(guestTeamName, forKey: .guestTeamName)
+        try container.encode(eventName, forKey: .eventName)
         try container.encode(homeScore, forKey: .homeScore)
         try container.encode(guestScore, forKey: .guestScore)
         try container.encode(period, forKey: .period)
+        try container.encodeIfPresent(volleyballMatchFormat, forKey: .volleyballMatchFormat)
+        try container.encodeIfPresent(volleyballSetResults, forKey: .volleyballSetResults)
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encodeIfPresent(isGameClockEnabled, forKey: .isGameClockEnabled)
@@ -254,6 +371,12 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(isPlayerOverlayPaused, forKey: .isPlayerOverlayPaused)
         try container.encodeIfPresent(rosterSizePerTeam, forKey: .rosterSizePerTeam)
         try container.encodeIfPresent(displayLineupSize, forKey: .displayLineupSize)
+        try container.encodeIfPresent(playerLineupOverflowMode, forKey: .playerLineupOverflowMode)
+        try container.encodeIfPresent(playerLineupOverflowLogoOverride, forKey: .playerLineupOverflowLogoOverride)
+        try container.encodeIfPresent(playerLineupOverflowNoLogoOverride, forKey: .playerLineupOverflowNoLogoOverride)
+        try container.encodeIfPresent(playerLineupFadePageSeconds, forKey: .playerLineupFadePageSeconds)
+        try container.encodeIfPresent(playerLineupScrollSpeed, forKey: .playerLineupScrollSpeed)
+        try container.encodeIfPresent(playerLineupScrollDirection, forKey: .playerLineupScrollDirection)
         try container.encodeIfPresent(playerFoulHighlightColor, forKey: .playerFoulHighlightColor)
         try container.encodeIfPresent(isGameClockRedEnabled, forKey: .isGameClockRedEnabled)
         try container.encodeIfPresent(gameClockRedThresholdSeconds, forKey: .gameClockRedThresholdSeconds)
@@ -286,9 +409,130 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
+        try container.encodeIfPresent(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
+        try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoBackgroundColor, forKey: .externalDisplayAnimatedLogoBackgroundColor)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoSpeed, forKey: .externalDisplayAnimatedLogoSpeed)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoSize, forKey: .externalDisplayAnimatedLogoSize)
+        try container.encodeIfPresent(externalDisplayAnimatedLogoOpacity, forKey: .externalDisplayAnimatedLogoOpacity)
+        try container.encodeIfPresent(showsExternalDisplayDateTime, forKey: .showsExternalDisplayDateTime)
+        try container.encodeIfPresent(externalDisplayDateTimeFormat, forKey: .externalDisplayDateTimeFormat)
+        try container.encodeIfPresent(showsExternalDisplayDateTimeSeconds, forKey: .showsExternalDisplayDateTimeSeconds)
+        try container.encodeIfPresent(showsTeamLogos, forKey: .showsTeamLogos)
+        try container.encodeIfPresent(showsEventLogo, forKey: .showsEventLogo)
+        try container.encodeIfPresent(playerViewRosterScope, forKey: .playerViewRosterScope)
+        try container.encodeIfPresent(homeTeamLogoImage, forKey: .homeTeamLogoImage)
+        try container.encodeIfPresent(guestTeamLogoImage, forKey: .guestTeamLogoImage)
+        try container.encodeIfPresent(eventLogoImage, forKey: .eventLogoImage)
     }
 }
 
+extension ScoreboardGameEmbeddedImage {
+    init(backgroundImage: ExternalDisplayBackgroundImage) {
+        id = backgroundImage.id
+        sourceName = backgroundImage.sourceName
+        mimeType = backgroundImage.mimeType
+        pixelWidth = backgroundImage.pixelWidth
+        pixelHeight = backgroundImage.pixelHeight
+        byteCount = backgroundImage.byteCount
+        updatedAtUnixTime = backgroundImage.updatedAtUnixTime
+        scale = backgroundImage.scale
+        offsetX = backgroundImage.offsetX
+        offsetY = backgroundImage.offsetY
+        data = backgroundImage.data
+    }
+
+    init(teamLogoImage: TeamLogoImage) {
+        id = teamLogoImage.id
+        sourceName = teamLogoImage.sourceName
+        mimeType = teamLogoImage.mimeType
+        pixelWidth = teamLogoImage.pixelWidth
+        pixelHeight = teamLogoImage.pixelHeight
+        byteCount = teamLogoImage.byteCount
+        updatedAtUnixTime = teamLogoImage.updatedAtUnixTime
+        scale = nil
+        offsetX = nil
+        offsetY = nil
+        data = teamLogoImage.data
+    }
+
+    init(eventLogoImage: EventLogoImage) {
+        id = eventLogoImage.id
+        sourceName = eventLogoImage.sourceName
+        mimeType = eventLogoImage.mimeType
+        pixelWidth = eventLogoImage.pixelWidth
+        pixelHeight = eventLogoImage.pixelHeight
+        byteCount = eventLogoImage.byteCount
+        updatedAtUnixTime = eventLogoImage.updatedAtUnixTime
+        scale = nil
+        offsetX = nil
+        offsetY = nil
+        data = eventLogoImage.data
+    }
+}
+
+extension ExternalDisplayBackgroundImage {
+    init?(embeddedImage: ScoreboardGameEmbeddedImage) {
+        guard !embeddedImage.data.isEmpty else {
+            return nil
+        }
+
+        self.init(
+            id: embeddedImage.id.isEmpty ? UUID().uuidString : embeddedImage.id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType.isEmpty ? "image/jpeg" : embeddedImage.mimeType,
+            pixelWidth: max(1, embeddedImage.pixelWidth),
+            pixelHeight: max(1, embeddedImage.pixelHeight),
+            byteCount: embeddedImage.byteCount > 0 ? embeddedImage.byteCount : embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime,
+            scale: embeddedImage.scale ?? 1,
+            offsetX: embeddedImage.offsetX ?? 0,
+            offsetY: embeddedImage.offsetY ?? 0,
+            data: embeddedImage.data
+        )
+    }
+}
+
+extension TeamLogoImage {
+    init?(embeddedImage: ScoreboardGameEmbeddedImage) {
+        guard !embeddedImage.data.isEmpty else {
+            return nil
+        }
+
+        self.init(
+            id: embeddedImage.id.isEmpty ? UUID().uuidString : embeddedImage.id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType.isEmpty ? "image/png" : embeddedImage.mimeType,
+            pixelWidth: max(1, embeddedImage.pixelWidth),
+            pixelHeight: max(1, embeddedImage.pixelHeight),
+            byteCount: embeddedImage.byteCount > 0 ? embeddedImage.byteCount : embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime,
+            data: embeddedImage.data
+        )
+    }
+}
+
+extension EventLogoImage {
+    init?(embeddedImage: ScoreboardGameEmbeddedImage) {
+        guard !embeddedImage.data.isEmpty else {
+            return nil
+        }
+
+        self.init(
+            id: embeddedImage.id.isEmpty ? UUID().uuidString : embeddedImage.id,
+            sourceName: embeddedImage.sourceName,
+            mimeType: embeddedImage.mimeType.isEmpty ? "image/png" : embeddedImage.mimeType,
+            pixelWidth: max(1, embeddedImage.pixelWidth),
+            pixelHeight: max(1, embeddedImage.pixelHeight),
+            byteCount: embeddedImage.byteCount > 0 ? embeddedImage.byteCount : embeddedImage.data.count,
+            updatedAtUnixTime: embeddedImage.updatedAtUnixTime,
+            data: embeddedImage.data
+        )
+    }
+}
+
+#if !os(tvOS)
 struct ScoreboardGameDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.scoreboardGame] }
 
@@ -311,3 +555,4 @@ struct ScoreboardGameDocument: FileDocument {
         return .init(regularFileWithContents: data)
     }
 }
+#endif

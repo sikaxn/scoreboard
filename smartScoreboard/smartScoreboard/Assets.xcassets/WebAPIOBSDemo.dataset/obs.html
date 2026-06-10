@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartScoreboard OBS Source</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #fff;
+      background: transparent;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+    body {
+      position: relative;
+    }
+    .scorebug {
+      position: absolute;
+      left: 40px;
+      bottom: 40px;
+      width: min(760px, calc(100vw - 80px));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      border-radius: 8px;
+      overflow: hidden;
+      filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
+    }
+    .teams {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      background: rgba(8, 13, 24, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-right: 0;
+    }
+    .team {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 92px;
+      align-items: center;
+      min-height: 64px;
+    }
+    .team.has-logo {
+      grid-template-columns: auto minmax(0, 1fr) 92px;
+    }
+    .team + .team {
+      border-top: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    .name {
+      min-width: 0;
+      padding: 0 18px;
+      font-size: 25px;
+      font-weight: 950;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .logo {
+      width: 42px;
+      height: 42px;
+      margin-left: 14px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .score {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 38px;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+      background: #f8fafc;
+      color: #101623;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .home .name {
+      border-left: 8px solid #38bdf8;
+    }
+    .guest .name {
+      border-left: 8px solid #f97316;
+    }
+    .clockbox {
+      width: 176px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: rgba(248, 250, 252, 0.96);
+      color: #101623;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+    }
+    .period {
+      padding: 8px 10px 0;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .clock {
+      display: grid;
+      place-items: center;
+      padding: 4px 10px;
+      font-size: 38px;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: clip;
+      white-space: nowrap;
+    }
+    .extra {
+      min-height: 26px;
+      display: grid;
+      place-items: center;
+      padding: 0 8px 8px;
+      font-size: 14px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .disconnected::after {
+      content: attr(data-disconnected-label);
+      position: absolute;
+      left: 40px;
+      bottom: 184px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(185, 28, 28, 0.9);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    @media (max-width: 640px) {
+      .scorebug {
+        left: 20px;
+        bottom: 20px;
+        width: calc(100vw - 40px);
+        grid-template-columns: 1fr;
+      }
+      .clockbox {
+        width: 100%;
+        min-height: 72px;
+        grid-template-columns: 100px 1fr 100px;
+        grid-template-rows: 1fr;
+      }
+      .period, .extra {
+        padding: 0 8px;
+        align-self: center;
+      }
+      .disconnected::after {
+        left: 20px;
+        bottom: 220px;
+      }
+      .logo {
+        width: 36px;
+        height: 36px;
+        margin-left: 10px;
+      }
+    }
+  </style>
+</head>
+<body class="disconnected" data-disconnected-label="WebSocket disconnected">
+  <main class="scorebug">
+    <section class="teams">
+      <div class="team home">
+        <img id="homeLogo" class="logo hidden" alt="">
+        <div id="homeName" class="name" data-i18n="home">HOME</div>
+        <div id="homeScore" class="score">0</div>
+      </div>
+      <div class="team guest">
+        <img id="guestLogo" class="logo hidden" alt="">
+        <div id="guestName" class="name" data-i18n="guest">GUEST</div>
+        <div id="guestScore" class="score">0</div>
+      </div>
+    </section>
+    <section class="clockbox">
+      <div id="period" class="period">P 1</div>
+      <div id="clock" class="clock">00:00</div>
+      <div id="extra" class="extra">Live</div>
+    </section>
+  </main>
+
+  <script>
+    const translations = {
+      en: {
+        title: 'SmartScoreboard OBS Source',
+        home: 'HOME',
+        guest: 'GUEST',
+        periodPrefix: 'P',
+        live: 'Live',
+        shotClockShort: 'SC',
+        disconnected: 'WebSocket disconnected'
+      },
+      zh: {
+        title: 'SmartScoreboard OBS 源',
+        home: '主队',
+        guest: '客队',
+        periodPrefix: '节',
+        live: '实时',
+        shotClockShort: '进攻',
+        disconnected: 'WebSocket 已断开'
+      }
+    };
+
+    const preferredLanguages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    const language = preferredLanguages.some(value => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+    const strings = translations[language];
+    const host = location.hostname || '127.0.0.1';
+    const wsURL = `ws://${host}:5517/api/v1/ws`;
+    let socket;
+    let reconnectTimer;
+
+    const el = id => document.getElementById(id);
+
+    function t(key) {
+      return strings[key] || translations.en[key] || key;
+    }
+
+    function localizeStaticText() {
+      document.documentElement.lang = language === 'zh' ? 'zh-Hans' : 'en';
+      document.title = t('title');
+      document.body.dataset.disconnectedLabel = t('disconnected');
+      document.querySelectorAll('[data-i18n]').forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      el('period').textContent = `${t('periodPrefix')} 1`;
+      el('extra').textContent = t('live');
+    }
+
+    function text(value, fallback) {
+      if (value === null || value === undefined || value === '') return fallback;
+      return String(value);
+    }
+
+    function localizedPeriodShort(value) {
+      const raw = text(value, t('periodPrefix'));
+      return raw === translations.en.periodPrefix ? t('periodPrefix') : raw;
+    }
+
+    function setConnected(isConnected) {
+      document.body.classList.toggle('disconnected', !isConnected);
+    }
+
+    function logoURL(logo) {
+      if (!logo || !logo.path) return '';
+      const version = logo.id || logo.updatedAtUnixTime || '';
+      return version ? `${logo.path}?v=${encodeURIComponent(version)}` : logo.path;
+    }
+
+    function applyLogo(elementID, logo) {
+      const image = el(elementID);
+      const url = logoURL(logo);
+      image.closest('.team').classList.toggle('has-logo', Boolean(url));
+      image.classList.toggle('hidden', !url);
+      if (!url) {
+        image.removeAttribute('src');
+        return;
+      }
+      if (image.getAttribute('src') !== url) {
+        image.src = url;
+      }
+    }
+
+    function applyDisplayDirection(display, runtime) {
+      const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      document.querySelector('.team.home').style.order = guestLeft ? '2' : '1';
+      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '2';
+    }
+
+    function fitClockToOneLine() {
+      const clock = el('clock');
+      clock.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(clock).fontSize);
+      while (clock.scrollWidth > clock.clientWidth && size > 18) {
+        size -= 1;
+        clock.style.fontSize = `${size}px`;
+      }
+    }
+
+    function applyState(message) {
+      const state = message.payload || message;
+      if (!state || !state.teams || !state.clocks) return;
+
+      const home = state.teams.home || {};
+      const guest = state.teams.guest || {};
+      const rules = state.rules || {};
+      const game = state.game || {};
+      const clocks = state.clocks || {};
+      const display = state.display || {};
+      const runtime = state.runtime || {};
+      applyDisplayDirection(display, runtime);
+
+      el('homeName').textContent = text(home.name, t('home'));
+      el('guestName').textContent = text(guest.name, t('guest'));
+      applyLogo('homeLogo', home.logo);
+      applyLogo('guestLogo', guest.logo);
+      el('homeScore').textContent = text(home.score, 0);
+      el('guestScore').textContent = text(guest.score, 0);
+
+      const periodShort = localizedPeriodShort(rules.periodShortTitle);
+      el('period').textContent = rules.supportsPeriod ? `${periodShort} ${text(game.period, 1)}` : text(rules.sport, t('live'));
+
+      if (rules.usesChessClocks) {
+        el('clock').textContent = `${text(clocks.formattedHomeChessClock, '00:00')}/${text(clocks.formattedGuestChessClock, '00:00')}`;
+      } else {
+        el('clock').textContent = clocks.showsGameClock ? text(clocks.formattedGameClock, '00:00') : t('live');
+      }
+      fitClockToOneLine();
+
+      el('extra').textContent = rules.supportsShotClock ? `${t('shotClockShort')} ${text(clocks.formattedShotClock, '0.0')}` : text(rules.title, t('live'));
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      socket = new WebSocket(wsURL);
+      socket.onopen = () => {
+        setConnected(true);
+        socket.send(JSON.stringify({ type: 'get' }));
+      };
+      socket.onmessage = event => {
+        try {
+          applyState(JSON.parse(event.data));
+        } catch {
+          setConnected(false);
+        }
+      };
+      socket.onclose = () => {
+        setConnected(false);
+        reconnectTimer = setTimeout(connect, 1200);
+      };
+      socket.onerror = () => {
+        setConnected(false);
+      };
+    }
+
+    localizeStaticText();
+    connect();
+    window.addEventListener('resize', fitClockToOneLine);
+  </script>
+</body>
+</html>

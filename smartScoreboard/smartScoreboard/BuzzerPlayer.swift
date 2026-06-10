@@ -223,6 +223,7 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
     case arenaHorn
     case whistle
     case hockeySiren
+    case takeMeOutToTheBallGame
     case softChime
     case debateBell
     case debateDoubleBell
@@ -251,6 +252,8 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
             return "Whistle"
         case .hockeySiren:
             return "Hockey Siren"
+        case .takeMeOutToTheBallGame:
+            return "Take Me Out to the Ball Game"
         case .softChime:
             return "Soft Chime"
         case .debateBell:
@@ -292,6 +295,8 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
             return "Sharp referee whistle"
         case .hockeySiren:
             return "Rising rink siren"
+        case .takeMeOutToTheBallGame:
+            return "Thirty-second ballpark organ melody"
         case .softChime:
             return "Short gentle clock chime"
         case .debateBell:
@@ -422,6 +427,8 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
                 AudioSegment(duration: 0.72, startFrequency: 740, endFrequency: 460, amplitude: 0.30, waveform: .triangle, attack: 0.01, release: 0.04, tremoloRate: 7),
                 AudioSegment(duration: 0.72, startFrequency: 460, endFrequency: 760, amplitude: 0.28, waveform: .triangle, attack: 0.01, release: 0.18, tremoloRate: 7)
             ])
+        case .takeMeOutToTheBallGame:
+            return takeMeOutToTheBallGameWaveformData()
         case .softChime:
             return bellWaveformData(strikes: [BellStrike(offset: 0, frequency: 880, amplitude: 0.24, decay: 3.2)], duration: 1.28)
         case .debateBell:
@@ -584,6 +591,164 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
+    private static func takeMeOutToTheBallGameWaveformData() -> Data {
+        let sampleRate = 44_100
+        let targetDuration = 30.0
+        let d4 = 62
+        let e4 = 64
+        let fs4 = 66
+        let g4 = 67
+        let gs4 = 68
+        let a4 = 69
+        let as4 = 70
+        let b4 = 71
+        let cs5 = 73
+        let d5 = 74
+        let e5 = 76
+
+        let melody: [MelodyNote] = [
+            .note(a4, 2), .note(a4, 1),
+            .note(a4, 1), .note(g4, 1), .note(fs4, 1),
+            .note(a4, 2), .note(a4, 1),
+            .note(a4, 3),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 1), .note(a4, 1), .note(g4, 1),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 3),
+            .note(cs5, 2), .note(cs5, 1),
+            .note(cs5, 1), .note(d5, 1), .note(e5, 1),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 1), .note(cs5, 1), .note(e5, 1),
+            .note(b4, 4), .note(cs5, 1), .note(e5, 1),
+            .note(a4, 5), .rest(1),
+            .note(a4, 2), .note(a4, 1),
+            .note(a4, 1), .note(g4, 1), .note(fs4, 1),
+            .note(a4, 2), .note(a4, 1),
+            .note(a4, 3),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 1), .note(a4, 1), .note(g4, 1),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 2), .note(a4, 1),
+            .note(gs4, 2), .note(g4, 1),
+            .note(gs4, 1), .note(a4, 1), .note(b4, 1),
+            .note(cs5, 2), .note(a4, 1),
+            .note(e4, 2), .note(e4, 1),
+            .note(fs4, 1), .note(gs4, 1), .note(a4, 1),
+            .note(b4, 2), .note(cs5, 1),
+            .note(a4, 5), .rest(1),
+            .note(d4, 2), .note(d5, 1),
+            .note(b4, 1), .note(a4, 1), .note(fs4, 1),
+            .note(a4, 3),
+            .note(e4, 3),
+            .note(d4, 2), .note(d5, 1),
+            .note(b4, 1), .note(a4, 1), .note(fs4, 1),
+            .note(a4, 5), .rest(1),
+            .note(b4, 1), .note(as4, 1), .note(b4, 1),
+            .note(fs4, 1), .note(g4, 1), .note(a4, 1),
+            .note(b4, 2), .note(g4, 1),
+            .note(e4, 3),
+            .note(b4, 2), .note(b4, 1),
+            .note(b4, 1), .note(cs5, 1), .note(d5, 1),
+            .note(e5, 1), .note(cs5, 1), .note(b4, 1),
+            .note(a4, 1), .note(fs4, 1), .note(e4, 1),
+            .note(d4, 2), .note(d5, 1),
+            .note(b4, 1), .note(a4, 1), .note(fs4, 1),
+            .note(a4, 3),
+            .note(e4, 2), .note(e4, 1),
+            .note(d4, 2), .note(e4, 1),
+            .note(fs4, 1), .note(g4, 1), .note(a4, 1),
+            .note(b4, 4), .note(b4, 1), .note(cs5, 1),
+            .note(d5, 3),
+            .note(d5, 3),
+            .note(d5, 1), .note(cs5, 1), .note(b4, 1),
+            .note(a4, 1), .note(gs4, 1), .note(a4, 1),
+            .note(b4, 3),
+            .note(cs5, 3),
+            .note(d5, 4), .rest(2)
+        ]
+
+        let totalBeats = melody.reduce(0) { $0 + $1.beats }
+        let beatDuration = targetDuration / totalBeats
+        let targetSampleCount = Int(Double(sampleRate) * targetDuration)
+        var emittedSamples = 0
+        var pcmData = Data(capacity: targetSampleCount * MemoryLayout<Int16>.size)
+
+        for (index, note) in melody.enumerated() {
+            let isFinalNote = index == melody.count - 1
+            let noteSampleCount: Int
+            if isFinalNote {
+                noteSampleCount = max(0, targetSampleCount - emittedSamples)
+            } else {
+                noteSampleCount = max(0, Int((note.beats * beatDuration * Double(sampleRate)).rounded()))
+            }
+
+            appendOrganNoteSamples(
+                note,
+                sampleCount: noteSampleCount,
+                sampleRate: sampleRate,
+                to: &pcmData
+            )
+            emittedSamples += noteSampleCount
+        }
+
+        return wavData(
+            pcmData: pcmData,
+            sampleRate: sampleRate,
+            channels: 1,
+            bitsPerSample: 16
+        )
+    }
+
+    private static func appendOrganNoteSamples(
+        _ note: MelodyNote,
+        sampleCount: Int,
+        sampleRate: Int,
+        to data: inout Data
+    ) {
+        guard sampleCount > 0 else {
+            return
+        }
+
+        guard let midiNote = note.midiNote else {
+            for _ in 0..<sampleCount {
+                appendSample(0, to: &data)
+            }
+            return
+        }
+
+        let baseFrequency = midiNoteFrequency(midiNote)
+        let noteDuration = Double(sampleCount) / Double(sampleRate)
+        let release = min(0.035, noteDuration * 0.42)
+
+        for sampleIndex in 0..<sampleCount {
+            let time = Double(sampleIndex) / Double(sampleRate)
+            let attackEnvelope = min(time / 0.01, 1)
+            let releaseEnvelope = release > 0 ? min((noteDuration - time) / release, 1) : 1
+            let envelope = max(0, min(attackEnvelope, releaseEnvelope))
+            let tremolo = 0.86 + (0.14 * ((sin(2 * .pi * 6.8 * time) + 1) / 2))
+            let vibrato = 1 + (0.0026 * sin(2 * .pi * 5.4 * time))
+            let frequency = baseFrequency * vibrato
+            let melody = organVoiceSample(frequency: frequency, time: time)
+            let lowerRegister = organVoiceSample(frequency: frequency / 2, time: time) * 0.28
+            let accent = note.beats >= 2 ? 1.0 : 0.93
+            let value = (melody + lowerRegister) * 0.21 * envelope * tremolo * accent
+
+            appendSample(value, to: &data)
+        }
+    }
+
+    private static func organVoiceSample(frequency: Double, time: Double) -> Double {
+        let fundamental = sin(2 * .pi * frequency * time) * 0.58
+        let octave = sin(2 * .pi * frequency * 2 * time) * 0.26
+        let twelfth = sin(2 * .pi * frequency * 3 * time) * 0.14
+        let softReed = AudioWaveform.triangle.sample(frequency: frequency * 2, time: time) * 0.12
+        return fundamental + octave + twelfth + softReed
+    }
+
+    private static func midiNoteFrequency(_ midiNote: Int) -> Double {
+        440 * pow(2, (Double(midiNote) - 69) / 12)
+    }
+
     private static func segmentEnvelope(
         time: Double,
         duration: Double,
@@ -667,6 +832,19 @@ private struct AudioSegment {
             release: 0,
             tremoloRate: nil
         )
+    }
+}
+
+private struct MelodyNote {
+    let midiNote: Int?
+    let beats: Double
+
+    static func note(_ midiNote: Int, _ beats: Double) -> MelodyNote {
+        MelodyNote(midiNote: midiNote, beats: beats)
+    }
+
+    static func rest(_ beats: Double) -> MelodyNote {
+        MelodyNote(midiNote: nil, beats: beats)
     }
 }
 

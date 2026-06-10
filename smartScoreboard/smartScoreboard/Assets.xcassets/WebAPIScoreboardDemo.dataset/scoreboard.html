@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartScoreboard Reference Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #101010;
+      color: #f6f7f9;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: #101010;
+      overflow-x: hidden;
+    }
+    body {
+      display: grid;
+      place-items: center;
+      padding: 26px;
+    }
+    .board {
+      width: min(1240px, 100%);
+      min-height: min(720px, calc(100vh - 52px));
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 18px;
+      padding: 22px;
+      border-radius: 8px;
+      background: #191919;
+      border: 1px solid #363636;
+      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+    }
+    .topbar, .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 34px;
+      color: #c8ccd2;
+      font-size: 14px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+    .sport {
+      max-width: min(760px, 72vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 11px;
+      border-radius: 999px;
+      background: #282828;
+      color: #d7dbe0;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .status.connected .dot {
+      background: #22c55e;
+    }
+    .match {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 300px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .team {
+      width: 100%;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(210px, 1fr) auto;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #232323;
+      border: 1px solid #3b3b3b;
+    }
+    .team.home {
+      border-top: 8px solid #19a7ce;
+    }
+    .team.guest {
+      border-top: 8px solid #f28c28;
+    }
+    .nameplate {
+      width: 100%;
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #111;
+      border: 1px solid #3d3d3d;
+      overflow: hidden;
+    }
+    .nameplate.has-logo {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+    .team-logo {
+      width: clamp(46px, 6vw, 62px);
+      height: clamp(46px, 6vw, 62px);
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .name {
+      min-width: 0;
+      color: #fff;
+      font-size: clamp(24px, 3.2vw, 42px);
+      font-weight: 1000;
+      line-height: 1.05;
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+    .score-box {
+      width: 100%;
+      min-width: 0;
+      min-height: 210px;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f4f6f8;
+      color: #070707;
+      border: 4px solid #ffffff;
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+    }
+    .score {
+      width: 100%;
+      display: block;
+      text-align: center;
+      font-size: clamp(92px, 15vw, 186px);
+      font-weight: 1000;
+      line-height: 0.88;
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+    .stats {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .stat {
+      min-height: 46px;
+      display: grid;
+      place-items: center;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #111;
+      border: 1px solid #3d3d3d;
+      color: #dce1e6;
+      font-size: 15px;
+      font-weight: 900;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+    .center {
+      width: 100%;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(160px, 1fr) auto auto;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #111;
+      border: 1px solid #3f3f3f;
+    }
+    .period-box, .clock-box, .shot-box, .possession-box {
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      text-align: center;
+      overflow: hidden;
+    }
+    .period-box {
+      min-height: 62px;
+      padding: 8px 10px;
+      background: #e8ecef;
+      color: #111;
+      font-size: clamp(24px, 3vw, 34px);
+      font-weight: 1000;
+      text-transform: uppercase;
+    }
+    .clock-box {
+      min-height: 160px;
+      padding: 10px;
+      background: #020202;
+      color: #f8fafc;
+      border: 3px solid #4b5563;
+    }
+    .clock {
+      width: 100%;
+      font-size: clamp(46px, 6vw, 82px);
+      font-weight: 1000;
+      line-height: 0.95;
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      text-overflow: clip;
+      white-space: nowrap;
+    }
+    .shot-box {
+      min-height: 86px;
+      padding: 8px 12px;
+      background: #ffcf33;
+      color: #111;
+      border: 3px solid #ffe38a;
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .possession-box {
+      min-height: 48px;
+      padding: 8px 10px;
+      background: #1f2937;
+      color: #e7edf4;
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .hidden {
+      display: none !important;
+    }
+    @media (max-width: 980px) {
+      body {
+        display: block;
+        padding: 0;
+      }
+      .board {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        min-height: 100vh;
+        padding: 14px;
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+      }
+      .match {
+        grid-template-columns: minmax(0, 1fr);
+        padding-right: 28px;
+      }
+      .team {
+        grid-template-rows: auto minmax(150px, 1fr) auto;
+        width: calc(100% - 56px);
+        justify-self: start;
+      }
+      .score-box {
+        min-height: 150px;
+      }
+      .center {
+        width: calc(100% - 56px);
+        justify-self: start;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto auto;
+      }
+      .clock-box {
+        min-height: 112px;
+      }
+      .possession-box {
+        grid-column: 1 / -1;
+      }
+    }
+    @media (max-width: 560px) {
+      .topbar, .footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .center {
+        grid-template-columns: 1fr;
+      }
+      .possession-box {
+        grid-column: auto;
+      }
+      .score {
+        font-size: clamp(64px, 24vw, 108px);
+      }
+      .team-logo {
+        width: 44px;
+        height: 44px;
+      }
+      .stats {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="topbar">
+      <div id="sport" class="sport">SmartScoreboard</div>
+      <div id="status" class="status"><span class="dot"></span><span data-i18n="connecting">Connecting</span></div>
+    </section>
+
+    <section class="match">
+      <article class="team home">
+        <div class="nameplate">
+          <img id="homeLogo" class="team-logo hidden" alt="">
+          <div id="homeName" class="name" data-i18n="home">HOME</div>
+        </div>
+        <div class="score-box">
+          <div id="homeScore" class="score">0</div>
+        </div>
+        <div class="stats">
+          <div id="homeFouls" class="stat">Fouls 0</div>
+          <div id="homeSubs" class="stat">Subs 0</div>
+        </div>
+      </article>
+
+      <article class="center">
+        <div id="period" class="period-box">P 1</div>
+        <div class="clock-box">
+          <div id="clock" class="clock">00:00</div>
+        </div>
+        <div id="shot" class="shot-box hidden">24.0</div>
+        <div id="possession" class="possession-box">Possession Off</div>
+      </article>
+
+      <article class="team guest">
+        <div class="nameplate">
+          <img id="guestLogo" class="team-logo hidden" alt="">
+          <div id="guestName" class="name" data-i18n="guest">GUEST</div>
+        </div>
+        <div class="score-box">
+          <div id="guestScore" class="score">0</div>
+        </div>
+        <div class="stats">
+          <div id="guestFouls" class="stat">Fouls 0</div>
+          <div id="guestSubs" class="stat">Subs 0</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="footer">
+      <div id="generated" data-i18n="waiting">Waiting for state</div>
+      <div id="mode" data-i18n="mode">Reference WebSocket Demo</div>
+    </section>
+  </main>
+
+  <script>
+    const translations = {
+      en: {
+        title: 'SmartScoreboard Reference Demo',
+        connecting: 'Connecting',
+        connected: 'Connected',
+        reconnecting: 'Reconnecting',
+        invalidJSON: 'Invalid JSON',
+        socketError: 'Socket Error',
+        home: 'HOME',
+        guest: 'GUEST',
+        fouls: 'Fouls',
+        subs: 'Subs',
+        periodPrefix: 'P',
+        possession: 'Possession',
+        off: 'Off',
+        none: 'none',
+        live: 'Live',
+        waiting: 'Waiting for state',
+        display: 'Display',
+        mode: 'Reference WebSocket Demo'
+      },
+      zh: {
+        title: 'SmartScoreboard 参考演示',
+        connecting: '正在连接',
+        connected: '已连接',
+        reconnecting: '正在重连',
+        invalidJSON: 'JSON 无效',
+        socketError: 'Socket 错误',
+        home: '主队',
+        guest: '客队',
+        fouls: '犯规',
+        subs: '换人',
+        periodPrefix: '节',
+        possession: '球权',
+        off: '关闭',
+        none: '无',
+        live: '实时',
+        waiting: '等待状态',
+        display: '显示',
+        mode: '参考 WebSocket 演示'
+      }
+    };
+
+    const preferredLanguages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    const language = preferredLanguages.some(value => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+    const strings = translations[language];
+    const host = location.hostname || '127.0.0.1';
+    const wsURL = `ws://${host}:5517/api/v1/ws`;
+    let socket;
+    let reconnectTimer;
+
+    const el = id => document.getElementById(id);
+
+    function t(key) {
+      return strings[key] || translations.en[key] || key;
+    }
+
+    function localizeStaticText() {
+      document.documentElement.lang = language === 'zh' ? 'zh-Hans' : 'en';
+      document.title = t('title');
+      document.querySelectorAll('[data-i18n]').forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      el('homeFouls').textContent = `${t('fouls')} 0`;
+      el('guestFouls').textContent = `${t('fouls')} 0`;
+      el('homeSubs').textContent = `${t('subs')} 0`;
+      el('guestSubs').textContent = `${t('subs')} 0`;
+      el('period').textContent = `${t('periodPrefix')} 1`;
+      el('possession').textContent = `${t('possession')} ${t('off')}`;
+    }
+
+    function setStatus(text, connected) {
+      const status = el('status');
+      status.classList.toggle('connected', connected);
+      status.querySelector('span:last-child').textContent = text;
+    }
+
+    function valueText(value, fallback) {
+      if (value === null || value === undefined || value === '') return fallback;
+      return String(value);
+    }
+
+    function localizedPeriodShort(value) {
+      const raw = valueText(value, t('periodPrefix'));
+      return raw === translations.en.periodPrefix ? t('periodPrefix') : raw;
+    }
+
+    function possessionLabel(value) {
+      const raw = valueText(value, 'none');
+      const normalized = raw.toLowerCase();
+      if (normalized === 'home') return t('home');
+      if (normalized === 'guest') return t('guest');
+      if (normalized === 'none') return t('off');
+      return raw;
+    }
+
+    function logoURL(logo) {
+      if (!logo || !logo.path) return '';
+      const version = logo.id || logo.updatedAtUnixTime || '';
+      return version ? `${logo.path}?v=${encodeURIComponent(version)}` : logo.path;
+    }
+
+    function applyLogo(elementID, logo) {
+      const image = el(elementID);
+      const url = logoURL(logo);
+      image.closest('.nameplate').classList.toggle('has-logo', Boolean(url));
+      image.classList.toggle('hidden', !url);
+      if (!url) {
+        image.removeAttribute('src');
+        return;
+      }
+      if (image.getAttribute('src') !== url) {
+        image.src = url;
+      }
+    }
+
+    function applyDisplayDirection(display, runtime) {
+      const direction = valueText(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      document.querySelector('.team.home').style.order = guestLeft ? '3' : '1';
+      document.querySelector('.center').style.order = '2';
+      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '3';
+      return direction;
+    }
+
+    function fitClockToOneLine() {
+      const clock = el('clock');
+      clock.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(clock).fontSize);
+      while (clock.scrollWidth > clock.clientWidth && size > 26) {
+        size -= 2;
+        clock.style.fontSize = `${size}px`;
+      }
+    }
+
+    function applyState(message) {
+      const state = message.payload || message;
+      if (!state || !state.teams || !state.clocks) return;
+
+      const home = state.teams.home || {};
+      const guest = state.teams.guest || {};
+      const rules = state.rules || {};
+      const game = state.game || {};
+      const clocks = state.clocks || {};
+      const runtime = state.runtime || {};
+      const display = state.display || {};
+      const direction = applyDisplayDirection(display, runtime);
+
+      el('sport').textContent = valueText(rules.title, 'SmartScoreboard');
+      el('homeName').textContent = valueText(home.name, t('home'));
+      el('guestName').textContent = valueText(guest.name, t('guest'));
+      applyLogo('homeLogo', home.logo);
+      applyLogo('guestLogo', guest.logo);
+      el('homeScore').textContent = valueText(home.score, 0);
+      el('guestScore').textContent = valueText(guest.score, 0);
+
+      const periodShort = localizedPeriodShort(rules.periodShortTitle);
+      el('period').textContent = rules.supportsPeriod ? `${periodShort} ${valueText(game.period, 1)}` : valueText(rules.sport, t('live'));
+
+      if (rules.usesChessClocks) {
+        el('clock').textContent = `${valueText(clocks.formattedHomeChessClock, '00:00')} / ${valueText(clocks.formattedGuestChessClock, '00:00')}`;
+      } else {
+        el('clock').textContent = clocks.showsGameClock ? valueText(clocks.formattedGameClock, '00:00') : '--:--';
+      }
+      fitClockToOneLine();
+
+      const showShot = Boolean(rules.supportsShotClock);
+      el('shot').classList.toggle('hidden', !showShot);
+      if (showShot) el('shot').textContent = valueText(clocks.formattedShotClock, '0.0');
+
+      el('possession').textContent = `${t('possession')} ${possessionLabel(runtime.possessionDirection)}`;
+      el('homeFouls').textContent = `${t('fouls')} ${valueText(home.teamFouls, 0)}`;
+      el('guestFouls').textContent = `${t('fouls')} ${valueText(guest.teamFouls, 0)}`;
+      el('homeSubs').textContent = `${t('subs')} ${valueText(home.substitutionsRemaining, 0)}`;
+      el('guestSubs').textContent = `${t('subs')} ${valueText(guest.substitutionsRemaining, 0)}`;
+      el('generated').textContent = valueText(state.generatedAt, t('live'));
+      const viewMode = valueText(display.viewMode, 'scoreboard');
+      const rosterScope = valueText(display.playerViewRosterScope, 'fullRoster');
+      const backgroundMode = valueText(display.backgroundMode, 'blurred');
+      const animatedStyle = backgroundMode === 'animatedLogo'
+        ? ` / ${valueText(display.animatedLogoStyle, 'horizontalMarquee')} / ${valueText(display.animatedLogoBackgroundColor, 'themeBackground')} / ${Math.round(valueText(display.animatedLogoOpacity, 0.23) * 100)}%`
+        : '';
+      const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')} / seconds ${valueText(display.showsDateTimeSeconds, true)}` : '';
+      const eventName = valueText(game.eventName, '');
+      el('mode').textContent = viewMode === 'playerView'
+        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+        : viewMode === 'eventLogo' && eventName
+          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+          : `${t('display')}: ${viewMode} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      setStatus(t('connecting'), false);
+      socket = new WebSocket(wsURL);
+      socket.onopen = () => {
+        setStatus(t('connected'), true);
+        socket.send(JSON.stringify({ type: 'get' }));
+      };
+      socket.onmessage = event => {
+        try {
+          applyState(JSON.parse(event.data));
+        } catch {
+          setStatus(t('invalidJSON'), false);
+        }
+      };
+      socket.onclose = () => {
+        setStatus(t('reconnecting'), false);
+        reconnectTimer = setTimeout(connect, 1200);
+      };
+      socket.onerror = () => {
+        setStatus(t('socketError'), false);
+      };
+    }
+
+    localizeStaticText();
+    connect();
+    window.addEventListener('resize', fitClockToOneLine);
+  </script>
+</body>
+</html>

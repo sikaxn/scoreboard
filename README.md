@@ -4,30 +4,33 @@
   <img src="icon.png" alt="Scoreboard app icon" width="160">
 </p>
 
-Scoreboard is a SwiftUI scoreboard app for iPad and Mac. It gives an operator a private control board while showing a clean public scoreboard on an external display or through AirPlay.
+Scoreboard is a SwiftUI scoreboard app for iPhone, iPad, Mac, and Apple TV. iPhone, iPad, and Mac include the operator controls; Apple TV is a display-only Remote Display for showing a live scoreboard from a paired Scoreboard device.
 
 This project use AI generated contents.
 
-> App Store: [Coming soon](https://apps.apple.com/app/idXXXXXXXXXX)
+> App Store: [Link](https://apps.apple.com/us/app/smart-scoreboard/id6776096875)
 
 ## Description
 
-Scoreboard turns your iPad or Mac into a flexible, easy-to-control scoreboard for games, practices, tournaments, and debate rounds.
+Scoreboard turns your iPhone, iPad, or Mac into a flexible, easy-to-control scoreboard for games, practices, tournaments, and debate rounds.
 
-Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display or through AirPlay while keeping the controls private on your device.
+Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
 
 Built-in presets include Simple, Basketball, Volleyball, Soccer, Hockey, Chess, Debate, and Custom Sport modes. Debate supports Public Forum, Lincoln-Douglas, Policy, and custom round formats.
+
+Apple TV can be used in two ways. You can AirPlay from the operator device to Apple TV without installing the Apple TV app, because AirPlay is treated like an external display. Or you can install Scoreboard on Apple TV and use it as a Remote Display. Apple TV Remote Display is display-only: it does not run the operator board, edit game setup, manage files, or control the score. Use an iPhone, iPad, or Mac to run the game, then pair Apple TV to show the live public scoreboard.
 
 Whether you are running a gym scoreboard, timing a debate round, managing a scrimmage, or keeping a clean public display for spectators, Scoreboard keeps the game organized and visible.
 
 ## Full Experience
 
-For the full Scoreboard experience, connect an external display or use AirPlay. This lets you keep scoring controls, rosters, logs, and setup tools on your device while presenting the public scoreboard full-screen for players, judges, or spectators.
+For the full Scoreboard experience, connect an external display, use AirPlay, or pair Remote Display devices. AirPlay works with Apple TV without installing the app on Apple TV. Remote Display is useful when you want nearby Apple devices, including multiple displays, to receive synced scoreboard updates from the same operator device.
 
 ## Features
 
 - Real-time score, period, and game clock controls
-- Public scoreboard support for external displays and AirPlay
+- Public scoreboard support for external displays and AirPlay, including Apple TV AirPlay without installing the tvOS app
+- Apple TV, iPhone, iPad, and Mac Remote Display pairing with live scoreboard sync across multiple displays
 - Built-in modes for Simple, Basketball, Volleyball, Soccer, Hockey, Chess, and Debate
 - Custom sport mode with configurable periods, clocks, score steps, possession, players, fouls, cards, and substitutions
 - Shot clock controls for supported sports
@@ -43,17 +46,19 @@ For the full Scoreboard experience, connect an external display or use AirPlay. 
 
 ## Supported Platforms
 
+- iPhone
 - iPad
 - Mac
+- Apple TV (Remote Display only)
 
-The project is configured as a SwiftUI app with iPadOS and macOS support.
+The iPhone, iPad, and Mac app includes the operator interface and can also be switched into Remote Display mode from Settings. Apple TV AirPlay does not require the Scoreboard Apple TV app. If the Apple TV app is installed, it always runs as a Remote Display only; it is for showing the scoreboard, not controlling it. Remote Display uses Network Framework Bonjour pairing, not the Web API, and can sync more than one display device from the same operator device. The operator can choose same Wi-Fi/LAN only or allow Apple peer-to-peer Wi-Fi for nearby devices.
 
 ## Build From Source
 
 1. Clone the repository.
 2. Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode.
 3. Select the `smartScoreboard` scheme.
-4. Choose an iPad simulator, a connected iPad, or Mac as the run destination.
+4. Choose an iPhone simulator, iPad simulator, connected iPhone or iPad, Mac, or Apple TV simulator as the run destination.
 5. Build and run.
 
 ## Project Structure

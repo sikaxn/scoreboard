@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartScoreboard Web API</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f7fb;
+      color: #171923;
+    }
+    body {
+      margin: 0;
+      background: #f5f7fb;
+    }
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 30px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+    p {
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #d9dee9;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(20, 28, 45, 0.06);
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 6px;
+      background: #1f6feb;
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+    .button.secondary {
+      background: #e9edf5;
+      color: #171923;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    code.endpoint {
+      display: block;
+      overflow-wrap: anywhere;
+      padding: 10px 11px;
+      border-radius: 6px;
+      background: #eef2f7;
+      margin: 7px 0 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+    }
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid #e4e8f0;
+      padding: 9px 6px;
+      vertical-align: top;
+    }
+    th {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #596376;
+    }
+    .note {
+      color: #596376;
+      font-size: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root, body {
+        background: #0f1218;
+        color: #f4f7fb;
+      }
+      .card {
+        background: #171b24;
+        border-color: #303746;
+        box-shadow: none;
+      }
+      .button.secondary, code.endpoint {
+        background: #252c38;
+        color: #f4f7fb;
+      }
+      th, td {
+        border-bottom-color: #303746;
+      }
+      .note, th {
+        color: #aab4c4;
+      }
+    }
+    @media (max-width: 760px) {
+      main {
+        padding: 18px;
+      }
+      header, .grid {
+        display: block;
+      }
+      .card {
+        margin-bottom: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1 data-i18n="heading">SmartScoreboard Web API</h1>
+        <p class="note" data-i18n="tagline">Read-only LAN feed for broadcast and production apps.</p>
+      </div>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <h2 data-i18n="scoreboardTitle">Reference Demo Scoreboard</h2>
+        <p data-i18n="scoreboardBody">This demo is for API testing and reference only. Build production scoreboard graphics in your broadcast or overlay system.</p>
+        <a class="button" href="/demo/scoreboard" data-i18n="openScoreboard">Open Scoreboard</a>
+      </article>
+
+      <article class="card">
+        <h2 data-i18n="obsTitle">Reference OBS Browser Source</h2>
+        <p data-i18n="obsBody">This demo is for API testing and reference only. Treat it as a starting point, not a finished broadcast package.</p>
+        <a class="button" href="/demo/obs" data-i18n="openOBS">Open OBS Source</a>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="endpointsTitle">Endpoints</h2>
+      <p class="note" data-i18n="endpointsBody">The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.</p>
+      <strong data-i18n="httpState">HTTP state</strong>
+      <code id="httpState" class="endpoint"></code>
+      <strong data-i18n="webSocket">WebSocket</strong>
+      <code id="wsState" class="endpoint"></code>
+      <strong data-i18n="health">Health</strong>
+      <code id="health" class="endpoint"></code>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="docsTitle">API Docs</h2>
+      <table>
+        <tr><th data-i18n="endpointColumn">Endpoint</th><th data-i18n="useColumn">Use</th></tr>
+        <tr><td><code>GET /api/v1/state</code></td><td data-i18n="stateUse">Latest raw scoreboard state JSON.</td></tr>
+        <tr><td><code>GET /api/v1/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. Photo and Animated Logo modes use this same image asset.</td></tr>
+        <tr><td><code>GET /api/v1/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. Use display.showsEventLogo to decide whether to show it.</td></tr>
+        <tr><td><code>GET /api/v1/teams/{home|guest}/logo</code></td><td data-i18n="teamLogoUse">Current team logo binary with alpha preserved. Use display.showsTeamLogos to decide whether to show it.</td></tr>
+        <tr><td><code>GET /api/v1/health</code></td><td data-i18n="healthUse">Service status, fixed ports, and connected WebSocket client count.</td></tr>
+        <tr><td><code>WS /api/v1/ws</code></td><td data-i18n-html="wsUse">Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.</td></tr>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const translations = {
+      en: {
+        title: 'SmartScoreboard Web API',
+        heading: 'SmartScoreboard Web API',
+        tagline: 'Read-only LAN feed for broadcast and production apps.',
+        scoreboardTitle: 'Reference Demo Scoreboard',
+        scoreboardBody: 'This demo is for API testing and reference only. Build production scoreboard graphics in your broadcast or overlay system.',
+        openScoreboard: 'Open Scoreboard',
+        obsTitle: 'Reference OBS Browser Source',
+        obsBody: 'This demo is for API testing and reference only. Treat it as a starting point, not a finished broadcast package.',
+        openOBS: 'Open OBS Source',
+        endpointsTitle: 'Endpoints',
+        endpointsBody: 'The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.',
+        httpState: 'HTTP state',
+        webSocket: 'WebSocket',
+        health: 'Health',
+        docsTitle: 'API Docs',
+        endpointColumn: 'Endpoint',
+        useColumn: 'Use',
+        stateUse: 'Latest raw scoreboard state JSON. Image fields are metadata and URLs only; no image payloads are embedded. display.viewMode selects scoreboard, black screen, background-only, team, player, or event-logo output; player view uses the full roster. display.direction is homeLeft or guestLeft. Remote Display payloads may also include display.remoteExternalDirection for a paired iPad or Mac external output. display.backgroundMode can also be animatedLogo, with display.animatedLogoStyle, animatedLogoBackgroundColor, animatedLogoSpeed, animatedLogoSize, animatedLogoOpacity, showsDateTime, dateTimeFormat, and showsDateTimeSeconds.',
+        backgroundImageUse: 'Current external display background image binary. Photo and Animated Logo modes use this same image asset. Use the response Content-Type; clients do not need to know the ID or file extension.',
+        eventLogoUse: 'Current event logo binary with alpha preserved. Use the response Content-Type; display.showsEventLogo controls whether display.eventLogo metadata appears in state.',
+        teamLogoUse: 'Current team logo binary with alpha preserved. Use the response Content-Type; display.showsTeamLogos controls whether logo metadata appears in state.',
+        healthUse: 'Service status, fixed ports, and connected WebSocket client count.',
+        wsUse: 'Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.'
+      },
+      zh: {
+        title: 'SmartScoreboard Web API',
+        heading: 'SmartScoreboard Web API',
+        tagline: '面向播出和制作软件的只读局域网数据源。',
+        scoreboardTitle: '参考演示记分牌',
+        scoreboardBody: '此演示仅用于 API 测试和参考。生产用记分牌画面请在你的播出或叠加系统中制作。',
+        openScoreboard: '打开记分牌',
+        obsTitle: '参考 OBS 浏览器源',
+        obsBody: '此演示仅用于 API 测试和参考。请将它作为起点，而不是完整的播出包装。',
+        openOBS: '打开 OBS 源',
+        endpointsTitle: '端点',
+        endpointsBody: '演示页面只是参考实现，并且仅使用 WebSocket。HTTP 仍可供通用轮询客户端使用。WebSocket 发送方式遵循 App 设置中的更新模式。',
+        httpState: 'HTTP 状态',
+        webSocket: 'WebSocket',
+        health: '健康检查',
+        docsTitle: 'API 文档',
+        endpointColumn: '端点',
+        useColumn: '用途',
+        stateUse: '最新原始记分牌状态 JSON。图片字段只包含元数据和 URL，不嵌入图片内容。display.viewMode 选择记分牌、黑屏、仅背景、队伍、球员或赛事标志输出；球员视图使用完整名单。display.direction 为 homeLeft 或 guestLeft。远程显示负载也可能包含 display.remoteExternalDirection，用于已配对 iPad 或 Mac 外接输出。display.backgroundMode 也可为 animatedLogo，并包含 display.animatedLogoStyle、animatedLogoBackgroundColor、animatedLogoSpeed、animatedLogoSize、animatedLogoOpacity、showsDateTime、dateTimeFormat 和 showsDateTimeSeconds。',
+        backgroundImageUse: '当前外接显示背景图片二进制内容。照片和动态标志模式共用同一图片资源。请使用响应 Content-Type；客户端不需要知道 ID 或文件扩展名。',
+        eventLogoUse: '当前赛事标志图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsEventLogo 控制状态中是否显示 display.eventLogo 元数据。',
+        teamLogoUse: '当前队标图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsTeamLogos 控制状态中是否显示队标元数据。',
+        healthUse: '服务状态、固定端口和已连接的 WebSocket 客户端数量。',
+        wsUse: '状态变化时接收 <code>scoreboard.state</code> 消息。固定间隔模式会合并到每秒最多 10 次更新；实时推送模式会发送每一次状态变化。发送 <code>{"type":"get"}</code> 可请求最新状态。'
+      }
+    };
+
+    const preferredLanguages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    const language = preferredLanguages.some(value => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+    const strings = translations[language];
+    document.documentElement.lang = language === 'zh' ? 'zh-Hans' : 'en';
+    document.title = strings.title;
+
+    document.querySelectorAll('[data-i18n]').forEach(element => {
+      element.textContent = strings[element.dataset.i18n] || translations.en[element.dataset.i18n] || element.textContent;
+    });
+    document.querySelectorAll('[data-i18n-html]').forEach(element => {
+      element.innerHTML = strings[element.dataset.i18nHtml] || translations.en[element.dataset.i18nHtml] || element.innerHTML;
+    });
+
+    const host = location.hostname || '127.0.0.1';
+    document.getElementById('httpState').textContent = `${location.origin}/api/v1/state`;
+    document.getElementById('health').textContent = `${location.origin}/api/v1/health`;
+    document.getElementById('wsState').textContent = `ws://${host}:5517/api/v1/ws`;
+  </script>
+</body>
+</html>
