@@ -130,7 +130,7 @@ extension ScoreboardStore {
     func syncLiveActivityForCurrentState() {
         let now = Date()
         ScoreboardLiveActivityController.shared.sync(
-            isGameRunning: isGameRunning,
+            isGameRunning: isGameRunning && showsLiveActivityWhenTimerRunning,
             state: liveActivityContentState(now: now)
         )
     }

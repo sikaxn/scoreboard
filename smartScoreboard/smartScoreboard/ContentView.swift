@@ -143,6 +143,9 @@ struct ContentView: View {
     }
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
+    private var homeTintText: Color { themePalette.homeAccentText }
+    private var guestTintText: Color { themePalette.guestAccentText }
+    private var destructiveText: Color { themePalette.destructiveText }
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
@@ -2302,6 +2305,15 @@ struct ContentView: View {
             externalBackgroundImageEditorPage()
         } else {
             VStack(alignment: .leading, spacing: 22) {
+                #if os(iOS)
+                settingsSection(title: "Live Activity", footer: "Shows a Live Activity and Dynamic Island status while a primary game timer is running.") {
+                    settingsToggleRow(title: "Show Activity When Timer Is Running", isOn: Binding(
+                        get: { store.showsLiveActivityWhenTimerRunning },
+                        set: { store.showsLiveActivityWhenTimerRunning = $0 }
+                    ))
+                }
+                #endif
+
                 settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
                     ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
                         themeSelectionRow(theme)
@@ -2707,7 +2719,7 @@ struct ContentView: View {
 
     private func settingsSoundResetSection() -> some View {
         settingsSection(title: "Reset", footer: "Restores Sound On and every event assignment to the default sound setup across all sports and modes.") {
-            settingsButtonRow(title: "Sound Defaults", buttonTitle: "Reset", tint: themePalette.destructiveTint, foreground: .white) {
+            settingsButtonRow(title: "Sound Defaults", buttonTitle: "Reset", tint: themePalette.destructiveTint, foreground: destructiveText) {
                 requestGameConfirmation(.resetSoundSettings)
             }
         }
@@ -2852,7 +2864,7 @@ struct ContentView: View {
                     prepareFullBackup(destination: .share)
                 }
 
-                settingsToolbarIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
+                settingsToolbarIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: destructiveText) {
                     beginBackupRestore()
                 }
             } else {
@@ -2884,7 +2896,7 @@ struct ContentView: View {
                 }
                 #endif
 
-                settingsIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: .white) {
+                settingsIconButton("Restore", systemImage: "arrow.clockwise", tint: themePalette.destructiveTint, foreground: destructiveText) {
                     beginBackupRestore()
                 }
             }
@@ -4266,7 +4278,8 @@ struct ContentView: View {
                 settingsButtonRow(
                     title: "Reset App",
                     buttonTitle: "Factory Default",
-                    tint: themePalette.destructiveTint
+                    tint: themePalette.destructiveTint,
+                    foreground: destructiveText
                 ) {
                     isFactoryDefaultConfirmationPresented = true
                 }
@@ -4621,7 +4634,7 @@ struct ContentView: View {
                     "Delete Selected",
                     systemImage: "trash",
                     tint: themePalette.destructiveTint,
-                    foreground: .white,
+                    foreground: destructiveText,
                     isEnabled: !selectedGameFileIDs.isEmpty,
                     role: .destructive
                 ) {
@@ -4665,7 +4678,7 @@ struct ContentView: View {
                 "Delete",
                 systemImage: "trash",
                 tint: themePalette.destructiveTint,
-                foreground: .white,
+                foreground: destructiveText,
                 isEnabled: selectedStoredGameFile != nil,
                 role: .destructive
             ) {
@@ -4870,7 +4883,7 @@ struct ContentView: View {
                     "Delete Selected",
                     systemImage: "trash",
                     tint: themePalette.destructiveTint,
-                    foreground: .white,
+                    foreground: destructiveText,
                     isEnabled: !selectedLogSessionIDs.isEmpty,
                     role: .destructive
                 ) {
@@ -4934,7 +4947,7 @@ struct ContentView: View {
                 "Delete",
                 systemImage: "trash",
                 tint: themePalette.destructiveTint,
-                foreground: .white,
+                foreground: destructiveText,
                 isEnabled: selectedStoredLogSession != nil,
                 role: .destructive
             ) {
@@ -5527,7 +5540,7 @@ struct ContentView: View {
                     }
 
                     if setupCustomDebatePreset.segments.count > 1 {
-                        settingsCompactIconButton("Delete", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                        settingsCompactIconButton("Delete", systemImage: "trash", tint: themePalette.destructiveTint, foreground: destructiveText) {
                             removeCustomDebateSegment(segment.id)
                         }
                     }
@@ -5817,7 +5830,7 @@ struct ContentView: View {
                     smallSettingsActionButton("F -", tint: settingsPalette.fieldBackground, foreground: settingsPalette.primaryText) {
                         store.adjustFoulCount(for: side, playerID: player.id, by: -1)
                     }
-                    smallSettingsActionButton("F +", tint: side == .home ? homeTint : guestTint, foreground: .white) {
+                    smallSettingsActionButton("F +", tint: side == .home ? homeTint : guestTint, foreground: teamAccentText(for: side)) {
                         store.adjustFoulCount(for: side, playerID: player.id, by: 1)
                     }
                 }
@@ -6084,7 +6097,7 @@ struct ContentView: View {
                             showExternalBackgroundImageEditor()
                         }
 
-                        settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                        settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: destructiveText) {
                             removeExternalBackgroundImage()
                         }
                     }
@@ -6394,7 +6407,7 @@ struct ContentView: View {
                 #endif
 
                 if logo != nil {
-                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: destructiveText) {
                         store.clearTeamLogoImage(for: side)
                     }
                 }
@@ -6435,7 +6448,7 @@ struct ContentView: View {
                 #endif
 
                 if logo != nil {
-                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: .white) {
+                    settingsCompactIconButton("Remove", systemImage: "trash", tint: themePalette.destructiveTint, foreground: destructiveText) {
                         store.clearEventLogoImage()
                     }
                 }
@@ -6681,7 +6694,8 @@ struct ContentView: View {
     private func dashboardContent(layout: InterfaceLayout) -> some View {
         GeometryReader { proxy in
             let availableHeight = max(proxy.size.height - (layout.outerPadding * 2), 0)
-            let headerHeight = isDashboardHeaderHidden ? CGFloat(0) : layout.dashboardHeaderHeight
+            let expandedHeaderHeight = dashboardHeaderReservedHeight(layout: layout)
+            let headerHeight = isDashboardHeaderHidden ? CGFloat(0) : expandedHeaderHeight
             let headerSpacing = isDashboardHeaderHidden ? CGFloat(0) : layout.sectionSpacing
             let contentHeight = max(availableHeight - headerHeight - headerSpacing, 0)
 
@@ -6689,7 +6703,7 @@ struct ContentView: View {
                 VStack(spacing: headerSpacing) {
                     if !isDashboardHeaderHidden {
                         dashboardHeader(layout: layout)
-                            .frame(height: layout.dashboardHeaderHeight)
+                            .frame(height: expandedHeaderHeight)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
@@ -6713,6 +6727,27 @@ struct ContentView: View {
             }
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isDashboardHeaderHidden)
         }
+    }
+
+    private func dashboardHeaderReservedHeight(layout: InterfaceLayout) -> CGFloat {
+        let baseHeight = layout.dashboardHeaderHeight
+
+        #if os(macOS)
+        return baseHeight
+        #else
+        guard layout.headerUsesVerticalFlow else {
+            return baseHeight
+        }
+
+        let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
+        let columns = max(1, min(layout.headerActionColumns, actionCount))
+        let rows = Int(ceil(Double(actionCount) / Double(columns)))
+        guard rows > 1 else {
+            return baseHeight
+        }
+
+        return baseHeight + CGFloat(rows - 1) * layout.headerActionRowStride
+        #endif
     }
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
@@ -6824,6 +6859,7 @@ struct ContentView: View {
             Spacer(minLength: 0)
             publicBoardHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
+            themeHeaderMenu(layout: layout)
             if store.isCompanionVisible {
                 companionHeaderButton(layout: layout)
             }
@@ -6834,7 +6870,7 @@ struct ContentView: View {
         #else
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            let actionCount = 2 + (store.isCompanionVisible ? 1 : 0)
+            let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
 
             LazyVGrid(
                 columns: Array(
@@ -6844,6 +6880,7 @@ struct ContentView: View {
                 spacing: 10
             ) {
                 soundHeaderButton(layout: layout)
+                themeHeaderMenu(layout: layout)
                 if store.isCompanionVisible {
                     companionHeaderButton(layout: layout)
                 }
@@ -6881,6 +6918,32 @@ struct ContentView: View {
         ) {
             store.toggleSoundEnabled()
         }
+    }
+
+    private func themeHeaderMenu(layout: InterfaceLayout) -> some View {
+        Menu {
+            ForEach(ScoreboardTheme.allCases) { theme in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        store.theme = theme
+                    }
+                } label: {
+                    Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
+                }
+            }
+        } label: {
+            Label("Theme", systemImage: store.theme.systemImage)
+                .font(.headline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, layout.headerActionVerticalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Theme"))
+        .help(localizedAppString(store.theme.title))
     }
 
     private func companionHeaderButton(layout: InterfaceLayout) -> some View {
@@ -6944,7 +7007,7 @@ struct ContentView: View {
 
     private func shotClockWidget(layout: InterfaceLayout) -> some View {
         let usesServeTimer = store.usesServeTimer
-        let timerAction = store.secondaryTimerActionTitle
+        let timerAction = usesServeTimer ? "Serve" : "Shot"
         let timerButtons: [ActionDescriptor] = usesServeTimer ? [
             ActionDescriptor(
                 title: store.isShotClockRunning ? "\(timerAction) Pause" : "Start \(timerAction)",
@@ -7951,8 +8014,11 @@ struct ContentView: View {
         tint: Color,
         layout: InterfaceLayout
     ) -> some View {
+        let side: TeamSide = isHome ? .home : .guest
+        let tintText = teamAccentText(for: side)
+
         if usesDedicatedDualClockLayout {
-            return AnyView(chessTeamControls(side: isHome ? .home : .guest, tint: tint, layout: layout))
+            return AnyView(chessTeamControls(side: side, tint: tint, layout: layout))
         }
 
         return AnyView(VStack(alignment: .leading, spacing: 12) {
@@ -7962,11 +8028,10 @@ struct ContentView: View {
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
             if store.usesChessClocks && !store.isDebateMode {
-                let side: TeamSide = isHome ? .home : .guest
                 smallActionButton(
                     "Turn Here",
                     tint: store.activeChessClockSide == side ? tint.opacity(0.78) : tint,
-                    foreground: .white,
+                    foreground: tintText,
                     verticalPadding: layout.advancedButtonVerticalPadding
                 ) {
                     store.setActiveChessClockSide(side)
@@ -7974,11 +8039,10 @@ struct ContentView: View {
             }
 
             if store.isDebateMode, store.currentDebateSegment?.timerMode == .dualClock {
-                let side: TeamSide = isHome ? .home : .guest
                 smallActionButton(
                     store.activeChessClockSide == side && store.isClockRunning ? "Pause Here" : "Turn Here",
                     tint: store.activeChessClockSide == side ? tint.opacity(0.78) : tint,
-                    foreground: .white,
+                    foreground: tintText,
                     verticalPadding: layout.advancedButtonVerticalPadding
                 ) {
                     handleDebateTurnHere(for: side)
@@ -8001,14 +8065,15 @@ struct ContentView: View {
 
             if store.supportsShotClock {
                 if store.usesServeTimer {
-                    let side: TeamSide = isHome ? .home : .guest
+                    let possessionSide: PossessionDirection = side == .home ? .home : .guest
+                    let isSelectedSide = store.possessionDirection == possessionSide
                     buttonGrid(
                         columns: 1,
                         buttons: [
                             ActionDescriptor(
                                 title: "Serve Here",
-                                tint: store.possessionDirection == (isHome ? .home : .guest) ? tint : themePalette.dashboardNeutralButton,
-                                foreground: .white
+                                tint: isSelectedSide ? tint : themePalette.dashboardNeutralButton,
+                                foreground: isSelectedSide ? tintText : themePalette.dashboardNeutralButtonText
                             ) {
                                 store.setServeTimerSide(side)
                             }
@@ -8018,20 +8083,22 @@ struct ContentView: View {
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
                 } else {
+                    let possessionSide: PossessionDirection = side == .home ? .home : .guest
+                    let isSelectedSide = store.possessionDirection == possessionSide
                     buttonGrid(
                         columns: 2,
                         buttons: [
                             ActionDescriptor(
                                 title: "Shot 24",
-                                tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
-                                foreground: .white
+                                tint: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
+                                foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tintText : themePalette.dashboardNeutralButtonText
                             ) {
                                 store.assignShotClock(to: 24, forHomeTeam: isHome)
                             },
                             ActionDescriptor(
                                 title: "Shot 14",
-                                tint: (store.possessionDirection == (isHome ? .home : .guest) && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
-                                foreground: .white
+                                tint: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
+                                foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tintText : themePalette.dashboardNeutralButtonText
                             ) {
                                 store.assignShotClock(to: 14, forHomeTeam: isHome)
                             }
@@ -8078,6 +8145,7 @@ struct ContentView: View {
     private func chessTeamControls(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let isHome = side == .home
         let clockText = isHome ? store.formattedHomeChessClock : store.formattedGuestChessClock
+        let tintText = teamAccentText(for: side)
         return VStack(alignment: .leading, spacing: 12) {
             localizedAppText(side.title)
                 .font(.title3.weight(.bold))
@@ -8095,7 +8163,7 @@ struct ContentView: View {
             smallActionButton(
                 "Turn Here",
                 tint: store.activeChessClockSide == side ? tint.opacity(0.78) : tint,
-                foreground: .white,
+                foreground: tintText,
                 verticalPadding: layout.advancedButtonVerticalPadding
             ) {
                 store.setActiveChessClockSide(side)
@@ -8107,7 +8175,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustChessClock(for: side, by: -60)
                     },
-                    ActionDescriptor(title: "+1 Min", tint: tint, foreground: .white) {
+                    ActionDescriptor(title: "+1 Min", tint: tint, foreground: tintText) {
                         store.adjustChessClock(for: side, by: 60)
                     }
                 ],
@@ -8120,7 +8188,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustChessClock(for: side, by: -1)
                     },
-                    ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: .white) {
+                    ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: tintText) {
                         store.adjustChessClock(for: side, by: 1)
                     }
                 ],
@@ -8345,7 +8413,7 @@ struct ContentView: View {
                 }
                 .frame(width: 40)
 
-                smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: teamAccentText(for: side), verticalPadding: layout.advancedButtonVerticalPadding) {
                     store.adjustFoulCount(for: side, playerID: player.id, by: 1)
                 }
                 .frame(width: 40)
@@ -8354,7 +8422,7 @@ struct ContentView: View {
             smallActionButton(
                 player.isInActiveLineup ? "Bench" : "Show",
                 tint: player.isInActiveLineup ? themePalette.dashboardNeutralButton : (side == .home ? homeTint.opacity(0.86) : guestTint.opacity(0.86)),
-                foreground: player.isInActiveLineup ? themePalette.dashboardNeutralButtonText : .white,
+                foreground: player.isInActiveLineup ? themePalette.dashboardNeutralButtonText : teamAccentText(for: side),
                 verticalPadding: layout.advancedButtonVerticalPadding
             ) {
                 store.setPlayerActiveLineup(!player.isInActiveLineup, for: side, playerID: player.id)
@@ -8449,10 +8517,10 @@ struct ContentView: View {
                     buttonGrid(
                         columns: store.volleyballSetResults.isEmpty ? 2 : 3,
                         buttons: [
-                            ActionDescriptor(title: "Home Wins Period", tint: homeTint, foreground: .white, isEnabled: store.periodWinMatchWinner == nil) {
+                            ActionDescriptor(title: "Home Wins Period", tint: homeTint, foreground: homeTintText, isEnabled: store.periodWinMatchWinner == nil) {
                                 requestGameConfirmation(.awardVolleyballSet(.home))
                             },
-                            ActionDescriptor(title: "Guest Wins Period", tint: guestTint, foreground: .white, isEnabled: store.periodWinMatchWinner == nil) {
+                            ActionDescriptor(title: "Guest Wins Period", tint: guestTint, foreground: guestTintText, isEnabled: store.periodWinMatchWinner == nil) {
                                 requestGameConfirmation(.awardVolleyballSet(.guest))
                             }
                         ] + (store.volleyballSetResults.isEmpty ? [] : [
@@ -8469,14 +8537,14 @@ struct ContentView: View {
             buttonGrid(
                 columns: store.showsGameClock ? 2 : 1,
                 buttons: store.showsGameClock ? [
-                    ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                    ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.resetClock)
                     },
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.zeroScores)
                     }
                 ] : [
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.zeroScores)
                     }
                 ],
@@ -8533,7 +8601,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "Swap Side", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.swapSides()
                     },
-                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .resetChessClocks
                     }
                 ],
@@ -8553,7 +8621,7 @@ struct ContentView: View {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                             requestGameConfirmation(.zeroScores)
                         }
                     ],
@@ -8727,7 +8795,10 @@ struct ContentView: View {
             if store.debateActiveTimer == .segment, segment?.timerMode != DebateTimerMode.none {
                 buttonGrid(
                     columns: 4,
-                    buttons: debateSegmentJogButtons(tint: segment?.timerMode == .dualClock ? debateActiveSideTint : themePalette.dashboardNeutralButton),
+                    buttons: debateSegmentJogButtons(
+                        tint: segment?.timerMode == .dualClock ? debateActiveSideTint : themePalette.dashboardNeutralButton,
+                        foreground: segment?.timerMode == .dualClock ? debateActiveSideText : themePalette.dashboardNeutralButtonText
+                    ),
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
@@ -8764,10 +8835,10 @@ struct ContentView: View {
             buttonGrid(
                 columns: 2,
                 buttons: [
-                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .resetDebateSegment
                     },
-                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isResetInterlockActive) {
+                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
                         pendingGameConfirmation = .resetDebateRound
                     }
                 ],
@@ -8778,7 +8849,7 @@ struct ContentView: View {
                 buttonGrid(
                     columns: 1,
                     buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                             pendingGameConfirmation = .zeroScores
                         }
                     ],
@@ -8853,6 +8924,17 @@ struct ContentView: View {
         }
     }
 
+    private var debateActiveSideText: Color {
+        switch store.activeChessClockSide {
+        case .home:
+            return homeTintText
+        case .guest:
+            return guestTintText
+        case .none:
+            return themePalette.dashboardNeutralButtonText
+        }
+    }
+
     private func handleDebateTurnHere(for side: TeamSide) {
         if store.debateActiveTimer != .segment {
             store.returnToDebateSegmentTimer()
@@ -8868,18 +8950,18 @@ struct ContentView: View {
         }
     }
 
-    private func debateSegmentJogButtons(tint: Color) -> [ActionDescriptor] {
+    private func debateSegmentJogButtons(tint: Color, foreground: Color) -> [ActionDescriptor] {
         [
             ActionDescriptor(title: "-1 Min", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                 adjustDebateSegmentTimer(by: -60)
             },
-            ActionDescriptor(title: "+1 Min", tint: tint, foreground: .white) {
+            ActionDescriptor(title: "+1 Min", tint: tint, foreground: foreground) {
                 adjustDebateSegmentTimer(by: 60)
             },
             ActionDescriptor(title: "-1 Sec", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                 adjustDebateSegmentTimer(by: -1)
             },
-            ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: .white) {
+            ActionDescriptor(title: "+1 Sec", tint: tint.opacity(0.9), foreground: foreground) {
                 adjustDebateSegmentTimer(by: 1)
             }
         ]
@@ -8905,6 +8987,7 @@ struct ContentView: View {
     private func debatePrepInlinePanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let isHome = side == .home
         let isActive = store.debateActiveTimer == (isHome ? .prepHome : .prepGuest)
+        let tintText = teamAccentText(for: side)
         return VStack(alignment: .leading, spacing: 10) {
             Text("Prep Controls")
                 .font(.subheadline.weight(.bold))
@@ -8916,7 +8999,7 @@ struct ContentView: View {
                     ActionDescriptor(
                         title: isActive && store.isDebatePrepClockRunning ? "Pause Prep" : "Use Prep",
                         tint: isActive ? tint.opacity(0.82) : tint,
-                        foreground: .white
+                        foreground: tintText
                     ) {
                         store.toggleDebatePrepClock(for: side)
                     },
@@ -8962,16 +9045,21 @@ struct ContentView: View {
     private var periodWinStatusText: String {
         let periodLine: String
         if store.selectedSport == .volleyball {
-            periodLine = "Periods \(store.homePeriodWins)-\(store.guestPeriodWins) • \(store.volleyballMatchFormat.title)"
+            periodLine = localizedAppFormat(
+                "Periods %d-%d • %@",
+                store.homePeriodWins,
+                store.guestPeriodWins,
+                localizedAppString(store.volleyballMatchFormat.title)
+            )
         } else {
-            periodLine = "Periods \(store.homePeriodWins)-\(store.guestPeriodWins)"
+            periodLine = localizedAppFormat("Periods %d-%d", store.homePeriodWins, store.guestPeriodWins)
         }
 
         guard let winner = store.periodWinMatchWinner else {
             return periodLine
         }
 
-        return "\(periodLine) • \(store.sideRoleLabel(for: winner)) wins match"
+        return localizedAppFormat("%@ • %@ wins match", periodLine, store.sideRoleLabel(for: winner))
     }
 
     private var matchNavigationButtons: [ActionDescriptor] {
@@ -8984,7 +9072,7 @@ struct ContentView: View {
         }
 
         return [
-            ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: .white, isEnabled: !isGameClockResetInterlockActive) {
+            ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                 requestGameConfirmation(.previousPeriod)
             },
             ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
@@ -9100,19 +9188,21 @@ struct ContentView: View {
     }
 
     private func scoreButtons(forHomeTeam isHome: Bool, tint: Color) -> [ActionDescriptor] {
+        let tintText = teamAccentText(isHome: isHome)
+
         if store.isDebateMode {
             return [
                 ActionDescriptor(title: "-1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                     store.adjustScore(isHome: isHome, by: -1)
                 },
-                ActionDescriptor(title: "+1", tint: tint, foreground: .white) {
+                ActionDescriptor(title: "+1", tint: tint, foreground: tintText) {
                     store.adjustScore(isHome: isHome, by: 1)
                 }
             ]
         }
 
         let sportButtons = store.currentRules.scoreStepOptions.map { value in
-            ActionDescriptor(title: "+\(value)", tint: tint, foreground: .white) {
+            ActionDescriptor(title: "+\(value)", tint: tint, foreground: tintText) {
                 store.adjustScore(isHome: isHome, by: value)
             }
         }
@@ -9125,7 +9215,9 @@ struct ContentView: View {
     }
 
     private func substitutionControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let tintText = teamAccentText(for: side)
+
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Subs \(store.substitutionsUsed(for: side))/\(store.substitutionsAllowed(for: side)) Used • \(store.substitutionsRemaining(for: side)) Left")
                 .font(.subheadline.weight(.semibold))
                 .singleLineFitted(minScale: 0.7)
@@ -9140,7 +9232,7 @@ struct ContentView: View {
                     ActionDescriptor(
                         title: "Swap +",
                         tint: tint,
-                        foreground: .white,
+                        foreground: tintText,
                         isEnabled: store.substitutionsUsed(for: side) < store.substitutionsAllowed(for: side)
                     ) {
                         store.adjustSubstitutionsUsed(for: side, by: 1)
@@ -9154,6 +9246,7 @@ struct ContentView: View {
 
     private func hockeyPenaltyPanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let timers = side == .home ? store.homePenaltyTimers : store.guestPenaltyTimers
+        let tintText = teamAccentText(for: side)
         return VStack(alignment: .leading, spacing: 10) {
             Text("Penalty Bench")
                 .font(.subheadline.weight(.semibold))
@@ -9162,9 +9255,9 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: .white) { addPenaltyTimer(side: side, seconds: 120) },
-                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: .white) { addPenaltyTimer(side: side, seconds: 240) },
-                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: .white) { addPenaltyTimer(side: side, seconds: 300) }
+                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: tintText) { addPenaltyTimer(side: side, seconds: 120) },
+                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: tintText) { addPenaltyTimer(side: side, seconds: 240) },
+                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: tintText) { addPenaltyTimer(side: side, seconds: 300) }
                 ],
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -9191,10 +9284,10 @@ struct ContentView: View {
                             ActionDescriptor(title: "-1s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                                 store.adjustPenaltyTimer(for: side, timerID: timer.id, by: -1)
                             },
-                            ActionDescriptor(title: "+1s", tint: tint, foreground: .white) {
+                            ActionDescriptor(title: "+1s", tint: tint, foreground: tintText) {
                                 store.adjustPenaltyTimer(for: side, timerID: timer.id, by: 1)
                             },
-                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: .white) {
+                            ActionDescriptor(title: "Clear", tint: themePalette.destructiveTint, foreground: destructiveText) {
                                 pendingGameConfirmation = .clearPenalty(side, timer.id)
                             }
                         ],
@@ -9417,12 +9510,12 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(notice.message)
                     .font(.title3.weight(.black))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(destructiveText)
 
                 Text(notice.detail)
                     .font(.body.weight(.semibold))
                     .lineLimit(3)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(destructiveText.opacity(0.92))
             }
             .layoutPriority(1)
 
@@ -9528,7 +9621,9 @@ struct ContentView: View {
     }
 
     private func teamFoulControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let tintText = teamAccentText(for: side)
+
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Team Fouls \(store.teamFouls(for: side))")
                 .font(.subheadline.weight(.semibold))
                 .singleLineFitted(minScale: 0.7)
@@ -9540,7 +9635,7 @@ struct ContentView: View {
                     ActionDescriptor(title: "Foul -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                         store.adjustTeamFouls(for: side, by: -1)
                     },
-                    ActionDescriptor(title: "Foul +", tint: tint, foreground: .white) {
+                    ActionDescriptor(title: "Foul +", tint: tint, foreground: tintText) {
                         store.adjustTeamFouls(for: side, by: 1)
                     }
                 ],
@@ -9552,6 +9647,14 @@ struct ContentView: View {
 
     private func formatClock(_ seconds: Int) -> String {
         ScoreboardStore.formatGameClock(seconds)
+    }
+
+    private func teamAccentText(isHome: Bool) -> Color {
+        isHome ? homeTintText : guestTintText
+    }
+
+    private func teamAccentText(for side: TeamSide) -> Color {
+        side == .home ? homeTintText : guestTintText
     }
 
     private func cardStatusColor(_ status: PlayerCardStatus) -> Color {
@@ -12661,6 +12764,7 @@ private struct InterfaceLayout {
     var headerBadgeHorizontalPadding: CGFloat { denseControls ? 10 : isTabletSized ? 9 : 12 }
     var headerBadgeVerticalPadding: CGFloat { denseControls ? 6 : isTabletSized ? 5 : 8 }
     var headerActionVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 10 }
+    var headerActionRowStride: CGFloat { 52 }
     var headerToggleButtonSize: CGFloat { denseControls ? 34 : 38 }
     var headerToggleIconFont: Font { denseControls ? .subheadline.weight(.bold) : .headline.weight(.bold) }
     var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }

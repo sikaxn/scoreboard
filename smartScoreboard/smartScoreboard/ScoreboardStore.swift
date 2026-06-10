@@ -609,6 +609,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var theme: ScoreboardTheme = .classic
+    @Published var showsLiveActivityWhenTimerRunning = true
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
     @Published var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle = .horizontalMarquee
@@ -4734,6 +4735,7 @@ final class ScoreboardStore: ObservableObject {
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
+            $showsLiveActivityWhenTimerRunning.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayAnimatedLogoStyle.map { _ in () }.eraseToAnyPublisher(),
@@ -5255,6 +5257,7 @@ final class ScoreboardStore: ObservableObject {
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
+            showsLiveActivityWhenTimerRunning: showsLiveActivityWhenTimerRunning,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo ? .blurred : externalDisplayBackgroundMode,
             externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
             externalDisplayAnimatedLogoBackgroundColor: externalDisplayAnimatedLogoBackgroundColor,
@@ -5517,6 +5520,7 @@ private struct PersistedState: Codable {
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
+    var showsLiveActivityWhenTimerRunning: Bool
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
     var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle
     var externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor
@@ -5615,6 +5619,7 @@ private struct PersistedState: Codable {
         case homeRoster
         case guestRoster
         case theme
+        case showsLiveActivityWhenTimerRunning
         case externalDisplayBackgroundMode
         case externalDisplayAnimatedLogoStyle
         case externalDisplayAnimatedLogoBackgroundColor
@@ -5714,6 +5719,7 @@ private struct PersistedState: Codable {
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
+        showsLiveActivityWhenTimerRunning: Bool,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
         externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle,
         externalDisplayAnimatedLogoBackgroundColor: ExternalDisplayAnimatedLogoBackgroundColor,
@@ -5809,6 +5815,7 @@ private struct PersistedState: Codable {
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
+        self.showsLiveActivityWhenTimerRunning = showsLiveActivityWhenTimerRunning
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
         self.externalDisplayAnimatedLogoStyle = externalDisplayAnimatedLogoStyle
         self.externalDisplayAnimatedLogoBackgroundColor = externalDisplayAnimatedLogoBackgroundColor
@@ -5918,6 +5925,7 @@ private struct PersistedState: Codable {
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
+        showsLiveActivityWhenTimerRunning = try container.decodeIfPresent(Bool.self, forKey: .showsLiveActivityWhenTimerRunning) ?? true
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
         externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle) ?? .horizontalMarquee
         externalDisplayAnimatedLogoBackgroundColor = try container.decodeIfPresent(ExternalDisplayAnimatedLogoBackgroundColor.self, forKey: .externalDisplayAnimatedLogoBackgroundColor) ?? .themeBackground
@@ -6046,6 +6054,7 @@ private struct PersistedState: Codable {
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
+        try container.encode(showsLiveActivityWhenTimerRunning, forKey: .showsLiveActivityWhenTimerRunning)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encode(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
         try container.encode(externalDisplayAnimatedLogoBackgroundColor, forKey: .externalDisplayAnimatedLogoBackgroundColor)
@@ -6154,6 +6163,7 @@ private extension PersistedState {
             homeRoster: defaultRoster,
             guestRoster: defaultRoster,
             theme: .classic,
+            showsLiveActivityWhenTimerRunning: true,
             externalDisplayBackgroundMode: .blurred,
             externalDisplayAnimatedLogoStyle: .horizontalMarquee,
             externalDisplayAnimatedLogoBackgroundColor: .themeBackground,

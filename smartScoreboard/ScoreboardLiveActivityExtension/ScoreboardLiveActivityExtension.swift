@@ -1,8 +1,17 @@
 import ActivityKit
+import Foundation
 import SwiftUI
 import WidgetKit
 
-private let scoreboardAppName = "Smart Scoreboard"
+private let scoreboardAppName = scoreboardActivityString("Smart Scoreboard")
+
+private func scoreboardActivityString(_ key: String) -> String {
+    NSLocalizedString(key, tableName: nil, bundle: .main, value: key, comment: "")
+}
+
+private func scoreboardActivityFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: scoreboardActivityString(key), locale: Locale.current, arguments: arguments)
+}
 
 @main
 struct ScoreboardLiveActivityExtensionBundle: WidgetBundle {
@@ -46,12 +55,18 @@ struct ScoreboardLiveActivityWidget: Widget {
                     }
                 }
             } compactLeading: {
-                ScoreboardLiveActivityLogoView(size: 20)
+                ScoreboardLiveActivityCompactStatusView(state: context.state)
             } compactTrailing: {
-                ScoreboardLiveActivityTimerText(timer: context.state.primaryTimer)
-                    .font(.caption2.monospacedDigit().weight(.black))
+                if let secondaryTimer = context.state.secondaryTimer {
+                    ScoreboardLiveActivityCompactTimerPairView(
+                        primaryTimer: context.state.primaryTimer,
+                        secondaryTimer: secondaryTimer
+                    )
+                } else {
+                    ScoreboardLiveActivityCompactTimerView(timer: context.state.primaryTimer)
+                }
             } minimal: {
-                ScoreboardLiveActivityLogoView(size: 18)
+                ScoreboardLiveActivityMinimalStatusView()
             }
         }
     }
@@ -124,14 +139,114 @@ private struct ScoreboardLiveActivityLogoView: View {
     }
 }
 
+private struct ScoreboardLiveActivityCompactStatusView: View {
+    let state: ScoreboardLiveActivityAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ScoreboardLiveActivityRunningDot(size: 4)
+            ScoreboardLiveActivityLogoView(size: 14)
+        }
+        .frame(width: 20, height: 14, alignment: .leading)
+        .accessibilityLabel(state.statusText)
+    }
+}
+
+private struct ScoreboardLiveActivityCompactTimerView: View {
+    let timer: ScoreboardLiveActivityTimer
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if timer.isActive {
+                ScoreboardLiveActivityRunningDot(size: 4)
+            }
+
+            ScoreboardLiveActivityTimerText(timer: timer)
+                .font(.system(size: 9, weight: .black, design: .rounded).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+        }
+        .frame(width: 42, height: 14, alignment: .trailing)
+        .clipped()
+        .foregroundStyle(timer.isActive ? .green : .primary)
+        .accessibilityLabel("\(timer.title) \(timer.valueText)")
+    }
+}
+
+private struct ScoreboardLiveActivityCompactTimerPairView: View {
+    let primaryTimer: ScoreboardLiveActivityTimer
+    let secondaryTimer: ScoreboardLiveActivityTimer
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 1) {
+            ScoreboardLiveActivityCompactTimerValueView(timer: primaryTimer)
+
+            Text("/")
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.48))
+
+            ScoreboardLiveActivityCompactTimerValueView(timer: secondaryTimer)
+        }
+        .frame(width: 58, height: 14, alignment: .trailing)
+        .clipped()
+        .lineLimit(1)
+        .accessibilityLabel("\(primaryTimer.title) \(primaryTimer.valueText), \(secondaryTimer.title) \(secondaryTimer.valueText)")
+    }
+}
+
+private struct ScoreboardLiveActivityCompactTimerValueView: View {
+    let timer: ScoreboardLiveActivityTimer
+
+    var body: some View {
+        ScoreboardLiveActivityTimerText(timer: timer)
+            .font(.system(size: 8.5, weight: .black, design: .rounded).monospacedDigit())
+            .lineLimit(1)
+            .minimumScaleFactor(0.45)
+            .frame(width: 26, height: 14, alignment: .center)
+            .foregroundStyle(timer.isActive ? activeColor : .white)
+    }
+
+    private var activeColor: Color {
+        switch timer.side {
+        case .home:
+            return Color(red: 0.97, green: 0.38, blue: 0.28)
+        case .guest:
+            return Color(red: 0.22, green: 0.68, blue: 0.95)
+        case nil:
+            return .green
+        }
+    }
+}
+
+private struct ScoreboardLiveActivityMinimalStatusView: View {
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            ScoreboardLiveActivityLogoView(size: 14)
+
+            ScoreboardLiveActivityRunningDot(size: 4)
+                .offset(x: 1, y: -1)
+        }
+        .frame(width: 14, height: 14, alignment: .center)
+        .accessibilityLabel(scoreboardActivityString("Game Running"))
+    }
+}
+
+private struct ScoreboardLiveActivityRunningDot: View {
+    let size: CGFloat
+
+    var body: some View {
+        Circle()
+            .fill(Color.green)
+            .frame(width: size, height: size)
+    }
+}
+
 private struct ScoreboardLiveActivityRunningBadge: View {
     let text: String
 
     var body: some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(Color.green)
-                .frame(width: 7, height: 7)
+            ScoreboardLiveActivityRunningDot(size: 7)
             Text(text)
                 .font(.caption.weight(.black))
                 .textCase(.uppercase)
@@ -192,7 +307,7 @@ private struct ScoreboardLiveActivityPrimaryTimerView: View {
                 }
 
                 if let scoreText = state.scoreText {
-                    Text("Score \(scoreText)")
+                    Text(scoreboardActivityFormat("Score %@", scoreText))
                         .font(.caption2.monospacedDigit().weight(.bold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -234,7 +349,7 @@ private struct ScoreboardLiveActivityTimerPairView: View {
                     }
                     if let scoreText = state.scoreText {
                         ScoreboardLiveActivitySeparator()
-                        Text("Score \(scoreText)").monospacedDigit()
+                        Text(scoreboardActivityFormat("Score %@", scoreText)).monospacedDigit()
                     }
                 }
                 .font(.caption2.weight(.bold))

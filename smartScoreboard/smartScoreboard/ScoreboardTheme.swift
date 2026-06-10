@@ -280,7 +280,8 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 settingsAccentText: .white,
                 settingsSecondaryButtonBackground: .rgb(0.93, 0.94, 0.97),
                 settingsSecondaryButtonText: .rgb(0.10, 0.12, 0.18),
-                destructiveTint: .red,
+                destructiveTint: .rgb(0.78, 0.16, 0.12),
+                destructiveText: .white,
                 dashboardCardBackground: .white.opacity(0.06),
                 dashboardCardBorder: .white.opacity(0.08),
                 dashboardPrimaryText: .white,
@@ -313,7 +314,9 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 boardBadgeTitleText: .white.opacity(0.46),
                 boardBadgeValueText: .white,
                 homeAccent: .rgb(0.97, 0.38, 0.28),
-                guestAccent: .rgb(0.22, 0.68, 0.95)
+                homeAccentText: .black,
+                guestAccent: .rgb(0.22, 0.68, 0.95),
+                guestAccentText: .black
             )
         case .highContrast:
             return ThemePalette(
@@ -340,6 +343,7 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 settingsSecondaryButtonBackground: .rgb(0.20, 0.20, 0.20),
                 settingsSecondaryButtonText: .white,
                 destructiveTint: .rgb(0.86, 0.18, 0.14),
+                destructiveText: .white,
                 dashboardCardBackground: .white.opacity(0.10),
                 dashboardCardBorder: .white.opacity(0.16),
                 dashboardPrimaryText: .white,
@@ -372,7 +376,9 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 boardBadgeTitleText: .white.opacity(0.80),
                 boardBadgeValueText: .white,
                 homeAccent: .rgb(0.96, 0.48, 0.12),
-                guestAccent: .rgb(0.12, 0.72, 0.98)
+                homeAccentText: .black,
+                guestAccent: .rgb(0.12, 0.72, 0.98),
+                guestAccentText: .black
             )
         case .night:
             return ThemePalette(
@@ -399,6 +405,7 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 settingsSecondaryButtonBackground: .rgb(0.18, 0.23, 0.33),
                 settingsSecondaryButtonText: .rgb(0.93, 0.96, 1.0),
                 destructiveTint: .rgb(0.78, 0.23, 0.31),
+                destructiveText: .white,
                 dashboardCardBackground: .white.opacity(0.08),
                 dashboardCardBorder: .white.opacity(0.09),
                 dashboardPrimaryText: .rgb(0.94, 0.97, 1.0),
@@ -431,7 +438,9 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 boardBadgeTitleText: .white.opacity(0.58),
                 boardBadgeValueText: .rgb(0.95, 0.98, 1.0),
                 homeAccent: .rgb(0.93, 0.39, 0.42),
-                guestAccent: .rgb(0.38, 0.70, 1.0)
+                homeAccentText: .black,
+                guestAccent: .rgb(0.38, 0.70, 1.0),
+                guestAccentText: .black
             )
         case .sunlight:
             return ThemePalette(
@@ -458,6 +467,7 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 settingsSecondaryButtonBackground: .rgb(0.95, 0.88, 0.75),
                 settingsSecondaryButtonText: .rgb(0.22, 0.15, 0.08),
                 destructiveTint: .rgb(0.77, 0.25, 0.18),
+                destructiveText: .white,
                 dashboardCardBackground: .white.opacity(0.12),
                 dashboardCardBorder: .white.opacity(0.12),
                 dashboardPrimaryText: .white,
@@ -490,7 +500,9 @@ enum ScoreboardTheme: String, Codable, CaseIterable, Identifiable {
                 boardBadgeTitleText: .white.opacity(0.62),
                 boardBadgeValueText: .white,
                 homeAccent: .rgb(0.96, 0.49, 0.18),
-                guestAccent: .rgb(0.22, 0.65, 0.95)
+                homeAccentText: .black,
+                guestAccent: .rgb(0.22, 0.65, 0.95),
+                guestAccentText: .black
             )
         }
     }
@@ -513,6 +525,7 @@ struct ThemePalette {
     let settingsSecondaryButtonBackground: Color
     let settingsSecondaryButtonText: Color
     let destructiveTint: Color
+    let destructiveText: Color
     let dashboardCardBackground: Color
     let dashboardCardBorder: Color
     let dashboardPrimaryText: Color
@@ -541,7 +554,9 @@ struct ThemePalette {
     let boardBadgeTitleText: Color
     let boardBadgeValueText: Color
     let homeAccent: Color
+    let homeAccentText: Color
     let guestAccent: Color
+    let guestAccentText: Color
 }
 
 struct SettingsPalette {

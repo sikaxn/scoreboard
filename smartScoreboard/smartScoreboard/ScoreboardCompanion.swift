@@ -105,7 +105,7 @@ nonisolated enum ScoreboardCompanionSendError: LocalizedError, Equatable, Sendab
     var errorDescription: String? {
         switch self {
         case .missingHost:
-            return localizedCompanionString("Enter the Companion IP address or host.")
+            return  localizedCompanionString("Enter the Companion IP address or host.")
         case .invalidPort:
             return localizedCompanionString("Enter a Companion port from 1 to 65535.")
         case .invalidLocation:

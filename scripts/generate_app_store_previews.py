@@ -7,8 +7,10 @@ Requirements:
 Run from the repository root:
     python3 scripts/generate_app_store_previews.py
 
-The default output is AppStorePreviews/1.1. Edit PREVIEW_SPECS below for small
-copy, color, ordering, or source screenshot changes.
+The default output is AppStorePreviews/1.1/English and
+AppStorePreviews/1.1/Chinese. Edit PREVIEW_SPECS below for English, or
+CHINESE_PREVIEW_SPECS for Chinese, to make small copy, color, ordering, or
+source screenshot changes.
 """
 
 from __future__ import annotations
@@ -22,11 +24,16 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 DEFAULT_VERSION = "1.1"
 BRAND_LABEL = "Smart Scoreboard"
+BRAND_LABELS = {
+    "English": "Smart Scoreboard",
+    "Chinese": "Smart Scoreboard",
+}
+SUPPORTED_LANGUAGES = tuple(BRAND_LABELS)
 
 # Highest accepted screenshot sizes used here:
-# iPhone 6.9", iPad 13", Mac, and Apple TV.
+# iPhone from the requested App Store size list, iPad 13", Mac, and Apple TV.
 PLATFORM_SIZES = {
-    "iPhone": (1320, 2868),
+    "iPhone": (1284, 2778),
     "iPad": (2752, 2064),
     "Mac": (2880, 1800),
     "AppleTV": (3840, 2160),
@@ -57,6 +64,24 @@ FONT_PATHS = {
         "/Library/Fonts/SF-Pro-Rounded-Semibold.otf",
         "/Library/Fonts/SF-Pro-Display-Semibold.otf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    ],
+}
+
+CHINESE_FONT_PATHS = {
+    "heavy": [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ],
+    "bold": [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ],
+    "semi": [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     ],
 }
 
@@ -122,12 +147,12 @@ PROFILES = {
         shadow_alpha=190,
     ),
     "iPhone": TextProfile(
-        headline_size=68,
-        subhead_size=32,
+        headline_size=66,
+        subhead_size=31,
         label_size=23,
-        margin_x=76,
+        margin_x=70,
         margin_y=74,
-        max_text_width=1120,
+        max_text_width=1088,
         image_top=565,
         image_margin_x=120,
         image_margin_bottom=95,
@@ -217,7 +242,7 @@ PREVIEW_SPECS = [
         ORANGE,
         CYAN,
     ),
-    # iPhone 6.9" portrait, 1320 x 2868. Each combines portrait and landscape.
+    # iPhone portrait, 1284 x 2778. Most combine portrait and landscape.
     PreviewSpec(
         "iPhone",
         "iPhone/IMG_0921.PNG",
@@ -277,6 +302,17 @@ PREVIEW_SPECS = [
         RED,
         CYAN,
         secondary_source="iPhone/IMG_0936.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "Common_ext_screen.PNG",
+        "iphone-07-common-external-scoreboard.png",
+        "Share a clean external scoreboard",
+        "Run controls from iPhone while a shared public board stays visible.",
+        ORANGE,
+        CYAN,
+        mode="iphone_external",
+        secondary_source="iPhone/IMG_0921.PNG",
     ),
     # Mac, 2880 x 1800.
     PreviewSpec(
@@ -380,8 +416,260 @@ PREVIEW_SPECS = [
 ]
 
 
-def load_font(kind: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for path in FONT_PATHS[kind]:
+CHINESE_PREVIEW_SPECS = [
+    # iPad 13" landscape, 2752 x 2064.
+    PreviewSpec(
+        "iPad",
+        "iPad/*10.42.25*.png",
+        "ipad-01-control-board.png",
+        "用 iPad 掌控整场比赛",
+        "比分、计时、进攻时间、节次和球员控制都在一个界面。",
+        ORANGE,
+        BLUE,
+    ),
+    PreviewSpec(
+        "iPad",
+        "iPad/IMG_1860.PNG",
+        "ipad-02-display-modes.png",
+        "决定观众看到什么",
+        "快速切换记分牌、黑屏、队伍视图、球员视图、活动标志和背景。",
+        GREEN,
+        ORANGE,
+    ),
+    PreviewSpec(
+        "iPad",
+        "iPad/IMG_1852.PNG",
+        "ipad-03-game-setup.png",
+        "快速设置运动和队伍",
+        "从预设开始，设置赛事、队伍和计时器。",
+        BLUE,
+        GREEN,
+    ),
+    PreviewSpec(
+        "iPad",
+        "iPad/IMG_1853.PNG",
+        "ipad-04-integrations.png",
+        "连接显示器和制作工具",
+        "远程显示、Web API 和 Bitfocus Companion 集成在一个流程中。",
+        BLUE,
+        PURPLE,
+    ),
+    PreviewSpec(
+        "iPad",
+        "iPad/IMG_1855.PNG",
+        "ipad-05-remote-display.png",
+        "配对附近的远程显示",
+        "将实时记分牌发送到 Apple TV、iPhone、iPad 或 Mac。",
+        ORANGE,
+        RED,
+    ),
+    PreviewSpec(
+        "iPad",
+        "iPad/IMG_1856.PNG",
+        "ipad-06-rosters.png",
+        "导入名单并跟踪球员",
+        "支持 CSV 导入导出、上场名单、球员犯规和换人。",
+        RED,
+        CYAN,
+    ),
+    PreviewSpec(
+        "iPad",
+        "Common_ext_screen.png",
+        "ipad-07-common-external-scoreboard.png",
+        "共享清晰的外接记分牌",
+        "从 iPhone、iPad 或 Mac 控制，公共屏幕保持可见。",
+        ORANGE,
+        CYAN,
+    ),
+    # iPhone portrait, 1284 x 2778. Most combine portrait and landscape.
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0958.PNG",
+        "iphone-01-control-board.png",
+        "iPhone 横竖屏都能控制",
+        "竖屏快速查看，横屏获得更宽的比赛面板。",
+        ORANGE,
+        BLUE,
+        secondary_source="iPhone/IMG_0959.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0960.PNG",
+        "iphone-02-display-modes.png",
+        "用 iPhone 切换显示模式",
+        "预览公共记分牌，并选择观众看到的内容。",
+        GREEN,
+        ORANGE,
+        secondary_source="iPhone/IMG_0961.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0962.PNG",
+        "iphone-03-game-setup.png",
+        "在 iPhone 上设置比赛",
+        "选择运动预设、命名赛事，然后快速开始。",
+        BLUE,
+        GREEN,
+        secondary_source="iPhone/IMG_0963.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0964.PNG",
+        "iphone-04-integrations.png",
+        "连接远程显示和 API",
+        "配对显示设备，提供网页叠加层，并触发制作工具。",
+        BLUE,
+        PURPLE,
+        secondary_source="iPhone/IMG_0965.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0966.PNG",
+        "iphone-05-remote-display.png",
+        "把 iPhone 变成远程显示",
+        "与另一台 Scoreboard 设备配对，实时同步记分牌。",
+        ORANGE,
+        RED,
+        secondary_source="iPhone/IMG_0968.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "iPhone/IMG_0969.PNG",
+        "iphone-06-rosters.png",
+        "球员名单工具适配 iPhone",
+        "管理名单人数、上场阵容、球员犯规和 CSV 工具。",
+        RED,
+        CYAN,
+        secondary_source="iPhone/IMG_0970.PNG",
+    ),
+    PreviewSpec(
+        "iPhone",
+        "Common_ext_screen.png",
+        "iphone-07-common-external-scoreboard.png",
+        "共享清晰的外接记分牌",
+        "用 iPhone 操作，公共记分牌保持显示。",
+        ORANGE,
+        CYAN,
+        mode="iphone_external",
+        secondary_source="iPhone/IMG_0958.PNG",
+    ),
+    # Mac, 2880 x 1800.
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.36.49*.png",
+        "mac-01-control-board.png",
+        "在 Mac 上掌控整场比赛",
+        "比分、时钟、进攻时间、节次和球员控制都在同一工作区。",
+        RED,
+        BLUE,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.37.06*.png",
+        "mac-02-display-modes.png",
+        "在 Mac 上预览显示模式",
+        "先决定公共屏幕内容，再把画面给观众。",
+        GREEN,
+        ORANGE,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.38.21*.png",
+        "mac-03-game-setup.png",
+        "配置队伍、运动和赛事",
+        "从预设开始，也可以在打开记分牌前调整规则。",
+        BLUE,
+        GREEN,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.38.39*.png",
+        "mac-04-public-scoreboard.png",
+        "展示精致的公共记分牌",
+        "观众看到清晰画面，控制保留在操作设备上。",
+        ORANGE,
+        CYAN,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.38.57*.png",
+        "mac-05-integrations.png",
+        "连接 Web API 和 Companion",
+        "将实时比赛状态送到叠加层、OBS、自动化和制作命令。",
+        BLUE,
+        PURPLE,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.39.10*.png",
+        "mac-06-remote-display.png",
+        "配对附近的远程显示",
+        "Apple TV、iPhone、iPad 和 Mac 都能成为同步显示设备。",
+        ORANGE,
+        RED,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Mac/*10.39.26*.png",
+        "mac-07-rosters.png",
+        "在桌面管理球员名单",
+        "CSV 导入导出和球员跟踪都内置在操作工具中。",
+        RED,
+        CYAN,
+        trim_dark_border=True,
+    ),
+    PreviewSpec(
+        "Mac",
+        "Common_ext_screen.png",
+        "mac-08-common-external-scoreboard.png",
+        "共享通用外接显示",
+        "iPad、iPhone 和 Mac 工作流程使用同一个公共记分牌视图。",
+        ORANGE,
+        CYAN,
+    ),
+    # Apple TV, 3840 x 2160. Do not use Common_ext_screen.png for Apple TV.
+    PreviewSpec(
+        "AppleTV",
+        "AppleTV/*10.47.13*.png",
+        "appletv-01-pairing.png",
+        "Apple TV 远程显示配对",
+        "配对一次，即可显示附近 Scoreboard 设备的实时记分牌。",
+        ORANGE,
+        RED,
+    ),
+    PreviewSpec(
+        "AppleTV",
+        "AppleTV/*10.47.23*.png",
+        "appletv-02-live-scoreboard.png",
+        "Apple TV 专用显示记分牌",
+        "观众看到记分牌，控制保留在已配对设备上。",
+        BLUE,
+        ORANGE,
+    ),
+]
+
+PREVIEW_SPECS_BY_LANGUAGE = {
+    "English": PREVIEW_SPECS,
+    "Chinese": CHINESE_PREVIEW_SPECS,
+}
+
+
+def load_font(
+    kind: str,
+    size: int,
+    language: str = "English",
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = []
+    if language == "Chinese":
+        candidates.extend(CHINESE_FONT_PATHS[kind])
+    candidates.extend(FONT_PATHS[kind])
+    for path in candidates:
         if Path(path).exists():
             return ImageFont.truetype(path, size=size)
     return ImageFont.load_default(size=size)
@@ -502,6 +790,20 @@ def wrap_text(
     font: ImageFont.ImageFont,
     max_width: int,
 ) -> list[str]:
+    if " " not in text:
+        lines: list[str] = []
+        line = ""
+        for char in text:
+            candidate = f"{line}{char}"
+            if text_size(draw, candidate, font)[0] <= max_width or not line:
+                line = candidate
+            else:
+                lines.append(line)
+                line = char
+        if line:
+            lines.append(line)
+        return lines
+
     words = text.split()
     lines: list[str] = []
     line = ""
@@ -555,14 +857,16 @@ def draw_text_block(
     headline: str,
     subhead: str,
     accent: tuple[int, int, int],
+    brand_label: str = BRAND_LABEL,
+    language: str = "English",
 ) -> int:
     x = profile.margin_x
     y = profile.margin_y
-    label_font = load_font("semi", profile.label_size)
-    headline_font = load_font("heavy", profile.headline_size)
-    subhead_font = load_font("bold", profile.subhead_size)
+    label_font = load_font("semi", profile.label_size, language)
+    headline_font = load_font("heavy", profile.headline_size, language)
+    subhead_font = load_font("bold", profile.subhead_size, language)
 
-    label_text = BRAND_LABEL.upper()
+    label_text = brand_label.upper()
     label_height = round(profile.label_size * 1.95)
     label_width = text_size(draw, label_text, label_font)[0] + round(profile.label_size * 1.9)
     draw.rounded_rectangle(
@@ -627,8 +931,8 @@ def add_fullbleed_scrim(
     add_color_wash(base, left_accent, right_accent, alpha_boost=0.45)
 
 
-def resolve_source(root: Path, version: str, source: str) -> Path:
-    source_root = root / "images" / version
+def resolve_source(root: Path, version: str, language: str, source: str) -> Path:
+    source_root = root / "images" / version / language
     matches = sorted(source_root.glob(source))
     if matches:
         return matches[0]
@@ -650,18 +954,32 @@ def platform_output_dir(output_root: Path, platform: str) -> Path:
     return output_root / names[platform]
 
 
-def render_iphone_combined(root: Path, version: str, output_root: Path, spec: PreviewSpec) -> Path:
+def render_iphone_combined(
+    root: Path,
+    version: str,
+    output_root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> Path:
     if spec.secondary_source is None:
         raise ValueError(f"{spec.output} needs a secondary landscape iPhone source")
 
     size = PLATFORM_SIZES["iPhone"]
     profile = PROFILES["iPhone"]
-    portrait = Image.open(resolve_source(root, version, spec.source)).convert("RGB")
-    landscape = Image.open(resolve_source(root, version, spec.secondary_source)).convert("RGB")
+    portrait = Image.open(resolve_source(root, version, language, spec.source)).convert("RGB")
+    landscape = Image.open(resolve_source(root, version, language, spec.secondary_source)).convert("RGB")
 
     base = make_canvas(portrait, size, spec.left_accent, spec.right_accent)
     draw = ImageDraw.Draw(base)
-    text_bottom = draw_text_block(draw, profile, spec.headline, spec.subhead, spec.left_accent)
+    text_bottom = draw_text_block(
+        draw,
+        profile,
+        spec.headline,
+        spec.subhead,
+        spec.left_accent,
+        BRAND_LABELS[language],
+        language,
+    )
 
     landscape_top = max(profile.image_top, text_bottom + 58)
     landscape_frame = fit_resize(landscape, (1080, 520))
@@ -694,15 +1012,81 @@ def render_iphone_combined(root: Path, version: str, output_root: Path, spec: Pr
     return output
 
 
-def render_preview(root: Path, version: str, output_root: Path, spec: PreviewSpec) -> Path:
+def render_iphone_external(
+    root: Path,
+    version: str,
+    output_root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> Path:
+    if spec.secondary_source is None:
+        raise ValueError(f"{spec.output} needs an iPhone control source")
+
+    size = PLATFORM_SIZES["iPhone"]
+    profile = PROFILES["iPhone"]
+    external = Image.open(resolve_source(root, version, language, spec.source)).convert("RGB")
+    phone = Image.open(resolve_source(root, version, language, spec.secondary_source)).convert("RGB")
+
+    base = make_canvas(external, size, spec.left_accent, spec.right_accent)
+    draw = ImageDraw.Draw(base)
+    text_bottom = draw_text_block(
+        draw,
+        profile,
+        spec.headline,
+        spec.subhead,
+        spec.left_accent,
+        BRAND_LABELS[language],
+        language,
+    )
+
+    external_top = max(profile.image_top, text_bottom + 58)
+    external_frame = fit_resize(external, (1080, 620))
+    external_x = (size[0] - external_frame.width) // 2
+    paste_shadowed(
+        base,
+        external_frame,
+        (external_x, external_top),
+        radius=42,
+        shadow_blur=44,
+        shadow_alpha=155,
+    )
+
+    phone_top = external_top + external_frame.height + 88
+    phone_frame = fit_resize(phone, (610, size[1] - phone_top - profile.image_margin_bottom))
+    phone_x = (size[0] - phone_frame.width) // 2
+    paste_shadowed(
+        base,
+        phone_frame,
+        (phone_x, phone_top),
+        radius=64,
+        shadow_blur=48,
+        shadow_alpha=165,
+    )
+
+    output = platform_output_dir(output_root, spec.platform) / spec.output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    base.convert("RGB").save(output, "PNG")
+    return output
+
+
+def render_preview(
+    root: Path,
+    version: str,
+    output_root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> Path:
+    if spec.platform == "iPhone" and spec.mode == "iphone_external":
+        return render_iphone_external(root, version, output_root, spec, language)
+
     if spec.platform == "iPhone" and spec.secondary_source is not None:
-        return render_iphone_combined(root, version, output_root, spec)
+        return render_iphone_combined(root, version, output_root, spec, language)
 
     size = PLATFORM_SIZES[spec.platform]
     profile = PROFILES[spec.platform]
     mode = spec.mode or profile.mode
 
-    screenshot = Image.open(resolve_source(root, version, spec.source)).convert("RGB")
+    screenshot = Image.open(resolve_source(root, version, language, spec.source)).convert("RGB")
     if spec.trim_dark_border:
         screenshot = trim_dark_border(screenshot)
 
@@ -710,11 +1094,27 @@ def render_preview(root: Path, version: str, output_root: Path, spec: PreviewSpe
         base = cover_resize(screenshot, size).convert("RGBA")
         add_fullbleed_scrim(base, spec.left_accent, spec.right_accent)
         draw = ImageDraw.Draw(base)
-        draw_text_block(draw, profile, spec.headline, spec.subhead, spec.left_accent)
+        draw_text_block(
+            draw,
+            profile,
+            spec.headline,
+            spec.subhead,
+            spec.left_accent,
+            BRAND_LABELS[language],
+            language,
+        )
     elif mode == "split":
         base = make_canvas(screenshot, size, spec.left_accent, spec.right_accent)
         draw = ImageDraw.Draw(base)
-        draw_text_block(draw, profile, spec.headline, spec.subhead, spec.left_accent)
+        draw_text_block(
+            draw,
+            profile,
+            spec.headline,
+            spec.subhead,
+            spec.left_accent,
+            BRAND_LABELS[language],
+            language,
+        )
 
         left_panel_width = profile.margin_x + profile.max_text_width + 70
         max_width = size[0] - left_panel_width - profile.image_margin_x
@@ -733,7 +1133,15 @@ def render_preview(root: Path, version: str, output_root: Path, spec: PreviewSpe
     else:
         base = make_canvas(screenshot, size, spec.left_accent, spec.right_accent)
         draw = ImageDraw.Draw(base)
-        text_bottom = draw_text_block(draw, profile, spec.headline, spec.subhead, spec.left_accent)
+        text_bottom = draw_text_block(
+            draw,
+            profile,
+            spec.headline,
+            spec.subhead,
+            spec.left_accent,
+            BRAND_LABELS[language],
+            language,
+        )
         image_top = max(profile.image_top, text_bottom + round(profile.headline_size * 0.35))
         max_width = size[0] - profile.image_margin_x * 2
         max_height = size[1] - image_top - profile.image_margin_bottom
@@ -760,15 +1168,24 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Repository root.")
     parser.add_argument("--version", default=DEFAULT_VERSION, help="Image version under images/.")
     parser.add_argument("--out", type=Path, default=Path("AppStorePreviews"), help="Output directory.")
+    parser.add_argument(
+        "--language",
+        "--locale",
+        default="all",
+        choices=("all", *SUPPORTED_LANGUAGES),
+        help="Preview language to generate. Defaults to all.",
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
     output_base = args.out if args.out.is_absolute() else root / args.out
-    output_root = output_base / args.version
     generated: list[Path] = []
+    languages = SUPPORTED_LANGUAGES if args.language == "all" else (args.language,)
 
-    for spec in PREVIEW_SPECS:
-        generated.append(render_preview(root, args.version, output_root, spec))
+    for language in languages:
+        output_root = output_base / args.version / language
+        for spec in PREVIEW_SPECS_BY_LANGUAGE[language]:
+            generated.append(render_preview(root, args.version, output_root, spec, language))
 
     for path in generated:
         size = Image.open(path).size
