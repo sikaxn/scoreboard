@@ -9,6 +9,9 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case debateSegmentStarted
     case debateSegmentStopped
     case debateSegmentExpired
+    case debateUnassignedSegmentStarted
+    case debateUnassignedSegmentStopped
+    case debateUnassignedSegmentExpired
     case debatePrepStarted
     case debatePrepStopped
     case debatePrepExpired
@@ -65,6 +68,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Debate Segment Stop"
         case .debateSegmentExpired:
             return "Debate Segment"
+        case .debateUnassignedSegmentStarted:
+            return "Unassigned Segment Start"
+        case .debateUnassignedSegmentStopped:
+            return "Unassigned Segment Stop"
+        case .debateUnassignedSegmentExpired:
+            return "Unassigned Segment Expired"
         case .debatePrepStarted:
             return "Debate Prep Start"
         case .debatePrepStopped:
@@ -158,6 +167,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Speech, cross-ex, or segment timer stops"
         case .debateSegmentExpired:
             return "Speech or cross-ex timer"
+        case .debateUnassignedSegmentStarted:
+            return "Debate segment timer with no side starts"
+        case .debateUnassignedSegmentStopped:
+            return "Debate segment timer with no side stops"
+        case .debateUnassignedSegmentExpired:
+            return "Debate segment timer with no side reaches zero"
         case .debatePrepStarted:
             return "Any side prep timer starts"
         case .debatePrepStopped:
@@ -251,6 +266,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "pause.circle"
         case .debateSegmentExpired:
             return "quote.bubble"
+        case .debateUnassignedSegmentStarted:
+            return "play.circle"
+        case .debateUnassignedSegmentStopped:
+            return "pause.circle"
+        case .debateUnassignedSegmentExpired:
+            return "timer"
         case .debatePrepStarted:
             return "hourglass"
         case .debatePrepStopped:

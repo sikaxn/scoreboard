@@ -3449,6 +3449,36 @@
         }
       }
     },
+    "Unassigned Segment Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定方环节结束"
+          }
+        }
+      }
+    },
+    "Unassigned Segment Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定方环节开始"
+          }
+        }
+      }
+    },
+    "Unassigned Segment Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定方环节停止"
+          }
+        }
+      }
+    },
     "Debate Segment Reset" : {
       "localizations" : {
         "zh-Hans" : {
@@ -11458,6 +11488,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "发言、交叉质询或环节计时停止"
+          }
+        }
+      }
+    },
+    "Debate segment timer with no side reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定任一方的辩论环节计时归零"
+          }
+        }
+      }
+    },
+    "Debate segment timer with no side starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定任一方的辩论环节计时开始"
+          }
+        }
+      }
+    },
+    "Debate segment timer with no side stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未指定任一方的辩论环节计时停止"
           }
         }
       }

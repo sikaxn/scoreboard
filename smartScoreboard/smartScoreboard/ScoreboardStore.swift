@@ -516,6 +516,9 @@ final class ScoreboardStore: ObservableObject {
         .debateSegmentStarted: .none,
         .debateSegmentStopped: .none,
         .debateSegmentExpired: .debateBell,
+        .debateUnassignedSegmentStarted: .none,
+        .debateUnassignedSegmentStopped: .none,
+        .debateUnassignedSegmentExpired: .none,
         .debatePrepStarted: .none,
         .debatePrepStopped: .none,
         .debatePrepExpired: .debateDoubleBell,
@@ -1040,6 +1043,9 @@ final class ScoreboardStore: ObservableObject {
                 .debateSegmentStarted,
                 .debateSegmentStopped,
                 .debateSegmentExpired,
+                .debateUnassignedSegmentStarted,
+                .debateUnassignedSegmentStopped,
+                .debateUnassignedSegmentExpired,
                 .debatePrepStarted,
                 .debatePrepStopped,
                 .debatePrepExpired
@@ -3961,6 +3967,8 @@ final class ScoreboardStore: ObservableObject {
                             accumulatedGameClockElapsed = 0
                             if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
                                 clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
+                            } else if isDebateMode, debateActiveTimer == .segment {
+                                clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
                             }
                             soundEvents.append(fallbackEvent)
                             recordLog(
@@ -4183,6 +4191,18 @@ final class ScoreboardStore: ObservableObject {
         side == .home ? .homeSideClockExpired : .guestSideClockExpired
     }
 
+    private func debateUnassignedClockStartedEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentStarted
+    }
+
+    private func debateUnassignedClockStoppedEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentStopped
+    }
+
+    private func debateUnassignedClockExpiredEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentExpired
+    }
+
     private func prepClockStartedEvent(for side: TeamSide) -> ScoreboardSoundEvent {
         side == .home ? .homePrepClockStarted : .guestPrepClockStarted
     }
@@ -4205,6 +4225,13 @@ final class ScoreboardStore: ObservableObject {
 
     private func currentClockStartedDispatch(fallbackEvent: ScoreboardSoundEvent? = nil) -> ScoreboardEventDispatch {
         let resolvedFallbackEvent = fallbackEvent ?? clockStartedFallbackEvent
+        if isDebateMode, debateActiveTimer == .segment {
+            if let event = currentSideClockStartedEvent() {
+                return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+            }
+            return eventDispatch(debateUnassignedClockStartedEvent(), fallbackEvent: resolvedFallbackEvent)
+        }
+
         if let event = currentSideClockStartedEvent() {
             return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
         }
@@ -4213,6 +4240,13 @@ final class ScoreboardStore: ObservableObject {
 
     private func currentClockStoppedDispatch(fallbackEvent: ScoreboardSoundEvent? = nil) -> ScoreboardEventDispatch {
         let resolvedFallbackEvent = fallbackEvent ?? clockStoppedFallbackEvent
+        if isDebateMode, debateActiveTimer == .segment {
+            if let event = currentSideClockStoppedEvent() {
+                return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+            }
+            return eventDispatch(debateUnassignedClockStoppedEvent(), fallbackEvent: resolvedFallbackEvent)
+        }
+
         if let event = currentSideClockStoppedEvent() {
             return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
         }
