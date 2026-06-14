@@ -6,11 +6,27 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case gameClockExpired
     case shotClockExpired
     case chessClockExpired
+    case debateSegmentStarted
+    case debateSegmentStopped
     case debateSegmentExpired
+    case debatePrepStarted
+    case debatePrepStopped
     case debatePrepExpired
     case hockeyPenaltyExpired
     case gameClockStarted
     case gameClockPaused
+    case homeSideClockStarted
+    case homeSideClockStopped
+    case homeSideClockExpired
+    case guestSideClockStarted
+    case guestSideClockStopped
+    case guestSideClockExpired
+    case homePrepClockStarted
+    case homePrepClockStopped
+    case homePrepClockExpired
+    case guestPrepClockStarted
+    case guestPrepClockStopped
+    case guestPrepClockExpired
     case shotClockStarted
     case shotClockPaused
     case shotClockReset
@@ -43,8 +59,16 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Shot Clock"
         case .chessClockExpired:
             return "Chess Clock"
+        case .debateSegmentStarted:
+            return "Debate Segment Start"
+        case .debateSegmentStopped:
+            return "Debate Segment Stop"
         case .debateSegmentExpired:
             return "Debate Segment"
+        case .debatePrepStarted:
+            return "Debate Prep Start"
+        case .debatePrepStopped:
+            return "Debate Prep Stop"
         case .debatePrepExpired:
             return "Prep Time"
         case .hockeyPenaltyExpired:
@@ -53,6 +77,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Clock Start"
         case .gameClockPaused:
             return "Clock Pause"
+        case .homeSideClockStarted:
+            return "Home Clock Start"
+        case .homeSideClockStopped:
+            return "Home Clock Stop"
+        case .homeSideClockExpired:
+            return "Home Clock Expired"
+        case .guestSideClockStarted:
+            return "Guest Clock Start"
+        case .guestSideClockStopped:
+            return "Guest Clock Stop"
+        case .guestSideClockExpired:
+            return "Guest Clock Expired"
+        case .homePrepClockStarted:
+            return "Home Prep Start"
+        case .homePrepClockStopped:
+            return "Home Prep Stop"
+        case .homePrepClockExpired:
+            return "Home Prep Expired"
+        case .guestPrepClockStarted:
+            return "Guest Prep Start"
+        case .guestPrepClockStopped:
+            return "Guest Prep Stop"
+        case .guestPrepClockExpired:
+            return "Guest Prep Expired"
         case .shotClockStarted:
             return "Shot Timer Start"
         case .shotClockPaused:
@@ -104,8 +152,16 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Short possession timer alert"
         case .chessClockExpired:
             return "Side clock expiration"
+        case .debateSegmentStarted:
+            return "Speech, cross-ex, or segment timer starts"
+        case .debateSegmentStopped:
+            return "Speech, cross-ex, or segment timer stops"
         case .debateSegmentExpired:
             return "Speech or cross-ex timer"
+        case .debatePrepStarted:
+            return "Any side prep timer starts"
+        case .debatePrepStopped:
+            return "Any side prep timer stops"
         case .debatePrepExpired:
             return "Per-side prep timer"
         case .hockeyPenaltyExpired:
@@ -114,6 +170,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Main, chess, or debate clock starts"
         case .gameClockPaused:
             return "Main, chess, or debate clock stops"
+        case .homeSideClockStarted:
+            return "Home, Side A, or speaking-side clock starts"
+        case .homeSideClockStopped:
+            return "Home, Side A, or speaking-side clock stops"
+        case .homeSideClockExpired:
+            return "Home, Side A, or speaking-side clock reaches zero"
+        case .guestSideClockStarted:
+            return "Guest, Side B, or speaking-side clock starts"
+        case .guestSideClockStopped:
+            return "Guest, Side B, or speaking-side clock stops"
+        case .guestSideClockExpired:
+            return "Guest, Side B, or speaking-side clock reaches zero"
+        case .homePrepClockStarted:
+            return "Home or Side A prep time starts"
+        case .homePrepClockStopped:
+            return "Home or Side A prep time stops"
+        case .homePrepClockExpired:
+            return "Home or Side A prep time reaches zero"
+        case .guestPrepClockStarted:
+            return "Guest or Side B prep time starts"
+        case .guestPrepClockStopped:
+            return "Guest or Side B prep time stops"
+        case .guestPrepClockExpired:
+            return "Guest or Side B prep time reaches zero"
         case .shotClockStarted:
             return "Shot timer starts"
         case .shotClockPaused:
@@ -165,8 +245,16 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "timer.circle"
         case .chessClockExpired:
             return "checkerboard.rectangle"
+        case .debateSegmentStarted:
+            return "play.circle"
+        case .debateSegmentStopped:
+            return "pause.circle"
         case .debateSegmentExpired:
             return "quote.bubble"
+        case .debatePrepStarted:
+            return "hourglass"
+        case .debatePrepStopped:
+            return "pause.circle"
         case .debatePrepExpired:
             return "hourglass"
         case .hockeyPenaltyExpired:
@@ -175,6 +263,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "play.circle"
         case .gameClockPaused:
             return "pause.circle"
+        case .homeSideClockStarted:
+            return "play.circle"
+        case .homeSideClockStopped:
+            return "pause.circle"
+        case .homeSideClockExpired:
+            return "timer"
+        case .guestSideClockStarted:
+            return "play.circle"
+        case .guestSideClockStopped:
+            return "pause.circle"
+        case .guestSideClockExpired:
+            return "timer"
+        case .homePrepClockStarted:
+            return "hourglass"
+        case .homePrepClockStopped:
+            return "pause.circle"
+        case .homePrepClockExpired:
+            return "hourglass.bottomhalf.filled"
+        case .guestPrepClockStarted:
+            return "hourglass"
+        case .guestPrepClockStopped:
+            return "pause.circle"
+        case .guestPrepClockExpired:
+            return "hourglass.bottomhalf.filled"
         case .shotClockStarted:
             return "play.circle"
         case .shotClockPaused:

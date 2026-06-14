@@ -3369,6 +3369,26 @@
         }
       }
     },
+    "Debate Prep Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辩论准备开始"
+          }
+        }
+      }
+    },
+    "Debate Prep Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辩论准备停止"
+          }
+        }
+      }
+    },
     "Debate Prep Toggle" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3405,6 +3425,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "辩论环节"
+          }
+        }
+      }
+    },
+    "Debate Segment Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辩论环节开始"
+          }
+        }
+      }
+    },
+    "Debate Segment Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辩论环节停止"
           }
         }
       }
@@ -7572,6 +7612,26 @@
         }
       }
     },
+    "Any side prep timer starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任一方准备计时开始"
+          }
+        }
+      }
+    },
+    "Any side prep timer stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任一方准备计时停止"
+          }
+        }
+      }
+    },
     "Period" : {
       "localizations" : {
         "zh-Hans" : {
@@ -11382,6 +11442,26 @@
         }
       }
     },
+    "Speech, cross-ex, or segment timer starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发言、交叉质询或环节计时开始"
+          }
+        }
+      }
+    },
+    "Speech, cross-ex, or segment timer stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发言、交叉质询或环节计时停止"
+          }
+        }
+      }
+    },
     "Split Background" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13957,6 +14037,317 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "比分清零"
+          }
+        }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "电子邮件"
+          }
+        }
+      }
+    },
+    "Guest Clock Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队时钟结束"
+          }
+        }
+      }
+    },
+    "Guest Clock Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队时钟开始"
+          }
+        }
+      }
+    },
+    "Guest Clock Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队时钟停止"
+          }
+        }
+      }
+    },
+    "Guest or Side B prep time reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队或 B 方准备时间归零"
+          }
+        }
+      }
+    },
+    "Guest or Side B prep time starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队或 B 方准备时间开始"
+          }
+        }
+      }
+    },
+    "Guest or Side B prep time stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队或 B 方准备时间停止"
+          }
+        }
+      }
+    },
+    "Guest Prep Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队准备时间结束"
+          }
+        }
+      }
+    },
+    "Guest Prep Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队准备时间开始"
+          }
+        }
+      }
+    },
+    "Guest Prep Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队准备时间停止"
+          }
+        }
+      }
+    },
+    "Guest, Side B, or speaking-side clock reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队、B 方或发言方时钟归零"
+          }
+        }
+      }
+    },
+    "Guest, Side B, or speaking-side clock starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队、B 方或发言方时钟开始"
+          }
+        }
+      }
+    },
+    "Guest, Side B, or speaking-side clock stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队、B 方或发言方时钟停止"
+          }
+        }
+      }
+    },
+    "Home Clock Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队时钟结束"
+          }
+        }
+      }
+    },
+    "Home Clock Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队时钟开始"
+          }
+        }
+      }
+    },
+    "Home Clock Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队时钟停止"
+          }
+        }
+      }
+    },
+    "Home or Side A prep time reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队或 A 方准备时间归零"
+          }
+        }
+      }
+    },
+    "Home or Side A prep time starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队或 A 方准备时间开始"
+          }
+        }
+      }
+    },
+    "Home or Side A prep time stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队或 A 方准备时间停止"
+          }
+        }
+      }
+    },
+    "Home Prep Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队准备时间结束"
+          }
+        }
+      }
+    },
+    "Home Prep Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队准备时间开始"
+          }
+        }
+      }
+    },
+    "Home Prep Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队准备时间停止"
+          }
+        }
+      }
+    },
+    "Home, Side A, or speaking-side clock reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队、A 方或发言方时钟归零"
+          }
+        }
+      }
+    },
+    "Home, Side A, or speaking-side clock starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队、A 方或发言方时钟开始"
+          }
+        }
+      }
+    },
+    "Home, Side A, or speaking-side clock stops" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队、A 方或发言方时钟停止"
+          }
+        }
+      }
+    },
+    "Local Display" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本机显示"
+          }
+        }
+      }
+    },
+    "Local Scoreboard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本机记分牌"
+          }
+        }
+      }
+    },
+    "Local Scoreboard is live. Rotate iPhone to show the scoreboard on this screen." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本机记分牌正在显示。将 iPhone 旋转至横屏即可在此屏幕上显示记分牌。"
+          }
+        }
+      }
+    },
+    "Show Scoreboard on This Device" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此设备上显示记分牌"
+          }
+        }
+      }
+    },
+    "Tap anywhere on screen to return to the control board." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按屏幕任意位置返回控制面板。"
+          }
+        }
+      }
+    },
+    "Tap anywhere to return to the control board." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按任意位置返回控制面板。"
           }
         }
       }

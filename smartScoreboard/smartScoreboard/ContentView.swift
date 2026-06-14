@@ -98,6 +98,9 @@ struct ContentView: View {
     @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
     @State private var dashboardPage: DashboardPage = .main
     @State private var isDashboardHeaderHidden = false
+    @State private var showsLocalScoreboard = false
+    @State private var showsLocalScoreboardReturnHint = false
+    @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
     @State private var dashboardTipGroup: TipGroup?
     @State private var dashboardTipGroupSignature = ""
     @State private var pendingGameConfirmation: GameConfirmationAction?
@@ -543,6 +546,7 @@ struct ContentView: View {
             }
         }
         .scoreboardShareExporter(payload: $exportSharePayload)
+        .statusBar(hidden: showsLocalScoreboard)
     }
     #else
     private var filePresentationConfiguredRootView: some View {
@@ -4358,6 +4362,13 @@ struct ContentView: View {
                 )
                 settingsDivider()
                 settingsLinkRow(
+                    title: "Email",
+                    subtitle: "smartscoreboard@studenttechsupport.com",
+                    systemImage: "envelope",
+                    urlString: "mailto:smartscoreboard@studenttechsupport.com"
+                )
+                settingsDivider()
+                settingsLinkRow(
                     title: "Bug Reports",
                     subtitle: "Open a GitHub issue",
                     systemImage: "exclamationmark.bubble",
@@ -6885,24 +6896,19 @@ struct ContentView: View {
     }
 
     private func dashboardHeaderReservedHeight(layout: InterfaceLayout) -> CGFloat {
-        let baseHeight = layout.dashboardHeaderHeight
+        var reservedHeight = layout.dashboardHeaderHeight
 
-        #if os(macOS)
-        return baseHeight
-        #else
-        guard layout.headerUsesVerticalFlow else {
-            return baseHeight
+        #if os(iOS)
+        if layout.headerUsesVerticalFlow {
+            reservedHeight += 12
+
+            if store.isCompanionVisible {
+                reservedHeight += layout.headerActionRowStride
+            }
         }
-
-        let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
-        let columns = max(1, min(layout.headerActionColumns, actionCount))
-        let rows = Int(ceil(Double(actionCount) / Double(columns)))
-        guard rows > 1 else {
-            return baseHeight
-        }
-
-        return baseHeight + CGFloat(rows - 1) * layout.headerActionRowStride
         #endif
+
+        return reservedHeight
     }
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
@@ -6910,8 +6916,7 @@ struct ContentView: View {
             if layout.headerUsesVerticalFlow {
                 VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
                     headerTitleBlock(layout: layout)
-                    headerStatusBadge(layout: layout)
-                    headerActionButtons(layout: layout)
+                    verticalHeaderControls(layout: layout)
                 }
             } else {
                 HStack(spacing: layout.headerInlineSpacing) {
@@ -6931,7 +6936,7 @@ struct ContentView: View {
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
         .overlay(alignment: .topTrailing) {
-            if isIPhoneInterface {
+            if isIPhoneInterface && !layout.headerUsesVerticalFlow {
                 hideDashboardHeaderButton(layout: layout)
                     .padding(.top, layout.headerVerticalPadding)
                     .padding(.trailing, layout.headerHorizontalPadding)
@@ -6965,47 +6970,145 @@ struct ContentView: View {
         }
     }
 
-    private func headerStatusBadge(layout: InterfaceLayout) -> some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: displayStatusSystemImage)
-                    .imageScale(.medium)
-                    .accessibilityHidden(true)
+    @ViewBuilder
+    private func verticalHeaderControls(layout: InterfaceLayout) -> some View {
+        #if os(iOS)
+        if isIPhoneInterface {
+            iPhoneHeaderControls(layout: layout)
+        } else {
+            headerStatusBadge(layout: layout)
+            headerActionButtons(layout: layout)
+        }
+        #else
+        headerStatusBadge(layout: layout)
+        headerActionButtons(layout: layout)
+        #endif
+    }
 
-                VStack(alignment: .leading, spacing: 1) {
-                    localizedAppText(displayStatusTitle)
-                        .font(layout.headerBadgeFont)
+    @ViewBuilder
+    private func headerStatusBadge(layout: InterfaceLayout) -> some View {
+        #if os(iOS)
+        if layout.headerUsesVerticalFlow {
+            localDisplayStatusGroup(layout: layout)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            localDisplayStatusGroup(layout: layout)
+        }
+        #else
+        externalDisplayHeaderStatusBadge(layout: layout)
+        #endif
+    }
+
+    private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: displayStatusSystemImage)
+                .imageScale(.medium)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                localizedAppText(displayStatusTitle)
+                    .font(layout.headerBadgeFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                if let remoteDisplayHeaderStatusTitle {
+                    Text(remoteDisplayHeaderStatusTitle)
+                        .font(layout.headerBadgeDetailFont)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-
-                    if let remoteDisplayHeaderStatusTitle {
-                        Text(remoteDisplayHeaderStatusTitle)
-                            .font(layout.headerBadgeDetailFont)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
                 }
             }
-                .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
-                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-                .padding(.vertical, layout.headerBadgeVerticalPadding)
-                .background(themePalette.dashboardCardBackground, in: Capsule())
-                .accessibilityElement(children: .combine)
+        }
+        .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
+        .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+        .padding(.vertical, layout.headerBadgeVerticalPadding)
+        .background(themePalette.dashboardCardBackground, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
 
-            Button {
-                dashboardPage = .preview
-            } label: {
-                Label("Display Control", systemImage: "display")
-                    .font(layout.headerBadgeFont)
-                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                    .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-                    .padding(.vertical, layout.headerBadgeVerticalPadding)
-                    .background(themePalette.dashboardNeutralButton, in: Capsule())
+    #if os(iOS)
+    private func iPhoneHeaderControls(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                iPhoneHeaderButtonCluster(layout: layout)
             }
-            .buttonStyle(.plain)
-            .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.displayPreview), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                iPhoneHeaderButtonCluster(layout: layout)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func iPhoneHeaderButtonCluster(layout: InterfaceLayout) -> some View {
+        iPhoneHeaderIconButtonRow(layout: layout)
+    }
+
+    private func iPhoneHeaderIconButtonRow(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 8) {
+            localScoreboardHeaderButton(layout: layout)
+            displayControlHeaderButton(layout: layout)
+            soundHeaderButton(layout: layout)
+            themeHeaderMenu(layout: layout)
+            if store.isCompanionVisible {
+                companionHeaderButton(layout: layout)
+            }
+            settingsHeaderButton(layout: layout)
+            hideDashboardHeaderButton(layout: layout)
         }
     }
+
+    @ViewBuilder
+    private func localDisplayStatusGroup(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                localScoreboardHeaderButton(layout: layout)
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                localScoreboardHeaderButton(layout: layout)
+            }
+        }
+    }
+
+    private func localScoreboardHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            enterLocalScoreboardMode()
+        } label: {
+            localScoreboardHeaderButtonLabel(layout: layout)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Local Display"))
+        .accessibilityHint(localizedAppString("Show Scoreboard on This Device"))
+        .help(localizedAppString("Show Scoreboard on This Device"))
+    }
+
+    @ViewBuilder
+    private func localScoreboardHeaderButtonLabel(layout: InterfaceLayout) -> some View {
+        if isIPhoneInterface {
+            headerIconButtonLabel(
+                systemImage: "platter.2.filled.ipad",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        } else {
+            Label(localizedAppString("Local Display"), systemImage: "platter.2.filled.ipad")
+                .font(layout.headerBadgeFont)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(height: layout.headerIconButtonSize)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+    #endif
 
     @ViewBuilder
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
@@ -7013,6 +7116,7 @@ struct ContentView: View {
         HStack(spacing: 10) {
             Spacer(minLength: 0)
             publicBoardHeaderButton(layout: layout)
+            displayControlHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
             themeHeaderMenu(layout: layout)
             if store.isCompanionVisible {
@@ -7023,28 +7127,37 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         #else
-        HStack(spacing: 10) {
-            Spacer(minLength: 0)
-            let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
-
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 10),
-                    count: max(1, min(layout.headerActionColumns, actionCount))
-                ),
-                spacing: 10
-            ) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                displayControlHeaderButton(layout: layout)
                 soundHeaderButton(layout: layout)
                 themeHeaderMenu(layout: layout)
                 if store.isCompanionVisible {
                     companionHeaderButton(layout: layout)
                 }
                 settingsHeaderButton(layout: layout)
-            }
-            .frame(maxWidth: layout.headerActionWidth, alignment: .trailing)
 
-            if !isIPhoneInterface {
-                hideDashboardHeaderButton(layout: layout)
+                if !isIPhoneInterface {
+                    hideDashboardHeaderButton(layout: layout)
+                }
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if store.isCompanionVisible {
+                    companionHeaderButton(layout: layout)
+                }
+
+                HStack(spacing: 10) {
+                    displayControlHeaderButton(layout: layout)
+                    soundHeaderButton(layout: layout)
+                    themeHeaderMenu(layout: layout)
+                    settingsHeaderButton(layout: layout)
+
+                    if !isIPhoneInterface {
+                        hideDashboardHeaderButton(layout: layout)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -7064,15 +7177,38 @@ struct ContentView: View {
     }
     #endif
 
-    private func soundHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            store.isSoundEnabled ? "Sound On" : "Sound Off",
-            tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-            foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
-            store.toggleSoundEnabled()
+    private func displayControlHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            dashboardPage = .preview
+        } label: {
+            headerIconButtonLabel(
+                systemImage: "appletvremote.gen4",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Display Control"))
+        .help(localizedAppString("Display Control"))
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.displayPreview), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+    }
+
+    private func soundHeaderButton(layout: InterfaceLayout) -> some View {
+        let title = store.isSoundEnabled ? "Sound On" : "Sound Off"
+        return Button {
+            store.toggleSoundEnabled()
+        } label: {
+            headerIconButtonLabel(
+                systemImage: store.isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func themeHeaderMenu(layout: InterfaceLayout) -> some View {
@@ -7087,14 +7223,12 @@ struct ContentView: View {
                 }
             }
         } label: {
-            Label("Theme", systemImage: store.theme.systemImage)
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, layout.headerActionVerticalPadding)
-                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            headerIconButtonLabel(
+                systemImage: store.theme.systemImage,
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString("Theme"))
@@ -7102,30 +7236,44 @@ struct ContentView: View {
     }
 
     private func companionHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            store.isCompanionEnabled ? "Companion On" : "Companion Off",
-            tint: store.isCompanionEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-            foreground: store.isCompanionEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
+        let title = store.isCompanionEnabled ? "Companion On" : "Companion Off"
+        return Button {
             store.toggleCompanionEnabled()
+        } label: {
+            headerIconButtonLabel(
+                systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage,
+                tint: store.isCompanionEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                foreground: store.isCompanionEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func settingsHeaderButton(layout: InterfaceLayout) -> some View {
         Button {
             openSettingsFromLiveBoard()
         } label: {
-            Label("Settings", systemImage: "gearshape")
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, layout.headerActionVerticalPadding)
-                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            headerIconButtonLabel(
+                systemImage: "gearshape",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Settings"))
+        .help(localizedAppString("Settings"))
+    }
+
+    private func headerIconButtonLabel(systemImage: String, tint: Color, foreground: Color, layout: InterfaceLayout) -> some View {
+        Image(systemName: systemImage)
+            .font(layout.headerToggleIconFont)
+            .foregroundStyle(foreground)
+            .frame(width: layout.headerIconButtonSize, height: layout.headerIconButtonSize)
+            .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func hideDashboardHeaderButton(layout: InterfaceLayout) -> some View {
@@ -7522,14 +7670,8 @@ struct ContentView: View {
                 layout: layout
             )
 
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 10),
-                    count: layout.isCompactWidth ? 2 : 3
-                ),
-                spacing: 10
-            ) {
-                ForEach(ScoreboardDisplayViewMode.allCases) { mode in
+            LazyVGrid(columns: displayPresetGridColumns(layout: layout), spacing: displayPresetGridSpacing(layout: layout)) {
+                ForEach(displayPresetModes) { mode in
                     displayPresetButton(mode, layout: layout)
                 }
             }
@@ -7541,6 +7683,25 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+    }
+
+    private var displayPresetModes: [ScoreboardDisplayViewMode] {
+        [
+            .blackScreen,
+            .backgroundOnly,
+            .eventLogo,
+            .teamView,
+            .playerView,
+            .scoreboard
+        ]
+    }
+
+    private func displayPresetGridColumns(layout: InterfaceLayout) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: displayPresetGridSpacing(layout: layout)), count: 3)
+    }
+
+    private func displayPresetGridSpacing(layout: InterfaceLayout) -> CGFloat {
+        layout.isCompactWidth ? 8 : 10
     }
 
     @ViewBuilder
@@ -9682,11 +9843,203 @@ struct ContentView: View {
                 .padding(.horizontal, layout.outerPadding)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
+
+            #if os(iOS)
+            if !showsSetup, showsLocalScoreboard {
+                localScoreboardOverlay()
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
+            #endif
         }
         .animation(.easeInOut(duration: 0.24), value: showsSetup)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.companionFailureNotice?.id)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.remoteDisplayWarningNotice?.id)
+        #if os(iOS)
+        .animation(.easeInOut(duration: 0.18), value: showsLocalScoreboard)
+        #endif
     }
+
+    #if os(iOS)
+    private func localScoreboardOverlay() -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                if shouldShowLocalScoreboardIPhoneLandscapePrompt(in: proxy.size) {
+                    localScoreboardIPhoneLandscapePrompt()
+                } else {
+                    ExternalScoreboardView()
+                        .ignoresSafeArea()
+                }
+
+                if showsLocalScoreboardReturnHint {
+                    VStack {
+                        localScoreboardReturnHint()
+                            .padding(.top, localScoreboardReturnHintTopPadding(in: proxy))
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 18)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    exitLocalScoreboardMode()
+                }
+            )
+        }
+        .ignoresSafeArea()
+        .background(Color.black.ignoresSafeArea())
+        .onAppear {
+            AppSleepPrevention.setReason(.localScoreboardVisible, active: true)
+        }
+        .onDisappear {
+            AppSleepPrevention.setReason(.localScoreboardVisible, active: false)
+            cancelLocalScoreboardReturnHint()
+        }
+        .accessibilityLabel(localizedAppString("Local Scoreboard"))
+        .accessibilityHint(localizedAppString("Tap anywhere on screen to return to the control board."))
+    }
+
+    private func localScoreboardReturnHintTopPadding(in proxy: GeometryProxy) -> CGFloat {
+        let basePadding = CGFloat(18)
+        let safeTopPadding = proxy.safeAreaInsets.top + basePadding
+
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return safeTopPadding
+        }
+
+        guard proxy.size.height > proxy.size.width else {
+            return safeTopPadding
+        }
+
+        return max(safeTopPadding, 78)
+    }
+
+    private func localScoreboardReturnHint() -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.tap.fill")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.black.opacity(0.84))
+                .accessibilityHidden(true)
+
+            Text("Tap anywhere on screen to return to the control board.")
+                .font(.callout.weight(.bold))
+                .foregroundStyle(.black.opacity(0.86))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.white.opacity(0.42), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+        .frame(maxWidth: 460)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func localScoreboardIPhoneLandscapePrompt() -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.03, blue: 0.05),
+                    Color(red: 0.04, green: 0.09, blue: 0.08),
+                    .black
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "iphone.landscape")
+                    .font(.system(size: 46, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .frame(width: 76, height: 76)
+                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(.white.opacity(0.16), lineWidth: 1)
+                    )
+
+                VStack(spacing: 10) {
+                    Text("Turn iPhone to Landscape")
+                        .font(.title2.weight(.black))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+
+                    Text("Local Scoreboard is live. Rotate iPhone to show the scoreboard on this screen.")
+                        .font(.callout.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 28)
+            .frame(maxWidth: 430)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .safeAreaPadding(.horizontal, 18)
+        .safeAreaPadding(.vertical, 16)
+    }
+
+    private func shouldShowLocalScoreboardIPhoneLandscapePrompt(in size: CGSize) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && size.height > size.width
+    }
+
+    private func scheduleLocalScoreboardReturnHintDismissal() {
+        localScoreboardReturnHintDismissTask?.cancel()
+        localScoreboardReturnHintDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard showsLocalScoreboard else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showsLocalScoreboardReturnHint = false
+                }
+                localScoreboardReturnHintDismissTask = nil
+            }
+        }
+    }
+
+    private func cancelLocalScoreboardReturnHint() {
+        localScoreboardReturnHintDismissTask?.cancel()
+        localScoreboardReturnHintDismissTask = nil
+        showsLocalScoreboardReturnHint = false
+    }
+
+    private func showLocalScoreboardReturnHint() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showsLocalScoreboardReturnHint = true
+        }
+        scheduleLocalScoreboardReturnHintDismissal()
+    }
+
+    private func enterLocalScoreboardMode() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showsLocalScoreboard = true
+        }
+        showLocalScoreboardReturnHint()
+    }
+
+    private func exitLocalScoreboardMode() {
+        dashboardPage = .main
+        cancelLocalScoreboardReturnHint()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showsLocalScoreboard = false
+        }
+    }
+    #endif
 
     private func companionFailureBanner(_ notice: ScoreboardCompanionFailureNotice) -> some View {
         HStack(alignment: .top, spacing: 14) {
@@ -12038,21 +12391,36 @@ struct ContentView: View {
             return nil
         }
 
-        let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
-        let pairedDisplayCount = pairedDisplayIDs.count
-        guard pairedDisplayCount > 0 else {
+        guard remoteDisplayHeaderTotalDisplayCount > 0 else {
             return nil
         }
 
-        let connectedDisplayCount = store.remoteDisplayConnectedDisplays.filter {
-            pairedDisplayIDs.contains($0.id)
-        }.count
+        return remoteDisplayHeaderCountStatusTitle
+    }
 
-        return localizedAppFormat(
+    private var remoteDisplayHeaderCountStatusTitle: String {
+        localizedAppFormat(
             "Remote Display %d/%d",
-            connectedDisplayCount,
-            pairedDisplayCount
+            remoteDisplayHeaderConnectedDisplayCount,
+            remoteDisplayHeaderTotalDisplayCount
         )
+    }
+
+    private var remoteDisplayHeaderConnectedDisplayCount: Int {
+        let knownDisplayIDs = remoteDisplayHeaderKnownDisplayIDs
+        return store.remoteDisplayConnectedDisplays.filter {
+            knownDisplayIDs.contains($0.id)
+        }.count
+    }
+
+    private var remoteDisplayHeaderTotalDisplayCount: Int {
+        remoteDisplayHeaderKnownDisplayIDs.count
+    }
+
+    private var remoteDisplayHeaderKnownDisplayIDs: Set<String> {
+        let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
+        let connectedDisplayIDs = Set(store.remoteDisplayConnectedDisplays.map(\.id))
+        return pairedDisplayIDs.union(connectedDisplayIDs)
     }
 
     private var displayStatusSystemImage: String {
@@ -12955,6 +13323,7 @@ private struct InterfaceLayout {
     var headerActionVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 10 }
     var headerActionRowStride: CGFloat { 52 }
     var headerToggleButtonSize: CGFloat { denseControls ? 34 : 38 }
+    var headerIconButtonSize: CGFloat { headerToggleButtonSize }
     var headerToggleIconFont: Font { denseControls ? .subheadline.weight(.bold) : .headline.weight(.bold) }
     var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
