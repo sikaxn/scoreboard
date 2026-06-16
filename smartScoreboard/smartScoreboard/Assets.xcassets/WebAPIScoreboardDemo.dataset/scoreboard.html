@@ -169,6 +169,9 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .stats.has-pauses {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
     .stat {
       min-height: 46px;
       display: grid;
@@ -532,6 +535,7 @@
         <div class="stats">
           <div id="homeFouls" class="stat">Fouls 0</div>
           <div id="homeSubs" class="stat">Subs 0</div>
+          <div id="homePauses" class="stat hidden">Pauses 0</div>
         </div>
       </article>
 
@@ -555,6 +559,7 @@
         <div class="stats">
           <div id="guestFouls" class="stat">Fouls 0</div>
           <div id="guestSubs" class="stat">Subs 0</div>
+          <div id="guestPauses" class="stat hidden">Pauses 0</div>
         </div>
       </article>
     </section>
@@ -610,6 +615,7 @@
         guest: 'GUEST',
         fouls: 'Fouls',
         subs: 'Subs',
+        pauses: 'Pauses',
         periodPrefix: 'P',
         possession: 'Possession',
         off: 'Off',
@@ -633,6 +639,7 @@
         guest: '客队',
         fouls: '犯规',
         subs: '换人',
+        pauses: '暂停',
         periodPrefix: '节',
         possession: '球权',
         off: '关闭',
@@ -672,6 +679,8 @@
       el('guestFouls').textContent = `${t('fouls')} 0`;
       el('homeSubs').textContent = `${t('subs')} 0`;
       el('guestSubs').textContent = `${t('subs')} 0`;
+      el('homePauses').textContent = `${t('pauses')} 0`;
+      el('guestPauses').textContent = `${t('pauses')} 0`;
       el('period').textContent = `${t('periodPrefix')} 1`;
       el('possession').textContent = `${t('possession')} ${t('off')}`;
     }
@@ -847,6 +856,18 @@
       el('eventLogoSubtitle').textContent = eventName ? valueText(rules.title, t('live')) : t('eventLogo');
     }
 
+    function applyPauseStats(home, guest, rules) {
+      const showPauses = Boolean(rules.supportsPauses);
+      document.querySelectorAll('.stats').forEach(container => {
+        container.classList.toggle('has-pauses', showPauses);
+      });
+      el('homePauses').classList.toggle('hidden', !showPauses);
+      el('guestPauses').classList.toggle('hidden', !showPauses);
+      if (!showPauses) return;
+      el('homePauses').textContent = `${t('pauses')} ${valueText(home.pausesRemaining, 0)}`;
+      el('guestPauses').textContent = `${t('pauses')} ${valueText(guest.pausesRemaining, 0)}`;
+    }
+
     function applyState(state) {
       if (!state || !state.teams || !state.clocks) return;
 
@@ -906,6 +927,7 @@
       el('guestFouls').textContent = `${t('fouls')} ${valueText(guest.teamFouls, 0)}`;
       el('homeSubs').textContent = `${t('subs')} ${valueText(home.substitutionsRemaining, 0)}`;
       el('guestSubs').textContent = `${t('subs')} ${valueText(guest.substitutionsRemaining, 0)}`;
+      applyPauseStats(home, guest, rules);
       el('generated').textContent = valueText(state.generatedAt, t('live'));
       const viewMode = valueText(supportedMode, 'scoreboard');
       const rosterScope = valueText(display.playerViewRosterScope, 'fullRoster');
