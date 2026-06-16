@@ -1089,6 +1089,23 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             return
         }
 
+        #if ENABLE_CUSTOM_USER_PAGE
+        if path == "/user" || path.hasPrefix("/user/") {
+            if let response = ScoreboardCustomWebPage.response(forHTTPPath: path) {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 200,
+                    reason: "OK",
+                    contentType: response.contentType,
+                    body: response.body
+                )
+            } else {
+                sendNotFoundResponse(connection, path: path)
+            }
+            return
+        }
+        #endif
+
         switch path {
         case "/", "/index.html":
             sendHTTPResponse(
@@ -1179,15 +1196,30 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     apiVersion: path.hasPrefix("/api/v2/") ? "v2" : "v1"
                 )
             } else {
-                sendHTTPResponse(
-                    connection,
-                    statusCode: 404,
-                    reason: "Not Found",
-                    contentType: "application/json; charset=utf-8",
-                    body: Data(#"{"error":"notFound"}"#.utf8)
-                )
+                sendNotFoundResponse(connection, path: path)
             }
         }
+    }
+
+    private func sendNotFoundResponse(_ connection: NWConnection, path: String) {
+        if path.hasPrefix("/api/") {
+            sendHTTPResponse(
+                connection,
+                statusCode: 404,
+                reason: "Not Found",
+                contentType: "application/json; charset=utf-8",
+                body: Data(#"{"error":"notFound"}"#.utf8)
+            )
+            return
+        }
+
+        sendHTTPResponse(
+            connection,
+            statusCode: 404,
+            reason: "Not Found",
+            contentType: "text/html; charset=utf-8",
+            body: Self.webAssetData(.notFound)
+        )
     }
 
     private func sendHTTPResponse(
@@ -1729,6 +1761,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         case docs
         case scoreboard
         case obs
+        case notFound
 
         var assetName: String {
             switch self {
@@ -1738,6 +1771,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return "WebAPIScoreboardDemo"
             case .obs:
                 return "WebAPIOBSDemo"
+            case .notFound:
+                return "WebAPI404"
             }
         }
     }

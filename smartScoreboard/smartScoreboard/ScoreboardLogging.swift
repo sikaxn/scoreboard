@@ -725,15 +725,7 @@ final class ScoreboardLogManager {
     }
 
     private func logsDirectory() throws -> URL {
-        let baseDirectory = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directoryURL = baseDirectory.appendingPathComponent("ScoreboardLogs", isDirectory: true)
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        return directoryURL
+        try ScoreboardFileStorage.logsDirectory()
     }
 
     private func persist(_ session: ScoreboardLogSession, to url: URL) throws {

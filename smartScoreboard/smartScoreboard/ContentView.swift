@@ -112,6 +112,8 @@ struct ContentView: View {
     @State private var isLoadingSetupDrafts = false
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
+    @State private var didStartRootInitialization = false
+    @State private var fileMigrationProgress: ScoreboardFileMigrationProgress?
     @State private var isExternalBackgroundImageEditorVisible = false
     @State private var isDebateDesignerVisible = false
     @State private var pendingExternalBackgroundModeAfterImageImport: ExternalDisplayBackgroundMode?
@@ -622,7 +624,7 @@ struct ContentView: View {
             case .factoryDefault:
                 return Alert(
                     title: Text("Factory Default App"),
-                    message: Text("This will delete all local game files, log sessions, roster edits, settings, integrations, and current game state."),
+                    message: Text("This will delete all local game files, log sessions, custom webpages, roster edits, settings, integrations, and current game state."),
                     primaryButton: .destructive(Text("Factory Default")) {
                         isFactoryDefaultConfirmationPresented = false
                         performFactoryDefaultReset()
@@ -660,16 +662,88 @@ struct ContentView: View {
 
     private func setupLoadingScreen(layout: InterfaceLayout) -> some View {
         VStack(spacing: 16) {
-            ProgressView()
+            if let fileMigrationProgress, fileMigrationProgress.totalFiles > 0 {
+                ProgressView(
+                    value: Double(fileMigrationProgress.completedFiles),
+                    total: Double(fileMigrationProgress.totalFiles)
+                )
                 .controlSize(.large)
+                .frame(maxWidth: min(360, layout.contentMaxWidth))
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
 
-            Text("Loading scoreboard setup")
+            Text(fileMigrationProgress == nil ? "Loading scoreboard setup" : "Moving files into Files")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(settingsPalette.primaryText)
+
+            if let fileMigrationProgress {
+                Text(fileMigrationDetailText(fileMigrationProgress))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(settingsPalette.shellBackground)
         .padding(layout.outerPadding)
+    }
+
+    private func fileMigrationOverlay(_ progress: ScoreboardFileMigrationProgress, layout: InterfaceLayout) -> some View {
+        VStack(spacing: 14) {
+            if progress.totalFiles > 0 {
+                ProgressView(value: Double(progress.completedFiles), total: Double(progress.totalFiles))
+                    .frame(maxWidth: 320)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
+
+            Text("Moving files into Files")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Text(fileMigrationDetailText(progress))
+                .font(.subheadline)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(22)
+        .frame(width: min(420, layout.contentMaxWidth))
+        .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(settingsPalette.cardBorder)
+        )
+        .shadow(color: .black.opacity(0.22), radius: 28, x: 0, y: 14)
+        .padding(layout.outerPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+        }
+    }
+
+    private func fileMigrationDetailText(_ progress: ScoreboardFileMigrationProgress) -> String {
+        guard progress.totalFiles > 0 else {
+            return localizedAppString("Preparing local files for the Files app.")
+        }
+
+        if let currentFilename = progress.currentFilename {
+            return localizedAppFormat(
+                "Moving %@ (%lld of %lld)",
+                currentFilename,
+                min(progress.completedFiles + 1, progress.totalFiles),
+                progress.totalFiles
+            )
+        }
+
+        return localizedAppFormat("Moved %lld of %lld files.", progress.completedFiles, progress.totalFiles)
     }
 
     private func settingsSetupScreen(layout: InterfaceLayout) -> some View {
@@ -980,9 +1054,17 @@ struct ContentView: View {
         case .theme:
             return "Use Theme to set the visual style shared by setup, live controls, previews, and public scoreboard outputs. This page also controls display direction, public-display background treatment, and optional date or time overlays."
         case .files:
+            #if os(iOS)
+            return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files also appear in the Files app under Scoreboard > Library."
+            #else
             return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files keep operator-facing setup and scoreboard state, while full backups can include settings, game files, current game state, and logs."
+            #endif
         case .logs:
+            #if os(iOS)
+            return "Use Logs to review the sequence of actions captured during a scoreboard run. Log sessions also appear in the Files app under Scoreboard > Logs."
+            #else
             return "Use Logs to review the sequence of actions captured during a scoreboard run. Sessions can be inspected for audit or replay context, exported for review, or removed when they are no longer needed."
+            #endif
         case .integration:
             return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
         case .about:
@@ -3053,6 +3135,25 @@ struct ContentView: View {
                 }
             }
 
+            #if ENABLE_CUSTOM_USER_PAGE
+            settingsSection(title: "Custom User Page", footer: "Files are stored locally on this device and served read-only at /user while the Web API is running. Edit the files in Files or Finder, and add index.html at the root or inside a folder.") {
+                settingsOptionTip(customWebPageFilesTip, systemImage: "curlybraces.square")
+                settingsSummaryValueRow(title: "User Page URL", value: webAPICustomUserPageURL)
+                settingsSummaryValueRow(title: "Files Location", value: customWebPageFilesLocationDescription)
+                #if os(macOS)
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Files",
+                    buttonTitle: "Open in Finder",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    openCustomWebPageFolderInFinder()
+                }
+                #endif
+            }
+            #endif
+
             settingsSection(title: "Security") {
                 settingsOptionTip("Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices and does not expose controls for changing scores, clocks, rosters, files, or settings.", systemImage: "lock.shield")
                 Text("This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes.")
@@ -4247,6 +4348,51 @@ struct ContentView: View {
         }
         return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/"
     }
+
+    #if ENABLE_CUSTOM_USER_PAGE
+    private var webAPICustomUserPageURL: String {
+        if let address = store.webAPILocalAddresses.first {
+            return "http://\(address):\(ScoreboardWebAPIService.httpPort)/user"
+        }
+        return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/user"
+    }
+
+    private var customWebPageFilesLocationDescription: String {
+        #if os(iOS)
+        let filesApp = localizedAppString("Files")
+        let localRoot = localizedAppString(UIDevice.current.userInterfaceIdiom == .pad ? "On My iPad" : "On My iPhone")
+        return "\(filesApp) > \(localRoot) > \(ScoreboardFileStorage.filesAppContainerName) > \(ScoreboardCustomWebPage.userVisibleDirectoryName)"
+        #elseif os(macOS)
+        if let rootDirectory = try? ScoreboardCustomWebPage.rootDirectoryURL(create: false) {
+            return rootDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        }
+        return "Application Support > \(ScoreboardCustomWebPage.userVisibleDirectoryName)"
+        #else
+        return ScoreboardCustomWebPage.userVisibleDirectoryName
+        #endif
+    }
+
+    private var customWebPageFilesTip: String {
+        #if os(iOS)
+        return "Open the Files app and go to the Scoreboard folder to edit index.html and assets for this page. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #elseif os(macOS)
+        return "Open Finder and edit index.html and assets in the folder below. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #else
+        return "Edit index.html and assets in the folder below. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #endif
+    }
+
+    #if os(macOS)
+    private func openCustomWebPageFolderInFinder() {
+        do {
+            let rootDirectory = try ScoreboardCustomWebPage.rootDirectoryURL()
+            NSWorkspace.shared.open(rootDirectory)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+    #endif
+    #endif
 
     private var localNetworkPermissionFooter: String {
         #if os(iOS)
@@ -7053,7 +7199,7 @@ struct ContentView: View {
             localDisplayStatusGroup(layout: layout)
         }
         #else
-        externalDisplayHeaderStatusBadge(layout: layout)
+        publicBoardStatusGroup(layout: layout)
         #endif
     }
 
@@ -7168,12 +7314,28 @@ struct ContentView: View {
     }
     #endif
 
+    #if os(macOS)
+    @ViewBuilder
+    private func publicBoardStatusGroup(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                publicBoardHeaderButton(layout: layout)
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                publicBoardHeaderButton(layout: layout)
+            }
+        }
+    }
+    #endif
+
     @ViewBuilder
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
         #if os(macOS)
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            publicBoardHeaderButton(layout: layout)
             displayControlHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
             themeHeaderMenu(layout: layout)
@@ -7224,14 +7386,22 @@ struct ContentView: View {
 
     #if os(macOS)
     private func publicBoardHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard",
-            tint: themePalette.dashboardNeutralButton,
-            foreground: themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
+        let title = publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard"
+        return Button {
             showPublicBoardWindow()
+        } label: {
+            Label(localizedAppString(title), systemImage: "display")
+                .font(layout.headerBadgeFont)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(height: layout.headerIconButtonSize)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
     #endif
 
@@ -9754,6 +9924,20 @@ struct ContentView: View {
     }
 
     private func handleRootAppear() {
+        guard !didStartRootInitialization else {
+            return
+        }
+
+        didStartRootInitialization = true
+        Task {
+            await bootstrapRootAfterFileMigration()
+        }
+    }
+
+    @MainActor
+    private func bootstrapRootAfterFileMigration() async {
+        await migrateLegacyUserVisibleFilesIfNeeded()
+        ensureDefaultCustomWebPageIfNeeded()
         initializeWorkingGameFile()
         isInitialSetupStateLoaded = true
         refreshStoredLogSessions()
@@ -9766,6 +9950,44 @@ struct ContentView: View {
         #endif
         updateIdleTimer(for: scenePhase)
         presentGettingStartedIfNeeded()
+    }
+
+    @MainActor
+    private func migrateLegacyUserVisibleFilesIfNeeded() async {
+        #if os(iOS)
+        do {
+            let result = try await ScoreboardFileStorage.migrateLegacyFilesToUserVisibleStorage { progress in
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    fileMigrationProgress = progress
+                }
+            }
+
+            if result.failedFiles > 0 {
+                NSLog(
+                    "Scoreboard migrated %lld of %lld legacy files to Files-visible storage; %lld failed.",
+                    result.migratedFiles,
+                    result.totalFiles,
+                    result.failedFiles
+                )
+            }
+        } catch {
+            presentFileOperationError(error)
+        }
+
+        withAnimation(.easeInOut(duration: 0.16)) {
+            fileMigrationProgress = nil
+        }
+        #endif
+    }
+
+    private func ensureDefaultCustomWebPageIfNeeded() {
+        #if ENABLE_CUSTOM_USER_PAGE
+        do {
+            try ScoreboardCustomWebPage.ensureDefaultPageIfNeeded()
+        } catch {
+            NSLog("Scoreboard failed to prepare default custom web page: %@", String(describing: error))
+        }
+        #endif
     }
 
     private func presentGettingStartedIfNeeded() {
@@ -9936,6 +10158,12 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, layout.outerPadding)
                 .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            if let fileMigrationProgress, !showsSetup {
+                fileMigrationOverlay(fileMigrationProgress, layout: layout)
+                    .transition(.opacity)
+                    .zIndex(40)
             }
 
             #if os(iOS)
@@ -10692,6 +10920,10 @@ struct ContentView: View {
         do {
             try deleteAllStoredGameFiles()
             try logManager.replaceSessions(with: [])
+            #if ENABLE_CUSTOM_USER_PAGE
+            try ScoreboardCustomWebPage.deleteAll()
+            try ScoreboardCustomWebPage.ensureDefaultPageIfNeeded()
+            #endif
             store.resetToFactoryDefaults()
 
             storedGameFiles = []
@@ -11698,17 +11930,7 @@ struct ContentView: View {
     }
 
     private func storedGameFilesDirectory() throws -> URL {
-        let fileManager = FileManager.default
-        let baseDirectory = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directoryURL = baseDirectory.appendingPathComponent("StoredGames", isDirectory: true)
-
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        return directoryURL
+        try ScoreboardFileStorage.storedGamesDirectory()
     }
 
     private func uniqueStoredGameFileURL(preferredFilename: String, excluding excludedURL: URL? = nil) throws -> URL {
@@ -12490,7 +12712,7 @@ struct ContentView: View {
 
     private var displayStatusTitle: String {
         #if os(macOS)
-        return publicBoardState.isPresented ? "Public Board Open" : "Public Board Closed"
+        return publicBoardState.isPresented ? "Public Scoreboard Open" : "Public Scoreboard Closed"
         #else
         return publicBoardState.isPresented ? "External Display Live" : "External Display Ready"
         #endif
