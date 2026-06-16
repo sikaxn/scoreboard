@@ -16,9 +16,11 @@
       background: #f5f7fb;
     }
     main {
+      width: 100%;
       max-width: 1080px;
       margin: 0 auto;
       padding: 30px;
+      box-sizing: border-box;
     }
     header {
       display: flex;
@@ -46,6 +48,7 @@
       margin-bottom: 16px;
     }
     .card {
+      min-width: 0;
       background: #fff;
       border: 1px solid #d9dee9;
       border-radius: 8px;
@@ -83,19 +86,31 @@
     }
     table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       margin-top: 6px;
     }
     th, td {
+      min-width: 0;
       text-align: left;
       border-bottom: 1px solid #e4e8f0;
       padding: 9px 6px;
       vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     th {
       font-size: 12px;
       text-transform: uppercase;
       color: #596376;
+    }
+    th:first-child, td:first-child {
+      width: 34%;
+    }
+    td code {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .note {
       color: #596376;
@@ -118,6 +133,9 @@
       th, td {
         border-bottom-color: #303746;
       }
+      tr {
+        border-bottom-color: #303746;
+      }
       .note, th {
         color: #aab4c4;
       }
@@ -131,6 +149,30 @@
       }
       .card {
         margin-bottom: 16px;
+      }
+      table, tbody, tr, th, td {
+        display: block;
+        width: 100%;
+      }
+      tr {
+        padding: 10px 0;
+        border-bottom: 1px solid #e4e8f0;
+      }
+      tr:first-child {
+        display: none;
+      }
+      th, td {
+        border-bottom: 0;
+        padding: 4px 0;
+      }
+      td:first-child {
+        width: 100%;
+        font-size: 13px;
+      }
+    }
+    @media (prefers-color-scheme: dark) and (max-width: 760px) {
+      tr {
+        border-bottom-color: #303746;
       }
     }
   </style>

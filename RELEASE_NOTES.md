@@ -1,6 +1,6 @@
 # Release Notes
 
-## 1.3
+## 1.2
 
 ### Feature Added
 

@@ -469,6 +469,7 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
 
 nonisolated final class BuzzerPlayer: @unchecked Sendable {
     private let audioQueue = DispatchQueue(label: "Scoreboard.BuzzerPlayer.audio", qos: .userInitiated)
+    private let preparationQueue = DispatchQueue(label: "Scoreboard.BuzzerPlayer.prepare", qos: .utility)
     private var audioPlayers: [ScoreboardSoundEffect: AVAudioPlayer] = [:]
     private var preloadingEffects = Set<ScoreboardSoundEffect>()
     private var activeEffect: ScoreboardSoundEffect?
@@ -570,6 +571,13 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
         priority: TaskPriority,
         completion: @escaping @Sendable (PreparedSound) -> Void
     ) {
+        guard priority == .userInitiated else {
+            preparationQueue.async {
+                completion(PreparedSound(effect: effect, data: Self.waveformData(for: effect)))
+            }
+            return
+        }
+
         Task.detached(priority: priority) {
             completion(PreparedSound(effect: effect, data: Self.waveformData(for: effect)))
         }

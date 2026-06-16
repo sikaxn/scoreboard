@@ -2745,11 +2745,13 @@ struct ContentView: View {
             if events.isEmpty {
                 settingsSummaryValueRow(title: selectedSoundSettingsSport.title, value: localizedAppString("No configurable sound events"))
             } else {
-                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                    settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
 
-                    if index < events.count - 1 {
-                        settingsDivider()
+                        if index < events.count - 1 {
+                            settingsDivider()
+                        }
                     }
                 }
             }
@@ -2758,11 +2760,13 @@ struct ContentView: View {
 
     private func settingsSoundLibrarySection() -> some View {
         settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
-            ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
-                settingsSoundLibraryRow(effect)
+            LazyVStack(spacing: 0) {
+                ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
+                    settingsSoundLibraryRow(effect)
 
-                if index < ScoreboardSoundEffect.allCases.count - 1 {
-                    settingsDivider()
+                    if index < ScoreboardSoundEffect.allCases.count - 1 {
+                        settingsDivider()
+                    }
                 }
             }
         }
@@ -2778,6 +2782,8 @@ struct ContentView: View {
 
     private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
         let selectedEffect = store.selectedSoundEffect(for: event, sport: sport)
+        let isTesting = store.isTestingSoundEffect(selectedEffect)
+        let canTest = store.canTestSoundEffect(selectedEffect)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -2812,19 +2818,19 @@ struct ContentView: View {
                 Button {
                     store.playTestSound(event, sport: sport)
                 } label: {
-                    Label(store.isTestingSoundEffect(selectedEffect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(selectedEffect) ? "stop.fill" : "play.fill")
+                    Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(store.canTestSoundEffect(selectedEffect) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background(
-                            store.canTestSoundEffect(selectedEffect) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                             in: Capsule()
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!store.canTestSoundEffect(selectedEffect))
-                .opacity(store.canTestSoundEffect(selectedEffect) ? 1 : 0.42)
+                .disabled(!canTest)
+                .opacity(canTest ? 1 : 0.42)
             }
 
             localizedAppText(selectedEffect.subtitle)
@@ -2836,7 +2842,10 @@ struct ContentView: View {
     }
 
     private func settingsSoundLibraryRow(_ effect: ScoreboardSoundEffect) -> some View {
-        HStack(spacing: 14) {
+        let isTesting = store.isTestingSoundEffect(effect)
+        let canTest = store.canTestSoundEffect(effect)
+
+        return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 localizedAppText(effect.title)
                     .font(.body.weight(.semibold))
@@ -2852,19 +2861,19 @@ struct ContentView: View {
             Button {
                 store.playTestEffect(effect)
             } label: {
-                Label(store.isTestingSoundEffect(effect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(effect) ? "stop.fill" : "play.fill")
+                Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(store.canTestSoundEffect(effect) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                    .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(
-                        store.canTestSoundEffect(effect) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                         in: Capsule()
                     )
             }
             .buttonStyle(.plain)
-            .disabled(!store.canTestSoundEffect(effect))
-            .opacity(store.canTestSoundEffect(effect) ? 1 : 0.42)
+            .disabled(!canTest)
+            .opacity(canTest ? 1 : 0.42)
         }
         .padding(.vertical, 12)
     }
@@ -3990,11 +3999,13 @@ struct ContentView: View {
             if events.isEmpty {
                 settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
             } else {
-                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                    settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
 
-                    if index < events.count - 1 {
-                        settingsDivider()
+                        if index < events.count - 1 {
+                            settingsDivider()
+                        }
                     }
                 }
             }
@@ -4082,9 +4093,15 @@ struct ContentView: View {
 
     private func settingsCompanionAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
         let locationText = store.companionLocationText(for: event, sport: sport)
-        let validationMessage = store.companionLocationValidationMessage(for: event, sport: sport)
-        let normalizedLocation = ScoreboardCompanionLocation(rawValue: locationText)?.rawValue
-        let hasAssignment = !locationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let trimmedLocationText = locationText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = ScoreboardCompanionLocation(rawValue: locationText)
+        let validationMessage = location == nil ? ScoreboardCompanionLocation.validationMessage(for: locationText) : nil
+        let normalizedLocation = location?.rawValue
+        let hasAssignment = !trimmedLocationText.isEmpty
+        let canTest = store.isCompanionVisible &&
+            store.isCompanionEnabled &&
+            !store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            location != nil
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -4131,16 +4148,16 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "paperplane.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                         .frame(width: 40, height: 40)
                         .background(
-                            store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                             in: Circle()
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!store.canTestCompanionCommand(for: event, sport: sport))
-                .opacity(store.canTestCompanionCommand(for: event, sport: sport) ? 1 : 0.42)
+                .disabled(!canTest)
+                .opacity(canTest ? 1 : 0.42)
                 .accessibilityLabel(localizedAppString("Test Companion command"))
                 .help(localizedAppString("Test Companion command"))
             }

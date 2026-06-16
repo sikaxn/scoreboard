@@ -1783,6 +1783,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSoundEnabled(_ isEnabled: Bool) {
+        guard isSoundEnabled != isEnabled else {
+            if !isEnabled, playingTestSoundEffect != nil {
+                stopTestSound()
+            }
+            return
+        }
+
         isSoundEnabled = isEnabled
 
         if !isSoundEnabled {
@@ -1795,6 +1802,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionVisible(_ isVisible: Bool) {
+        guard isCompanionVisible != isVisible else {
+            if !isVisible {
+                dismissCompanionFailureNotice()
+            }
+            return
+        }
+
         isCompanionVisible = isVisible
         if !isVisible {
             isCompanionEnabled = false
@@ -1803,7 +1817,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionEnabled(_ isEnabled: Bool) {
-        isCompanionEnabled = isEnabled && isCompanionVisible
+        let resolvedEnabled = isEnabled && isCompanionVisible
+        guard isCompanionEnabled != resolvedEnabled else {
+            return
+        }
+
+        isCompanionEnabled = resolvedEnabled
     }
 
     func toggleCompanionEnabled() {
@@ -1823,6 +1842,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionHost(_ host: String) {
+        guard companionHost != host else {
+            return
+        }
+
         companionHost = host
     }
 
@@ -1836,7 +1859,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionPort(_ port: Int) {
-        companionPort = UInt16(max(1, min(65_535, port)))
+        let boundedPort = UInt16(max(1, min(65_535, port)))
+        guard companionPort != boundedPort else {
+            return
+        }
+
+        companionPort = boundedPort
     }
 
     func companionPortText() -> String {
@@ -1875,10 +1903,16 @@ final class ScoreboardStore: ObservableObject {
 
         var assignmentsBySport = companionAssignmentsBySport
         var sportAssignments = assignmentsBySport[sport] ?? [:]
-        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentValue = sportAssignments[event] ?? ""
+        guard currentValue != trimmedValue else {
+            return
+        }
+
+        if trimmedValue.isEmpty {
             sportAssignments.removeValue(forKey: event)
         } else {
-            sportAssignments[event] = value
+            sportAssignments[event] = trimmedValue
         }
         if sportAssignments.isEmpty {
             assignmentsBySport.removeValue(forKey: sport)
@@ -1937,6 +1971,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent, sport: SportType) {
+        guard selectedSoundEffect(for: event, sport: sport) != effect else {
+            return
+        }
+
         var assignmentsBySport = soundAssignmentsBySport
         var sportAssignments = assignmentsBySport[sport] ?? Self.defaultSoundAssignments
         sportAssignments[event] = effect
