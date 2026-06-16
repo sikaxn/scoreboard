@@ -29,6 +29,12 @@ BRAND_LABELS = {
     "Chinese": "Smart Scoreboard",
 }
 SUPPORTED_LANGUAGES = tuple(BRAND_LABELS)
+OBS_DEMO_SOURCE = Path("images/demo_obs.png")
+OBS_INTEGRATION_OUTPUTS = {
+    ("iPad", "ipad-04-integrations.png"),
+    ("iPhone", "iphone-04-integrations.png"),
+    ("Mac", "mac-05-integrations.png"),
+}
 
 # Highest accepted screenshot sizes used here:
 # iPhone from the requested App Store size list, iPad 13", Mac, and Apple TV.
@@ -784,6 +790,177 @@ def text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 
+def fit_label_font(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    max_width: int,
+    start_size: int,
+    language: str,
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    size = start_size
+    while size > 16:
+        font = load_font("bold", size, language)
+        if text_size(draw, text, font)[0] <= max_width:
+            return font
+        size -= 2
+    return load_font("bold", size, language)
+
+
+def paste_rounded_overlay(
+    base: Image.Image,
+    image: Image.Image,
+    xy: tuple[int, int],
+    radius: int,
+) -> None:
+    base.alpha_composite(rounded_image(image, radius), xy)
+
+
+def add_obs_output_example(
+    base: Image.Image,
+    root: Path,
+    platform: str,
+    language: str,
+) -> None:
+    obs_source = root / OBS_DEMO_SOURCE
+    if not obs_source.exists():
+        return
+
+    obs = Image.open(obs_source).convert("RGBA")
+    # Keep the output preview large while retaining enough OBS chrome to show context.
+    crop_left = 8
+    crop_top = 26
+    crop_right = max(crop_left + 1, obs.width - 8)
+    crop_bottom = min(obs.height, 682)
+    if crop_bottom <= crop_top:
+        crop_top = 0
+        crop_bottom = obs.height
+    obs = obs.crop((crop_left, crop_top, crop_right, crop_bottom))
+
+    width, height = base.size
+    if platform == "iPhone":
+        image_width = 520
+        x = width - image_width - 82
+        y = 390
+        padding = 16
+        border_width = 3
+        radius = 22
+        title_size = 34
+        pill_size = 19
+    elif platform == "iPad":
+        image_width = 665
+        x = width - image_width - 124
+        y = 338
+        padding = 18
+        border_width = 3
+        radius = 24
+        title_size = 38
+        pill_size = 21
+    elif platform == "Mac":
+        image_width = 650
+        x = width - image_width - 128
+        y = 86
+        padding = 18
+        border_width = 3
+        radius = 24
+        title_size = 36
+        pill_size = 20
+    else:
+        return
+
+    image_height = round(obs.height * image_width / obs.width)
+    thumbnail = obs.resize((image_width, image_height), Image.Resampling.LANCZOS)
+    thumbnail_radius = 7 if platform == "iPhone" else 8
+
+    is_chinese = language == "Chinese"
+    pill_text = "输出示例" if is_chinese else "OUTPUT EXAMPLE"
+    title_text = "OBS / Web API 输出" if is_chinese else "OBS output from Web API"
+
+    measure = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+    pill_font = fit_label_font(measure, pill_text, image_width - 24, pill_size, language)
+    title_font = fit_label_font(measure, title_text, image_width, title_size, language)
+    pill_text_width, pill_text_height = text_size(measure, pill_text, pill_font)
+    title_width, title_height = text_size(measure, title_text, title_font)
+
+    pill_padding_x = 17 if platform == "iPhone" else 19
+    pill_padding_y = 7 if platform == "iPhone" else 8
+    pill_width = pill_text_width + pill_padding_x * 2
+    pill_height = pill_text_height + pill_padding_y * 2
+    title_gap = 9 if platform == "iPhone" else 10
+    image_gap = 9 if platform == "iPhone" else 10
+
+    card_width = image_width + padding * 2
+    card_height = (
+        padding
+        + pill_height
+        + title_gap
+        + title_height
+        + image_gap
+        + image_height
+        + padding
+    )
+    x = max(30, min(x, width - card_width - 36))
+    y = max(30, min(y, height - card_height - 36))
+
+    shadow = Image.new("RGBA", (card_width + 44, card_height + 44), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle(
+        [22, 22, 22 + card_width, 22 + card_height],
+        radius=radius,
+        fill=(0, 0, 0, 142),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(18))
+    base.alpha_composite(shadow, (x - 22, y - 18))
+
+    card = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(card)
+    draw.rounded_rectangle(
+        [0, 0, card_width - 1, card_height - 1],
+        radius=radius,
+        fill=(9, 13, 26, 242),
+        outline=(*ORANGE, 255),
+        width=border_width,
+    )
+
+    pill_x = padding
+    pill_y = padding
+    draw.rounded_rectangle(
+        [pill_x, pill_y, pill_x + pill_width, pill_y + pill_height],
+        radius=pill_height // 2,
+        fill=(*ORANGE, 255),
+    )
+    draw.text(
+        (pill_x + pill_padding_x, pill_y + pill_padding_y - 1),
+        pill_text,
+        font=pill_font,
+        fill=(6, 12, 22, 255),
+    )
+
+    title_y = pill_y + pill_height + title_gap
+    draw.text((padding, title_y), title_text, font=title_font, fill=(246, 247, 252, 255))
+    paste_rounded_overlay(
+        card,
+        thumbnail,
+        (padding, title_y + title_height + image_gap),
+        thumbnail_radius,
+    )
+
+    base.alpha_composite(card, (x, y))
+
+
+def maybe_add_obs_output_example(
+    base: Image.Image,
+    root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> None:
+    if (spec.platform, spec.output) in OBS_INTEGRATION_OUTPUTS:
+        add_obs_output_example(base, root, spec.platform, language)
+
+
+def is_obs_integration_spec(spec: PreviewSpec) -> bool:
+    return (spec.platform, spec.output) in OBS_INTEGRATION_OUTPUTS
+
+
 def wrap_text(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -961,6 +1138,9 @@ def render_iphone_combined(
     spec: PreviewSpec,
     language: str,
 ) -> Path:
+    if is_obs_integration_spec(spec):
+        return render_iphone_dual_obs(root, version, output_root, spec, language)
+
     if spec.secondary_source is None:
         raise ValueError(f"{spec.output} needs a secondary landscape iPhone source")
 
@@ -1006,6 +1186,68 @@ def render_iphone_combined(
         shadow_alpha=165,
     )
 
+    output = platform_output_dir(output_root, spec.platform) / spec.output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    maybe_add_obs_output_example(base, root, spec, language)
+    base.convert("RGB").save(output, "PNG")
+    return output
+
+
+def render_iphone_dual_obs(
+    root: Path,
+    version: str,
+    output_root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> Path:
+    if spec.secondary_source is None:
+        raise ValueError(f"{spec.output} needs a secondary landscape iPhone source")
+
+    size = PLATFORM_SIZES["iPhone"]
+    profile = PROFILES["iPhone"]
+    portrait = Image.open(resolve_source(root, version, language, spec.source)).convert("RGB")
+    landscape = Image.open(resolve_source(root, version, language, spec.secondary_source)).convert("RGB")
+
+    base = make_canvas(portrait, size, spec.left_accent, spec.right_accent)
+    draw = ImageDraw.Draw(base)
+    text_bottom = draw_text_block(
+        draw,
+        profile,
+        spec.headline,
+        spec.subhead,
+        spec.left_accent,
+        BRAND_LABELS[language],
+        language,
+    )
+
+    landscape_top = max(560, text_bottom + 190)
+    landscape_frame = fit_resize(landscape, (560, 320))
+    landscape_x = profile.margin_x
+    paste_shadowed(
+        base,
+        landscape_frame,
+        (landscape_x, landscape_top),
+        radius=36,
+        shadow_blur=34,
+        shadow_alpha=135,
+    )
+
+    portrait_top = max(1085, text_bottom + 790)
+    portrait_frame = fit_resize(
+        portrait,
+        (700, size[1] - portrait_top - profile.image_margin_bottom),
+    )
+    portrait_x = (size[0] - portrait_frame.width) // 2
+    paste_shadowed(
+        base,
+        portrait_frame,
+        (portrait_x, portrait_top),
+        radius=64,
+        shadow_blur=48,
+        shadow_alpha=165,
+    )
+
+    maybe_add_obs_output_example(base, root, spec, language)
     output = platform_output_dir(output_root, spec.platform) / spec.output
     output.parent.mkdir(parents=True, exist_ok=True)
     base.convert("RGB").save(output, "PNG")
@@ -1159,6 +1401,7 @@ def render_preview(
     output_dir = platform_output_dir(output_root, spec.platform)
     output = output_dir / spec.output
     output.parent.mkdir(parents=True, exist_ok=True)
+    maybe_add_obs_output_example(base, root, spec, language)
     base.convert("RGB").save(output, "PNG")
     return output
 
