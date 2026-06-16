@@ -296,6 +296,10 @@ struct ContentView: View {
         .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homePausesAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestPausesAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homePausesUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestPausesUsed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
@@ -1216,6 +1220,7 @@ struct ContentView: View {
             settingsSportSetupGuidanceTip
             settingsGameRulesSections(layout: layout)
             settingsSubstitutionTrackingSection()
+            settingsPauseTrackingSection()
         }
     }
 
@@ -1402,6 +1407,28 @@ struct ContentView: View {
                     value: "\(store.guestSubstitutionsAllowed)",
                     decrement: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed - 1) },
                     increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsPauseTrackingSection() -> some View {
+        if setupRules.showsPauseTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isPauseTrackingEnabled) {
+            settingsSection(title: "Pauses", footer: "Set how many team pauses each side can use during the match.") {
+                settingsOptionTip("Set pause allowances before the match so the live board can count remaining pauses for each side. These limits are saved with the current game setup and can differ for home and guest.", systemImage: "pause.circle")
+                settingsStepperValueRow(
+                    title: "Home Allowed",
+                    value: "\(store.homePausesAllowed)",
+                    decrement: { store.setPausesAllowed(for: .home, to: store.homePausesAllowed - 1) },
+                    increment: { store.setPausesAllowed(for: .home, to: store.homePausesAllowed + 1) }
+                )
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Guest Allowed",
+                    value: "\(store.guestPausesAllowed)",
+                    decrement: { store.setPausesAllowed(for: .guest, to: store.guestPausesAllowed - 1) },
+                    increment: { store.setPausesAllowed(for: .guest, to: store.guestPausesAllowed + 1) }
                 )
             }
         }
@@ -1613,10 +1640,21 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
-            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
+            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, pauses, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
             settingsToggleRow(title: "Substitutions", isOn: Binding(
                 get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
                 set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Pauses", isOn: Binding(
+                get: { setupCustomSportConfig.isPauseTrackingEnabled },
+                set: { isEnabled in
+                    setupCustomSportConfig.isPauseTrackingEnabled = isEnabled
+                    if isEnabled, store.homePausesAllowed == 0, store.guestPausesAllowed == 0 {
+                        store.setPausesAllowed(for: .home, to: setupCustomSportConfig.defaultPauseLimit)
+                        store.setPausesAllowed(for: .guest, to: setupCustomSportConfig.defaultPauseLimit)
+                    }
+                }
             ))
             settingsDivider()
             settingsToggleRow(title: "Team Fouls", isOn: Binding(
@@ -2679,6 +2717,9 @@ struct ContentView: View {
         } right: {
             settingsSoundEventsSection(events)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onAppear {
+            store.prepareTestSoundEffects()
         }
     }
 
@@ -8431,6 +8472,11 @@ struct ContentView: View {
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
+            if store.showsPauseTracking {
+                pauseControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+
             if store.supportsTeamFouls {
                 teamFoulControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
@@ -8450,6 +8496,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsShotClock)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsScore)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsSubstitutionTracking)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsPauseTracking)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsTeamFouls)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsDebatePrepTime)
@@ -9560,6 +9607,36 @@ struct ContentView: View {
         }
     }
 
+    private func pauseControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        let tintText = teamAccentText(for: side)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Pauses \(store.pausesUsed(for: side))/\(store.pausesAllowed(for: side)) Used • \(store.pausesRemaining(for: side)) Left")
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Pause -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustPausesUsed(for: side, by: -1)
+                    },
+                    ActionDescriptor(
+                        title: "Pause +",
+                        tint: tint,
+                        foreground: tintText,
+                        isEnabled: store.pausesUsed(for: side) < store.pausesAllowed(for: side)
+                    ) {
+                        store.adjustPausesUsed(for: side, by: 1)
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+    }
+
     private func hockeyPenaltyPanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let timers = side == .home ? store.homePenaltyTimers : store.guestPenaltyTimers
         let tintText = teamAccentText(for: side)
@@ -10348,6 +10425,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsAllowed : 0,
             homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.homeSubstitutionsUsed : 0,
             guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsUsed : 0,
+            homePausesAllowed: setupRules.showsPauseTracking ? store.homePausesAllowed : 0,
+            guestPausesAllowed: setupRules.showsPauseTracking ? store.guestPausesAllowed : 0,
+            homePausesUsed: setupRules.showsPauseTracking ? store.homePausesUsed : 0,
+            guestPausesUsed: setupRules.showsPauseTracking ? store.guestPausesUsed : 0,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homeChessClockSeconds: setupRules.usesChessClocks ? draftClockSeconds : nil,
@@ -11910,6 +11991,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsAllowed : 0,
             homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsUsed : 0,
             guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsUsed : 0,
+            homePausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.homePausesAllowed : 0,
+            guestPausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesAllowed : 0,
+            homePausesUsed: setupRules.showsPauseTracking ? currentSnapshot.homePausesUsed : 0,
+            guestPausesUsed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesUsed : 0,
             homeTeamFouls: currentSnapshot.homeTeamFouls,
             guestTeamFouls: currentSnapshot.guestTeamFouls,
             homeChessClockSeconds: homeChessClockSeconds,
@@ -12156,6 +12241,10 @@ struct ContentView: View {
                     guestSubstitutionsAllowed: preset.sport.defaultSubstitutionLimit,
                     homeSubstitutionsUsed: 0,
                     guestSubstitutionsUsed: 0,
+                    homePausesAllowed: preset.sport.rules(customConfig: preset.customSportConfig).defaultPauseLimit,
+                    guestPausesAllowed: preset.sport.rules(customConfig: preset.customSportConfig).defaultPauseLimit,
+                    homePausesUsed: 0,
+                    guestPausesUsed: 0,
                     homeTeamFouls: 0,
                     guestTeamFouls: 0,
                     homeChessClockSeconds: preset.sport.rules(customConfig: preset.customSportConfig).usesChessClocks ? preset.clockSeconds : nil,
@@ -12336,6 +12425,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
             homeSubstitutionsUsed: store.homeSubstitutionsUsed,
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+            homePausesAllowed: store.homePausesAllowed,
+            guestPausesAllowed: store.guestPausesAllowed,
+            homePausesUsed: store.homePausesUsed,
+            guestPausesUsed: store.guestPausesUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homePenaltyTimers: store.homePenaltyTimers,

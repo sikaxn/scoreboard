@@ -368,6 +368,10 @@ private struct RemoteScoreboardFace: View {
             guestSubstitutionsAllowed: state.teams.guest.substitutionsAllowed,
             homeSubstitutionsUsed: state.teams.home.substitutionsUsed,
             guestSubstitutionsUsed: state.teams.guest.substitutionsUsed,
+            homePausesAllowed: state.teams.home.pausesAllowed ?? 0,
+            guestPausesAllowed: state.teams.guest.pausesAllowed ?? 0,
+            homePausesUsed: state.teams.home.pausesUsed ?? 0,
+            guestPausesUsed: state.teams.guest.pausesUsed ?? 0,
             homeTeamFouls: state.teams.home.teamFouls,
             guestTeamFouls: state.teams.guest.teamFouls,
             homePenaltyTimers: projection.homePenaltyTimers,
@@ -460,6 +464,7 @@ private struct RemoteScoreboardFace: View {
             defaultRosterSize: state.players.rosterSizePerTeam,
             defaultDisplayLineupSize: state.players.displayLineupSize,
             defaultSubstitutionLimit: max(state.teams.home.substitutionsAllowed, state.teams.guest.substitutionsAllowed),
+            defaultPauseLimit: max(state.teams.home.pausesAllowed ?? 0, state.teams.guest.pausesAllowed ?? 0),
             mainClockMode: state.rules.mainClockMode,
             supportsScore: state.rules.supportsScore,
             supportsPeriod: state.rules.supportsPeriod,
@@ -471,6 +476,7 @@ private struct RemoteScoreboardFace: View {
             usesCenterPlayerStrip: fallbackRules.usesCenterPlayerStrip,
             supportsCards: state.rules.supportsCards,
             showsSubstitutionTracking: state.rules.supportsSubstitutions,
+            showsPauseTracking: state.rules.supportsPauses ?? false,
             supportsHockeyPenalties: state.rules.supportsHockeyPenalties,
             usesChessClocks: state.rules.usesChessClocks
         )

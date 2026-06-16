@@ -24,6 +24,10 @@
     body {
       position: relative;
     }
+    body.blackout main,
+    body.blackout::after {
+      display: none !important;
+    }
     .scorebug {
       position: absolute;
       left: 40px;
@@ -34,6 +38,189 @@
       border-radius: 8px;
       overflow: hidden;
       filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
+    }
+    .event-bug, .team-bug, .player-bug {
+      position: absolute;
+      left: 40px;
+      bottom: 40px;
+      filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
+    }
+    .event-bug {
+      width: min(780px, calc(100vw - 80px));
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      padding: 14px 18px;
+      border-radius: 8px;
+      background: rgba(8, 13, 24, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    .event-logo {
+      width: 92px;
+      height: 72px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .event-copy {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+    .event-title {
+      min-width: 0;
+      font-size: 34px;
+      font-weight: 1000;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .event-subtitle {
+      min-width: 0;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 16px;
+      font-weight: 950;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .team-bug {
+      width: min(860px, calc(100vw - 80px));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(8, 13, 24, 0.92);
+    }
+    .team-card {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      min-height: 96px;
+      padding: 14px;
+    }
+    .team-card.home {
+      border-left: 8px solid #38bdf8;
+    }
+    .team-card.guest {
+      border-left: 8px solid #f97316;
+      border-top: 0;
+    }
+    .team-card + .team-card {
+      border-left-width: 8px;
+      box-shadow: inset 1px 0 rgba(255, 255, 255, 0.14);
+    }
+    .team-card-logo {
+      width: 58px;
+      height: 58px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .team-card-name {
+      min-width: 0;
+      font-size: 25px;
+      font-weight: 1000;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .team-card-score {
+      min-width: 66px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      padding: 0 10px;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: #101623;
+      font-size: 38px;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+    }
+    .player-bug {
+      width: min(880px, calc(100vw - 80px));
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .player-panel {
+      min-width: 0;
+      overflow: hidden;
+      border-radius: 8px;
+      background: rgba(8, 13, 24, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    .player-panel-title {
+      min-width: 0;
+      padding: 10px 14px;
+      font-size: 18px;
+      font-weight: 1000;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .player-panel.home .player-panel-title {
+      border-left: 8px solid #38bdf8;
+    }
+    .player-panel.guest .player-panel-title {
+      border-left: 8px solid #f97316;
+    }
+    .player-list {
+      display: grid;
+      gap: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .player-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 6px 10px;
+      background: rgba(8, 13, 24, 0.92);
+      font-size: 15px;
+      font-weight: 900;
+    }
+    .player-number {
+      font-size: 1.1em;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+    }
+    .player-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .player-meta {
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 0.82em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .empty-players {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+      background: rgba(8, 13, 24, 0.92);
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
     }
     .teams {
       display: grid;
@@ -148,6 +335,21 @@
         width: calc(100vw - 40px);
         grid-template-columns: 1fr;
       }
+      .event-bug, .team-bug, .player-bug {
+        left: 20px;
+        bottom: 20px;
+        width: calc(100vw - 40px);
+      }
+      .team-bug, .player-bug {
+        grid-template-columns: 1fr;
+      }
+      .event-bug {
+        grid-template-columns: 1fr;
+      }
+      .event-logo {
+        width: 84px;
+        height: 62px;
+      }
       .clockbox {
         width: 100%;
         min-height: 72px;
@@ -171,7 +373,7 @@
   </style>
 </head>
 <body class="disconnected" data-disconnected-label="WebSocket disconnected">
-  <main class="scorebug">
+  <main id="scorebug" class="scorebug">
     <section class="teams">
       <div class="team home">
         <img id="homeLogo" class="logo hidden" alt="">
@@ -191,6 +393,38 @@
     </section>
   </main>
 
+  <main id="eventBug" class="event-bug hidden">
+    <img id="eventBugLogo" class="event-logo hidden" alt="">
+    <section class="event-copy">
+      <div id="eventBugTitle" class="event-title">SmartScoreboard</div>
+      <div id="eventBugSubtitle" class="event-subtitle">Live</div>
+    </section>
+  </main>
+
+  <main id="teamBug" class="team-bug hidden">
+    <section id="teamBugHome" class="team-card home">
+      <img id="teamBugHomeLogo" class="team-card-logo hidden" alt="">
+      <div id="teamBugHomeName" class="team-card-name">HOME</div>
+      <div id="teamBugHomeScore" class="team-card-score">0</div>
+    </section>
+    <section id="teamBugGuest" class="team-card guest">
+      <img id="teamBugGuestLogo" class="team-card-logo hidden" alt="">
+      <div id="teamBugGuestName" class="team-card-name">GUEST</div>
+      <div id="teamBugGuestScore" class="team-card-score">0</div>
+    </section>
+  </main>
+
+  <main id="playerBug" class="player-bug hidden">
+    <section id="playerBugHome" class="player-panel home">
+      <div id="playerBugHomeTitle" class="player-panel-title">HOME</div>
+      <div id="playerBugHomeList" class="player-list"></div>
+    </section>
+    <section id="playerBugGuest" class="player-panel guest">
+      <div id="playerBugGuestTitle" class="player-panel-title">GUEST</div>
+      <div id="playerBugGuestList" class="player-list"></div>
+    </section>
+  </main>
+
   <script>
     const translations = {
       en: {
@@ -200,6 +434,9 @@
         periodPrefix: 'P',
         live: 'Live',
         shotClockShort: 'SC',
+        eventLogo: 'Event Logo',
+        noPlayers: 'No players',
+        foulShort: 'F',
         disconnected: 'WebSocket disconnected'
       },
       zh: {
@@ -209,6 +446,9 @@
         periodPrefix: '节',
         live: '实时',
         shotClockShort: '进攻',
+        eventLogo: '赛事标志',
+        noPlayers: '暂无球员',
+        foulShort: '犯',
         disconnected: 'WebSocket 已断开'
       }
     };
@@ -217,7 +457,8 @@
     const language = preferredLanguages.some(value => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
     const strings = translations[language];
     const host = location.hostname || '127.0.0.1';
-    const wsURL = `ws://${host}:5517/api/v1/ws`;
+    const wsURL = `ws://${host}:5517/api/v2/ws`;
+    const v2State = {};
     let socket;
     let reconnectTimer;
 
@@ -272,6 +513,26 @@
       }
     }
 
+    function applyImage(elementID, metadata) {
+      const image = el(elementID);
+      const url = logoURL(metadata);
+      image.classList.toggle('hidden', !url);
+      if (!url) {
+        image.removeAttribute('src');
+        return;
+      }
+      if (image.getAttribute('src') !== url) {
+        image.src = url;
+      }
+    }
+
+    function setActiveView(mode) {
+      el('scorebug').classList.toggle('hidden', mode !== 'scoreboard');
+      el('eventBug').classList.toggle('hidden', mode !== 'eventLogo');
+      el('teamBug').classList.toggle('hidden', mode !== 'teamView');
+      el('playerBug').classList.toggle('hidden', mode !== 'playerView');
+    }
+
     function applyDisplayDirection(display, runtime) {
       const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
       const guestLeft = direction === 'guestLeft';
@@ -289,8 +550,81 @@
       }
     }
 
-    function applyState(message) {
-      const state = message.payload || message;
+    function displayMode(display) {
+      return (display.controlStatus && display.controlStatus.currentMode) || display.viewMode || 'scoreboard';
+    }
+
+    function applyEventBug(game, rules, display) {
+      applyImage('eventBugLogo', display.eventLogo);
+      const eventName = text(game.eventName, '');
+      el('eventBugTitle').textContent = eventName || text(rules.title, 'SmartScoreboard');
+      el('eventBugSubtitle').textContent = eventName ? text(rules.title, t('live')) : t('eventLogo');
+    }
+
+    function applyTeamBug(home, guest, display, runtime) {
+      const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      el('teamBugHome').style.order = guestLeft ? '2' : '1';
+      el('teamBugGuest').style.order = guestLeft ? '1' : '2';
+      applyImage('teamBugHomeLogo', home.logo);
+      applyImage('teamBugGuestLogo', guest.logo);
+      el('teamBugHomeName').textContent = text(home.name, t('home'));
+      el('teamBugGuestName').textContent = text(guest.name, t('guest'));
+      el('teamBugHomeScore').textContent = text(home.score, 0);
+      el('teamBugGuestScore').textContent = text(guest.score, 0);
+    }
+
+    function playersForSide(players, side, display) {
+      const displayed = players[`${side}Displayed`] || [];
+      const roster = players[`${side}Roster`] && players[`${side}Roster`].players ? players[`${side}Roster`].players : [];
+      return text(display.playerViewRosterScope, 'fullRoster') === 'fullRoster' && roster.length ? roster : displayed;
+    }
+
+    function renderPlayerList(containerID, players) {
+      const container = el(containerID);
+      container.replaceChildren();
+      if (!players.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-players';
+        empty.textContent = t('noPlayers');
+        container.appendChild(empty);
+        return;
+      }
+      players.slice(0, 8).forEach(player => {
+        const row = document.createElement('div');
+        row.className = 'player-row';
+
+        const number = document.createElement('div');
+        number.className = 'player-number';
+        number.textContent = text(player.number, '--');
+
+        const name = document.createElement('div');
+        name.className = 'player-name';
+        name.textContent = text(player.name, player.number ? `#${player.number}` : t('live'));
+
+        const meta = document.createElement('div');
+        meta.className = 'player-meta';
+        const card = player.cardStatus === 'yellow' ? 'Y' : player.cardStatus === 'red' ? 'R' : '';
+        meta.textContent = card ? `${t('foulShort')} ${text(player.foulCount, 0)} ${card}` : `${t('foulShort')} ${text(player.foulCount, 0)}`;
+
+        row.append(number, name, meta);
+        container.appendChild(row);
+      });
+    }
+
+    function applyPlayerBug(state, home, guest, display, runtime) {
+      const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
+      const guestLeft = direction === 'guestLeft';
+      el('playerBugHome').style.order = guestLeft ? '2' : '1';
+      el('playerBugGuest').style.order = guestLeft ? '1' : '2';
+      el('playerBugHomeTitle').textContent = text(home.name, t('home'));
+      el('playerBugGuestTitle').textContent = text(guest.name, t('guest'));
+      const players = state.players || {};
+      renderPlayerList('playerBugHomeList', playersForSide(players, 'home', display));
+      renderPlayerList('playerBugGuestList', playersForSide(players, 'guest', display));
+    }
+
+    function applyState(state) {
       if (!state || !state.teams || !state.clocks) return;
 
       const home = state.teams.home || {};
@@ -300,6 +634,26 @@
       const clocks = state.clocks || {};
       const display = state.display || {};
       const runtime = state.runtime || {};
+      const mode = displayMode(display);
+      const isBlackoutMode = mode === 'blackScreen' || mode === 'backgroundOnly';
+      document.body.classList.toggle('blackout', isBlackoutMode);
+      if (isBlackoutMode) return;
+
+      const supportedMode = mode === 'eventLogo' || mode === 'teamView' || mode === 'playerView' ? mode : 'scoreboard';
+      setActiveView(supportedMode);
+      if (supportedMode === 'eventLogo') {
+        applyEventBug(game, rules, display);
+        return;
+      }
+      if (supportedMode === 'teamView') {
+        applyTeamBug(home, guest, display, runtime);
+        return;
+      }
+      if (supportedMode === 'playerView') {
+        applyPlayerBug(state, home, guest, display, runtime);
+        return;
+      }
+
       applyDisplayDirection(display, runtime);
 
       el('homeName').textContent = text(home.name, t('home'));
@@ -322,16 +676,32 @@
       el('extra').textContent = rules.supportsShotClock ? `${t('shotClockShort')} ${text(clocks.formattedShotClock, '0.0')}` : text(rules.title, t('live'));
     }
 
+    function handleV2Message(message) {
+      if (!message || message.schemaVersion !== 2) return;
+      if (message.type === 'scoreboard.v2.manifest') return;
+      if (message.type !== 'scoreboard.v2.resource') return;
+
+      const envelope = message.payload || {};
+      const resource = message.resource || envelope.resource;
+      if (!resource) return;
+
+      v2State[resource] = envelope.data;
+      if (envelope.generatedAt) v2State.generatedAt = envelope.generatedAt;
+      if (envelope.generatedAtUnixTime !== undefined) v2State.generatedAtUnixTime = envelope.generatedAtUnixTime;
+      applyState(v2State);
+    }
+
     function connect() {
       clearTimeout(reconnectTimer);
       socket = new WebSocket(wsURL);
       socket.onopen = () => {
         setConnected(true);
-        socket.send(JSON.stringify({ type: 'get' }));
+        Object.keys(v2State).forEach(key => delete v2State[key]);
+        socket.send(JSON.stringify({ type: 'subscribe', apiVersion: 'v2' }));
       };
       socket.onmessage = event => {
         try {
-          applyState(JSON.parse(event.data));
+          handleV2Message(JSON.parse(event.data));
         } catch {
           setConnected(false);
         }

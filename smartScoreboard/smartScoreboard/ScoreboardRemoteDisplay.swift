@@ -211,6 +211,23 @@ nonisolated enum ScoreboardRemoteDisplayDeviceType: String, Codable, Equatable, 
     }
 }
 
+nonisolated enum ScoreboardRemoteDisplayStateVersions {
+    static let supported: Set<Int> = [1, 2]
+    static let advertisedValue = "2,1"
+
+    static func parse(_ value: String?) -> Set<Int> {
+        guard let value else {
+            return []
+        }
+        return Set(
+            value
+                .split(separator: ",")
+                .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                .filter { supported.contains($0) }
+        )
+    }
+}
+
 struct ScoreboardRemoteDisplaySource: Identifiable {
     let endpoint: NWEndpoint
     let discoveryInfo: [String: String]?
@@ -232,6 +249,9 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
             version: discoveryInfo?["appVersion"],
             build: discoveryInfo?["appBuild"]
         )
+    }
+    var remoteStateVersions: Set<Int> {
+        ScoreboardRemoteDisplayStateVersions.parse(discoveryInfo?["remoteStateVersions"])
     }
     var receiverState: ScoreboardRemoteDisplayReceiverAdvertisedState {
         if let rawState = discoveryInfo?["receiverState"],
@@ -392,6 +412,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let appVersion: String?
     let appBuild: String?
     let deviceType: String?
+    let remoteStateVersions: String?
     let isMuted: Bool?
     let soundEffect: String?
     let imageID: String?
@@ -409,6 +430,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         appVersion: String? = nil,
         appBuild: String? = nil,
         deviceType: ScoreboardRemoteDisplayDeviceType? = nil,
+        remoteStateVersions: String? = nil,
         isMuted: Bool? = nil,
         soundEffect: ScoreboardSoundEffect? = nil,
         imageID: String? = nil,
@@ -425,6 +447,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.appVersion = appVersion
         self.appBuild = appBuild
         self.deviceType = deviceType?.rawValue
+        self.remoteStateVersions = remoteStateVersions
         self.isMuted = isMuted
         self.soundEffect = soundEffect?.rawValue
         self.imageID = imageID
@@ -540,7 +563,7 @@ nonisolated struct ScoreboardRemoteDisplayAppVersion: Codable, Equatable, Sendab
     }
 
     func isMismatch(with other: ScoreboardRemoteDisplayAppVersion = .current) -> Bool {
-        version != other.version || build != other.build
+        version != other.version
     }
 
     private init(version: String, build: String) {
@@ -789,12 +812,12 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     private var networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     private var browser: NWBrowser?
     private var displayConnectionsByEndpoint: [NWEndpoint: NetworkDisplayConnection] = [:]
-    private var latestStateData = Data()
+    private var latestStates = ScoreboardRemoteDisplayEncodedStates.encodingFailed
     private var invitedPeerIDs = Set<String>()
     private var heartbeatTimer: Timer?
     private var heartbeatSequence: UInt64 = 0
     private var lastTrustedInviteAttemptByID: [String: Date] = [:]
-    private var currentStateProvider: ((String?) -> Data)?
+    private var currentStateProvider: ((String?, Int) -> Data)?
     private var currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
     private var lastPeriodicStateSyncAt: Date?
     private var endpointsResettingPairing = Set<NWEndpoint>()
@@ -814,10 +837,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     func start(
-        initialState: Data,
+        initialState: ScoreboardRemoteDisplayEncodedStates,
         displayName: String,
         networkMode: ScoreboardRemoteDisplayNetworkMode,
-        currentStateProvider: ((String?) -> Data)? = nil,
+        currentStateProvider: ((String?, Int) -> Data)? = nil,
         currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])? = nil
     ) {
         stop()
@@ -825,7 +848,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         self.networkMode = networkMode
         self.currentStateProvider = currentStateProvider
         self.currentImageResponsesProvider = currentImageResponsesProvider
-        latestStateData = currentStateProvider?(nil) ?? initialState
+        latestStates = ScoreboardRemoteDisplayEncodedStates(
+            v1: currentStateProvider?(nil, 1) ?? initialState.v1,
+            v2: currentStateProvider?(nil, 2) ?? initialState.v2
+        )
         lastDiscoveryRefreshAt = nil
         startBrowser()
         startHeartbeatTimer()
@@ -1111,8 +1137,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         status = .browsing(displayCount: sources.count, pairedCount: 0)
     }
 
-    func updateState(_ data: Data) {
-        latestStateData = data
+    func updateState(_ states: ScoreboardRemoteDisplayEncodedStates) {
+        latestStates = states
         sendCurrentState()
     }
 
@@ -1219,6 +1245,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             displayName: source.name,
             appVersion: source.appVersion,
             deviceType: source.deviceType,
+            remoteStateVersions: source.remoteStateVersions,
             pendingPairingRequest: request,
             pendingTrustedDisplay: pendingTrustedDisplay
         )
@@ -1344,6 +1371,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         display?.deviceType = message.deviceType.flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:))
             ?? sources.first { $0.endpoint == endpoint || $0.id == displayID }?.deviceType
             ?? .unknown
+        let advertisedVersions = ScoreboardRemoteDisplayStateVersions.parse(message.remoteStateVersions)
+        if !advertisedVersions.isEmpty {
+            display?.remoteStateVersions = advertisedVersions
+        }
         invitedPeerIDs.remove(displayID)
         lastTrustedInviteAttemptByID.removeValue(forKey: displayID)
 
@@ -1434,7 +1465,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             pairingSetID: message.pairingSetID,
             appVersion: message.appVersion,
             appBuild: message.appBuild,
-            deviceType: message.deviceType.flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:))
+            deviceType: message.deviceType.flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:)),
+            remoteStateVersions: message.remoteStateVersions
         )
         updateBrowsingStatus()
     }
@@ -1553,7 +1585,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         pairingSetID: String?,
         appVersion: String?,
         appBuild: String?,
-        deviceType: ScoreboardRemoteDisplayDeviceType?
+        deviceType: ScoreboardRemoteDisplayDeviceType?,
+        remoteStateVersions: String?
     ) {
         let fallbackInfo = [
             "app": "Smart Scoreboard",
@@ -1583,6 +1616,11 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             discoveryInfo["deviceType"] = deviceType.rawValue
         } else {
             discoveryInfo.removeValue(forKey: "deviceType")
+        }
+        if let remoteStateVersions, !remoteStateVersions.isEmpty {
+            discoveryInfo["remoteStateVersions"] = remoteStateVersions
+        } else {
+            discoveryInfo.removeValue(forKey: "remoteStateVersions")
         }
         discoveryInfo.removeValue(forKey: "activeHostID")
         discoveryInfo.removeValue(forKey: "activeHostName")
@@ -1677,14 +1715,18 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             .map(\.endpoint)
     }
 
-    private func currentStateData(forDisplayID displayID: String?) -> Data {
-        if let data = currentStateProvider?(displayID), !data.isEmpty {
+    private func currentStateData(forDisplayID displayID: String?, preferredVersion: Int) -> Data {
+        if let data = currentStateProvider?(displayID, preferredVersion), !data.isEmpty {
             if displayID == nil {
-                latestStateData = data
+                if preferredVersion == 2 {
+                    latestStates = ScoreboardRemoteDisplayEncodedStates(v1: latestStates.v1, v2: data)
+                } else {
+                    latestStates = ScoreboardRemoteDisplayEncodedStates(v1: data, v2: latestStates.v2)
+                }
             }
             return data
         }
-        return latestStateData
+        return latestStates.data(preferredVersion: preferredVersion)
     }
 
     private func sendCurrentState(to endpoints: [NWEndpoint]? = nil) {
@@ -1695,7 +1737,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
         for endpoint in targetEndpoints {
             let displayID = sourceID(for: endpoint)
-            queueStateData(currentStateData(forDisplayID: displayID), to: endpoint)
+            let preferredVersion = displayConnectionsByEndpoint[endpoint]?.supportsRemoteStateVersion(2) == true ? 2 : 1
+            queueStateData(currentStateData(forDisplayID: displayID, preferredVersion: preferredVersion), to: endpoint)
         }
     }
 
@@ -1775,7 +1818,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 hostID: hostID,
                 hostName: displayName,
                 displayID: sourceID(for: endpoint),
-                displayName: nil
+                displayName: nil,
+                remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
             )
             sendControlMessage(message, to: [endpoint])
         }
@@ -1892,10 +1936,15 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var latency: TimeInterval?
         var appVersion: ScoreboardRemoteDisplayAppVersion?
         var deviceType: ScoreboardRemoteDisplayDeviceType
+        var remoteStateVersions: Set<Int>
         var pendingPairingRequest: ScoreboardRemoteDisplayPairingRequest?
         var pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
         var isSendingState = false
         var pendingStateData: Data?
+
+        func supportsRemoteStateVersion(_ version: Int) -> Bool {
+            remoteStateVersions.contains(version)
+        }
     }
 }
 
@@ -1931,6 +1980,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     private var listenerNetworkMode: ScoreboardRemoteDisplayNetworkMode?
     private var listener: NWListener?
+    private var advertisedDiscoveryInfo: [String: String]?
     private var connectionsByID: [ObjectIdentifier: NWConnection] = [:]
     private var pairedConnection: NWConnection?
     private var activeConsumerCount = 0
@@ -2021,6 +2071,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         listener?.cancel()
         listener = nil
         listenerNetworkMode = nil
+        advertisedDiscoveryInfo = nil
         for connection in connectionsByID.values {
             connection.cancel()
         }
@@ -2062,6 +2113,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         listener?.cancel()
         listener = nil
         listenerNetworkMode = nil
+        advertisedDiscoveryInfo = nil
         pairedHostID = nil
         pairedHostName = nil
         isDisconnectingFromOperator = false
@@ -2103,7 +2155,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             pairingSetID: pairingSetID,
             appVersion: ScoreboardRemoteDisplayAppVersion.current.version,
             appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
-            deviceType: ScoreboardRemoteDisplayDeviceType.current
+            deviceType: ScoreboardRemoteDisplayDeviceType.current,
+            remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
         )
         sendControlMessage(message)
 
@@ -2162,7 +2215,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             pairingSetID: pairingSetID,
             appVersion: ScoreboardRemoteDisplayAppVersion.current.version,
             appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
-            deviceType: ScoreboardRemoteDisplayDeviceType.current
+            deviceType: ScoreboardRemoteDisplayDeviceType.current,
+            remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
         )
         sendControlMessage(message)
     }
@@ -2241,7 +2295,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         return .waitingUnpaired
     }
 
-    private func currentListenerService() -> NWListener.Service {
+    private func currentDiscoveryInfo() -> [String: String] {
         var discoveryInfo = [
             "app": "Smart Scoreboard",
             "role": "display",
@@ -2250,7 +2304,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             "pairingSetID": pairingSetID,
             "appVersion": ScoreboardRemoteDisplayAppVersion.current.version,
             "appBuild": ScoreboardRemoteDisplayAppVersion.current.build,
-            "deviceType": ScoreboardRemoteDisplayDeviceType.current.rawValue
+            "deviceType": ScoreboardRemoteDisplayDeviceType.current.rawValue,
+            "remoteStateVersions": ScoreboardRemoteDisplayStateVersions.advertisedValue
         ]
         let currentAdvertisedState = advertisedState
         discoveryInfo["receiverState"] = currentAdvertisedState.rawValue
@@ -2271,6 +2326,10 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             discoveryInfo["pairedHostName"] = lastActiveOperatorName
         }
 
+        return discoveryInfo
+    }
+
+    private func listenerService(from discoveryInfo: [String: String]) -> NWListener.Service {
         return NWListener.Service(
             name: displayName,
             type: ScoreboardRemoteDisplayHostService.bonjourServiceType,
@@ -2280,18 +2339,31 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func startOrRefreshListener(recreate: Bool = false) {
+        let discoveryInfo = currentDiscoveryInfo()
         if let listener, !recreate, listenerNetworkMode == networkMode {
-            listener.service = currentListenerService()
+            guard advertisedDiscoveryInfo != discoveryInfo else {
+                return
+            }
+            #if os(tvOS)
+            listener.cancel()
+            self.listener = nil
+            listenerNetworkMode = nil
+            advertisedDiscoveryInfo = nil
+            #else
+            listener.service = listenerService(from: discoveryInfo)
+            advertisedDiscoveryInfo = discoveryInfo
             return
+            #endif
+        } else {
+            listener?.cancel()
+            listener = nil
+            listenerNetworkMode = nil
+            advertisedDiscoveryInfo = nil
         }
-
-        listener?.cancel()
-        listener = nil
-        listenerNetworkMode = nil
 
         do {
             let listener = try NWListener(using: ScoreboardRemoteDisplayNetworkTransport.parameters(for: networkMode))
-            listener.service = currentListenerService()
+            listener.service = listenerService(from: discoveryInfo)
             listener.newConnectionHandler = { [weak self, weak listener] connection in
                 Task { @MainActor [weak self, weak listener] in
                     guard let self, self.listener === listener else {
@@ -2311,6 +2383,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             }
             self.listener = listener
             listenerNetworkMode = networkMode
+            advertisedDiscoveryInfo = discoveryInfo
             listener.start(queue: .main)
         } catch {
             status = .failed(String(describing: error))
@@ -2433,8 +2506,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
-        let decoder = JSONDecoder()
-        guard let decodedState = try? decoder.decode(ScoreboardWebAPIState.self, from: data) else {
+        guard let decodedState = Self.decodeRemoteDisplayState(from: data) else {
             status = .failed(localizedRemoteDisplayString("Received an unreadable Remote Display update."))
             return
         }
@@ -2449,6 +2521,19 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             status = .paired(pairedHostName ?? localizedRemoteDisplayString("operator device"))
         }
         requestMissingImagesIfNeeded(for: decodedState, from: connection)
+    }
+
+    private static func decodeRemoteDisplayState(from data: Data) -> ScoreboardWebAPIState? {
+        let decoder = JSONDecoder()
+        if let decodedV2 = try? decoder.decode(ScoreboardWebAPIRemoteDisplayStateV2.self, from: data),
+           decodedV2.schemaVersion == 2 {
+            return decodedV2.v1CompatibleState
+        }
+        if let decodedV1 = try? decoder.decode(ScoreboardWebAPIState.self, from: data),
+           decodedV1.schemaVersion == 1 {
+            return decodedV1
+        }
+        return nil
     }
 
     private func handlePairingRequest(_ request: ScoreboardRemoteDisplayPairingRequest, from connection: NWConnection) {
@@ -2622,7 +2707,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             displayName: displayName,
             appVersion: ScoreboardRemoteDisplayAppVersion.current.version,
             appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
-            deviceType: ScoreboardRemoteDisplayDeviceType.current
+            deviceType: ScoreboardRemoteDisplayDeviceType.current,
+            remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
         )
         sendControlMessage(response, to: [connection])
     }

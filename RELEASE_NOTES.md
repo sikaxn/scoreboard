@@ -1,5 +1,23 @@
 # Release Notes
 
+## 1.3
+
+### Feature Added
+
+- Added team pause tracking for Basketball, Volleyball, Hockey, and Custom Sports that enable pauses.
+- Added pause allowance setup, live pause controls, public display pause indicators, logs, sounds, Companion events, Remote Display sync, and Web API output.
+- Improved Control Board toolbar access and status visibility for Sound and Bitfocus Companion.
+- Expanded sound and Companion event coverage for Debate segments, Debate prep time, side clocks, and unassigned Debate timers.
+- Improved sound playback responsiveness by preparing test sound effects ahead of use.
+- Expanded the Web API with v2 status endpoints, resource-based state output, changed-resource WebSocket updates, and direct image endpoints for backgrounds, team logos, and event logos.
+- Updated Web API docs and demo overlays to support v2 state, event logo, team view, and player view display modes.
+
+### Bug Fixed
+
+- Fixed a Debate Companion edge case so side-specific, prep, and unassigned Debate timer events can trigger the correct commands.
+- Improved local scoreboard sleep prevention when the local scoreboard view is visible.
+- Improved persistence and sync for team pause counters across saved games, public displays, Remote Display, and Web API clients.
+
 ## 1.1
 
 ### Feature Added

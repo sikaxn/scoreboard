@@ -45,6 +45,7 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case possessionChange
     case sideSwap
     case substitutionsAdjustment
+    case teamPauseAdjustment
     case chessClockToggle
     case chessClockSwitch
     case chessClockAdjustment
@@ -120,6 +121,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Swap Sides"
         case .substitutionsAdjustment:
             return "Substitution Swap"
+        case .teamPauseAdjustment:
+            return "Team Pause Change"
         case .chessClockToggle:
             return "Chess Clock Toggle"
         case .chessClockSwitch:

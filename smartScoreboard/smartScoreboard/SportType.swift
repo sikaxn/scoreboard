@@ -125,6 +125,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
     var isPlayerFoulsEnabled: Bool
     var isSubstitutionTrackingEnabled: Bool
     var defaultSubstitutionLimit: Int
+    var isPauseTrackingEnabled: Bool
+    var defaultPauseLimit: Int
     var isTeamFoulsEnabled: Bool
     var isPenaltyTimerEnabled: Bool
     var isPlayerCardsEnabled: Bool
@@ -151,6 +153,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPlayerFoulsEnabled: Bool,
         isSubstitutionTrackingEnabled: Bool,
         defaultSubstitutionLimit: Int,
+        isPauseTrackingEnabled: Bool,
+        defaultPauseLimit: Int,
         isTeamFoulsEnabled: Bool,
         isPenaltyTimerEnabled: Bool,
         isPlayerCardsEnabled: Bool,
@@ -176,6 +180,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         self.isPlayerFoulsEnabled = isPlayerFoulsEnabled
         self.isSubstitutionTrackingEnabled = isSubstitutionTrackingEnabled
         self.defaultSubstitutionLimit = defaultSubstitutionLimit
+        self.isPauseTrackingEnabled = isPauseTrackingEnabled
+        self.defaultPauseLimit = defaultPauseLimit
         self.isTeamFoulsEnabled = isTeamFoulsEnabled
         self.isPenaltyTimerEnabled = isPenaltyTimerEnabled
         self.isPlayerCardsEnabled = isPlayerCardsEnabled
@@ -203,6 +209,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPlayerFoulsEnabled: false,
         isSubstitutionTrackingEnabled: false,
         defaultSubstitutionLimit: 0,
+        isPauseTrackingEnabled: false,
+        defaultPauseLimit: 2,
         isTeamFoulsEnabled: false,
         isPenaltyTimerEnabled: false,
         isPlayerCardsEnabled: false,
@@ -230,6 +238,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         case isPlayerFoulsEnabled
         case isSubstitutionTrackingEnabled
         case defaultSubstitutionLimit
+        case isPauseTrackingEnabled
+        case defaultPauseLimit
         case isTeamFoulsEnabled
         case isPenaltyTimerEnabled
         case isPlayerCardsEnabled
@@ -258,6 +268,8 @@ struct CustomSportConfig: Codable, Equatable, Sendable {
         isPlayerFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerFoulsEnabled) ?? Self.default.isPlayerFoulsEnabled
         isSubstitutionTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSubstitutionTrackingEnabled) ?? Self.default.isSubstitutionTrackingEnabled
         defaultSubstitutionLimit = try container.decodeIfPresent(Int.self, forKey: .defaultSubstitutionLimit) ?? Self.default.defaultSubstitutionLimit
+        isPauseTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPauseTrackingEnabled) ?? Self.default.isPauseTrackingEnabled
+        defaultPauseLimit = try container.decodeIfPresent(Int.self, forKey: .defaultPauseLimit) ?? Self.default.defaultPauseLimit
         isTeamFoulsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isTeamFoulsEnabled) ?? Self.default.isTeamFoulsEnabled
         isPenaltyTimerEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPenaltyTimerEnabled) ?? Self.default.isPenaltyTimerEnabled
         isPlayerCardsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPlayerCardsEnabled) ?? Self.default.isPlayerCardsEnabled
@@ -277,6 +289,7 @@ struct SportRules: Sendable {
     let defaultRosterSize: Int
     let defaultDisplayLineupSize: Int
     let defaultSubstitutionLimit: Int
+    let defaultPauseLimit: Int
     let mainClockMode: MainClockMode
     let supportsScore: Bool
     let supportsPeriod: Bool
@@ -288,6 +301,7 @@ struct SportRules: Sendable {
     let usesCenterPlayerStrip: Bool
     let supportsCards: Bool
     let showsSubstitutionTracking: Bool
+    let showsPauseTracking: Bool
     let supportsHockeyPenalties: Bool
     let usesChessClocks: Bool
 }
@@ -324,6 +338,8 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
     var usesCenterPlayerStrip: Bool { rules(customConfig: nil).usesCenterPlayerStrip }
     var supportsCards: Bool { rules(customConfig: nil).supportsCards }
     var showsSubstitutionTracking: Bool { rules(customConfig: nil).showsSubstitutionTracking }
+    var defaultPauseLimit: Int { rules(customConfig: nil).defaultPauseLimit }
+    var showsPauseTracking: Bool { rules(customConfig: nil).showsPauseTracking }
 
     func rules(customConfig: CustomSportConfig?) -> SportRules {
         switch self {
@@ -339,6 +355,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 0,
                 defaultDisplayLineupSize: 0,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 0,
                 mainClockMode: .countdown,
                 supportsScore: true,
                 supportsPeriod: false,
@@ -350,6 +367,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
                 showsSubstitutionTracking: false,
+                showsPauseTracking: false,
                 supportsHockeyPenalties: false,
                 usesChessClocks: false
             )
@@ -365,6 +383,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 12,
                 defaultDisplayLineupSize: 5,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 2,
                 mainClockMode: .countdown,
                 supportsScore: true,
                 supportsPeriod: true,
@@ -376,6 +395,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
                 showsSubstitutionTracking: true,
+                showsPauseTracking: true,
                 supportsHockeyPenalties: false,
                 usesChessClocks: false
             )
@@ -391,6 +411,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 12,
                 defaultDisplayLineupSize: 6,
                 defaultSubstitutionLimit: 6,
+                defaultPauseLimit: 2,
                 mainClockMode: .countUp,
                 supportsScore: true,
                 supportsPeriod: true,
@@ -402,6 +423,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: true,
                 showsSubstitutionTracking: true,
+                showsPauseTracking: true,
                 supportsHockeyPenalties: false,
                 usesChessClocks: false
             )
@@ -417,6 +439,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 11,
                 defaultDisplayLineupSize: 11,
                 defaultSubstitutionLimit: 5,
+                defaultPauseLimit: 0,
                 mainClockMode: .countdown,
                 supportsScore: true,
                 supportsPeriod: true,
@@ -428,6 +451,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: true,
                 supportsCards: true,
                 showsSubstitutionTracking: true,
+                showsPauseTracking: false,
                 supportsHockeyPenalties: false,
                 usesChessClocks: false
             )
@@ -443,6 +467,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 20,
                 defaultDisplayLineupSize: 6,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 1,
                 mainClockMode: .countdown,
                 supportsScore: true,
                 supportsPeriod: true,
@@ -454,6 +479,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
                 showsSubstitutionTracking: false,
+                showsPauseTracking: true,
                 supportsHockeyPenalties: true,
                 usesChessClocks: false
             )
@@ -469,6 +495,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 0,
                 defaultDisplayLineupSize: 0,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 0,
                 mainClockMode: .disabled,
                 supportsScore: false,
                 supportsPeriod: false,
@@ -480,6 +507,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
                 showsSubstitutionTracking: false,
+                showsPauseTracking: false,
                 supportsHockeyPenalties: false,
                 usesChessClocks: true
             )
@@ -495,6 +523,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: 0,
                 defaultDisplayLineupSize: 0,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 0,
                 mainClockMode: .disabled,
                 supportsScore: false,
                 supportsPeriod: false,
@@ -506,6 +535,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: false,
                 supportsCards: false,
                 showsSubstitutionTracking: false,
+                showsPauseTracking: false,
                 supportsHockeyPenalties: false,
                 usesChessClocks: true
             )
@@ -522,6 +552,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 defaultRosterSize: config.defaultRosterSize,
                 defaultDisplayLineupSize: config.defaultDisplayLineupSize,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: config.defaultPauseLimit,
                 mainClockMode: config.usesChessClocks ? .disabled : config.mainClockMode,
                 supportsScore: config.isScoreEnabled,
                 supportsPeriod: config.isPeriodEnabled,
@@ -533,6 +564,7 @@ enum SportType: String, Codable, CaseIterable, Identifiable {
                 usesCenterPlayerStrip: config.usesCenterPlayerStrip,
                 supportsCards: config.isPlayerCardsEnabled,
                 showsSubstitutionTracking: config.isSubstitutionTrackingEnabled,
+                showsPauseTracking: config.isPauseTrackingEnabled,
                 supportsHockeyPenalties: config.isPenaltyTimerEnabled,
                 usesChessClocks: config.usesChessClocks
             )

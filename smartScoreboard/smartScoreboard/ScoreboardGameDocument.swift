@@ -21,7 +21,7 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Sendable {
-    var fileVersion = 11
+    var fileVersion = 12
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
@@ -60,6 +60,10 @@ struct ScoreboardGameSnapshot: Sendable {
     var guestSubstitutionsAllowed: Int?
     var homeSubstitutionsUsed: Int?
     var guestSubstitutionsUsed: Int?
+    var homePausesAllowed: Int?
+    var guestPausesAllowed: Int?
+    var homePausesUsed: Int?
+    var guestPausesUsed: Int?
     var homeTeamFouls: Int?
     var guestTeamFouls: Int?
     var homeChessClockSeconds: Int?
@@ -138,6 +142,10 @@ struct ScoreboardGameSnapshot: Sendable {
         guestSubstitutionsAllowed: 0,
         homeSubstitutionsUsed: 0,
         guestSubstitutionsUsed: 0,
+        homePausesAllowed: 0,
+        guestPausesAllowed: 0,
+        homePausesUsed: 0,
+        guestPausesUsed: 0,
         homeTeamFouls: 0,
         guestTeamFouls: 0,
         homeChessClockSeconds: ChessClockPreset.rapid.seconds,
@@ -222,6 +230,10 @@ extension ScoreboardGameSnapshot: Codable {
         case guestSubstitutionsAllowed
         case homeSubstitutionsUsed
         case guestSubstitutionsUsed
+        case homePausesAllowed
+        case guestPausesAllowed
+        case homePausesUsed
+        case guestPausesUsed
         case homeTeamFouls
         case guestTeamFouls
         case homeChessClockSeconds
@@ -304,6 +316,10 @@ extension ScoreboardGameSnapshot: Codable {
         guestSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsAllowed)
         homeSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsUsed)
         guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed)
+        homePausesAllowed = try container.decodeIfPresent(Int.self, forKey: .homePausesAllowed)
+        guestPausesAllowed = try container.decodeIfPresent(Int.self, forKey: .guestPausesAllowed)
+        homePausesUsed = try container.decodeIfPresent(Int.self, forKey: .homePausesUsed)
+        guestPausesUsed = try container.decodeIfPresent(Int.self, forKey: .guestPausesUsed)
         homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls)
         guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls)
         homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds)
@@ -386,6 +402,10 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestSubstitutionsAllowed, forKey: .guestSubstitutionsAllowed)
         try container.encodeIfPresent(homeSubstitutionsUsed, forKey: .homeSubstitutionsUsed)
         try container.encodeIfPresent(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
+        try container.encodeIfPresent(homePausesAllowed, forKey: .homePausesAllowed)
+        try container.encodeIfPresent(guestPausesAllowed, forKey: .guestPausesAllowed)
+        try container.encodeIfPresent(homePausesUsed, forKey: .homePausesUsed)
+        try container.encodeIfPresent(guestPausesUsed, forKey: .guestPausesUsed)
         try container.encodeIfPresent(homeTeamFouls, forKey: .homeTeamFouls)
         try container.encodeIfPresent(guestTeamFouls, forKey: .guestTeamFouls)
         try container.encodeIfPresent(homeChessClockSeconds, forKey: .homeChessClockSeconds)

@@ -139,6 +139,10 @@ nonisolated struct ScoreboardWebAPIAppInfo: Codable, Sendable {
     let apiVersion: String
 
     static var current: ScoreboardWebAPIAppInfo {
+        current(apiVersion: "v1")
+    }
+
+    static func current(apiVersion: String) -> ScoreboardWebAPIAppInfo {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? "Scoreboard"
@@ -148,7 +152,7 @@ nonisolated struct ScoreboardWebAPIAppInfo: Codable, Sendable {
             name: appName,
             version: appVersion,
             build: appBuild,
-            apiVersion: "v1"
+            apiVersion: apiVersion
         )
     }
 }
@@ -178,9 +182,25 @@ nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let showsEventLogo: Bool?
     let eventLogo: ScoreboardWebAPIEventLogo?
     let viewMode: ScoreboardDisplayViewMode?
+    let controlStatus: ScoreboardWebAPIDisplayControlStatus?
     let playerViewRosterScope: PlayerViewRosterScope?
     let direction: ScoreboardDisplayDirection?
     let remoteExternalDirection: ScoreboardDisplayDirection?
+}
+
+nonisolated struct ScoreboardWebAPIDisplayControlStatus: Codable, Sendable {
+    let currentMode: ScoreboardDisplayViewMode
+    let currentModeTitle: String
+    let availableModes: [ScoreboardWebAPIDisplayControlMode]
+    let isBlackScreen: Bool
+    let isBackgroundOnly: Bool
+    let isForegroundVisible: Bool
+}
+
+nonisolated struct ScoreboardWebAPIDisplayControlMode: Codable, Sendable {
+    let mode: ScoreboardDisplayViewMode
+    let title: String
+    let isSelected: Bool
 }
 
 nonisolated struct ScoreboardWebAPIAudio: Codable, Sendable {
@@ -206,6 +226,7 @@ nonisolated struct ScoreboardWebAPIRules: Codable, Sendable {
     let supportsPlayerTracking: Bool
     let supportsCards: Bool
     let supportsSubstitutions: Bool
+    let supportsPauses: Bool?
     let supportsHockeyPenalties: Bool
     let usesChessClocks: Bool
 }
@@ -227,6 +248,9 @@ nonisolated struct ScoreboardWebAPITeam: Codable, Sendable {
     let substitutionsAllowed: Int
     let substitutionsUsed: Int
     let substitutionsRemaining: Int
+    let pausesAllowed: Int?
+    let pausesUsed: Int?
+    let pausesRemaining: Int?
 }
 
 nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
@@ -302,6 +326,117 @@ nonisolated struct ScoreboardWebAPIImageResponse: Sendable {
     let body: Data
 }
 
+nonisolated enum ScoreboardWebAPIV2ResourceName: String, CaseIterable, Codable, Sendable {
+    case game
+    case runtime
+    case display
+    case rules
+    case teams
+    case clocks
+    case players
+    case debate
+    case audio
+
+    var path: String {
+        "/api/v2/state/\(rawValue)"
+    }
+}
+
+nonisolated struct ScoreboardWebAPIV2ResourcePayload: Sendable {
+    let name: ScoreboardWebAPIV2ResourceName
+    let revision: String
+    let data: Data
+}
+
+nonisolated struct ScoreboardWebAPIV2StatePayload: Sendable {
+    let manifestData: Data
+    let resources: [ScoreboardWebAPIV2ResourcePayload]
+
+    private let resourcesByName: [ScoreboardWebAPIV2ResourceName: ScoreboardWebAPIV2ResourcePayload]
+
+    init(manifestData: Data, resources: [ScoreboardWebAPIV2ResourcePayload]) {
+        self.manifestData = manifestData
+        self.resources = resources
+        self.resourcesByName = Dictionary(uniqueKeysWithValues: resources.map { ($0.name, $0) })
+    }
+
+    func resourceData(for path: String) -> Data? {
+        guard path.hasPrefix("/api/v2/state/") else {
+            return nil
+        }
+        let resourceName = String(path.dropFirst("/api/v2/state/".count))
+        guard let name = ScoreboardWebAPIV2ResourceName(rawValue: resourceName) else {
+            return nil
+        }
+        return resourcesByName[name]?.data
+    }
+
+    static let empty = ScoreboardWebAPIV2StatePayload(
+        manifestData: Data(#"{"schemaVersion":2,"generatedAt":"","generatedAtUnixTime":null,"resources":[]}"#.utf8),
+        resources: []
+    )
+}
+
+nonisolated struct ScoreboardWebAPIV2ResourceLink: Codable, Sendable {
+    let name: String
+    let href: String
+    let revision: String
+}
+
+nonisolated struct ScoreboardWebAPIV2StateManifest: Codable, Sendable {
+    let schemaVersion: Int
+    let generatedAt: String
+    let generatedAtUnixTime: TimeInterval?
+    let resources: [ScoreboardWebAPIV2ResourceLink]
+}
+
+nonisolated struct ScoreboardWebAPIV2ResourceEnvelope<Value: Encodable>: Encodable {
+    let schemaVersion: Int
+    let resource: String
+    let revision: String
+    let generatedAt: String
+    let generatedAtUnixTime: TimeInterval?
+    let data: Value
+}
+
+nonisolated struct ScoreboardWebAPIPayload: Sendable {
+    let v1State: Data
+    let v2State: ScoreboardWebAPIV2StatePayload
+
+    static let empty = ScoreboardWebAPIPayload(
+        v1State: Data(#"{"schemaVersion":1}"#.utf8),
+        v2State: .empty
+    )
+}
+
+nonisolated struct ScoreboardWebAPIRemoteDisplayStateV2: Codable, Sendable {
+    let schemaVersion: Int
+    let generatedAt: String
+    let generatedAtUnixTime: TimeInterval?
+    let game: ScoreboardGameSnapshot
+    let runtime: ScoreboardWebAPIRuntime
+    let display: ScoreboardWebAPIDisplay?
+    let rules: ScoreboardWebAPIRules
+    let teams: ScoreboardWebAPITeams
+    let clocks: ScoreboardWebAPIClocks
+    let players: ScoreboardWebAPIPlayers
+    let debate: ScoreboardWebAPIDebate?
+}
+
+nonisolated struct ScoreboardRemoteDisplayEncodedStates: Sendable {
+    let v1: Data
+    let v2: Data
+
+    func data(preferredVersion: Int) -> Data {
+        preferredVersion == 2 && !v2.isEmpty ? v2 : v1
+    }
+
+    static let encodingFailed = ScoreboardRemoteDisplayEncodedStates(
+        v1: Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8),
+        v2: Data(#"{"schemaVersion":2,"error":"encodingFailed"}"#.utf8)
+    )
+}
+
 extension ScoreboardWebAPIState {
     var remoteDisplayPayload: ScoreboardWebAPIState {
         let shouldIncludeFullRoster = display?.resolvedViewMode == .playerView
@@ -321,6 +456,266 @@ extension ScoreboardWebAPIState {
             players: shouldIncludeFullRoster ? players : players.remoteDisplayPayload,
             debate: debate
         )
+    }
+
+    var remoteDisplayV2Payload: ScoreboardWebAPIRemoteDisplayStateV2 {
+        let payload = remoteDisplayPayload.v2ImagePathPayload
+        return ScoreboardWebAPIRemoteDisplayStateV2(
+            schemaVersion: 2,
+            generatedAt: payload.generatedAt,
+            generatedAtUnixTime: payload.generatedAtUnixTime,
+            game: payload.game,
+            runtime: payload.runtime,
+            display: payload.display,
+            rules: payload.rules,
+            teams: payload.teams,
+            clocks: payload.clocks,
+            players: payload.players,
+            debate: payload.debate
+        )
+    }
+
+    var v2ImagePathPayload: ScoreboardWebAPIState {
+        ScoreboardWebAPIState(
+            schemaVersion: schemaVersion,
+            generatedAt: generatedAt,
+            generatedAtUnixTime: generatedAtUnixTime,
+            app: app,
+            game: game,
+            runtime: runtime,
+            display: display?.v2ImagePathPayload,
+            audio: audio,
+            rules: rules,
+            teams: teams.v2ImagePathPayload,
+            clocks: clocks,
+            players: players,
+            debate: debate
+        )
+    }
+}
+
+extension ScoreboardWebAPIRemoteDisplayStateV2 {
+    var v1CompatibleState: ScoreboardWebAPIState {
+        ScoreboardWebAPIState(
+            schemaVersion: 1,
+            generatedAt: generatedAt,
+            generatedAtUnixTime: generatedAtUnixTime,
+            app: ScoreboardWebAPIAppInfo.current(apiVersion: "v2"),
+            game: game,
+            runtime: runtime,
+            display: display,
+            audio: nil,
+            rules: rules,
+            teams: teams,
+            clocks: clocks,
+            players: players,
+            debate: debate
+        )
+    }
+}
+
+extension ScoreboardWebAPIV2StatePayload {
+    static func make(from state: ScoreboardWebAPIState) -> ScoreboardWebAPIV2StatePayload {
+        let v2State = state.v2ImagePathPayload
+        let generatedAt = v2State.generatedAt
+        let generatedAtUnixTime = v2State.generatedAtUnixTime
+        let resources: [ScoreboardWebAPIV2ResourcePayload] = [
+            makeResource(.game, value: v2State.game, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.runtime, value: v2State.runtime, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.display, value: v2State.display, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.rules, value: v2State.rules, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.teams, value: v2State.teams, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.clocks, value: v2State.clocks, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.players, value: v2State.players, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.debate, value: v2State.debate, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.audio, value: v2State.audio, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime)
+        ]
+        let manifest = ScoreboardWebAPIV2StateManifest(
+            schemaVersion: 2,
+            generatedAt: generatedAt,
+            generatedAtUnixTime: generatedAtUnixTime,
+            resources: resources.map {
+                ScoreboardWebAPIV2ResourceLink(
+                    name: $0.name.rawValue,
+                    href: $0.name.path,
+                    revision: $0.revision
+                )
+            }
+        )
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        let manifestData = (try? encoder.encode(manifest)) ?? Data(#"{"schemaVersion":2,"resources":[]}"#.utf8)
+        return ScoreboardWebAPIV2StatePayload(manifestData: manifestData, resources: resources)
+    }
+
+    private static func makeResource<Value: Encodable>(
+        _ name: ScoreboardWebAPIV2ResourceName,
+        value: Value,
+        generatedAt: String,
+        generatedAtUnixTime: TimeInterval?
+    ) -> ScoreboardWebAPIV2ResourcePayload {
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        let bodyData = (try? encoder.encode(value)) ?? Data("null".utf8)
+        let revision = bodyData.scoreboardWebAPIStableRevision
+        let envelope = ScoreboardWebAPIV2ResourceEnvelope(
+            schemaVersion: 2,
+            resource: name.rawValue,
+            revision: revision,
+            generatedAt: generatedAt,
+            generatedAtUnixTime: generatedAtUnixTime,
+            data: value
+        )
+        let envelopeData = (try? encoder.encode(envelope)) ?? Data(#"{"schemaVersion":2,"resource":"\#(name.rawValue)","revision":"\#(revision)","generatedAt":"\#(generatedAt)","data":null}"#.utf8)
+        return ScoreboardWebAPIV2ResourcePayload(name: name, revision: revision, data: envelopeData)
+    }
+}
+
+extension ScoreboardWebAPIPayload {
+    static func make(from state: ScoreboardWebAPIState) -> ScoreboardWebAPIPayload {
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        let v1Data = (try? encoder.encode(state)) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+        return ScoreboardWebAPIPayload(
+            v1State: v1Data,
+            v2State: ScoreboardWebAPIV2StatePayload.make(from: state)
+        )
+    }
+}
+
+extension ScoreboardWebAPIDisplay {
+    var v2ImagePathPayload: ScoreboardWebAPIDisplay {
+        ScoreboardWebAPIDisplay(
+            theme: theme,
+            backgroundMode: backgroundMode,
+            backgroundImage: backgroundImage?.v2ImagePathPayload,
+            animatedLogoStyle: animatedLogoStyle,
+            animatedLogoBackgroundColor: animatedLogoBackgroundColor,
+            animatedLogoSpeed: animatedLogoSpeed,
+            animatedLogoSize: animatedLogoSize,
+            animatedLogoOpacity: animatedLogoOpacity,
+            showsDateTime: showsDateTime,
+            dateTimeFormat: dateTimeFormat,
+            showsDateTimeSeconds: showsDateTimeSeconds,
+            showsTeamLogos: showsTeamLogos,
+            showsEventLogo: showsEventLogo,
+            eventLogo: eventLogo?.v2ImagePathPayload,
+            viewMode: viewMode,
+            controlStatus: controlStatus,
+            playerViewRosterScope: playerViewRosterScope,
+            direction: direction,
+            remoteExternalDirection: remoteExternalDirection
+        )
+    }
+}
+
+extension ScoreboardWebAPITeams {
+    var v2ImagePathPayload: ScoreboardWebAPITeams {
+        ScoreboardWebAPITeams(
+            home: home.v2ImagePathPayload,
+            guest: guest.v2ImagePathPayload
+        )
+    }
+}
+
+extension ScoreboardWebAPITeam {
+    var v2ImagePathPayload: ScoreboardWebAPITeam {
+        ScoreboardWebAPITeam(
+            side: side,
+            name: name,
+            roleLabel: roleLabel,
+            logo: logo?.v2ImagePathPayload,
+            score: score,
+            periodsWon: periodsWon,
+            setsWon: setsWon,
+            teamFouls: teamFouls,
+            substitutionsAllowed: substitutionsAllowed,
+            substitutionsUsed: substitutionsUsed,
+            substitutionsRemaining: substitutionsRemaining,
+            pausesAllowed: pausesAllowed,
+            pausesUsed: pausesUsed,
+            pausesRemaining: pausesRemaining
+        )
+    }
+}
+
+extension ScoreboardWebAPIBackgroundImage {
+    var v2ImagePathPayload: ScoreboardWebAPIBackgroundImage {
+        let v2Path = path.scoreboardWebAPIV2ImagePath
+        return ScoreboardWebAPIBackgroundImage(
+            id: id,
+            mimeType: mimeType,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            byteCount: byteCount,
+            updatedAtUnixTime: updatedAtUnixTime,
+            placement: placement,
+            path: v2Path,
+            downloadURLs: downloadURLs.scoreboardWebAPIV2ImageURLs
+        )
+    }
+}
+
+extension ScoreboardWebAPITeamLogo {
+    var v2ImagePathPayload: ScoreboardWebAPITeamLogo {
+        let v2Path = path.scoreboardWebAPIV2ImagePath
+        return ScoreboardWebAPITeamLogo(
+            id: id,
+            mimeType: mimeType,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            byteCount: byteCount,
+            updatedAtUnixTime: updatedAtUnixTime,
+            path: v2Path,
+            downloadURLs: downloadURLs.scoreboardWebAPIV2ImageURLs
+        )
+    }
+}
+
+extension ScoreboardWebAPIEventLogo {
+    var v2ImagePathPayload: ScoreboardWebAPIEventLogo {
+        let v2Path = path.scoreboardWebAPIV2ImagePath
+        return ScoreboardWebAPIEventLogo(
+            id: id,
+            mimeType: mimeType,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            byteCount: byteCount,
+            updatedAtUnixTime: updatedAtUnixTime,
+            path: v2Path,
+            downloadURLs: downloadURLs.scoreboardWebAPIV2ImageURLs
+        )
+    }
+}
+
+private enum ScoreboardWebAPIJSON {
+    nonisolated static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+}
+
+private extension String {
+    var scoreboardWebAPIV2ImagePath: String {
+        guard hasPrefix("/api/v1/") else {
+            return self
+        }
+        return "/api/v2/" + dropFirst("/api/v1/".count)
+    }
+}
+
+private extension Array where Element == String {
+    var scoreboardWebAPIV2ImageURLs: [String] {
+        map { $0.replacingOccurrences(of: "/api/v1/", with: "/api/v2/") }
+    }
+}
+
+private extension Data {
+    var scoreboardWebAPIStableRevision: String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in self {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
     }
 }
 
@@ -429,7 +824,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private var webSocketReady = false
     private var status: ScoreboardWebAPIStatus = .off
     private var statusHandler: (@Sendable (ScoreboardWebAPIStatus) -> Void)?
-    private var latestStateData = Data("{}".utf8)
+    private var latestPayload = ScoreboardWebAPIPayload.empty
     private var latestImageResponses: [String: ScoreboardWebAPIImageResponse] = [:]
     private var updateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     private var clients: [UUID: WebSocketClient] = [:]
@@ -437,14 +832,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private var lastBroadcastDate: Date?
 
     func start(
-        initialState: Data,
+        initialPayload: ScoreboardWebAPIPayload,
         updateMode: ScoreboardWebAPIUpdateMode,
         imageResponses: [String: ScoreboardWebAPIImageResponse],
         statusHandler: @escaping @Sendable (ScoreboardWebAPIStatus) -> Void
     ) {
         queue.async {
             self.statusHandler = statusHandler
-            self.latestStateData = initialState
+            self.latestPayload = initialPayload
             self.latestImageResponses = imageResponses
             self.updateMode = updateMode
             self.stopLocked(notify: false)
@@ -489,9 +884,9 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         }
     }
 
-    func updateState(_ data: Data, imageResponses: [String: ScoreboardWebAPIImageResponse]) {
+    func updateState(_ payload: ScoreboardWebAPIPayload, imageResponses: [String: ScoreboardWebAPIImageResponse]) {
         queue.async {
-            self.latestStateData = data
+            self.latestPayload = payload
             self.latestImageResponses = imageResponses
             guard self.status.isRunning, !self.clients.isEmpty else {
                 return
@@ -725,7 +1120,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 statusCode: 200,
                 reason: "OK",
                 contentType: "application/json; charset=utf-8",
-                body: latestStateData
+                body: latestPayload.v1State,
+                apiVersion: "v1"
             )
         case "/api/v1/health":
             sendHTTPResponse(
@@ -733,16 +1129,54 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 statusCode: 200,
                 reason: "OK",
                 contentType: "application/json; charset=utf-8",
-                body: healthDataLocked()
+                body: healthDataLocked(),
+                apiVersion: "v1"
+            )
+        case "/api/v2/status/api":
+            sendHTTPResponse(
+                connection,
+                statusCode: 200,
+                reason: "OK",
+                contentType: "application/json; charset=utf-8",
+                body: apiStatusDataLocked(),
+                apiVersion: "v2"
+            )
+        case "/api/v2/status/app":
+            sendHTTPResponse(
+                connection,
+                statusCode: 200,
+                reason: "OK",
+                contentType: "application/json; charset=utf-8",
+                body: appStatusDataLocked(),
+                apiVersion: "v2"
+            )
+        case "/api/v2/state":
+            sendHTTPResponse(
+                connection,
+                statusCode: 200,
+                reason: "OK",
+                contentType: "application/json; charset=utf-8",
+                body: latestPayload.v2State.manifestData,
+                apiVersion: "v2"
             )
         default:
-            if let imageResponse = latestImageResponses[path] {
+            if let resourceData = latestPayload.v2State.resourceData(for: path) {
+                sendHTTPResponse(
+                    connection,
+                    statusCode: 200,
+                    reason: "OK",
+                    contentType: "application/json; charset=utf-8",
+                    body: resourceData,
+                    apiVersion: "v2"
+                )
+            } else if let imageResponse = latestImageResponses[path] {
                 sendHTTPResponse(
                     connection,
                     statusCode: 200,
                     reason: "OK",
                     contentType: imageResponse.contentType,
-                    body: imageResponse.body
+                    body: imageResponse.body,
+                    apiVersion: path.hasPrefix("/api/v2/") ? "v2" : "v1"
                 )
             } else {
                 sendHTTPResponse(
@@ -762,16 +1196,18 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         reason: String,
         contentType: String,
         body: Data,
-        extraHeaders: [String] = []
+        extraHeaders: [String] = [],
+        apiVersion: String = "v1"
     ) {
+        let appInfo = ScoreboardWebAPIAppInfo.current(apiVersion: apiVersion)
         var headers = [
             "HTTP/1.1 \(statusCode) \(reason)",
             "Content-Type: \(contentType)",
             "Content-Length: \(body.count)",
             "Cache-Control: no-store",
-            "X-SmartScoreboard-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.version))",
-            "X-SmartScoreboard-Build: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.build))",
-            "X-SmartScoreboard-API-Version: \(Self.httpHeaderSafeValue(ScoreboardWebAPIAppInfo.current.apiVersion))",
+            "X-SmartScoreboard-Version: \(Self.httpHeaderSafeValue(appInfo.version))",
+            "X-SmartScoreboard-Build: \(Self.httpHeaderSafeValue(appInfo.build))",
+            "X-SmartScoreboard-API-Version: \(Self.httpHeaderSafeValue(apiVersion))",
             "Connection: close"
         ]
         headers.append(contentsOf: extraHeaders)
@@ -798,8 +1234,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             connection: connection,
             queue: queue,
             maxFrameBytes: maxWebSocketFrameBytes,
-            latestEnvelopeProvider: { [weak self] in
+            latestV1EnvelopeProvider: { [weak self] in
                 self?.latestEnvelopeDataLocked() ?? Data()
+            },
+            latestV2ManifestProvider: { [weak self] in
+                self?.latestV2ManifestMessageDataLocked() ?? Data()
+            },
+            latestV2ResourcesProvider: { [weak self] in
+                self?.latestPayload.v2State.resources ?? []
             },
             onClose: { [weak self] clientID in
                 self?.queue.async {
@@ -849,9 +1291,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 
     private func broadcastStateLocked() {
         lastBroadcastDate = Date()
-        let envelope = latestEnvelopeDataLocked()
         for client in clients.values {
-            client.sendText(envelope)
+            client.sendLatestState()
         }
     }
 
@@ -917,9 +1358,27 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         var envelope = Data(#"{"type":"scoreboard.state","schemaVersion":1,"app":"#.utf8)
         envelope.append(appData)
         envelope.append(Data(#","payload":"#.utf8))
-        envelope.append(latestStateData)
+        envelope.append(latestPayload.v1State)
         envelope.append(Data("}".utf8))
         return envelope
+    }
+
+    private func latestV2ManifestMessageDataLocked() -> Data {
+        Self.v2ManifestMessageData(latestPayload.v2State.manifestData)
+    }
+
+    private static func v2ManifestMessageData(_ manifestData: Data) -> Data {
+        var message = Data(#"{"type":"scoreboard.v2.manifest","schemaVersion":2,"payload":"#.utf8)
+        message.append(manifestData)
+        message.append(Data("}".utf8))
+        return message
+    }
+
+    private static func v2ResourceMessageData(_ resource: ScoreboardWebAPIV2ResourcePayload) -> Data {
+        var message = Data(#"{"type":"scoreboard.v2.resource","schemaVersion":2,"resource":"\#(resource.name.rawValue)","revision":"\#(resource.revision)","payload":"#.utf8)
+        message.append(resource.data)
+        message.append(Data("}".utf8))
+        return message
     }
 
     private func healthDataLocked() -> Data {
@@ -938,6 +1397,36 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(health)) ?? Data(#"{"status":"failed"}"#.utf8)
+    }
+
+    private func appStatusDataLocked() -> Data {
+        let status = AppStatusResponse(
+            schemaVersion: 2,
+            app: ScoreboardWebAPIAppInfo.current(apiVersion: "v2"),
+            generatedAt: Self.timestamp(),
+            generatedAtUnixTime: Date().timeIntervalSince1970
+        )
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        return (try? encoder.encode(status)) ?? Data(#"{"schemaVersion":2,"status":"failed"}"#.utf8)
+    }
+
+    private func apiStatusDataLocked() -> Data {
+        let response = APIStatusResponse(
+            schemaVersion: 2,
+            service: "smartscoreboard.web_api",
+            apiVersion: "v2",
+            supportedAPIVersions: ["v1", "v2"],
+            status: status.healthValue,
+            httpPort: Self.httpPort,
+            webSocketPort: Self.webSocketPort,
+            updateMode: updateMode.rawValue,
+            maximumFixedIntervalUpdatesPerSecond: Int(1 / minimumBroadcastInterval),
+            webSocketClientCount: clients.count,
+            generatedAt: Self.timestamp(),
+            generatedAtUnixTime: Date().timeIntervalSince1970
+        )
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        return (try? encoder.encode(response)) ?? Data(#"{"schemaVersion":2,"status":"failed"}"#.utf8)
     }
 
     private func headerEndIndex(in data: Data) -> Data.Index? {
@@ -1001,29 +1490,60 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let generatedAt: String
     }
 
+    private struct AppStatusResponse: Codable {
+        let schemaVersion: Int
+        let app: ScoreboardWebAPIAppInfo
+        let generatedAt: String
+        let generatedAtUnixTime: TimeInterval
+    }
+
+    private struct APIStatusResponse: Codable {
+        let schemaVersion: Int
+        let service: String
+        let apiVersion: String
+        let supportedAPIVersions: [String]
+        let status: String
+        let httpPort: UInt16
+        let webSocketPort: UInt16
+        let updateMode: String
+        let maximumFixedIntervalUpdatesPerSecond: Int
+        let webSocketClientCount: Int
+        let generatedAt: String
+        let generatedAtUnixTime: TimeInterval
+    }
+
     private final class WebSocketClient: @unchecked Sendable {
         let id: UUID
         private let connection: NWConnection
         private let queue: DispatchQueue
         private let maxFrameBytes: Int
-        private let latestEnvelopeProvider: @Sendable () -> Data
+        private let latestV1EnvelopeProvider: @Sendable () -> Data
+        private let latestV2ManifestProvider: @Sendable () -> Data
+        private let latestV2ResourcesProvider: @Sendable () -> [ScoreboardWebAPIV2ResourcePayload]
         private let onClose: @Sendable (UUID) -> Void
         private var isClosed = false
         private var pendingSends = 0
+        private var initialV1WorkItem: DispatchWorkItem?
+        private var isSubscribedToV2 = false
+        private var sentV2ResourceRevisions: [ScoreboardWebAPIV2ResourceName: String] = [:]
 
         init(
             id: UUID,
             connection: NWConnection,
             queue: DispatchQueue,
             maxFrameBytes: Int,
-            latestEnvelopeProvider: @escaping @Sendable () -> Data,
+            latestV1EnvelopeProvider: @escaping @Sendable () -> Data,
+            latestV2ManifestProvider: @escaping @Sendable () -> Data,
+            latestV2ResourcesProvider: @escaping @Sendable () -> [ScoreboardWebAPIV2ResourcePayload],
             onClose: @escaping @Sendable (UUID) -> Void
         ) {
             self.id = id
             self.connection = connection
             self.queue = queue
             self.maxFrameBytes = maxFrameBytes
-            self.latestEnvelopeProvider = latestEnvelopeProvider
+            self.latestV1EnvelopeProvider = latestV1EnvelopeProvider
+            self.latestV2ManifestProvider = latestV2ManifestProvider
+            self.latestV2ResourcesProvider = latestV2ResourcesProvider
             self.onClose = onClose
         }
 
@@ -1033,8 +1553,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 self.queue.async {
                     switch state {
                     case .ready:
-                        self.sendText(self.latestEnvelopeProvider())
                         self.receiveNextMessage()
+                        self.scheduleInitialV1Send()
                     case .failed, .cancelled:
                         self.close()
                     case .setup, .preparing, .waiting:
@@ -1045,6 +1565,18 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 }
             }
             connection.start(queue: queue)
+        }
+
+        private func scheduleInitialV1Send() {
+            initialV1WorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, !self.isClosed, !self.isSubscribedToV2 else {
+                    return
+                }
+                self.sendText(self.latestV1EnvelopeProvider())
+            }
+            initialV1WorkItem = item
+            queue.asyncAfter(deadline: .now() + 0.10, execute: item)
         }
 
         private func receiveNextMessage() {
@@ -1089,18 +1621,72 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             }
 
             let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if normalized == "get" ||
+            if isV2SubscribePayload(payload) {
+                initialV1WorkItem?.cancel()
+                initialV1WorkItem = nil
+                isSubscribedToV2 = true
+                sendV2Snapshot(forceResources: true)
+            } else if normalized == "get" ||
                 normalized.contains(#""type":"get""#) ||
                 normalized.contains(#""type": "get""#) {
-                sendText(latestEnvelopeProvider())
+                initialV1WorkItem?.cancel()
+                initialV1WorkItem = nil
+                if isSubscribedToV2 {
+                    sendV2Snapshot(forceResources: true)
+                } else {
+                    sendText(latestV1EnvelopeProvider())
+                }
             } else {
-                sendError("SmartScoreboard Web API is read only. Send {\"type\":\"get\"} to request the latest state.")
+                sendError("SmartScoreboard Web API is read only. Send {\"type\":\"subscribe\",\"apiVersion\":\"v2\"} for v2 resources or {\"type\":\"get\"} for v1 state.")
+            }
+        }
+
+        private func isV2SubscribePayload(_ payload: Data) -> Bool {
+            guard
+                let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                let type = object["type"] as? String,
+                type.caseInsensitiveCompare("subscribe") == .orderedSame
+            else {
+                return false
+            }
+
+            if let apiVersion = object["apiVersion"] as? String {
+                return apiVersion.caseInsensitiveCompare("v2") == .orderedSame || apiVersion == "2"
+            }
+            if let apiVersion = object["apiVersion"] as? Int {
+                return apiVersion == 2
+            }
+            return false
+        }
+
+        func sendLatestState() {
+            guard !isClosed else { return }
+            if isSubscribedToV2 {
+                sendV2Snapshot(forceResources: false)
+            } else {
+                sendText(latestV1EnvelopeProvider())
+            }
+        }
+
+        private func sendV2Snapshot(forceResources: Bool) {
+            let resources = latestV2ResourcesProvider()
+            let changedResources = resources.filter { resource in
+                forceResources || sentV2ResourceRevisions[resource.name] != resource.revision
+            }
+            guard forceResources || !changedResources.isEmpty else {
+                return
+            }
+
+            sendText(latestV2ManifestProvider())
+            for resource in changedResources {
+                sentV2ResourceRevisions[resource.name] = resource.revision
+                sendText(ScoreboardWebAPIService.v2ResourceMessageData(resource))
             }
         }
 
         func sendText(_ data: Data) {
             guard !isClosed else { return }
-            guard pendingSends < 8 else {
+            guard pendingSends < 32 else {
                 return
             }
 
@@ -1132,6 +1718,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         func close() {
             guard !isClosed else { return }
             isClosed = true
+            initialV1WorkItem?.cancel()
+            initialV1WorkItem = nil
             connection.cancel()
             onClose(id)
         }
@@ -1215,6 +1803,7 @@ extension ScoreboardStore {
                 showsEventLogo: showsEventLogo,
                 eventLogo: webAPIEventLogoMetadata(),
                 viewMode: publicDisplayViewMode,
+                controlStatus: webAPIDisplayControlStatus(),
                 playerViewRosterScope: .fullRoster,
                 direction: displayDirection,
                 remoteExternalDirection: remoteExternalDirection
@@ -1241,6 +1830,7 @@ extension ScoreboardStore {
                 supportsPlayerTracking: supportsPlayerTracking,
                 supportsCards: supportsCards,
                 supportsSubstitutions: rules.showsSubstitutionTracking || showsSubstitutionTracking,
+                supportsPauses: rules.showsPauseTracking || showsPauseTracking,
                 supportsHockeyPenalties: supportsHockeyPenalties,
                 usesChessClocks: usesChessClocks
             ),
@@ -1319,7 +1909,36 @@ extension ScoreboardStore {
             teamFouls: teamFouls(for: side),
             substitutionsAllowed: substitutionsAllowed(for: side),
             substitutionsUsed: substitutionsUsed(for: side),
-            substitutionsRemaining: substitutionsRemaining(for: side)
+            substitutionsRemaining: substitutionsRemaining(for: side),
+            pausesAllowed: pausesAllowed(for: side),
+            pausesUsed: pausesUsed(for: side),
+            pausesRemaining: pausesRemaining(for: side)
+        )
+    }
+
+    private func webAPIDisplayControlStatus() -> ScoreboardWebAPIDisplayControlStatus {
+        let currentMode = publicDisplayViewMode
+        let modes: [ScoreboardDisplayViewMode] = [
+            .blackScreen,
+            .backgroundOnly,
+            .eventLogo,
+            .teamView,
+            .playerView,
+            .scoreboard
+        ]
+        return ScoreboardWebAPIDisplayControlStatus(
+            currentMode: currentMode,
+            currentModeTitle: currentMode.title,
+            availableModes: modes.map { mode in
+                ScoreboardWebAPIDisplayControlMode(
+                    mode: mode,
+                    title: mode.title,
+                    isSelected: mode == currentMode
+                )
+            },
+            isBlackScreen: currentMode == .blackScreen,
+            isBackgroundOnly: currentMode == .backgroundOnly,
+            isForegroundVisible: currentMode != .blackScreen && currentMode != .backgroundOnly
         )
     }
 
@@ -1330,38 +1949,47 @@ extension ScoreboardStore {
                 contentType: image.mimeType,
                 body: image.data
             )
-            responses[image.path] = response
-            responses[image.versionedPath] = response
-            responses[image.legacyVersionedPath] = response
+            addWebAPIImageResponse(response, path: image.path, to: &responses)
+            addWebAPIImageResponse(response, path: image.versionedPath, to: &responses)
+            addWebAPIImageResponse(response, path: image.legacyVersionedPath, to: &responses)
         }
         if let logo = homeTeamLogoImage {
             let response = ScoreboardWebAPIImageResponse(
                 contentType: logo.mimeType,
                 body: logo.data
             )
-            responses[logo.path(for: .home)] = response
-            responses[logo.versionedPath(for: .home)] = response
-            responses[logo.legacyVersionedPath(for: .home)] = response
+            addWebAPIImageResponse(response, path: logo.path(for: .home), to: &responses)
+            addWebAPIImageResponse(response, path: logo.versionedPath(for: .home), to: &responses)
+            addWebAPIImageResponse(response, path: logo.legacyVersionedPath(for: .home), to: &responses)
         }
         if let logo = guestTeamLogoImage {
             let response = ScoreboardWebAPIImageResponse(
                 contentType: logo.mimeType,
                 body: logo.data
             )
-            responses[logo.path(for: .guest)] = response
-            responses[logo.versionedPath(for: .guest)] = response
-            responses[logo.legacyVersionedPath(for: .guest)] = response
+            addWebAPIImageResponse(response, path: logo.path(for: .guest), to: &responses)
+            addWebAPIImageResponse(response, path: logo.versionedPath(for: .guest), to: &responses)
+            addWebAPIImageResponse(response, path: logo.legacyVersionedPath(for: .guest), to: &responses)
         }
         if let logo = eventLogoImage {
             let response = ScoreboardWebAPIImageResponse(
                 contentType: logo.mimeType,
                 body: logo.data
             )
-            responses[logo.path] = response
-            responses[logo.versionedPath] = response
-            responses[logo.legacyVersionedPath] = response
+            addWebAPIImageResponse(response, path: logo.path, to: &responses)
+            addWebAPIImageResponse(response, path: logo.versionedPath, to: &responses)
+            addWebAPIImageResponse(response, path: logo.legacyVersionedPath, to: &responses)
         }
         return responses
+    }
+
+    private func addWebAPIImageResponse(
+        _ response: ScoreboardWebAPIImageResponse,
+        path: String,
+        to responses: inout [String: ScoreboardWebAPIImageResponse]
+    ) {
+        responses[path] = response
+        responses[path.scoreboardWebAPIV2ImagePath] = response
     }
 
     private func webAPIBackgroundImageMetadata() -> ScoreboardWebAPIBackgroundImage? {

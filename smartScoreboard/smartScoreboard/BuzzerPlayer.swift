@@ -36,6 +36,7 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case yellowCardAssigned
     case redCardAssigned
     case substitutionUsed
+    case teamPauseUsed
     case teamFoulApplied
     case playerFoulApplied
     case sideSwitched
@@ -122,6 +123,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Red Card"
         case .substitutionUsed:
             return "Substitution Used"
+        case .teamPauseUsed:
+            return "Team Pause Used"
         case .teamFoulApplied:
             return "Team Foul"
         case .playerFoulApplied:
@@ -221,6 +224,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "A red card is assigned"
         case .substitutionUsed:
             return "A substitution count is used"
+        case .teamPauseUsed:
+            return "A team pause count is used"
         case .teamFoulApplied:
             return "A team foul is added"
         case .playerFoulApplied:
@@ -320,6 +325,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "rectangle.fill"
         case .substitutionUsed:
             return "arrow.triangle.2.circlepath"
+        case .teamPauseUsed:
+            return "pause.circle"
         case .teamFoulApplied:
             return "flag"
         case .playerFoulApplied:
@@ -460,35 +467,95 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
     }
 }
 
-final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
+nonisolated final class BuzzerPlayer: @unchecked Sendable {
+    private let audioQueue = DispatchQueue(label: "Scoreboard.BuzzerPlayer.audio", qos: .userInitiated)
     private var audioPlayers: [ScoreboardSoundEffect: AVAudioPlayer] = [:]
+    private var preloadingEffects = Set<ScoreboardSoundEffect>()
     private var activeEffect: ScoreboardSoundEffect?
-    private var playbackFinished: ((ScoreboardSoundEffect) -> Void)?
+    private var playbackFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
+    private var playbackRequestID = UUID()
+
+    func prepare(_ effects: [ScoreboardSoundEffect]) {
+        audioQueue.async { [weak self] in
+            self?.prepareOnAudioQueue(effects)
+        }
+    }
 
     func play(
         _ effect: ScoreboardSoundEffect = .classicBuzzer,
-        onFinished: ((ScoreboardSoundEffect) -> Void)? = nil
+        onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)? = nil
     ) {
         guard effect != .none else {
             return
         }
 
-        stop()
-        activatePlaybackSessionIfNeeded()
-        guard let audioPlayer = player(for: effect) else {
-            return
-        }
-
-        activeEffect = effect
-        playbackFinished = onFinished
-        audioPlayer.stop()
-        audioPlayer.currentTime = 0
-        if !audioPlayer.play() {
-            finishActivePlayback()
+        audioQueue.async { [weak self] in
+            self?.playOnAudioQueue(effect, onFinished: onFinished)
         }
     }
 
     func stop() {
+        audioQueue.async { [weak self] in
+            self?.stopOnAudioQueue()
+        }
+    }
+
+    private func prepareOnAudioQueue(_ effects: [ScoreboardSoundEffect]) {
+        let effectsToPrepare = effects.filter {
+            $0 != .none && audioPlayers[$0] == nil && !preloadingEffects.contains($0)
+        }
+        guard !effectsToPrepare.isEmpty else {
+            return
+        }
+
+        preloadingEffects.formUnion(effectsToPrepare)
+
+        for effect in effectsToPrepare {
+            prepareSound(effect, priority: .utility) { [weak self] preparedSound in
+                self?.audioQueue.async {
+                    _ = self?.installPreparedSound(preparedSound)
+                }
+            }
+        }
+    }
+
+    private func playOnAudioQueue(
+        _ effect: ScoreboardSoundEffect,
+        onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
+    ) {
+        stopOnAudioQueue()
+
+        playbackRequestID = UUID()
+        let requestID = playbackRequestID
+        activeEffect = effect
+        playbackFinished = onFinished
+
+        if let audioPlayer = audioPlayers[effect] {
+            startPlayback(audioPlayer, requestID: requestID)
+            return
+        }
+
+        preloadingEffects.insert(effect)
+        prepareSound(effect, priority: .userInitiated) { [weak self] preparedSound in
+            self?.audioQueue.async {
+                guard let self else {
+                    return
+                }
+                let audioPlayer = self.installPreparedSound(preparedSound)
+                guard self.playbackRequestID == requestID, self.activeEffect == effect else {
+                    return
+                }
+                guard let audioPlayer else {
+                    self.finishActivePlayback(requestID: requestID)
+                    return
+                }
+                self.startPlayback(audioPlayer, requestID: requestID)
+            }
+        }
+    }
+
+    private func stopOnAudioQueue() {
+        playbackRequestID = UUID()
         for audioPlayer in audioPlayers.values {
             audioPlayer.stop()
             audioPlayer.currentTime = 0
@@ -498,31 +565,55 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         deactivatePlaybackSessionIfNeeded()
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        finishActivePlayback()
+    private func prepareSound(
+        _ effect: ScoreboardSoundEffect,
+        priority: TaskPriority,
+        completion: @escaping @Sendable (PreparedSound) -> Void
+    ) {
+        Task.detached(priority: priority) {
+            completion(PreparedSound(effect: effect, data: Self.waveformData(for: effect)))
+        }
     }
 
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        finishActivePlayback()
-    }
-
-    private func player(for effect: ScoreboardSoundEffect) -> AVAudioPlayer? {
-        if let audioPlayer = audioPlayers[effect] {
+    private func installPreparedSound(_ preparedSound: PreparedSound) -> AVAudioPlayer? {
+        preloadingEffects.remove(preparedSound.effect)
+        if let audioPlayer = audioPlayers[preparedSound.effect] {
             return audioPlayer
         }
 
-        guard let audioPlayer = try? AVAudioPlayer(data: Self.waveformData(for: effect)) else {
+        guard let audioPlayer = try? AVAudioPlayer(data: preparedSound.data) else {
             return nil
         }
 
         audioPlayer.volume = 1
-        audioPlayer.delegate = self
         audioPlayer.prepareToPlay()
-        audioPlayers[effect] = audioPlayer
+        audioPlayers[preparedSound.effect] = audioPlayer
         return audioPlayer
     }
 
-    private func finishActivePlayback() {
+    private func startPlayback(_ audioPlayer: AVAudioPlayer, requestID: UUID) {
+        guard playbackRequestID == requestID else {
+            return
+        }
+
+        activatePlaybackSessionIfNeeded()
+        audioPlayer.stop()
+        audioPlayer.currentTime = 0
+        if !audioPlayer.play() {
+            finishActivePlayback(requestID: requestID)
+            return
+        }
+
+        let duration = max(audioPlayer.duration, 0)
+        audioQueue.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
+            self?.finishActivePlayback(requestID: requestID)
+        }
+    }
+
+    private func finishActivePlayback(requestID: UUID? = nil) {
+        if let requestID, playbackRequestID != requestID {
+            return
+        }
         guard let activeEffect else {
             return
         }
@@ -531,10 +622,19 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         self.activeEffect = nil
         playbackFinished = nil
         deactivatePlaybackSessionIfNeeded()
-        callback?(activeEffect)
+        if let callback {
+            Task { @MainActor in
+                callback(activeEffect)
+            }
+        }
     }
 
-    private static func waveformData(for effect: ScoreboardSoundEffect) -> Data {
+    nonisolated private struct PreparedSound: Sendable {
+        let effect: ScoreboardSoundEffect
+        let data: Data
+    }
+
+    nonisolated private static func waveformData(for effect: ScoreboardSoundEffect) -> Data {
         switch effect {
         case .none:
             return sequenceWaveformData([])
@@ -625,7 +725,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 
-    private static func classicBuzzerWaveformData() -> Data {
+    nonisolated private static func classicBuzzerWaveformData() -> Data {
         let sampleRate = 44_100
         let duration = 4.0
         let sampleCount = Int(Double(sampleRate) * duration)
@@ -657,7 +757,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func sequenceWaveformData(_ segments: [AudioSegment]) -> Data {
+    nonisolated private static func sequenceWaveformData(_ segments: [AudioSegment]) -> Data {
         let sampleRate = 44_100
         let sampleCount = segments.reduce(0) { total, segment in
             total + Int(Double(sampleRate) * segment.duration)
@@ -692,7 +792,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func bellWaveformData(strikes: [BellStrike], duration: Double) -> Data {
+    nonisolated private static func bellWaveformData(strikes: [BellStrike], duration: Double) -> Data {
         let sampleRate = 44_100
         let sampleCount = Int(Double(sampleRate) * duration)
         var pcmData = Data(capacity: sampleCount * MemoryLayout<Int16>.size)
@@ -724,7 +824,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func takeMeOutToTheBallGameWaveformData() -> Data {
+    nonisolated private static func takeMeOutToTheBallGameWaveformData() -> Data {
         let sampleRate = 44_100
         let targetDuration = 30.0
         let d4 = 62
@@ -832,7 +932,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func appendOrganNoteSamples(
+    nonisolated private static func appendOrganNoteSamples(
         _ note: MelodyNote,
         sampleCount: Int,
         sampleRate: Int,
@@ -870,7 +970,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 
-    private static func organVoiceSample(frequency: Double, time: Double) -> Double {
+    nonisolated private static func organVoiceSample(frequency: Double, time: Double) -> Double {
         let fundamental = sin(2 * .pi * frequency * time) * 0.58
         let octave = sin(2 * .pi * frequency * 2 * time) * 0.26
         let twelfth = sin(2 * .pi * frequency * 3 * time) * 0.14
@@ -878,11 +978,11 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         return fundamental + octave + twelfth + softReed
     }
 
-    private static func midiNoteFrequency(_ midiNote: Int) -> Double {
+    nonisolated private static func midiNoteFrequency(_ midiNote: Int) -> Double {
         440 * pow(2, (Double(midiNote) - 69) / 12)
     }
 
-    private static func segmentEnvelope(
+    nonisolated private static func segmentEnvelope(
         time: Double,
         duration: Double,
         attack: Double,
@@ -893,13 +993,15 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         return max(0, min(attackEnvelope, releaseEnvelope))
     }
 
-    private static func appendSample(_ value: Double, to data: inout Data) {
+    nonisolated private static func appendSample(_ value: Double, to data: inout Data) {
         let clamped = max(-1.0, min(1.0, value))
-        var sample = Int16(clamped * Double(Int16.max))
-        data.append(Data(bytes: &sample, count: MemoryLayout<Int16>.size))
+        let sample = Int16(clamped * Double(Int16.max)).littleEndian
+        withUnsafeBytes(of: sample) { sampleBytes in
+            data.append(contentsOf: sampleBytes)
+        }
     }
 
-    private static func wavData(
+    nonisolated private static func wavData(
         pcmData: Data,
         sampleRate: Int,
         channels: Int,
@@ -944,7 +1046,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
     }
 }
 
-private struct AudioSegment {
+nonisolated private struct AudioSegment: Sendable {
     let duration: Double
     let startFrequency: Double
     let endFrequency: Double
@@ -968,7 +1070,7 @@ private struct AudioSegment {
     }
 }
 
-private struct MelodyNote {
+nonisolated private struct MelodyNote: Sendable {
     let midiNote: Int?
     let beats: Double
 
@@ -981,7 +1083,7 @@ private struct MelodyNote {
     }
 }
 
-private enum AudioWaveform {
+nonisolated private enum AudioWaveform: Sendable {
     case sine
     case square
     case triangle
@@ -1003,7 +1105,7 @@ private enum AudioWaveform {
     }
 }
 
-private struct BellStrike {
+nonisolated private struct BellStrike: Sendable {
     let offset: Double
     let frequency: Double
     let amplitude: Double
@@ -1011,7 +1113,7 @@ private struct BellStrike {
 }
 
 private extension FixedWidthInteger {
-    var littleEndianData: Data {
+    nonisolated var littleEndianData: Data {
         var value = self.littleEndian
         return Data(bytes: &value, count: MemoryLayout<Self>.size)
     }

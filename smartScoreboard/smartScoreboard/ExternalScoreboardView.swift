@@ -71,6 +71,10 @@ struct ExternalScoreboardView: View {
             guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
             homeSubstitutionsUsed: store.homeSubstitutionsUsed,
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+            homePausesAllowed: store.homePausesAllowed,
+            guestPausesAllowed: store.guestPausesAllowed,
+            homePausesUsed: store.homePausesUsed,
+            guestPausesUsed: store.guestPausesUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homePenaltyTimers: store.homePenaltyTimers,
@@ -236,6 +240,10 @@ struct PublicScoreboardDisplayView: View {
     let guestSubstitutionsAllowed: Int
     let homeSubstitutionsUsed: Int
     let guestSubstitutionsUsed: Int
+    let homePausesAllowed: Int
+    let guestPausesAllowed: Int
+    let homePausesUsed: Int
+    let guestPausesUsed: Int
     let homeTeamFouls: Int
     let guestTeamFouls: Int
     let homePenaltyTimers: [HockeyPenaltyTimer]
@@ -547,6 +555,10 @@ struct PublicScoreboardDisplayView: View {
             guestSubstitutionsAllowed: guestSubstitutionsAllowed,
             homeSubstitutionsUsed: homeSubstitutionsUsed,
             guestSubstitutionsUsed: guestSubstitutionsUsed,
+            homePausesAllowed: homePausesAllowed,
+            guestPausesAllowed: guestPausesAllowed,
+            homePausesUsed: homePausesUsed,
+            guestPausesUsed: guestPausesUsed,
             homeTeamFouls: homeTeamFouls,
             guestTeamFouls: guestTeamFouls,
             homePenaltyTimers: homePenaltyTimers,
