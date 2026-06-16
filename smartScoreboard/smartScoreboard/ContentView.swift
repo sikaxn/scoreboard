@@ -1174,6 +1174,7 @@ struct ContentView: View {
         if lowercasedMessage.hasPrefix("set the two side names") { return "Team Names" }
         if lowercasedMessage.hasPrefix("review the starting game state") { return "Starting State" }
         if lowercasedMessage.hasPrefix("set substitution allowances") { return "Substitution Limits" }
+        if lowercasedMessage.hasPrefix("set pause allowances") { return "Pause Limits" }
         if lowercasedMessage.hasPrefix("use general to define the custom sport") { return "Custom General" }
         if lowercasedMessage.hasPrefix("use clock") { return "Clock Setup" }
         if lowercasedMessage.hasPrefix("use period") { return "Period Setup" }
