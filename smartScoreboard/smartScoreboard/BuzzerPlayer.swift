@@ -6,17 +6,37 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case gameClockExpired
     case shotClockExpired
     case chessClockExpired
+    case debateSegmentStarted
+    case debateSegmentStopped
     case debateSegmentExpired
+    case debateUnassignedSegmentStarted
+    case debateUnassignedSegmentStopped
+    case debateUnassignedSegmentExpired
+    case debatePrepStarted
+    case debatePrepStopped
     case debatePrepExpired
     case hockeyPenaltyExpired
     case gameClockStarted
     case gameClockPaused
+    case homeSideClockStarted
+    case homeSideClockStopped
+    case homeSideClockExpired
+    case guestSideClockStarted
+    case guestSideClockStopped
+    case guestSideClockExpired
+    case homePrepClockStarted
+    case homePrepClockStopped
+    case homePrepClockExpired
+    case guestPrepClockStarted
+    case guestPrepClockStopped
+    case guestPrepClockExpired
     case shotClockStarted
     case shotClockPaused
     case shotClockReset
     case yellowCardAssigned
     case redCardAssigned
     case substitutionUsed
+    case teamPauseUsed
     case teamFoulApplied
     case playerFoulApplied
     case sideSwitched
@@ -43,8 +63,22 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Shot Clock"
         case .chessClockExpired:
             return "Chess Clock"
+        case .debateSegmentStarted:
+            return "Debate Segment Start"
+        case .debateSegmentStopped:
+            return "Debate Segment Stop"
         case .debateSegmentExpired:
             return "Debate Segment"
+        case .debateUnassignedSegmentStarted:
+            return "Unassigned Segment Start"
+        case .debateUnassignedSegmentStopped:
+            return "Unassigned Segment Stop"
+        case .debateUnassignedSegmentExpired:
+            return "Unassigned Segment Expired"
+        case .debatePrepStarted:
+            return "Debate Prep Start"
+        case .debatePrepStopped:
+            return "Debate Prep Stop"
         case .debatePrepExpired:
             return "Prep Time"
         case .hockeyPenaltyExpired:
@@ -53,6 +87,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Clock Start"
         case .gameClockPaused:
             return "Clock Pause"
+        case .homeSideClockStarted:
+            return "Home Clock Start"
+        case .homeSideClockStopped:
+            return "Home Clock Stop"
+        case .homeSideClockExpired:
+            return "Home Clock Expired"
+        case .guestSideClockStarted:
+            return "Guest Clock Start"
+        case .guestSideClockStopped:
+            return "Guest Clock Stop"
+        case .guestSideClockExpired:
+            return "Guest Clock Expired"
+        case .homePrepClockStarted:
+            return "Home Prep Start"
+        case .homePrepClockStopped:
+            return "Home Prep Stop"
+        case .homePrepClockExpired:
+            return "Home Prep Expired"
+        case .guestPrepClockStarted:
+            return "Guest Prep Start"
+        case .guestPrepClockStopped:
+            return "Guest Prep Stop"
+        case .guestPrepClockExpired:
+            return "Guest Prep Expired"
         case .shotClockStarted:
             return "Shot Timer Start"
         case .shotClockPaused:
@@ -65,6 +123,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Red Card"
         case .substitutionUsed:
             return "Substitution Used"
+        case .teamPauseUsed:
+            return "Team Pause Used"
         case .teamFoulApplied:
             return "Team Foul"
         case .playerFoulApplied:
@@ -104,8 +164,22 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Short possession timer alert"
         case .chessClockExpired:
             return "Side clock expiration"
+        case .debateSegmentStarted:
+            return "Speech, cross-ex, or segment timer starts"
+        case .debateSegmentStopped:
+            return "Speech, cross-ex, or segment timer stops"
         case .debateSegmentExpired:
             return "Speech or cross-ex timer"
+        case .debateUnassignedSegmentStarted:
+            return "Debate segment timer with no side starts"
+        case .debateUnassignedSegmentStopped:
+            return "Debate segment timer with no side stops"
+        case .debateUnassignedSegmentExpired:
+            return "Debate segment timer with no side reaches zero"
+        case .debatePrepStarted:
+            return "Any side prep timer starts"
+        case .debatePrepStopped:
+            return "Any side prep timer stops"
         case .debatePrepExpired:
             return "Per-side prep timer"
         case .hockeyPenaltyExpired:
@@ -114,6 +188,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Main, chess, or debate clock starts"
         case .gameClockPaused:
             return "Main, chess, or debate clock stops"
+        case .homeSideClockStarted:
+            return "Home, Side A, or speaking-side clock starts"
+        case .homeSideClockStopped:
+            return "Home, Side A, or speaking-side clock stops"
+        case .homeSideClockExpired:
+            return "Home, Side A, or speaking-side clock reaches zero"
+        case .guestSideClockStarted:
+            return "Guest, Side B, or speaking-side clock starts"
+        case .guestSideClockStopped:
+            return "Guest, Side B, or speaking-side clock stops"
+        case .guestSideClockExpired:
+            return "Guest, Side B, or speaking-side clock reaches zero"
+        case .homePrepClockStarted:
+            return "Home or Side A prep time starts"
+        case .homePrepClockStopped:
+            return "Home or Side A prep time stops"
+        case .homePrepClockExpired:
+            return "Home or Side A prep time reaches zero"
+        case .guestPrepClockStarted:
+            return "Guest or Side B prep time starts"
+        case .guestPrepClockStopped:
+            return "Guest or Side B prep time stops"
+        case .guestPrepClockExpired:
+            return "Guest or Side B prep time reaches zero"
         case .shotClockStarted:
             return "Shot timer starts"
         case .shotClockPaused:
@@ -126,6 +224,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "A red card is assigned"
         case .substitutionUsed:
             return "A substitution count is used"
+        case .teamPauseUsed:
+            return "A team pause count is used"
         case .teamFoulApplied:
             return "A team foul is added"
         case .playerFoulApplied:
@@ -165,8 +265,22 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "timer.circle"
         case .chessClockExpired:
             return "checkerboard.rectangle"
+        case .debateSegmentStarted:
+            return "play.circle"
+        case .debateSegmentStopped:
+            return "pause.circle"
         case .debateSegmentExpired:
             return "quote.bubble"
+        case .debateUnassignedSegmentStarted:
+            return "play.circle"
+        case .debateUnassignedSegmentStopped:
+            return "pause.circle"
+        case .debateUnassignedSegmentExpired:
+            return "timer"
+        case .debatePrepStarted:
+            return "hourglass"
+        case .debatePrepStopped:
+            return "pause.circle"
         case .debatePrepExpired:
             return "hourglass"
         case .hockeyPenaltyExpired:
@@ -175,6 +289,30 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "play.circle"
         case .gameClockPaused:
             return "pause.circle"
+        case .homeSideClockStarted:
+            return "play.circle"
+        case .homeSideClockStopped:
+            return "pause.circle"
+        case .homeSideClockExpired:
+            return "timer"
+        case .guestSideClockStarted:
+            return "play.circle"
+        case .guestSideClockStopped:
+            return "pause.circle"
+        case .guestSideClockExpired:
+            return "timer"
+        case .homePrepClockStarted:
+            return "hourglass"
+        case .homePrepClockStopped:
+            return "pause.circle"
+        case .homePrepClockExpired:
+            return "hourglass.bottomhalf.filled"
+        case .guestPrepClockStarted:
+            return "hourglass"
+        case .guestPrepClockStopped:
+            return "pause.circle"
+        case .guestPrepClockExpired:
+            return "hourglass.bottomhalf.filled"
         case .shotClockStarted:
             return "play.circle"
         case .shotClockPaused:
@@ -187,6 +325,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "rectangle.fill"
         case .substitutionUsed:
             return "arrow.triangle.2.circlepath"
+        case .teamPauseUsed:
+            return "pause.circle"
         case .teamFoulApplied:
             return "flag"
         case .playerFoulApplied:
@@ -327,35 +467,96 @@ enum ScoreboardSoundEffect: String, Codable, CaseIterable, Hashable, Identifiabl
     }
 }
 
-final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
+nonisolated final class BuzzerPlayer: @unchecked Sendable {
+    private let audioQueue = DispatchQueue(label: "Scoreboard.BuzzerPlayer.audio", qos: .userInitiated)
+    private let preparationQueue = DispatchQueue(label: "Scoreboard.BuzzerPlayer.prepare", qos: .utility)
     private var audioPlayers: [ScoreboardSoundEffect: AVAudioPlayer] = [:]
+    private var preloadingEffects = Set<ScoreboardSoundEffect>()
     private var activeEffect: ScoreboardSoundEffect?
-    private var playbackFinished: ((ScoreboardSoundEffect) -> Void)?
+    private var playbackFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
+    private var playbackRequestID = UUID()
+
+    func prepare(_ effects: [ScoreboardSoundEffect]) {
+        audioQueue.async { [weak self] in
+            self?.prepareOnAudioQueue(effects)
+        }
+    }
 
     func play(
         _ effect: ScoreboardSoundEffect = .classicBuzzer,
-        onFinished: ((ScoreboardSoundEffect) -> Void)? = nil
+        onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)? = nil
     ) {
         guard effect != .none else {
             return
         }
 
-        stop()
-        activatePlaybackSessionIfNeeded()
-        guard let audioPlayer = player(for: effect) else {
-            return
-        }
-
-        activeEffect = effect
-        playbackFinished = onFinished
-        audioPlayer.stop()
-        audioPlayer.currentTime = 0
-        if !audioPlayer.play() {
-            finishActivePlayback()
+        audioQueue.async { [weak self] in
+            self?.playOnAudioQueue(effect, onFinished: onFinished)
         }
     }
 
     func stop() {
+        audioQueue.async { [weak self] in
+            self?.stopOnAudioQueue()
+        }
+    }
+
+    private func prepareOnAudioQueue(_ effects: [ScoreboardSoundEffect]) {
+        let effectsToPrepare = effects.filter {
+            $0 != .none && audioPlayers[$0] == nil && !preloadingEffects.contains($0)
+        }
+        guard !effectsToPrepare.isEmpty else {
+            return
+        }
+
+        preloadingEffects.formUnion(effectsToPrepare)
+
+        for effect in effectsToPrepare {
+            prepareSound(effect, priority: .utility) { [weak self] preparedSound in
+                self?.audioQueue.async {
+                    _ = self?.installPreparedSound(preparedSound)
+                }
+            }
+        }
+    }
+
+    private func playOnAudioQueue(
+        _ effect: ScoreboardSoundEffect,
+        onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
+    ) {
+        stopOnAudioQueue()
+
+        playbackRequestID = UUID()
+        let requestID = playbackRequestID
+        activeEffect = effect
+        playbackFinished = onFinished
+
+        if let audioPlayer = audioPlayers[effect] {
+            startPlayback(audioPlayer, requestID: requestID)
+            return
+        }
+
+        preloadingEffects.insert(effect)
+        prepareSound(effect, priority: .userInitiated) { [weak self] preparedSound in
+            self?.audioQueue.async {
+                guard let self else {
+                    return
+                }
+                let audioPlayer = self.installPreparedSound(preparedSound)
+                guard self.playbackRequestID == requestID, self.activeEffect == effect else {
+                    return
+                }
+                guard let audioPlayer else {
+                    self.finishActivePlayback(requestID: requestID)
+                    return
+                }
+                self.startPlayback(audioPlayer, requestID: requestID)
+            }
+        }
+    }
+
+    private func stopOnAudioQueue() {
+        playbackRequestID = UUID()
         for audioPlayer in audioPlayers.values {
             audioPlayer.stop()
             audioPlayer.currentTime = 0
@@ -365,31 +566,62 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         deactivatePlaybackSessionIfNeeded()
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        finishActivePlayback()
+    private func prepareSound(
+        _ effect: ScoreboardSoundEffect,
+        priority: TaskPriority,
+        completion: @escaping @Sendable (PreparedSound) -> Void
+    ) {
+        guard priority == .userInitiated else {
+            preparationQueue.async {
+                completion(PreparedSound(effect: effect, data: Self.waveformData(for: effect)))
+            }
+            return
+        }
+
+        Task.detached(priority: priority) {
+            completion(PreparedSound(effect: effect, data: Self.waveformData(for: effect)))
+        }
     }
 
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        finishActivePlayback()
-    }
-
-    private func player(for effect: ScoreboardSoundEffect) -> AVAudioPlayer? {
-        if let audioPlayer = audioPlayers[effect] {
+    private func installPreparedSound(_ preparedSound: PreparedSound) -> AVAudioPlayer? {
+        preloadingEffects.remove(preparedSound.effect)
+        if let audioPlayer = audioPlayers[preparedSound.effect] {
             return audioPlayer
         }
 
-        guard let audioPlayer = try? AVAudioPlayer(data: Self.waveformData(for: effect)) else {
+        guard let audioPlayer = try? AVAudioPlayer(data: preparedSound.data) else {
             return nil
         }
 
         audioPlayer.volume = 1
-        audioPlayer.delegate = self
         audioPlayer.prepareToPlay()
-        audioPlayers[effect] = audioPlayer
+        audioPlayers[preparedSound.effect] = audioPlayer
         return audioPlayer
     }
 
-    private func finishActivePlayback() {
+    private func startPlayback(_ audioPlayer: AVAudioPlayer, requestID: UUID) {
+        guard playbackRequestID == requestID else {
+            return
+        }
+
+        activatePlaybackSessionIfNeeded()
+        audioPlayer.stop()
+        audioPlayer.currentTime = 0
+        if !audioPlayer.play() {
+            finishActivePlayback(requestID: requestID)
+            return
+        }
+
+        let duration = max(audioPlayer.duration, 0)
+        audioQueue.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
+            self?.finishActivePlayback(requestID: requestID)
+        }
+    }
+
+    private func finishActivePlayback(requestID: UUID? = nil) {
+        if let requestID, playbackRequestID != requestID {
+            return
+        }
         guard let activeEffect else {
             return
         }
@@ -398,10 +630,19 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         self.activeEffect = nil
         playbackFinished = nil
         deactivatePlaybackSessionIfNeeded()
-        callback?(activeEffect)
+        if let callback {
+            Task { @MainActor in
+                callback(activeEffect)
+            }
+        }
     }
 
-    private static func waveformData(for effect: ScoreboardSoundEffect) -> Data {
+    nonisolated private struct PreparedSound: Sendable {
+        let effect: ScoreboardSoundEffect
+        let data: Data
+    }
+
+    nonisolated private static func waveformData(for effect: ScoreboardSoundEffect) -> Data {
         switch effect {
         case .none:
             return sequenceWaveformData([])
@@ -492,7 +733,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 
-    private static func classicBuzzerWaveformData() -> Data {
+    nonisolated private static func classicBuzzerWaveformData() -> Data {
         let sampleRate = 44_100
         let duration = 4.0
         let sampleCount = Int(Double(sampleRate) * duration)
@@ -524,7 +765,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func sequenceWaveformData(_ segments: [AudioSegment]) -> Data {
+    nonisolated private static func sequenceWaveformData(_ segments: [AudioSegment]) -> Data {
         let sampleRate = 44_100
         let sampleCount = segments.reduce(0) { total, segment in
             total + Int(Double(sampleRate) * segment.duration)
@@ -559,7 +800,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func bellWaveformData(strikes: [BellStrike], duration: Double) -> Data {
+    nonisolated private static func bellWaveformData(strikes: [BellStrike], duration: Double) -> Data {
         let sampleRate = 44_100
         let sampleCount = Int(Double(sampleRate) * duration)
         var pcmData = Data(capacity: sampleCount * MemoryLayout<Int16>.size)
@@ -591,7 +832,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func takeMeOutToTheBallGameWaveformData() -> Data {
+    nonisolated private static func takeMeOutToTheBallGameWaveformData() -> Data {
         let sampleRate = 44_100
         let targetDuration = 30.0
         let d4 = 62
@@ -699,7 +940,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         )
     }
 
-    private static func appendOrganNoteSamples(
+    nonisolated private static func appendOrganNoteSamples(
         _ note: MelodyNote,
         sampleCount: Int,
         sampleRate: Int,
@@ -737,7 +978,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 
-    private static func organVoiceSample(frequency: Double, time: Double) -> Double {
+    nonisolated private static func organVoiceSample(frequency: Double, time: Double) -> Double {
         let fundamental = sin(2 * .pi * frequency * time) * 0.58
         let octave = sin(2 * .pi * frequency * 2 * time) * 0.26
         let twelfth = sin(2 * .pi * frequency * 3 * time) * 0.14
@@ -745,11 +986,11 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         return fundamental + octave + twelfth + softReed
     }
 
-    private static func midiNoteFrequency(_ midiNote: Int) -> Double {
+    nonisolated private static func midiNoteFrequency(_ midiNote: Int) -> Double {
         440 * pow(2, (Double(midiNote) - 69) / 12)
     }
 
-    private static func segmentEnvelope(
+    nonisolated private static func segmentEnvelope(
         time: Double,
         duration: Double,
         attack: Double,
@@ -760,13 +1001,15 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
         return max(0, min(attackEnvelope, releaseEnvelope))
     }
 
-    private static func appendSample(_ value: Double, to data: inout Data) {
+    nonisolated private static func appendSample(_ value: Double, to data: inout Data) {
         let clamped = max(-1.0, min(1.0, value))
-        var sample = Int16(clamped * Double(Int16.max))
-        data.append(Data(bytes: &sample, count: MemoryLayout<Int16>.size))
+        let sample = Int16(clamped * Double(Int16.max)).littleEndian
+        withUnsafeBytes(of: sample) { sampleBytes in
+            data.append(contentsOf: sampleBytes)
+        }
     }
 
-    private static func wavData(
+    nonisolated private static func wavData(
         pcmData: Data,
         sampleRate: Int,
         channels: Int,
@@ -811,7 +1054,7 @@ final class BuzzerPlayer: NSObject, AVAudioPlayerDelegate {
     }
 }
 
-private struct AudioSegment {
+nonisolated private struct AudioSegment: Sendable {
     let duration: Double
     let startFrequency: Double
     let endFrequency: Double
@@ -835,7 +1078,7 @@ private struct AudioSegment {
     }
 }
 
-private struct MelodyNote {
+nonisolated private struct MelodyNote: Sendable {
     let midiNote: Int?
     let beats: Double
 
@@ -848,7 +1091,7 @@ private struct MelodyNote {
     }
 }
 
-private enum AudioWaveform {
+nonisolated private enum AudioWaveform: Sendable {
     case sine
     case square
     case triangle
@@ -870,7 +1113,7 @@ private enum AudioWaveform {
     }
 }
 
-private struct BellStrike {
+nonisolated private struct BellStrike: Sendable {
     let offset: Double
     let frequency: Double
     let amplitude: Double
@@ -878,7 +1121,7 @@ private struct BellStrike {
 }
 
 private extension FixedWidthInteger {
-    var littleEndianData: Data {
+    nonisolated var littleEndianData: Data {
         var value = self.littleEndian
         return Data(bytes: &value, count: MemoryLayout<Self>.size)
     }

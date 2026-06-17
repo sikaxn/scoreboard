@@ -45,6 +45,7 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
     case possessionChange
     case sideSwap
     case substitutionsAdjustment
+    case teamPauseAdjustment
     case chessClockToggle
     case chessClockSwitch
     case chessClockAdjustment
@@ -120,6 +121,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
             return "Swap Sides"
         case .substitutionsAdjustment:
             return "Substitution Swap"
+        case .teamPauseAdjustment:
+            return "Team Pause Change"
         case .chessClockToggle:
             return "Chess Clock Toggle"
         case .chessClockSwitch:
@@ -722,15 +725,7 @@ final class ScoreboardLogManager {
     }
 
     private func logsDirectory() throws -> URL {
-        let baseDirectory = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directoryURL = baseDirectory.appendingPathComponent("ScoreboardLogs", isDirectory: true)
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        return directoryURL
+        try ScoreboardFileStorage.logsDirectory()
     }
 
     private func persist(_ session: ScoreboardLogSession, to url: URL) throws {

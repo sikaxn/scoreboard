@@ -96,7 +96,7 @@ enum ScoreboardTips {
 
     struct ScoreControlsTip: Tip {
         var title: Text { ScoreboardTips.localizedText("Operate each side here") }
-        var message: Text? { ScoreboardTips.localizedText("Use these controls for score changes, side clocks, team fouls, substitutions, and sport-specific actions.") }
+        var message: Text? { ScoreboardTips.localizedText("Use these controls for score changes, side clocks, team fouls, substitutions, pauses, and sport-specific actions.") }
         var image: Image? { Image(systemName: "plus.forwardslash.minus") }
         var options: [any TipOption] { Tips.MaxDisplayCount(1) }
     }

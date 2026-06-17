@@ -16,9 +16,11 @@
       background: #f5f7fb;
     }
     main {
+      width: 100%;
       max-width: 1080px;
       margin: 0 auto;
       padding: 30px;
+      box-sizing: border-box;
     }
     header {
       display: flex;
@@ -46,6 +48,7 @@
       margin-bottom: 16px;
     }
     .card {
+      min-width: 0;
       background: #fff;
       border: 1px solid #d9dee9;
       border-radius: 8px;
@@ -83,19 +86,31 @@
     }
     table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       margin-top: 6px;
     }
     th, td {
+      min-width: 0;
       text-align: left;
       border-bottom: 1px solid #e4e8f0;
       padding: 9px 6px;
       vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     th {
       font-size: 12px;
       text-transform: uppercase;
       color: #596376;
+    }
+    th:first-child, td:first-child {
+      width: 34%;
+    }
+    td code {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .note {
       color: #596376;
@@ -118,6 +133,9 @@
       th, td {
         border-bottom-color: #303746;
       }
+      tr {
+        border-bottom-color: #303746;
+      }
       .note, th {
         color: #aab4c4;
       }
@@ -131,6 +149,30 @@
       }
       .card {
         margin-bottom: 16px;
+      }
+      table, tbody, tr, th, td {
+        display: block;
+        width: 100%;
+      }
+      tr {
+        padding: 10px 0;
+        border-bottom: 1px solid #e4e8f0;
+      }
+      tr:first-child {
+        display: none;
+      }
+      th, td {
+        border-bottom: 0;
+        padding: 4px 0;
+      }
+      td:first-child {
+        width: 100%;
+        font-size: 13px;
+      }
+    }
+    @media (prefers-color-scheme: dark) and (max-width: 760px) {
+      tr {
+        border-bottom-color: #303746;
       }
     }
   </style>
@@ -161,11 +203,15 @@
     <section class="card">
       <h2 data-i18n="endpointsTitle">Endpoints</h2>
       <p class="note" data-i18n="endpointsBody">The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.</p>
-      <strong data-i18n="httpState">HTTP state</strong>
+      <strong data-i18n="httpState">HTTP state manifest</strong>
       <code id="httpState" class="endpoint"></code>
+      <strong data-i18n="apiStatus">API status</strong>
+      <code id="apiStatus" class="endpoint"></code>
+      <strong data-i18n="appStatus">App status</strong>
+      <code id="appStatus" class="endpoint"></code>
       <strong data-i18n="webSocket">WebSocket</strong>
       <code id="wsState" class="endpoint"></code>
-      <strong data-i18n="health">Health</strong>
+      <strong data-i18n="health">v1 health</strong>
       <code id="health" class="endpoint"></code>
     </section>
 
@@ -173,12 +219,17 @@
       <h2 data-i18n="docsTitle">API Docs</h2>
       <table>
         <tr><th data-i18n="endpointColumn">Endpoint</th><th data-i18n="useColumn">Use</th></tr>
-        <tr><td><code>GET /api/v1/state</code></td><td data-i18n="stateUse">Latest raw scoreboard state JSON.</td></tr>
-        <tr><td><code>GET /api/v1/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. Photo and Animated Logo modes use this same image asset.</td></tr>
-        <tr><td><code>GET /api/v1/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. Use display.showsEventLogo to decide whether to show it.</td></tr>
-        <tr><td><code>GET /api/v1/teams/{home|guest}/logo</code></td><td data-i18n="teamLogoUse">Current team logo binary with alpha preserved. Use display.showsTeamLogos to decide whether to show it.</td></tr>
-        <tr><td><code>GET /api/v1/health</code></td><td data-i18n="healthUse">Service status, fixed ports, and connected WebSocket client count.</td></tr>
-        <tr><td><code>WS /api/v1/ws</code></td><td data-i18n-html="wsUse">Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.</td></tr>
+        <tr><td><code>GET /api/v2/status/api</code></td><td data-i18n="apiStatusUse">Web API service status only: API version, supported versions, ports, update mode, status, client count, and generated time.</td></tr>
+        <tr><td><code>GET /api/v2/status/app</code></td><td data-i18n="appStatusUse">App identity/status only: app name, version, build, API version marker, and generated time.</td></tr>
+        <tr><td><code>GET /api/v2/state</code></td><td data-i18n="stateUse">Lightweight v2 manifest listing resource names, hrefs, revisions, and generated time.</td></tr>
+        <tr><td><code>GET /api/v2/state/{game|runtime|display|rules|teams|clocks|players|debate|audio}</code></td><td data-i18n="resourceUse">One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate.</td></tr>
+        <tr><td><code>GET /api/v2/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. v1 image paths remain valid aliases.</td></tr>
+        <tr><td><code>GET /api/v2/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. v1 image paths remain valid aliases.</td></tr>
+        <tr><td><code>GET /api/v2/teams/{home|guest}/logo</code></td><td data-i18n="teamLogoUse">Current team logo binary with alpha preserved. v1 image paths remain valid aliases.</td></tr>
+        <tr><td><code>WS /api/v2/ws</code></td><td data-i18n-html="wsUse">Send <code>{"type":"subscribe","apiVersion":"v2"}</code> after connecting. The server sends a v2 manifest and separate <code>scoreboard.v2.resource</code> messages, then pushes changed resources only.</td></tr>
+        <tr><td><code>GET /api/v1/state</code></td><td data-i18n="v1StateUse">Backward-compatible v1 full state payload.</td></tr>
+        <tr><td><code>GET /api/v1/health</code></td><td data-i18n="healthUse">Backward-compatible v1 service health payload.</td></tr>
+        <tr><td><code>WS /api/v1/ws</code></td><td data-i18n-html="v1WSUse">Backward-compatible v1 WebSocket behavior. Existing clients receive <code>scoreboard.state</code> envelopes and can send <code>{"type":"get"}</code>.</td></tr>
       </table>
     </section>
   </main>
@@ -197,18 +248,25 @@
         openOBS: 'Open OBS Source',
         endpointsTitle: 'Endpoints',
         endpointsBody: 'The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.',
-        httpState: 'HTTP state',
+        httpState: 'HTTP state manifest',
+        apiStatus: 'API status',
+        appStatus: 'App status',
         webSocket: 'WebSocket',
-        health: 'Health',
+        health: 'v1 health',
         docsTitle: 'API Docs',
         endpointColumn: 'Endpoint',
         useColumn: 'Use',
-        stateUse: 'Latest raw scoreboard state JSON. Image fields are metadata and URLs only; no image payloads are embedded. display.viewMode selects scoreboard, black screen, background-only, team, player, or event-logo output; player view uses the full roster. display.direction is homeLeft or guestLeft. Remote Display payloads may also include display.remoteExternalDirection for a paired iPad or Mac external output. display.backgroundMode can also be animatedLogo, with display.animatedLogoStyle, animatedLogoBackgroundColor, animatedLogoSpeed, animatedLogoSize, animatedLogoOpacity, showsDateTime, dateTimeFormat, and showsDateTimeSeconds.',
-        backgroundImageUse: 'Current external display background image binary. Photo and Animated Logo modes use this same image asset. Use the response Content-Type; clients do not need to know the ID or file extension.',
-        eventLogoUse: 'Current event logo binary with alpha preserved. Use the response Content-Type; display.showsEventLogo controls whether display.eventLogo metadata appears in state.',
-        teamLogoUse: 'Current team logo binary with alpha preserved. Use the response Content-Type; display.showsTeamLogos controls whether logo metadata appears in state.',
-        healthUse: 'Service status, fixed ports, and connected WebSocket client count.',
-        wsUse: 'Receives <code>scoreboard.state</code> messages when state changes. Fixed Interval mode coalesces to a maximum of 10 updates per second; Real-Time Push mode sends every state change. Send <code>{"type":"get"}</code> to request the latest state.'
+        apiStatusUse: 'Web API service status only: API version, supported versions, ports, update mode, status, client count, and generated time.',
+        appStatusUse: 'App identity/status only: app name, version, build, API version marker, and generated time.',
+        stateUse: 'Lightweight v2 manifest listing resource names, hrefs, revisions, and generated time. It does not embed app status, API status, or full scoreboard state.',
+        resourceUse: 'One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate. The display resource includes display control status with all six public display modes.',
+        backgroundImageUse: 'Current external display background image binary. Photo and Animated Logo modes use this same image asset. Use the response Content-Type; v1 image paths remain valid aliases.',
+        eventLogoUse: 'Current event logo binary with alpha preserved. Use the response Content-Type; display.showsEventLogo controls whether display.eventLogo metadata appears in state. v1 image paths remain valid aliases.',
+        teamLogoUse: 'Current team logo binary with alpha preserved. Use the response Content-Type; display.showsTeamLogos controls whether logo metadata appears in state. v1 image paths remain valid aliases.',
+        v1StateUse: 'Backward-compatible v1 full state payload. Image fields are metadata and URLs only; no image payloads are embedded.',
+        healthUse: 'Backward-compatible v1 service health payload with app status embedded.',
+        wsUse: 'Send <code>{"type":"subscribe","apiVersion":"v2"}</code> after connecting. The server sends a v2 manifest and separate <code>scoreboard.v2.resource</code> messages, then pushes changed resources only.',
+        v1WSUse: 'Backward-compatible v1 WebSocket behavior. Existing clients receive <code>scoreboard.state</code> envelopes and can send <code>{"type":"get"}</code>.'
       },
       zh: {
         title: 'SmartScoreboard Web API',
@@ -222,18 +280,25 @@
         openOBS: '打开 OBS 源',
         endpointsTitle: '端点',
         endpointsBody: '演示页面只是参考实现，并且仅使用 WebSocket。HTTP 仍可供通用轮询客户端使用。WebSocket 发送方式遵循 App 设置中的更新模式。',
-        httpState: 'HTTP 状态',
+        httpState: 'HTTP 状态清单',
+        apiStatus: 'API 状态',
+        appStatus: 'App 状态',
         webSocket: 'WebSocket',
-        health: '健康检查',
+        health: 'v1 健康检查',
         docsTitle: 'API 文档',
         endpointColumn: '端点',
         useColumn: '用途',
-        stateUse: '最新原始记分牌状态 JSON。图片字段只包含元数据和 URL，不嵌入图片内容。display.viewMode 选择记分牌、黑屏、仅背景、队伍、球员或赛事标志输出；球员视图使用完整名单。display.direction 为 homeLeft 或 guestLeft。远程显示负载也可能包含 display.remoteExternalDirection，用于已配对 iPad 或 Mac 外接输出。display.backgroundMode 也可为 animatedLogo，并包含 display.animatedLogoStyle、animatedLogoBackgroundColor、animatedLogoSpeed、animatedLogoSize、animatedLogoOpacity、showsDateTime、dateTimeFormat 和 showsDateTimeSeconds。',
-        backgroundImageUse: '当前外接显示背景图片二进制内容。照片和动态标志模式共用同一图片资源。请使用响应 Content-Type；客户端不需要知道 ID 或文件扩展名。',
-        eventLogoUse: '当前赛事标志图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsEventLogo 控制状态中是否显示 display.eventLogo 元数据。',
-        teamLogoUse: '当前队标图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsTeamLogos 控制状态中是否显示队标元数据。',
-        healthUse: '服务状态、固定端口和已连接的 WebSocket 客户端数量。',
-        wsUse: '状态变化时接收 <code>scoreboard.state</code> 消息。固定间隔模式会合并到每秒最多 10 次更新；实时推送模式会发送每一次状态变化。发送 <code>{"type":"get"}</code> 可请求最新状态。'
+        apiStatusUse: '仅 Web API 服务状态：API 版本、支持版本、端口、更新模式、状态、客户端数量和生成时间。',
+        appStatusUse: '仅 App 身份和状态：App 名称、版本、构建号、API 版本标记和生成时间。',
+        stateUse: '轻量 v2 清单，列出资源名称、href、修订号和生成时间。不嵌入 App 状态、API 状态或完整记分牌状态。',
+        resourceUse: '单个 v2 资源信封：schemaVersion、resource、revision、generatedAt 和 data。当前运动不是辩论时 debate 返回 null。display 资源包含显示控制状态和全部六种公共显示模式。',
+        backgroundImageUse: '当前外接显示背景图片二进制内容。照片和动态标志模式共用同一图片资源。请使用响应 Content-Type；v1 图片路径仍作为别名有效。',
+        eventLogoUse: '当前赛事标志图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsEventLogo 控制状态中是否显示 display.eventLogo 元数据。v1 图片路径仍作为别名有效。',
+        teamLogoUse: '当前队标图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsTeamLogos 控制状态中是否显示队标元数据。v1 图片路径仍作为别名有效。',
+        v1StateUse: '向后兼容的 v1 完整状态负载。图片字段只包含元数据和 URL，不嵌入图片内容。',
+        healthUse: '向后兼容的 v1 服务健康负载，并嵌入 App 状态。',
+        wsUse: '连接后发送 <code>{"type":"subscribe","apiVersion":"v2"}</code>。服务器会发送 v2 清单和独立的 <code>scoreboard.v2.resource</code> 消息，之后只推送变化的资源。',
+        v1WSUse: '向后兼容的 v1 WebSocket 行为。现有客户端会收到 <code>scoreboard.state</code> 信封，并可发送 <code>{"type":"get"}</code>。'
       }
     };
 
@@ -251,9 +316,11 @@
     });
 
     const host = location.hostname || '127.0.0.1';
-    document.getElementById('httpState').textContent = `${location.origin}/api/v1/state`;
+    document.getElementById('httpState').textContent = `${location.origin}/api/v2/state`;
+    document.getElementById('apiStatus').textContent = `${location.origin}/api/v2/status/api`;
+    document.getElementById('appStatus').textContent = `${location.origin}/api/v2/status/app`;
     document.getElementById('health').textContent = `${location.origin}/api/v1/health`;
-    document.getElementById('wsState').textContent = `ws://${host}:5517/api/v1/ws`;
+    document.getElementById('wsState').textContent = `ws://${host}:5517/api/v2/ws`;
   </script>
 </body>
 </html>

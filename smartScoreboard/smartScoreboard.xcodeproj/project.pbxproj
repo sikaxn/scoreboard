@@ -11,7 +11,7 @@
 		3E754FB72FFB444CA8F5874E /* ScoreboardLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		73B2C908E4E64768A32359F7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F5EB3F233F174EF38BB12216 /* Assets.xcassets */; };
 		8F1F456D06AC403F8DD5D7FA /* ScoreboardLiveActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */; };
-		9B3507C64C2445B0B3E8BDA6 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4B25B34E35EC4696A58D6B3D /* InfoPlist.strings */; };
+		9B3507C64C2445B0B3E8BDA6 /* zh-Hans.lproj/InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4B25B34E35EC4696A58D6B3D /* zh-Hans.lproj/InfoPlist.strings */; };
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
 		D88F712A2FCFD6CF000A14F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
 		E253E13773694DE49BFD86F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
@@ -44,7 +44,7 @@
 /* Begin PBXFileReference section */
 		03483FFA1A5C43C2B50A791 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityAttributes.swift; sourceTree = "<group>"; };
-		4B25B34E35EC4696A58D6B3D /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		4B25B34E35EC4696A58D6B3D /* zh-Hans.lproj/InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScoreboardLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -84,7 +84,7 @@
 				C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */,
 				F5EB3F233F174EF38BB12216 /* Assets.xcassets */,
 				03483FFA1A5C43C2B50A791 /* Info.plist */,
-				4B25B34E35EC4696A58D6B3D /* InfoPlist.strings */,
+				4B25B34E35EC4696A58D6B3D /* zh-Hans.lproj/InfoPlist.strings */,
 			);
 			path = ScoreboardLiveActivityExtension;
 			sourceTree = "<group>";
@@ -209,7 +209,7 @@
 			files = (
 				73B2C908E4E64768A32359F7 /* Assets.xcassets in Resources */,
 				E253E13773694DE49BFD86F2 /* Localizable.xcstrings in Resources */,
-				9B3507C64C2445B0B3E8BDA6 /* InfoPlist.strings in Resources */,
+				9B3507C64C2445B0B3E8BDA6 /* zh-Hans.lproj/InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,7 +259,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -270,12 +270,15 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -415,7 +418,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -429,7 +432,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -439,6 +442,7 @@
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ENABLE_CUSTOM_USER_PAGE";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -461,7 +465,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -475,7 +479,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -485,6 +489,7 @@
 				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ENABLE_CUSTOM_USER_PAGE";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -501,7 +506,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -512,12 +517,15 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;

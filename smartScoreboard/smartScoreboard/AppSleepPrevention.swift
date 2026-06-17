@@ -14,6 +14,7 @@ enum AppSleepPreventionReason: Hashable {
     case externalDisplayConnected
     case publicBoardPresented
     case timerRunning
+    case localScoreboardVisible
     case operatorRemoteDisplayConnected
     case receiverRemoteDisplayConnected(UUID)
     case remoteScoreboardVisible(UUID)

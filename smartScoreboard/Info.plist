@@ -55,6 +55,8 @@
 	<string>public.app-category.utilities</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smartscoreboard._tcp</string>

@@ -1,5 +1,30 @@
 # Release Notes
 
+## 1.2
+
+### Feature Added
+
+- Added team pause tracking for Basketball, Volleyball, Hockey, and Custom Sports that enable pauses.
+- Added pause allowance setup, live pause controls, public display pause indicators, logs, sounds, Companion events, Remote Display sync, and Web API output.
+- Added optional Web API Custom User Page support, served from `/user` and `/user/...` when included by the build setting, with a default Hello World `index.html`.
+- Added Files app access on iPhone and iPad for Library, Logs, and Custom User Page files so user-managed files can be edited outside the app.
+- Added Finder access on Mac for the Custom User Page folder.
+- Added upgrade migration for existing Library, Logs, and Custom User Page files into user-visible storage, with blocking progress for large migrations and cleanup of migrated legacy folders.
+- Added a branded 404 page for the Web API server.
+- Improved Control Board toolbar access and status visibility for Sound and Bitfocus Companion.
+- Expanded sound and Companion event coverage for Debate segments, Debate prep time, side clocks, unassigned Debate timers, and team pause use.
+- Improved sound playback responsiveness by preparing test sound effects ahead of use.
+- Expanded the Web API with v2 status endpoints, resource-based state output, changed-resource WebSocket updates, and direct image endpoints for backgrounds, team logos, and event logos.
+- Updated Web API docs and demo overlays to support v2 state, event logo, team view, player view display modes, and the new 404 and custom page routes.
+
+### Bug Fixed
+
+- Fixed a Debate Companion edge case so side-specific, prep, and unassigned Debate timer events can trigger the correct commands.
+- Improved local scoreboard sleep prevention when the local scoreboard view is visible.
+- Improved persistence and sync for team pause counters across saved games, public displays, Remote Display, and Web API clients.
+- Improved startup behavior so migration UI only appears when files need to move.
+- Improved Factory Default behavior so Custom User Page files are cleared and the default page is recreated cleanly.
+
 ## 1.1
 
 ### Feature Added

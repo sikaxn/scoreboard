@@ -99,6 +99,10 @@ struct ScoreboardFaceView: View {
     let guestSubstitutionsAllowed: Int
     let homeSubstitutionsUsed: Int
     let guestSubstitutionsUsed: Int
+    let homePausesAllowed: Int
+    let guestPausesAllowed: Int
+    let homePausesUsed: Int
+    let guestPausesUsed: Int
     let homeTeamFouls: Int
     let guestTeamFouls: Int
     let homePenaltyTimers: [HockeyPenaltyTimer]
@@ -121,6 +125,7 @@ struct ScoreboardFaceView: View {
     private var displayAlertColor: Color { .red }
     private var usesDedicatedDualClockLayout: Bool { sport == .chess }
     private var shouldShowSubstitutionTracking: Bool { homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0 }
+    private var shouldShowPauseTracking: Bool { homePausesAllowed > 0 || guestPausesAllowed > 0 }
     private var trimmedEventName: String { eventName.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var showsEventBranding: Bool { !trimmedEventName.isEmpty || eventLogoData != nil }
 
@@ -212,6 +217,8 @@ struct ScoreboardFaceView: View {
                                 accent: leftTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: leftTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: leftTeam.side),
+                                pausesUsed: pausesUsed(for: leftTeam.side),
+                                pausesAllowed: pausesAllowed(for: leftTeam.side),
                                 teamFouls: teamFouls(for: leftTeam.side),
                                 penaltyTimers: penaltyTimers(for: leftTeam.side),
                                 displayedPlayers: leftDisplayedPlayers,
@@ -247,6 +254,8 @@ struct ScoreboardFaceView: View {
                                 accent: rightTeam.accent,
                                 substitutionsUsed: substitutionsUsed(for: rightTeam.side),
                                 substitutionsAllowed: substitutionsAllowed(for: rightTeam.side),
+                                pausesUsed: pausesUsed(for: rightTeam.side),
+                                pausesAllowed: pausesAllowed(for: rightTeam.side),
                                 teamFouls: teamFouls(for: rightTeam.side),
                                 penaltyTimers: penaltyTimers(for: rightTeam.side),
                                 displayedPlayers: rightDisplayedPlayers,
@@ -334,6 +343,8 @@ struct ScoreboardFaceView: View {
         accent: Color,
         substitutionsUsed: Int,
         substitutionsAllowed: Int,
+        pausesUsed: Int,
+        pausesAllowed: Int,
         teamFouls: Int,
         penaltyTimers: [HockeyPenaltyTimer],
         displayedPlayers: [TrackedPlayer],
@@ -421,6 +432,18 @@ struct ScoreboardFaceView: View {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
+            if shouldShowPauseTracking, pausesAllowed > 0 {
+                pauseLightStrip(
+                    used: pausesUsed,
+                    allowed: pausesAllowed,
+                    accent: accent,
+                    base: base,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed
+                )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+
             if rules.supportsTeamFouls {
                 teamFoulStrip(
                     fouls: teamFouls,
@@ -468,6 +491,8 @@ struct ScoreboardFaceView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: playerOverflowMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesUsed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesAllowed)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
         .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsScore)
         .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsDebatePrepTime)
@@ -952,6 +977,52 @@ struct ScoreboardFaceView: View {
 
         return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
             localizedBoardText("SWAPS")
+                .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
+                .tracking(ultraCondensed ? 0.8 : 1.4)
+                .foregroundStyle(boardSecondaryTextColor)
+
+            HStack(spacing: ultraCondensed ? 5 : 7) {
+                ForEach(0..<boundedAllowed, id: \.self) { index in
+                    Circle()
+                        .fill(index < boundedUsed ? accent : boardBadgeBorderColor.opacity(0.45))
+                        .scaleEffect(index < boundedUsed ? 1.08 : 0.92)
+                        .frame(width: dotSize, height: dotSize)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(index < boundedUsed ? accent.opacity(0.35) : boardBadgeBorderColor, lineWidth: 1)
+                        )
+                        .shadow(
+                            color: index < boundedUsed ? accent.opacity(0.45) : .clear,
+                            radius: ultraCondensed ? 4 : 6
+                        )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ultraCondensed ? 10 : 12)
+        .padding(.vertical, ultraCondensed ? 8 : 10)
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: ultraCondensed ? 14 : 18, style: .continuous)
+                .strokeBorder(boardBadgeBorderColor)
+        )
+        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: boundedUsed)
+    }
+
+    private func pauseLightStrip(
+        used: Int,
+        allowed: Int,
+        accent: Color,
+        base: CGFloat,
+        condensed: Bool,
+        ultraCondensed: Bool
+    ) -> some View {
+        let boundedAllowed = max(0, min(allowed, 12))
+        let boundedUsed = max(0, min(used, boundedAllowed))
+        let dotSize = ultraCondensed ? max(8, base * 0.015) : condensed ? max(10, base * 0.018) : max(12, base * 0.02)
+
+        return VStack(alignment: .leading, spacing: ultraCondensed ? 6 : 8) {
+            localizedBoardText("PAUSES")
                 .font(.system(size: ultraCondensed ? 10 : condensed ? 14 : 12, weight: .black, design: .rounded))
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
@@ -1717,6 +1788,9 @@ struct ScoreboardFaceView: View {
         if shouldShowSubstitutionTracking, substitutionsAllowed(for: side) > 0 {
             moduleCount += 1
         }
+        if shouldShowPauseTracking, pausesAllowed(for: side) > 0 {
+            moduleCount += 1
+        }
         if rules.supportsTeamFouls {
             moduleCount += 1
         }
@@ -1935,6 +2009,14 @@ struct ScoreboardFaceView: View {
 
     private func substitutionsUsed(for side: TeamSide) -> Int {
         side == .home ? homeSubstitutionsUsed : guestSubstitutionsUsed
+    }
+
+    private func pausesAllowed(for side: TeamSide) -> Int {
+        side == .home ? homePausesAllowed : guestPausesAllowed
+    }
+
+    private func pausesUsed(for side: TeamSide) -> Int {
+        side == .home ? homePausesUsed : guestPausesUsed
     }
 
     private func teamFouls(for side: TeamSide) -> Int {

@@ -513,17 +513,37 @@ final class ScoreboardStore: ObservableObject {
         .gameClockExpired: .classicBuzzer,
         .shotClockExpired: .shotClockBeep,
         .chessClockExpired: .softChime,
+        .debateSegmentStarted: .none,
+        .debateSegmentStopped: .none,
         .debateSegmentExpired: .debateBell,
+        .debateUnassignedSegmentStarted: .none,
+        .debateUnassignedSegmentStopped: .none,
+        .debateUnassignedSegmentExpired: .none,
+        .debatePrepStarted: .none,
+        .debatePrepStopped: .none,
         .debatePrepExpired: .debateDoubleBell,
         .hockeyPenaltyExpired: .penaltyChirp,
         .gameClockStarted: .none,
         .gameClockPaused: .none,
+        .homeSideClockStarted: .none,
+        .homeSideClockStopped: .none,
+        .homeSideClockExpired: .none,
+        .guestSideClockStarted: .none,
+        .guestSideClockStopped: .none,
+        .guestSideClockExpired: .none,
+        .homePrepClockStarted: .none,
+        .homePrepClockStopped: .none,
+        .homePrepClockExpired: .none,
+        .guestPrepClockStarted: .none,
+        .guestPrepClockStopped: .none,
+        .guestPrepClockExpired: .none,
         .shotClockStarted: .none,
         .shotClockPaused: .none,
         .shotClockReset: .none,
         .yellowCardAssigned: .none,
         .redCardAssigned: .none,
         .substitutionUsed: .none,
+        .teamPauseUsed: .none,
         .teamFoulApplied: .none,
         .playerFoulApplied: .none,
         .sideSwitched: .none,
@@ -586,6 +606,10 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestSubstitutionsAllowed = 0
     @Published var homeSubstitutionsUsed = 0
     @Published var guestSubstitutionsUsed = 0
+    @Published var homePausesAllowed = 0
+    @Published var guestPausesAllowed = 0
+    @Published var homePausesUsed = 0
+    @Published var guestPausesUsed = 0
     @Published var homeTeamFouls = 0
     @Published var guestTeamFouls = 0
     @Published var homeChessClockSeconds = ChessClockPreset.rapid.seconds
@@ -927,6 +951,14 @@ final class ScoreboardStore: ObservableObject {
         homeSubstitutionsAllowed > 0 || guestSubstitutionsAllowed > 0
     }
 
+    var supportsPauseTracking: Bool {
+        currentRules.showsPauseTracking
+    }
+
+    var showsPauseTracking: Bool {
+        homePausesAllowed > 0 || guestPausesAllowed > 0
+    }
+
     var supportsScore: Bool {
         if isDebateMode {
             return isDebateScoreTrackingEnabled
@@ -995,6 +1027,7 @@ final class ScoreboardStore: ObservableObject {
                 defaultRosterSize: isDebatePlayerTrackingEnabled ? max(rosterSizePerTeam, Self.minRosterSize) : 0,
                 defaultDisplayLineupSize: isDebatePlayerTrackingEnabled ? max(1, displayLineupSize) : 0,
                 defaultSubstitutionLimit: 0,
+                defaultPauseLimit: 0,
                 mainClockMode: .disabled,
                 supportsScore: isDebateScoreTrackingEnabled,
                 supportsPeriod: false,
@@ -1006,6 +1039,7 @@ final class ScoreboardStore: ObservableObject {
                 usesCenterPlayerStrip: false,
                 supportsCards: isDebatePlayerTrackingEnabled && isDebatePlayerCardsEnabled,
                 showsSubstitutionTracking: false,
+                showsPauseTracking: false,
                 supportsHockeyPenalties: false,
                 usesChessClocks: currentDebateSegment?.timerMode == .dualClock
             )
@@ -1021,10 +1055,16 @@ final class ScoreboardStore: ObservableObject {
     func assignableSoundEvents(for sport: SportType) -> [ScoreboardSoundEvent] {
         if sport == .debate {
             return uniqueSoundEvents([
+                .debateSegmentStarted,
+                .debateSegmentStopped,
                 .debateSegmentExpired,
-                .debatePrepExpired,
-                .gameClockStarted,
-                .gameClockPaused,
+                .debateUnassignedSegmentStarted,
+                .debateUnassignedSegmentStopped,
+                .debateUnassignedSegmentExpired,
+                .debatePrepStarted,
+                .debatePrepStopped,
+                .debatePrepExpired
+            ] + sideClockSoundEvents + debatePrepClockSoundEvents + [
                 .sideSwitched,
                 .periodChanged,
                 .scoreChanged,
@@ -1049,6 +1089,7 @@ final class ScoreboardStore: ObservableObject {
             events.append(.chessClockExpired)
             events.append(.gameClockStarted)
             events.append(.gameClockPaused)
+            events.append(contentsOf: sideClockSoundEvents)
             events.append(.sideSwitched)
         } else if rules.mainClockMode == .countdown {
             events.append(.gameClockExpired)
@@ -1082,6 +1123,10 @@ final class ScoreboardStore: ObservableObject {
             events.append(.substitutionUsed)
         }
 
+        if rules.showsPauseTracking {
+            events.append(.teamPauseUsed)
+        }
+
         if rules.supportsTeamFouls {
             events.append(.teamFoulApplied)
         }
@@ -1113,9 +1158,36 @@ final class ScoreboardStore: ObservableObject {
         return uniqueSoundEvents(events)
     }
 
+    private var sideClockSoundEvents: [ScoreboardSoundEvent] {
+        [
+            .homeSideClockStarted,
+            .homeSideClockStopped,
+            .homeSideClockExpired,
+            .guestSideClockStarted,
+            .guestSideClockStopped,
+            .guestSideClockExpired
+        ]
+    }
+
+    private var debatePrepClockSoundEvents: [ScoreboardSoundEvent] {
+        [
+            .homePrepClockStarted,
+            .homePrepClockStopped,
+            .homePrepClockExpired,
+            .guestPrepClockStarted,
+            .guestPrepClockStopped,
+            .guestPrepClockExpired
+        ]
+    }
+
     private func uniqueSoundEvents(_ events: [ScoreboardSoundEvent]) -> [ScoreboardSoundEvent] {
         var seen = Set<ScoreboardSoundEvent>()
         return events.filter { seen.insert($0).inserted }
+    }
+
+    private func uniqueScoreboardEventDispatches(_ dispatches: [ScoreboardEventDispatch]) -> [ScoreboardEventDispatch] {
+        var seen = Set<ScoreboardSoundEvent>()
+        return dispatches.filter { seen.insert($0.event).inserted }
     }
 
     func substitutionsAllowed(for side: TeamSide) -> Int {
@@ -1128,6 +1200,18 @@ final class ScoreboardStore: ObservableObject {
 
     func substitutionsRemaining(for side: TeamSide) -> Int {
         max(0, substitutionsAllowed(for: side) - substitutionsUsed(for: side))
+    }
+
+    func pausesAllowed(for side: TeamSide) -> Int {
+        side == .home ? homePausesAllowed : guestPausesAllowed
+    }
+
+    func pausesUsed(for side: TeamSide) -> Int {
+        side == .home ? homePausesUsed : guestPausesUsed
+    }
+
+    func pausesRemaining(for side: TeamSide) -> Int {
+        max(0, pausesAllowed(for: side) - pausesUsed(for: side))
     }
 
     func sideRoleLabel(for side: TeamSide) -> String {
@@ -1674,9 +1758,11 @@ final class ScoreboardStore: ObservableObject {
             )
             return
         }
+        let interruptedDispatch = currentRunningClockStoppedDispatch()
         isDebatePrepClockRunning = false
         debateActiveTimer = .segment
         let wasRunning = isClockRunning
+        let stoppedDispatch = wasRunning ? currentClockStoppedDispatch() : interruptedDispatch
         isClockRunning ? pauseClock() : startClock()
         recordLog(
             kind: .debateTimerToggle,
@@ -1684,13 +1770,26 @@ final class ScoreboardStore: ObservableObject {
             outcome: wasRunning == isClockRunning ? .ignored : .applied,
             notes: segment.title
         )
-        if wasRunning != isClockRunning {
-            handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+        if wasRunning != isClockRunning || interruptedDispatch != nil {
+            var dispatches = [stoppedDispatch].compactMap(\.self)
+            if isClockRunning {
+                dispatches.append(currentClockStartedDispatch())
+            }
+            if !dispatches.isEmpty {
+                handleScoreboardEventDispatches(dispatches)
+            }
             requestGameClockAutosave()
         }
     }
 
     func setSoundEnabled(_ isEnabled: Bool) {
+        guard isSoundEnabled != isEnabled else {
+            if !isEnabled, playingTestSoundEffect != nil {
+                stopTestSound()
+            }
+            return
+        }
+
         isSoundEnabled = isEnabled
 
         if !isSoundEnabled {
@@ -1703,6 +1802,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionVisible(_ isVisible: Bool) {
+        guard isCompanionVisible != isVisible else {
+            if !isVisible {
+                dismissCompanionFailureNotice()
+            }
+            return
+        }
+
         isCompanionVisible = isVisible
         if !isVisible {
             isCompanionEnabled = false
@@ -1711,7 +1817,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionEnabled(_ isEnabled: Bool) {
-        isCompanionEnabled = isEnabled && isCompanionVisible
+        let resolvedEnabled = isEnabled && isCompanionVisible
+        guard isCompanionEnabled != resolvedEnabled else {
+            return
+        }
+
+        isCompanionEnabled = resolvedEnabled
     }
 
     func toggleCompanionEnabled() {
@@ -1731,6 +1842,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionHost(_ host: String) {
+        guard companionHost != host else {
+            return
+        }
+
         companionHost = host
     }
 
@@ -1744,7 +1859,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionPort(_ port: Int) {
-        companionPort = UInt16(max(1, min(65_535, port)))
+        let boundedPort = UInt16(max(1, min(65_535, port)))
+        guard companionPort != boundedPort else {
+            return
+        }
+
+        companionPort = boundedPort
     }
 
     func companionPortText() -> String {
@@ -1783,10 +1903,16 @@ final class ScoreboardStore: ObservableObject {
 
         var assignmentsBySport = companionAssignmentsBySport
         var sportAssignments = assignmentsBySport[sport] ?? [:]
-        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentValue = sportAssignments[event] ?? ""
+        guard currentValue != trimmedValue else {
+            return
+        }
+
+        if trimmedValue.isEmpty {
             sportAssignments.removeValue(forKey: event)
         } else {
-            sportAssignments[event] = value
+            sportAssignments[event] = trimmedValue
         }
         if sportAssignments.isEmpty {
             assignmentsBySport.removeValue(forKey: sport)
@@ -1845,6 +1971,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSoundEffect(_ effect: ScoreboardSoundEffect, for event: ScoreboardSoundEvent, sport: SportType) {
+        guard selectedSoundEffect(for: event, sport: sport) != effect else {
+            return
+        }
+
         var assignmentsBySport = soundAssignmentsBySport
         var sportAssignments = assignmentsBySport[sport] ?? Self.defaultSoundAssignments
         sportAssignments[event] = effect
@@ -1870,6 +2000,10 @@ final class ScoreboardStore: ObservableObject {
         toggleTestSound(effect)
     }
 
+    func prepareTestSoundEffects() {
+        buzzerPlayer.prepare(ScoreboardSoundEffect.allCases)
+    }
+
     func toggleTestSound(_ effect: ScoreboardSoundEffect) {
         guard isSoundEnabled, effect != .none else {
             return
@@ -1883,12 +2017,10 @@ final class ScoreboardStore: ObservableObject {
         stopTestSound()
         playingTestSoundEffect = effect
         buzzerPlayer.play(effect) { [weak self] finishedEffect in
-            Task { @MainActor in
-                guard self?.playingTestSoundEffect == finishedEffect else {
-                    return
-                }
-                self?.playingTestSoundEffect = nil
+            guard self?.playingTestSoundEffect == finishedEffect else {
+                return
             }
+            self?.playingTestSoundEffect = nil
         }
     }
 
@@ -2621,7 +2753,11 @@ final class ScoreboardStore: ObservableObject {
         reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
         let wasClockRunning = isClockRunning
+        var dispatches: [ScoreboardEventDispatch] = []
         if debateActiveTimer != target {
+            if let stoppedDispatch = currentRunningClockStoppedDispatch() {
+                dispatches.append(stoppedDispatch)
+            }
             pauseClock()
             debateActiveTimer = target
             isDebatePrepClockRunning = false
@@ -2637,9 +2773,13 @@ final class ScoreboardStore: ObservableObject {
             if wasClockRunning, !isClockRunning {
                 requestGameClockAutosave()
             }
+            if !dispatches.isEmpty {
+                handleScoreboardEventDispatches(dispatches)
+            }
             return
         }
         isDebatePrepClockRunning.toggle()
+        dispatches.append(isDebatePrepClockRunning ? prepClockStartedDispatch(for: side) : prepClockStoppedDispatch(for: side))
         updateTimerState()
         refreshPrimaryTimerPersistence()
         recordLog(
@@ -2649,7 +2789,7 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             value: currentSeconds
         )
-        handleScoreboardEvent(isDebatePrepClockRunning ? .gameClockStarted : .gameClockPaused)
+        handleScoreboardEventDispatches(dispatches)
         if wasClockRunning, !isClockRunning {
             requestGameClockAutosave()
         }
@@ -2660,6 +2800,7 @@ final class ScoreboardStore: ObservableObject {
         reconcileRunningTimersWithWallClock()
 
         let wasOnPrepTimer = debateActiveTimer != .segment
+        let stoppedDispatch = wasOnPrepTimer ? currentRunningClockStoppedDispatch() : nil
         debateActiveTimer = .segment
         isDebatePrepClockRunning = false
 
@@ -2676,7 +2817,13 @@ final class ScoreboardStore: ObservableObject {
             notes: debateSegmentTitle
         )
         if wasOnPrepTimer {
-            handleScoreboardEvent(resume ? .gameClockStarted : .gameClockPaused)
+            var dispatches = [stoppedDispatch].compactMap(\.self)
+            if resume {
+                dispatches.append(currentClockStartedDispatch())
+            }
+            if !dispatches.isEmpty {
+                handleScoreboardEventDispatches(dispatches)
+            }
             requestGameClockAutosave()
         }
     }
@@ -2691,6 +2838,7 @@ final class ScoreboardStore: ObservableObject {
         case .guest:
             debatePrepGuestSeconds = value
         }
+        let wasRunningTargetPrepClock = isDebatePrepClockRunning && debateActiveTimer == (side == .home ? .prepHome : .prepGuest)
         if debateActiveTimer == (side == .home ? .prepHome : .prepGuest) {
             isDebatePrepClockRunning = false
             updateTimerState()
@@ -2703,6 +2851,9 @@ final class ScoreboardStore: ObservableObject {
             teamSide: side,
             value: value
         )
+        if wasRunningTargetPrepClock {
+            handleScoreboardEventDispatches([prepClockStoppedDispatch(for: side)])
+        }
     }
 
     func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
@@ -2740,6 +2891,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let wasRunning = isClockRunning
+        let stoppedDispatch = wasRunning ? currentClockStoppedDispatch() : nil
         if isClockRunning {
             pauseClock()
         } else {
@@ -2757,7 +2909,13 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if wasRunning != isClockRunning {
-            handleScoreboardEvent(isClockRunning ? .gameClockStarted : .gameClockPaused)
+            if isClockRunning {
+                handleScoreboardEventDispatches([currentClockStartedDispatch()])
+            } else if let stoppedDispatch {
+                handleScoreboardEventDispatches([stoppedDispatch])
+            } else {
+                handleScoreboardEvent(clockStoppedFallbackEvent)
+            }
             requestGameClockAutosave()
         }
     }
@@ -2774,6 +2932,9 @@ final class ScoreboardStore: ObservableObject {
 
         reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
+        let stoppedDispatch = isClockRunning
+            ? previousSide.map { eventDispatch(sideClockStoppedEvent(for: $0), fallbackEvent: .sideSwitched) }
+            : nil
         switch activeChessClockSide {
         case .home:
             activeChessClockSide = .guest
@@ -2791,7 +2952,14 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if previousSide != activeChessClockSide {
-            handleScoreboardEvent(.sideSwitched)
+            if isClockRunning, let activeChessClockSide {
+                handleScoreboardEventDispatches([
+                    stoppedDispatch,
+                    eventDispatch(sideClockStartedEvent(for: activeChessClockSide), fallbackEvent: .sideSwitched)
+                ].compactMap(\.self))
+            } else {
+                handleScoreboardEvent(.sideSwitched)
+            }
             refreshPrimaryTimerPersistence()
         }
     }
@@ -2809,6 +2977,9 @@ final class ScoreboardStore: ObservableObject {
 
         reconcileRunningTimersWithWallClock()
         let previousSide = activeChessClockSide
+        let stoppedDispatch = isClockRunning
+            ? previousSide.map { eventDispatch(sideClockStoppedEvent(for: $0), fallbackEvent: .sideSwitched) }
+            : nil
         activeChessClockSide = side
         recordLog(
             kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
@@ -2818,7 +2989,14 @@ final class ScoreboardStore: ObservableObject {
             notes: isDebateMode ? debateSegmentTitle : nil
         )
         if previousSide != side {
-            handleScoreboardEvent(.sideSwitched)
+            if isClockRunning {
+                handleScoreboardEventDispatches([
+                    stoppedDispatch,
+                    eventDispatch(sideClockStartedEvent(for: side), fallbackEvent: .sideSwitched)
+                ].compactMap(\.self))
+            } else {
+                handleScoreboardEvent(.sideSwitched)
+            }
             refreshPrimaryTimerPersistence()
         }
     }
@@ -3097,6 +3275,10 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = rules.defaultSubstitutionLimit
             homeSubstitutionsUsed = 0
             guestSubstitutionsUsed = 0
+            homePausesAllowed = rules.defaultPauseLimit
+            guestPausesAllowed = rules.defaultPauseLimit
+            homePausesUsed = 0
+            guestPausesUsed = 0
             homeTeamFouls = 0
             guestTeamFouls = 0
             homeChessClockSeconds = boundedGameClockSeconds(rules.defaultClockSeconds)
@@ -3121,6 +3303,9 @@ final class ScoreboardStore: ObservableObject {
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
             if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
+            }
+            if !rules.showsPauseTracking || sport == .debate {
+                clearPauseTracking()
             }
             if sport == .debate {
                 applyDebatePreset(id: DebatePreset.publicForum.id, resetRound: true)
@@ -3151,6 +3336,9 @@ final class ScoreboardStore: ObservableObject {
             if sport == .simple || sport == .debate {
                 clearSubstitutionTracking()
             }
+            if !rules.showsPauseTracking || sport == .debate {
+                clearPauseTracking()
+            }
             if sport == .debate {
                 isPlayerTrackingEnabled = isDebatePlayerTrackingEnabled
             } else if !rules.supportsPlayerTracking {
@@ -3164,6 +3352,13 @@ final class ScoreboardStore: ObservableObject {
         guestSubstitutionsAllowed = 0
         homeSubstitutionsUsed = 0
         guestSubstitutionsUsed = 0
+    }
+
+    private func clearPauseTracking() {
+        homePausesAllowed = 0
+        guestPausesAllowed = 0
+        homePausesUsed = 0
+        guestPausesUsed = 0
     }
 
     func setSubstitutionsAllowed(for side: TeamSide, to value: Int) {
@@ -3197,6 +3392,51 @@ final class ScoreboardStore: ObservableObject {
         )
         if delta > 0, substitutionsUsed(for: side) != previousValue {
             handleScoreboardEvent(.substitutionUsed)
+        }
+    }
+
+    func setPausesAllowed(for side: TeamSide, to value: Int) {
+        let boundedValue = max(0, min(99, value))
+
+        switch side {
+        case .home:
+            homePausesAllowed = boundedValue
+            homePausesUsed = min(homePausesUsed, boundedValue)
+        case .guest:
+            guestPausesAllowed = boundedValue
+            guestPausesUsed = min(guestPausesUsed, boundedValue)
+        }
+    }
+
+    func adjustPausesUsed(for side: TeamSide, by delta: Int) {
+        guard supportsPauseTracking else {
+            recordLog(
+                kind: .teamPauseAdjustment,
+                summary: localizedStoreFormat("%@ pauses %@", side.title, signedStoreDelta(delta)),
+                outcome: .ignored,
+                teamSide: side,
+                delta: delta
+            )
+            return
+        }
+
+        let previousValue = pausesUsed(for: side)
+        switch side {
+        case .home:
+            homePausesUsed = max(0, min(homePausesAllowed, homePausesUsed + delta))
+        case .guest:
+            guestPausesUsed = max(0, min(guestPausesAllowed, guestPausesUsed + delta))
+        }
+        recordLog(
+            kind: .teamPauseAdjustment,
+            summary: localizedStoreFormat("%@ pauses %@", side.title, signedStoreDelta(delta)),
+            outcome: pausesUsed(for: side) == previousValue ? .ignored : .applied,
+            teamSide: side,
+            delta: delta,
+            value: pausesUsed(for: side)
+        )
+        if delta > 0, pausesUsed(for: side) != previousValue {
+            handleScoreboardEvent(.teamPauseUsed)
         }
     }
 
@@ -3311,6 +3551,10 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed: guestSubstitutionsAllowed,
             homeSubstitutionsUsed: homeSubstitutionsUsed,
             guestSubstitutionsUsed: guestSubstitutionsUsed,
+            homePausesAllowed: homePausesAllowed,
+            guestPausesAllowed: guestPausesAllowed,
+            homePausesUsed: homePausesUsed,
+            guestPausesUsed: guestPausesUsed,
             homeTeamFouls: homeTeamFouls,
             guestTeamFouls: guestTeamFouls,
             homeChessClockSeconds: homeChessClockSeconds,
@@ -3498,6 +3742,13 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, snapshot.guestSubstitutionsUsed ?? 0))
             if isDebateMode {
                 clearSubstitutionTracking()
+            }
+            homePausesAllowed = max(0, snapshot.homePausesAllowed ?? currentRules.defaultPauseLimit)
+            guestPausesAllowed = max(0, snapshot.guestPausesAllowed ?? currentRules.defaultPauseLimit)
+            homePausesUsed = max(0, min(homePausesAllowed, snapshot.homePausesUsed ?? 0))
+            guestPausesUsed = max(0, min(guestPausesAllowed, snapshot.guestPausesUsed ?? 0))
+            if !currentRules.showsPauseTracking {
+                clearPauseTracking()
             }
             homeTeamFouls = max(0, snapshot.homeTeamFouls ?? 0)
             guestTeamFouls = max(0, snapshot.guestTeamFouls ?? 0)
@@ -3815,6 +4066,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func tick(elapsed: TimeInterval) {
         var soundEvents: [ScoreboardSoundEvent] = []
+        var clockEventDispatches: [ScoreboardEventDispatch] = []
 
         if isClockRunning {
             accumulatedGameClockElapsed += elapsed
@@ -3827,17 +4079,21 @@ final class ScoreboardStore: ObservableObject {
                     case .home:
                         homeChessClockSeconds = max(0, homeChessClockSeconds - elapsedWholeSeconds)
                         if homeChessClockSeconds == 0 {
+                            let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .chessClockExpired
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: .home), fallbackEvent: fallbackEvent))
+                            soundEvents.append(fallbackEvent)
                             requestGameClockAutosave()
                         }
                     case .guest:
                         guestChessClockSeconds = max(0, guestChessClockSeconds - elapsedWholeSeconds)
                         if guestChessClockSeconds == 0 {
+                            let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .chessClockExpired
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .chessClockExpired)
+                            clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: .guest), fallbackEvent: fallbackEvent))
+                            soundEvents.append(fallbackEvent)
                             requestGameClockAutosave()
                         }
                     case .none:
@@ -3850,9 +4106,15 @@ final class ScoreboardStore: ObservableObject {
                         gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
 
                         if gameClockSeconds == 0 {
+                            let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .gameClockExpired
                             isClockRunning = false
                             accumulatedGameClockElapsed = 0
-                            soundEvents.append(isDebateMode ? .debateSegmentExpired : .gameClockExpired)
+                            if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
+                                clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
+                            } else if isDebateMode, debateActiveTimer == .segment {
+                                clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
+                            }
+                            soundEvents.append(fallbackEvent)
                             recordLog(
                                 kind: .clockExpired,
                                 summary: localizedStoreString("Game clock expired"),
@@ -3934,12 +4196,14 @@ final class ScoreboardStore: ObservableObject {
                     debatePrepHomeSeconds = max(0, debatePrepHomeSeconds - elapsedPrepSeconds)
                     if debatePrepHomeSeconds == 0 {
                         isDebatePrepClockRunning = false
+                        clockEventDispatches.append(prepClockExpiredDispatch(for: .home))
                         soundEvents.append(.debatePrepExpired)
                     }
                 case .prepGuest:
                     debatePrepGuestSeconds = max(0, debatePrepGuestSeconds - elapsedPrepSeconds)
                     if debatePrepGuestSeconds == 0 {
                         isDebatePrepClockRunning = false
+                        clockEventDispatches.append(prepClockExpiredDispatch(for: .guest))
                         soundEvents.append(.debatePrepExpired)
                     }
                 case .segment:
@@ -3951,7 +4215,13 @@ final class ScoreboardStore: ObservableObject {
         updateTimerState()
 
         if let soundEvent = highestPrioritySoundEvent(from: soundEvents) {
-            handleScoreboardEvent(soundEvent)
+            let primaryDispatches = clockEventDispatches
+                .filter { $0.fallbackEvent == soundEvent }
+            if primaryDispatches.isEmpty {
+                handleScoreboardEvent(soundEvent)
+            } else {
+                handleScoreboardEventDispatches(primaryDispatches)
+            }
         }
     }
 
@@ -4044,13 +4314,179 @@ final class ScoreboardStore: ObservableObject {
         return "\(playerText) \(Self.formatGameClock(timer.remainingSeconds)) \(timer.isRunning ? "RUN" : "STOP")"
     }
 
+    private typealias ScoreboardEventDispatch = (event: ScoreboardSoundEvent, fallbackEvent: ScoreboardSoundEvent?)
+
+    private func eventDispatch(
+        _ event: ScoreboardSoundEvent,
+        fallbackEvent: ScoreboardSoundEvent? = nil
+    ) -> ScoreboardEventDispatch {
+        (event: event, fallbackEvent: fallbackEvent)
+    }
+
+    private func sideClockStartedEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homeSideClockStarted : .guestSideClockStarted
+    }
+
+    private func sideClockStoppedEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homeSideClockStopped : .guestSideClockStopped
+    }
+
+    private func sideClockExpiredEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homeSideClockExpired : .guestSideClockExpired
+    }
+
+    private func debateUnassignedClockStartedEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentStarted
+    }
+
+    private func debateUnassignedClockStoppedEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentStopped
+    }
+
+    private func debateUnassignedClockExpiredEvent() -> ScoreboardSoundEvent {
+        .debateUnassignedSegmentExpired
+    }
+
+    private func prepClockStartedEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homePrepClockStarted : .guestPrepClockStarted
+    }
+
+    private func prepClockStoppedEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homePrepClockStopped : .guestPrepClockStopped
+    }
+
+    private func prepClockExpiredEvent(for side: TeamSide) -> ScoreboardSoundEvent {
+        side == .home ? .homePrepClockExpired : .guestPrepClockExpired
+    }
+
+    private var clockStartedFallbackEvent: ScoreboardSoundEvent {
+        isDebateMode ? .debateSegmentStarted : .gameClockStarted
+    }
+
+    private var clockStoppedFallbackEvent: ScoreboardSoundEvent {
+        isDebateMode ? .debateSegmentStopped : .gameClockPaused
+    }
+
+    private func currentClockStartedDispatch(fallbackEvent: ScoreboardSoundEvent? = nil) -> ScoreboardEventDispatch {
+        let resolvedFallbackEvent = fallbackEvent ?? clockStartedFallbackEvent
+        if isDebateMode, debateActiveTimer == .segment {
+            if let event = currentSideClockStartedEvent() {
+                return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+            }
+            return eventDispatch(debateUnassignedClockStartedEvent(), fallbackEvent: resolvedFallbackEvent)
+        }
+
+        if let event = currentSideClockStartedEvent() {
+            return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+        }
+        return eventDispatch(resolvedFallbackEvent)
+    }
+
+    private func currentClockStoppedDispatch(fallbackEvent: ScoreboardSoundEvent? = nil) -> ScoreboardEventDispatch {
+        let resolvedFallbackEvent = fallbackEvent ?? clockStoppedFallbackEvent
+        if isDebateMode, debateActiveTimer == .segment {
+            if let event = currentSideClockStoppedEvent() {
+                return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+            }
+            return eventDispatch(debateUnassignedClockStoppedEvent(), fallbackEvent: resolvedFallbackEvent)
+        }
+
+        if let event = currentSideClockStoppedEvent() {
+            return eventDispatch(event, fallbackEvent: resolvedFallbackEvent)
+        }
+        return eventDispatch(resolvedFallbackEvent)
+    }
+
+    private func prepClockStartedDispatch(for side: TeamSide) -> ScoreboardEventDispatch {
+        eventDispatch(prepClockStartedEvent(for: side), fallbackEvent: .debatePrepStarted)
+    }
+
+    private func prepClockStoppedDispatch(for side: TeamSide) -> ScoreboardEventDispatch {
+        eventDispatch(prepClockStoppedEvent(for: side), fallbackEvent: .debatePrepStopped)
+    }
+
+    private func prepClockExpiredDispatch(for side: TeamSide) -> ScoreboardEventDispatch {
+        eventDispatch(prepClockExpiredEvent(for: side), fallbackEvent: .debatePrepExpired)
+    }
+
+    private func currentSideClockStartedEvent() -> ScoreboardSoundEvent? {
+        if usesChessClocks, let activeChessClockSide {
+            return sideClockStartedEvent(for: activeChessClockSide)
+        }
+
+        if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
+            return sideClockStartedEvent(for: speakingSide)
+        }
+
+        return nil
+    }
+
+    private func currentSideClockStoppedEvent() -> ScoreboardSoundEvent? {
+        if usesChessClocks, let activeChessClockSide {
+            return sideClockStoppedEvent(for: activeChessClockSide)
+        }
+
+        if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
+            return sideClockStoppedEvent(for: speakingSide)
+        }
+
+        return nil
+    }
+
+    private func currentRunningClockStoppedDispatch() -> ScoreboardEventDispatch? {
+        if isDebatePrepClockRunning {
+            switch debateActiveTimer {
+            case .prepHome:
+                return prepClockStoppedDispatch(for: .home)
+            case .prepGuest:
+                return prepClockStoppedDispatch(for: .guest)
+            case .segment:
+                return nil
+            }
+        }
+
+        guard isClockRunning else {
+            return nil
+        }
+
+        return currentClockStoppedDispatch()
+    }
+
     private func handleScoreboardEvent(_ event: ScoreboardSoundEvent) {
-        playSound(for: event)
-        triggerCompanionCommand(for: event)
+        handleScoreboardEvents([event])
+    }
+
+    private func handleScoreboardEvent(_ event: ScoreboardSoundEvent, fallbackEvent: ScoreboardSoundEvent) {
+        handleScoreboardEvents([event], fallbackEvent: fallbackEvent)
+    }
+
+    private func handleScoreboardEvents(_ events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent? = nil) {
+        let resolvedEvents = uniqueSoundEvents(events)
+        let dispatches = resolvedEvents.map { eventDispatch($0, fallbackEvent: fallbackEvent) }
+        handleScoreboardEventDispatches(dispatches)
+    }
+
+    private func handleScoreboardEventDispatches(_ dispatches: [ScoreboardEventDispatch]) {
+        let resolvedDispatches = uniqueScoreboardEventDispatches(dispatches)
+        playSound(for: resolvedDispatches)
+        triggerCompanionCommands(for: resolvedDispatches)
     }
 
     private func playSound(for event: ScoreboardSoundEvent) {
+        playSound(for: [event], fallbackEvent: nil)
+    }
+
+    private func playSound(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
+        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
+        playSound(for: dispatches)
+    }
+
+    private func playSound(for dispatches: [ScoreboardEventDispatch]) {
         guard isSoundEnabled else {
+            return
+        }
+
+        guard let event = preferredSoundEvent(from: dispatches) else {
             return
         }
 
@@ -4058,16 +4494,42 @@ final class ScoreboardStore: ObservableObject {
             stopTestSound()
         }
         let effect = resolvedSoundEffect(for: event)
+        guard effect != .none else {
+            return
+        }
         buzzerPlayer.play(effect)
         remoteDisplayHostService.sendSoundEffect(effect)
     }
 
     private func triggerCompanionCommand(for event: ScoreboardSoundEvent) {
-        guard isCompanionVisible, isCompanionEnabled, let location = companionLocation(for: event) else {
+        triggerCompanionCommands(for: [event], fallbackEvent: nil)
+    }
+
+    private func triggerCompanionCommands(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
+        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
+        triggerCompanionCommands(for: dispatches)
+    }
+
+    private func triggerCompanionCommands(for dispatches: [ScoreboardEventDispatch]) {
+        guard isCompanionVisible, isCompanionEnabled else {
             return
         }
 
-        sendCompanionPress(location)
+        var sentLocations = Set<ScoreboardCompanionLocation>()
+        for dispatch in dispatches {
+            if let location = companionLocation(for: dispatch.event) {
+                if sentLocations.insert(location).inserted {
+                    sendCompanionPress(location)
+                }
+                continue
+            }
+
+            if let fallbackEvent = dispatch.fallbackEvent, let location = companionLocation(for: fallbackEvent) {
+                if sentLocations.insert(location).inserted {
+                    sendCompanionPress(location)
+                }
+            }
+        }
     }
 
     private func companionLocation(for event: ScoreboardSoundEvent) -> ScoreboardCompanionLocation? {
@@ -4125,6 +4587,18 @@ final class ScoreboardStore: ObservableObject {
 
     private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
         selectedSoundEffect(for: event)
+    }
+
+    private func preferredSoundEvent(from dispatches: [ScoreboardEventDispatch]) -> ScoreboardSoundEvent? {
+        if let assignedDispatch = dispatches.first(where: { selectedSoundEffect(for: $0.event) != .none }) {
+            return assignedDispatch.event
+        }
+        if let fallbackEvent = dispatches
+            .compactMap(\.fallbackEvent)
+            .first(where: { selectedSoundEffect(for: $0) != .none }) {
+            return fallbackEvent
+        }
+        return dispatches.first?.event ?? dispatches.compactMap(\.fallbackEvent).first
     }
 
     private func highestPrioritySoundEvent(from events: [ScoreboardSoundEvent]) -> ScoreboardSoundEvent? {
@@ -4604,7 +5078,7 @@ final class ScoreboardStore: ObservableObject {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
         webAPIService.start(
-            initialState: encodedWebAPIState(),
+            initialPayload: encodedWebAPIPayload(),
             updateMode: webAPIUpdateMode,
             imageResponses: currentWebAPIImageResponses()
         ) { [weak self] status in
@@ -4622,16 +5096,17 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshWebAPIState() {
-        webAPIService.updateState(encodedWebAPIState(), imageResponses: currentWebAPIImageResponses())
+        webAPIService.updateState(encodedWebAPIPayload(), imageResponses: currentWebAPIImageResponses())
     }
 
     private func startRemoteDisplayHostService() {
         remoteDisplayHostService.start(
-            initialState: encodedRemoteDisplayState(),
+            initialState: encodedRemoteDisplayStates(),
             displayName: remoteDisplayHostName,
             networkMode: remoteDisplayNetworkMode,
-            currentStateProvider: { [weak self] displayID in
-                self?.encodedRemoteDisplayState(forDisplayID: displayID) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+            currentStateProvider: { [weak self] displayID, version in
+                self?.encodedRemoteDisplayStates(forDisplayID: displayID).data(preferredVersion: version)
+                    ?? ScoreboardRemoteDisplayEncodedStates.encodingFailed.data(preferredVersion: version)
             },
             currentImageResponsesProvider: { [weak self] in
                 self?.currentWebAPIImageResponses() ?? [:]
@@ -4645,13 +5120,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayState() {
-        remoteDisplayHostService.updateState(encodedRemoteDisplayState())
+        remoteDisplayHostService.updateState(encodedRemoteDisplayStates())
     }
 
-    private func encodedWebAPIState() -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(currentWebAPIState())) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    private func encodedWebAPIPayload() -> ScoreboardWebAPIPayload {
+        ScoreboardWebAPIPayload.make(from: currentWebAPIState())
     }
 
     private func encodedRemoteDisplayState() -> Data {
@@ -4662,6 +5135,20 @@ final class ScoreboardStore: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(currentRemoteDisplayState(forDisplayID: displayID))) ?? Data(#"{"schemaVersion":1,"error":"encodingFailed"}"#.utf8)
+    }
+
+    private func encodedRemoteDisplayStates() -> ScoreboardRemoteDisplayEncodedStates {
+        encodedRemoteDisplayStates(forDisplayID: nil)
+    }
+
+    private func encodedRemoteDisplayStates(forDisplayID displayID: String?) -> ScoreboardRemoteDisplayEncodedStates {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let state = currentRemoteDisplayState(forDisplayID: displayID)
+        return ScoreboardRemoteDisplayEncodedStates(
+            v1: (try? encoder.encode(state)) ?? ScoreboardRemoteDisplayEncodedStates.encodingFailed.v1,
+            v2: (try? encoder.encode(state.remoteDisplayV2Payload)) ?? ScoreboardRemoteDisplayEncodedStates.encodingFailed.v2
+        )
     }
 
     private var remoteDisplayHostName: String {
@@ -4710,6 +5197,10 @@ final class ScoreboardStore: ObservableObject {
             $guestSubstitutionsAllowed.map { _ in () }.eraseToAnyPublisher(),
             $homeSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
             $guestSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
+            $homePausesAllowed.map { _ in () }.eraseToAnyPublisher(),
+            $guestPausesAllowed.map { _ in () }.eraseToAnyPublisher(),
+            $homePausesUsed.map { _ in () }.eraseToAnyPublisher(),
+            $guestPausesUsed.map { _ in () }.eraseToAnyPublisher(),
             $homeTeamFouls.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamFouls.map { _ in () }.eraseToAnyPublisher(),
             $homeChessClockSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -4931,6 +5422,13 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+            homePausesAllowed = max(0, persistedState.homePausesAllowed)
+            guestPausesAllowed = max(0, persistedState.guestPausesAllowed)
+            homePausesUsed = max(0, min(homePausesAllowed, persistedState.homePausesUsed))
+            guestPausesUsed = max(0, min(guestPausesAllowed, persistedState.guestPausesUsed))
+            if !currentRules.showsPauseTracking {
+                clearPauseTracking()
+            }
             homeTeamFouls = max(0, persistedState.homeTeamFouls)
             guestTeamFouls = max(0, persistedState.guestTeamFouls)
             homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.homeChessClockSeconds) : boundedGameClockSeconds(persistedState.homeChessClockSeconds)
@@ -5232,6 +5730,10 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed: guestSubstitutionsAllowed,
             homeSubstitutionsUsed: homeSubstitutionsUsed,
             guestSubstitutionsUsed: guestSubstitutionsUsed,
+            homePausesAllowed: homePausesAllowed,
+            guestPausesAllowed: guestPausesAllowed,
+            homePausesUsed: homePausesUsed,
+            guestPausesUsed: guestPausesUsed,
             homeTeamFouls: homeTeamFouls,
             guestTeamFouls: guestTeamFouls,
             homeChessClockSeconds: homeChessClockSeconds,
@@ -5495,6 +5997,10 @@ private struct PersistedState: Codable {
     var guestSubstitutionsAllowed: Int
     var homeSubstitutionsUsed: Int
     var guestSubstitutionsUsed: Int
+    var homePausesAllowed: Int
+    var guestPausesAllowed: Int
+    var homePausesUsed: Int
+    var guestPausesUsed: Int
     var homeTeamFouls: Int
     var guestTeamFouls: Int
     var homeChessClockSeconds: Int
@@ -5594,6 +6100,10 @@ private struct PersistedState: Codable {
         case guestSubstitutionsAllowed
         case homeSubstitutionsUsed
         case guestSubstitutionsUsed
+        case homePausesAllowed
+        case guestPausesAllowed
+        case homePausesUsed
+        case guestPausesUsed
         case homeTeamFouls
         case guestTeamFouls
         case homeChessClockSeconds
@@ -5694,6 +6204,10 @@ private struct PersistedState: Codable {
         guestSubstitutionsAllowed: Int,
         homeSubstitutionsUsed: Int,
         guestSubstitutionsUsed: Int,
+        homePausesAllowed: Int,
+        guestPausesAllowed: Int,
+        homePausesUsed: Int,
+        guestPausesUsed: Int,
         homeTeamFouls: Int,
         guestTeamFouls: Int,
         homeChessClockSeconds: Int,
@@ -5790,6 +6304,10 @@ private struct PersistedState: Codable {
         self.guestSubstitutionsAllowed = guestSubstitutionsAllowed
         self.homeSubstitutionsUsed = homeSubstitutionsUsed
         self.guestSubstitutionsUsed = guestSubstitutionsUsed
+        self.homePausesAllowed = homePausesAllowed
+        self.guestPausesAllowed = guestPausesAllowed
+        self.homePausesUsed = homePausesUsed
+        self.guestPausesUsed = guestPausesUsed
         self.homeTeamFouls = homeTeamFouls
         self.guestTeamFouls = guestTeamFouls
         self.homeChessClockSeconds = homeChessClockSeconds
@@ -5899,6 +6417,11 @@ private struct PersistedState: Codable {
         guestSubstitutionsAllowed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsAllowed) ?? selectedSport.defaultSubstitutionLimit
         homeSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .homeSubstitutionsUsed) ?? 0
         guestSubstitutionsUsed = try container.decodeIfPresent(Int.self, forKey: .guestSubstitutionsUsed) ?? 0
+        let decodedDefaultPauseLimit = selectedSport.rules(customConfig: customSportConfig).defaultPauseLimit
+        homePausesAllowed = try container.decodeIfPresent(Int.self, forKey: .homePausesAllowed) ?? decodedDefaultPauseLimit
+        guestPausesAllowed = try container.decodeIfPresent(Int.self, forKey: .guestPausesAllowed) ?? decodedDefaultPauseLimit
+        homePausesUsed = try container.decodeIfPresent(Int.self, forKey: .homePausesUsed) ?? 0
+        guestPausesUsed = try container.decodeIfPresent(Int.self, forKey: .guestPausesUsed) ?? 0
         homeTeamFouls = try container.decodeIfPresent(Int.self, forKey: .homeTeamFouls) ?? 0
         guestTeamFouls = try container.decodeIfPresent(Int.self, forKey: .guestTeamFouls) ?? 0
         homeChessClockSeconds = try container.decodeIfPresent(Int.self, forKey: .homeChessClockSeconds) ?? ChessClockPreset.rapid.seconds
@@ -6029,6 +6552,10 @@ private struct PersistedState: Codable {
         try container.encode(guestSubstitutionsAllowed, forKey: .guestSubstitutionsAllowed)
         try container.encode(homeSubstitutionsUsed, forKey: .homeSubstitutionsUsed)
         try container.encode(guestSubstitutionsUsed, forKey: .guestSubstitutionsUsed)
+        try container.encode(homePausesAllowed, forKey: .homePausesAllowed)
+        try container.encode(guestPausesAllowed, forKey: .guestPausesAllowed)
+        try container.encode(homePausesUsed, forKey: .homePausesUsed)
+        try container.encode(guestPausesUsed, forKey: .guestPausesUsed)
         try container.encode(homeTeamFouls, forKey: .homeTeamFouls)
         try container.encode(guestTeamFouls, forKey: .guestTeamFouls)
         try container.encode(homeChessClockSeconds, forKey: .homeChessClockSeconds)
@@ -6138,6 +6665,10 @@ private extension PersistedState {
             guestSubstitutionsAllowed: 0,
             homeSubstitutionsUsed: 0,
             guestSubstitutionsUsed: 0,
+            homePausesAllowed: 0,
+            guestPausesAllowed: 0,
+            homePausesUsed: 0,
+            guestPausesUsed: 0,
             homeTeamFouls: 0,
             guestTeamFouls: 0,
             homeChessClockSeconds: ChessClockPreset.rapid.seconds,

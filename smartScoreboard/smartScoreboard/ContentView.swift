@@ -98,6 +98,9 @@ struct ContentView: View {
     @State private var pendingRemoteDisplayTakeover: PendingRemoteDisplayTakeover?
     @State private var dashboardPage: DashboardPage = .main
     @State private var isDashboardHeaderHidden = false
+    @State private var showsLocalScoreboard = false
+    @State private var showsLocalScoreboardReturnHint = false
+    @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
     @State private var dashboardTipGroup: TipGroup?
     @State private var dashboardTipGroupSignature = ""
     @State private var pendingGameConfirmation: GameConfirmationAction?
@@ -109,6 +112,8 @@ struct ContentView: View {
     @State private var isLoadingSetupDrafts = false
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
+    @State private var didStartRootInitialization = false
+    @State private var fileMigrationProgress: ScoreboardFileMigrationProgress?
     @State private var isExternalBackgroundImageEditorVisible = false
     @State private var isDebateDesignerVisible = false
     @State private var pendingExternalBackgroundModeAfterImageImport: ExternalDisplayBackgroundMode?
@@ -293,6 +298,10 @@ struct ContentView: View {
         .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homePausesAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestPausesAllowed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$homePausesUsed) { _ in autosaveSelectedGameFile() }
+        .onReceive(store.$guestPausesUsed) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$homeTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
         .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
@@ -543,6 +552,7 @@ struct ContentView: View {
             }
         }
         .scoreboardShareExporter(payload: $exportSharePayload)
+        .statusBar(hidden: showsLocalScoreboard)
     }
     #else
     private var filePresentationConfiguredRootView: some View {
@@ -614,7 +624,7 @@ struct ContentView: View {
             case .factoryDefault:
                 return Alert(
                     title: Text("Factory Default App"),
-                    message: Text("This will delete all local game files, log sessions, roster edits, settings, integrations, and current game state."),
+                    message: Text("This will delete all local game files, log sessions, custom webpages, roster edits, settings, integrations, and current game state."),
                     primaryButton: .destructive(Text("Factory Default")) {
                         isFactoryDefaultConfirmationPresented = false
                         performFactoryDefaultReset()
@@ -652,16 +662,88 @@ struct ContentView: View {
 
     private func setupLoadingScreen(layout: InterfaceLayout) -> some View {
         VStack(spacing: 16) {
-            ProgressView()
+            if let fileMigrationProgress, fileMigrationProgress.totalFiles > 0 {
+                ProgressView(
+                    value: Double(fileMigrationProgress.completedFiles),
+                    total: Double(fileMigrationProgress.totalFiles)
+                )
                 .controlSize(.large)
+                .frame(maxWidth: min(360, layout.contentMaxWidth))
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
 
-            Text("Loading scoreboard setup")
+            Text(fileMigrationProgress == nil ? "Loading scoreboard setup" : "Moving files into Files")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(settingsPalette.primaryText)
+
+            if let fileMigrationProgress {
+                Text(fileMigrationDetailText(fileMigrationProgress))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(settingsPalette.shellBackground)
         .padding(layout.outerPadding)
+    }
+
+    private func fileMigrationOverlay(_ progress: ScoreboardFileMigrationProgress, layout: InterfaceLayout) -> some View {
+        VStack(spacing: 14) {
+            if progress.totalFiles > 0 {
+                ProgressView(value: Double(progress.completedFiles), total: Double(progress.totalFiles))
+                    .frame(maxWidth: 320)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
+
+            Text("Moving files into Files")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(settingsPalette.primaryText)
+
+            Text(fileMigrationDetailText(progress))
+                .font(.subheadline)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(22)
+        .frame(width: min(420, layout.contentMaxWidth))
+        .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(settingsPalette.cardBorder)
+        )
+        .shadow(color: .black.opacity(0.22), radius: 28, x: 0, y: 14)
+        .padding(layout.outerPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+        }
+    }
+
+    private func fileMigrationDetailText(_ progress: ScoreboardFileMigrationProgress) -> String {
+        guard progress.totalFiles > 0 else {
+            return localizedAppString("Preparing local files for the Files app.")
+        }
+
+        if let currentFilename = progress.currentFilename {
+            return localizedAppFormat(
+                "Moving %@ (%lld of %lld)",
+                currentFilename,
+                min(progress.completedFiles + 1, progress.totalFiles),
+                progress.totalFiles
+            )
+        }
+
+        return localizedAppFormat("Moved %lld of %lld files.", progress.completedFiles, progress.totalFiles)
     }
 
     private func settingsSetupScreen(layout: InterfaceLayout) -> some View {
@@ -972,9 +1054,17 @@ struct ContentView: View {
         case .theme:
             return "Use Theme to set the visual style shared by setup, live controls, previews, and public scoreboard outputs. This page also controls display direction, public-display background treatment, and optional date or time overlays."
         case .files:
+            #if os(iOS)
+            return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files also appear in the Files app under Scoreboard > Library."
+            #else
             return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files keep operator-facing setup and scoreboard state, while full backups can include settings, game files, current game state, and logs."
+            #endif
         case .logs:
+            #if os(iOS)
+            return "Use Logs to review the sequence of actions captured during a scoreboard run. Log sessions also appear in the Files app under Scoreboard > Logs."
+            #else
             return "Use Logs to review the sequence of actions captured during a scoreboard run. Sessions can be inspected for audit or replay context, exported for review, or removed when they are no longer needed."
+            #endif
         case .integration:
             return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
         case .about:
@@ -1084,6 +1174,7 @@ struct ContentView: View {
         if lowercasedMessage.hasPrefix("set the two side names") { return "Team Names" }
         if lowercasedMessage.hasPrefix("review the starting game state") { return "Starting State" }
         if lowercasedMessage.hasPrefix("set substitution allowances") { return "Substitution Limits" }
+        if lowercasedMessage.hasPrefix("set pause allowances") { return "Pause Limits" }
         if lowercasedMessage.hasPrefix("use general to define the custom sport") { return "Custom General" }
         if lowercasedMessage.hasPrefix("use clock") { return "Clock Setup" }
         if lowercasedMessage.hasPrefix("use period") { return "Period Setup" }
@@ -1212,6 +1303,7 @@ struct ContentView: View {
             settingsSportSetupGuidanceTip
             settingsGameRulesSections(layout: layout)
             settingsSubstitutionTrackingSection()
+            settingsPauseTrackingSection()
         }
     }
 
@@ -1398,6 +1490,28 @@ struct ContentView: View {
                     value: "\(store.guestSubstitutionsAllowed)",
                     decrement: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed - 1) },
                     increment: { store.setSubstitutionsAllowed(for: .guest, to: store.guestSubstitutionsAllowed + 1) }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsPauseTrackingSection() -> some View {
+        if setupRules.showsPauseTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isPauseTrackingEnabled) {
+            settingsSection(title: "Pauses", footer: "Set how many team pauses each side can use during the match.") {
+                settingsOptionTip("Set pause allowances before the match so the live board can count remaining pauses for each side. These limits are saved with the current game setup and can differ for home and guest.", systemImage: "pause.circle")
+                settingsStepperValueRow(
+                    title: "Home Allowed",
+                    value: "\(store.homePausesAllowed)",
+                    decrement: { store.setPausesAllowed(for: .home, to: store.homePausesAllowed - 1) },
+                    increment: { store.setPausesAllowed(for: .home, to: store.homePausesAllowed + 1) }
+                )
+                settingsDivider()
+                settingsStepperValueRow(
+                    title: "Guest Allowed",
+                    value: "\(store.guestPausesAllowed)",
+                    decrement: { store.setPausesAllowed(for: .guest, to: store.guestPausesAllowed - 1) },
+                    increment: { store.setPausesAllowed(for: .guest, to: store.guestPausesAllowed + 1) }
                 )
             }
         }
@@ -1609,10 +1723,21 @@ struct ContentView: View {
         }
 
         settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
-            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
+            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, pauses, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
             settingsToggleRow(title: "Substitutions", isOn: Binding(
                 get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
                 set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
+            ))
+            settingsDivider()
+            settingsToggleRow(title: "Pauses", isOn: Binding(
+                get: { setupCustomSportConfig.isPauseTrackingEnabled },
+                set: { isEnabled in
+                    setupCustomSportConfig.isPauseTrackingEnabled = isEnabled
+                    if isEnabled, store.homePausesAllowed == 0, store.guestPausesAllowed == 0 {
+                        store.setPausesAllowed(for: .home, to: setupCustomSportConfig.defaultPauseLimit)
+                        store.setPausesAllowed(for: .guest, to: setupCustomSportConfig.defaultPauseLimit)
+                    }
+                }
             ))
             settingsDivider()
             settingsToggleRow(title: "Team Fouls", isOn: Binding(
@@ -2676,6 +2801,9 @@ struct ContentView: View {
             settingsSoundEventsSection(events)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .onAppear {
+            store.prepareTestSoundEffects()
+        }
     }
 
     private func settingsSoundGlobalSection() -> some View {
@@ -2700,11 +2828,13 @@ struct ContentView: View {
             if events.isEmpty {
                 settingsSummaryValueRow(title: selectedSoundSettingsSport.title, value: localizedAppString("No configurable sound events"))
             } else {
-                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                    settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
 
-                    if index < events.count - 1 {
-                        settingsDivider()
+                        if index < events.count - 1 {
+                            settingsDivider()
+                        }
                     }
                 }
             }
@@ -2713,11 +2843,13 @@ struct ContentView: View {
 
     private func settingsSoundLibrarySection() -> some View {
         settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
-            ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
-                settingsSoundLibraryRow(effect)
+            LazyVStack(spacing: 0) {
+                ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
+                    settingsSoundLibraryRow(effect)
 
-                if index < ScoreboardSoundEffect.allCases.count - 1 {
-                    settingsDivider()
+                    if index < ScoreboardSoundEffect.allCases.count - 1 {
+                        settingsDivider()
+                    }
                 }
             }
         }
@@ -2733,6 +2865,8 @@ struct ContentView: View {
 
     private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
         let selectedEffect = store.selectedSoundEffect(for: event, sport: sport)
+        let isTesting = store.isTestingSoundEffect(selectedEffect)
+        let canTest = store.canTestSoundEffect(selectedEffect)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -2767,19 +2901,19 @@ struct ContentView: View {
                 Button {
                     store.playTestSound(event, sport: sport)
                 } label: {
-                    Label(store.isTestingSoundEffect(selectedEffect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(selectedEffect) ? "stop.fill" : "play.fill")
+                    Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(store.canTestSoundEffect(selectedEffect) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background(
-                            store.canTestSoundEffect(selectedEffect) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                             in: Capsule()
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!store.canTestSoundEffect(selectedEffect))
-                .opacity(store.canTestSoundEffect(selectedEffect) ? 1 : 0.42)
+                .disabled(!canTest)
+                .opacity(canTest ? 1 : 0.42)
             }
 
             localizedAppText(selectedEffect.subtitle)
@@ -2791,7 +2925,10 @@ struct ContentView: View {
     }
 
     private func settingsSoundLibraryRow(_ effect: ScoreboardSoundEffect) -> some View {
-        HStack(spacing: 14) {
+        let isTesting = store.isTestingSoundEffect(effect)
+        let canTest = store.canTestSoundEffect(effect)
+
+        return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 localizedAppText(effect.title)
                     .font(.body.weight(.semibold))
@@ -2807,19 +2944,19 @@ struct ContentView: View {
             Button {
                 store.playTestEffect(effect)
             } label: {
-                Label(store.isTestingSoundEffect(effect) ? "Stop" : "Test", systemImage: store.isTestingSoundEffect(effect) ? "stop.fill" : "play.fill")
+                Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(store.canTestSoundEffect(effect) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                    .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(
-                        store.canTestSoundEffect(effect) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                        canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                         in: Capsule()
                     )
             }
             .buttonStyle(.plain)
-            .disabled(!store.canTestSoundEffect(effect))
-            .opacity(store.canTestSoundEffect(effect) ? 1 : 0.42)
+            .disabled(!canTest)
+            .opacity(canTest ? 1 : 0.42)
         }
         .padding(.vertical, 12)
     }
@@ -2998,6 +3135,25 @@ struct ContentView: View {
                     openWebAPIDemo()
                 }
             }
+
+            #if ENABLE_CUSTOM_USER_PAGE
+            settingsSection(title: "Custom User Page", footer: "Files are stored locally on this device and served read-only at /user while the Web API is running. Edit the files in Files or Finder, and add index.html at the root or inside a folder.") {
+                settingsOptionTip(customWebPageFilesTip, systemImage: "curlybraces.square")
+                settingsSummaryValueRow(title: "User Page URL", value: webAPICustomUserPageURL)
+                settingsSummaryValueRow(title: "Files Location", value: customWebPageFilesLocationDescription)
+                #if os(macOS)
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Files",
+                    buttonTitle: "Open in Finder",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    openCustomWebPageFolderInFinder()
+                }
+                #endif
+            }
+            #endif
 
             settingsSection(title: "Security") {
                 settingsOptionTip("Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices and does not expose controls for changing scores, clocks, rosters, files, or settings.", systemImage: "lock.shield")
@@ -3945,11 +4101,13 @@ struct ContentView: View {
             if events.isEmpty {
                 settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
             } else {
-                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                    settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
 
-                    if index < events.count - 1 {
-                        settingsDivider()
+                        if index < events.count - 1 {
+                            settingsDivider()
+                        }
                     }
                 }
             }
@@ -4037,9 +4195,15 @@ struct ContentView: View {
 
     private func settingsCompanionAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
         let locationText = store.companionLocationText(for: event, sport: sport)
-        let validationMessage = store.companionLocationValidationMessage(for: event, sport: sport)
-        let normalizedLocation = ScoreboardCompanionLocation(rawValue: locationText)?.rawValue
-        let hasAssignment = !locationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let trimmedLocationText = locationText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = ScoreboardCompanionLocation(rawValue: locationText)
+        let validationMessage = location == nil ? ScoreboardCompanionLocation.validationMessage(for: locationText) : nil
+        let normalizedLocation = location?.rawValue
+        let hasAssignment = !trimmedLocationText.isEmpty
+        let canTest = store.isCompanionVisible &&
+            store.isCompanionEnabled &&
+            !store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            location != nil
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -4086,16 +4250,16 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "paperplane.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accentText : settingsPalette.secondaryText)
+                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
                         .frame(width: 40, height: 40)
                         .background(
-                            store.canTestCompanionCommand(for: event, sport: sport) ? settingsPalette.accent : settingsPalette.fieldBackground,
+                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
                             in: Circle()
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!store.canTestCompanionCommand(for: event, sport: sport))
-                .opacity(store.canTestCompanionCommand(for: event, sport: sport) ? 1 : 0.42)
+                .disabled(!canTest)
+                .opacity(canTest ? 1 : 0.42)
                 .accessibilityLabel(localizedAppString("Test Companion command"))
                 .help(localizedAppString("Test Companion command"))
             }
@@ -4185,6 +4349,51 @@ struct ContentView: View {
         }
         return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/"
     }
+
+    #if ENABLE_CUSTOM_USER_PAGE
+    private var webAPICustomUserPageURL: String {
+        if let address = store.webAPILocalAddresses.first {
+            return "http://\(address):\(ScoreboardWebAPIService.httpPort)/user"
+        }
+        return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/user"
+    }
+
+    private var customWebPageFilesLocationDescription: String {
+        #if os(iOS)
+        let filesApp = localizedAppString("Files")
+        let localRoot = localizedAppString(UIDevice.current.userInterfaceIdiom == .pad ? "On My iPad" : "On My iPhone")
+        return "\(filesApp) > \(localRoot) > \(ScoreboardFileStorage.filesAppContainerName) > \(ScoreboardCustomWebPage.userVisibleDirectoryName)"
+        #elseif os(macOS)
+        if let rootDirectory = try? ScoreboardCustomWebPage.rootDirectoryURL(create: false) {
+            return rootDirectory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        }
+        return "Application Support > \(ScoreboardCustomWebPage.userVisibleDirectoryName)"
+        #else
+        return ScoreboardCustomWebPage.userVisibleDirectoryName
+        #endif
+    }
+
+    private var customWebPageFilesTip: String {
+        #if os(iOS)
+        return "Open the Files app and go to the Scoreboard folder to edit index.html and assets for this page. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #elseif os(macOS)
+        return "Open Finder and edit index.html and assets in the folder below. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #else
+        return "Edit index.html and assets in the folder below. The Web API only serves these files; it does not allow remote uploads, deletes, or edits."
+        #endif
+    }
+
+    #if os(macOS)
+    private func openCustomWebPageFolderInFinder() {
+        do {
+            let rootDirectory = try ScoreboardCustomWebPage.rootDirectoryURL()
+            NSWorkspace.shared.open(rootDirectory)
+        } catch {
+            presentFileOperationError(error)
+        }
+    }
+    #endif
+    #endif
 
     private var localNetworkPermissionFooter: String {
         #if os(iOS)
@@ -4355,6 +4564,13 @@ struct ContentView: View {
                     subtitle: "studenttechsupport.com/privacy",
                     systemImage: "hand.raised",
                     urlString: "https://studenttechsupport.com/privacy"
+                )
+                settingsDivider()
+                settingsLinkRow(
+                    title: "Email",
+                    subtitle: "smartscoreboard@studenttechsupport.com",
+                    systemImage: "envelope",
+                    urlString: "mailto:smartscoreboard@studenttechsupport.com"
                 )
                 settingsDivider()
                 settingsLinkRow(
@@ -6885,24 +7101,19 @@ struct ContentView: View {
     }
 
     private func dashboardHeaderReservedHeight(layout: InterfaceLayout) -> CGFloat {
-        let baseHeight = layout.dashboardHeaderHeight
+        var reservedHeight = layout.dashboardHeaderHeight
 
-        #if os(macOS)
-        return baseHeight
-        #else
-        guard layout.headerUsesVerticalFlow else {
-            return baseHeight
+        #if os(iOS)
+        if layout.headerUsesVerticalFlow {
+            reservedHeight += 12
+
+            if store.isCompanionVisible {
+                reservedHeight += layout.headerActionRowStride
+            }
         }
-
-        let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
-        let columns = max(1, min(layout.headerActionColumns, actionCount))
-        let rows = Int(ceil(Double(actionCount) / Double(columns)))
-        guard rows > 1 else {
-            return baseHeight
-        }
-
-        return baseHeight + CGFloat(rows - 1) * layout.headerActionRowStride
         #endif
+
+        return reservedHeight
     }
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
@@ -6910,8 +7121,7 @@ struct ContentView: View {
             if layout.headerUsesVerticalFlow {
                 VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
                     headerTitleBlock(layout: layout)
-                    headerStatusBadge(layout: layout)
-                    headerActionButtons(layout: layout)
+                    verticalHeaderControls(layout: layout)
                 }
             } else {
                 HStack(spacing: layout.headerInlineSpacing) {
@@ -6931,7 +7141,7 @@ struct ContentView: View {
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
         .overlay(alignment: .topTrailing) {
-            if isIPhoneInterface {
+            if isIPhoneInterface && !layout.headerUsesVerticalFlow {
                 hideDashboardHeaderButton(layout: layout)
                     .padding(.top, layout.headerVerticalPadding)
                     .padding(.trailing, layout.headerHorizontalPadding)
@@ -6965,54 +7175,169 @@ struct ContentView: View {
         }
     }
 
-    private func headerStatusBadge(layout: InterfaceLayout) -> some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: displayStatusSystemImage)
-                    .imageScale(.medium)
-                    .accessibilityHidden(true)
+    @ViewBuilder
+    private func verticalHeaderControls(layout: InterfaceLayout) -> some View {
+        #if os(iOS)
+        if isIPhoneInterface {
+            iPhoneHeaderControls(layout: layout)
+        } else {
+            headerStatusBadge(layout: layout)
+            headerActionButtons(layout: layout)
+        }
+        #else
+        headerStatusBadge(layout: layout)
+        headerActionButtons(layout: layout)
+        #endif
+    }
 
-                VStack(alignment: .leading, spacing: 1) {
-                    localizedAppText(displayStatusTitle)
-                        .font(layout.headerBadgeFont)
+    @ViewBuilder
+    private func headerStatusBadge(layout: InterfaceLayout) -> some View {
+        #if os(iOS)
+        if layout.headerUsesVerticalFlow {
+            localDisplayStatusGroup(layout: layout)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            localDisplayStatusGroup(layout: layout)
+        }
+        #else
+        publicBoardStatusGroup(layout: layout)
+        #endif
+    }
+
+    private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: displayStatusSystemImage)
+                .imageScale(.medium)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                localizedAppText(displayStatusTitle)
+                    .font(layout.headerBadgeFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                if let remoteDisplayHeaderStatusTitle {
+                    Text(remoteDisplayHeaderStatusTitle)
+                        .font(layout.headerBadgeDetailFont)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-
-                    if let remoteDisplayHeaderStatusTitle {
-                        Text(remoteDisplayHeaderStatusTitle)
-                            .font(layout.headerBadgeDetailFont)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
                 }
             }
-                .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
-                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-                .padding(.vertical, layout.headerBadgeVerticalPadding)
-                .background(themePalette.dashboardCardBackground, in: Capsule())
-                .accessibilityElement(children: .combine)
+        }
+        .foregroundStyle(publicBoardState.isPresented ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
+        .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+        .padding(.vertical, layout.headerBadgeVerticalPadding)
+        .background(themePalette.dashboardCardBackground, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
 
-            Button {
-                dashboardPage = .preview
-            } label: {
-                Label("Display Control", systemImage: "display")
-                    .font(layout.headerBadgeFont)
-                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                    .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-                    .padding(.vertical, layout.headerBadgeVerticalPadding)
-                    .background(themePalette.dashboardNeutralButton, in: Capsule())
+    #if os(iOS)
+    private func iPhoneHeaderControls(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                iPhoneHeaderButtonCluster(layout: layout)
             }
-            .buttonStyle(.plain)
-            .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.displayPreview), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                iPhoneHeaderButtonCluster(layout: layout)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func iPhoneHeaderButtonCluster(layout: InterfaceLayout) -> some View {
+        iPhoneHeaderIconButtonRow(layout: layout)
+    }
+
+    private func iPhoneHeaderIconButtonRow(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 8) {
+            localScoreboardHeaderButton(layout: layout)
+            displayControlHeaderButton(layout: layout)
+            soundHeaderButton(layout: layout)
+            themeHeaderMenu(layout: layout)
+            if store.isCompanionVisible {
+                companionHeaderButton(layout: layout)
+            }
+            settingsHeaderButton(layout: layout)
+            hideDashboardHeaderButton(layout: layout)
         }
     }
+
+    @ViewBuilder
+    private func localDisplayStatusGroup(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                localScoreboardHeaderButton(layout: layout)
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                localScoreboardHeaderButton(layout: layout)
+            }
+        }
+    }
+
+    private func localScoreboardHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            enterLocalScoreboardMode()
+        } label: {
+            localScoreboardHeaderButtonLabel(layout: layout)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Local Display"))
+        .accessibilityHint(localizedAppString("Show Scoreboard on This Device"))
+        .help(localizedAppString("Show Scoreboard on This Device"))
+    }
+
+    @ViewBuilder
+    private func localScoreboardHeaderButtonLabel(layout: InterfaceLayout) -> some View {
+        if isIPhoneInterface {
+            headerIconButtonLabel(
+                systemImage: "platter.2.filled.ipad",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        } else {
+            Label(localizedAppString("Local Display"), systemImage: "platter.2.filled.ipad")
+                .font(layout.headerBadgeFont)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(height: layout.headerIconButtonSize)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    @ViewBuilder
+    private func publicBoardStatusGroup(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                publicBoardHeaderButton(layout: layout)
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                publicBoardHeaderButton(layout: layout)
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder
     private func headerActionButtons(layout: InterfaceLayout) -> some View {
         #if os(macOS)
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            publicBoardHeaderButton(layout: layout)
+            displayControlHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
             themeHeaderMenu(layout: layout)
             if store.isCompanionVisible {
@@ -7023,28 +7348,37 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         #else
-        HStack(spacing: 10) {
-            Spacer(minLength: 0)
-            let actionCount = 3 + (store.isCompanionVisible ? 1 : 0)
-
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 10),
-                    count: max(1, min(layout.headerActionColumns, actionCount))
-                ),
-                spacing: 10
-            ) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                displayControlHeaderButton(layout: layout)
                 soundHeaderButton(layout: layout)
                 themeHeaderMenu(layout: layout)
                 if store.isCompanionVisible {
                     companionHeaderButton(layout: layout)
                 }
                 settingsHeaderButton(layout: layout)
-            }
-            .frame(maxWidth: layout.headerActionWidth, alignment: .trailing)
 
-            if !isIPhoneInterface {
-                hideDashboardHeaderButton(layout: layout)
+                if !isIPhoneInterface {
+                    hideDashboardHeaderButton(layout: layout)
+                }
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if store.isCompanionVisible {
+                    companionHeaderButton(layout: layout)
+                }
+
+                HStack(spacing: 10) {
+                    displayControlHeaderButton(layout: layout)
+                    soundHeaderButton(layout: layout)
+                    themeHeaderMenu(layout: layout)
+                    settingsHeaderButton(layout: layout)
+
+                    if !isIPhoneInterface {
+                        hideDashboardHeaderButton(layout: layout)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -7053,26 +7387,57 @@ struct ContentView: View {
 
     #if os(macOS)
     private func publicBoardHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard",
-            tint: themePalette.dashboardNeutralButton,
-            foreground: themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
+        let title = publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard"
+        return Button {
             showPublicBoardWindow()
+        } label: {
+            Label(localizedAppString(title), systemImage: "display")
+                .font(layout.headerBadgeFont)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                .frame(height: layout.headerIconButtonSize)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
     #endif
 
-    private func soundHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            store.isSoundEnabled ? "Sound On" : "Sound Off",
-            tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-            foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
-            store.toggleSoundEnabled()
+    private func displayControlHeaderButton(layout: InterfaceLayout) -> some View {
+        Button {
+            dashboardPage = .preview
+        } label: {
+            headerIconButtonLabel(
+                systemImage: "appletvremote.gen4",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Display Control"))
+        .help(localizedAppString("Display Control"))
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.displayPreview), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+    }
+
+    private func soundHeaderButton(layout: InterfaceLayout) -> some View {
+        let title = store.isSoundEnabled ? "Sound On" : "Sound Off"
+        return Button {
+            store.toggleSoundEnabled()
+        } label: {
+            headerIconButtonLabel(
+                systemImage: store.isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                tint: store.isSoundEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                foreground: store.isSoundEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func themeHeaderMenu(layout: InterfaceLayout) -> some View {
@@ -7087,14 +7452,12 @@ struct ContentView: View {
                 }
             }
         } label: {
-            Label("Theme", systemImage: store.theme.systemImage)
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, layout.headerActionVerticalPadding)
-                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            headerIconButtonLabel(
+                systemImage: store.theme.systemImage,
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString("Theme"))
@@ -7102,30 +7465,44 @@ struct ContentView: View {
     }
 
     private func companionHeaderButton(layout: InterfaceLayout) -> some View {
-        actionButton(
-            store.isCompanionEnabled ? "Companion On" : "Companion Off",
-            tint: store.isCompanionEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
-            foreground: store.isCompanionEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
-            verticalPadding: layout.headerActionVerticalPadding
-        ) {
+        let title = store.isCompanionEnabled ? "Companion On" : "Companion Off"
+        return Button {
             store.toggleCompanionEnabled()
+        } label: {
+            headerIconButtonLabel(
+                systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage,
+                tint: store.isCompanionEnabled ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton,
+                foreground: store.isCompanionEnabled ? themePalette.dashboardSuccessButtonText : themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString(title))
+        .help(localizedAppString(title))
     }
 
     private func settingsHeaderButton(layout: InterfaceLayout) -> some View {
         Button {
             openSettingsFromLiveBoard()
         } label: {
-            Label("Settings", systemImage: "gearshape")
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, layout.headerActionVerticalPadding)
-                .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            headerIconButtonLabel(
+                systemImage: "gearshape",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Settings"))
+        .help(localizedAppString("Settings"))
+    }
+
+    private func headerIconButtonLabel(systemImage: String, tint: Color, foreground: Color, layout: InterfaceLayout) -> some View {
+        Image(systemName: systemImage)
+            .font(layout.headerToggleIconFont)
+            .foregroundStyle(foreground)
+            .frame(width: layout.headerIconButtonSize, height: layout.headerIconButtonSize)
+            .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func hideDashboardHeaderButton(layout: InterfaceLayout) -> some View {
@@ -7522,14 +7899,8 @@ struct ContentView: View {
                 layout: layout
             )
 
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 10),
-                    count: layout.isCompactWidth ? 2 : 3
-                ),
-                spacing: 10
-            ) {
-                ForEach(ScoreboardDisplayViewMode.allCases) { mode in
+            LazyVGrid(columns: displayPresetGridColumns(layout: layout), spacing: displayPresetGridSpacing(layout: layout)) {
+                ForEach(displayPresetModes) { mode in
                     displayPresetButton(mode, layout: layout)
                 }
             }
@@ -7541,6 +7912,25 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+    }
+
+    private var displayPresetModes: [ScoreboardDisplayViewMode] {
+        [
+            .blackScreen,
+            .backgroundOnly,
+            .eventLogo,
+            .teamView,
+            .playerView,
+            .scoreboard
+        ]
+    }
+
+    private func displayPresetGridColumns(layout: InterfaceLayout) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: displayPresetGridSpacing(layout: layout)), count: 3)
+    }
+
+    private func displayPresetGridSpacing(layout: InterfaceLayout) -> CGFloat {
+        layout.isCompactWidth ? 8 : 10
     }
 
     @ViewBuilder
@@ -8270,6 +8660,11 @@ struct ContentView: View {
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
+            if store.showsPauseTracking {
+                pauseControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+
             if store.supportsTeamFouls {
                 teamFoulControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
@@ -8289,6 +8684,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsShotClock)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsScore)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsSubstitutionTracking)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsPauseTracking)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsTeamFouls)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsDebatePrepTime)
@@ -9399,6 +9795,36 @@ struct ContentView: View {
         }
     }
 
+    private func pauseControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
+        let tintText = teamAccentText(for: side)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Pauses \(store.pausesUsed(for: side))/\(store.pausesAllowed(for: side)) Used • \(store.pausesRemaining(for: side)) Left")
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardMutedText)
+
+            buttonGrid(
+                columns: 2,
+                buttons: [
+                    ActionDescriptor(title: "Pause -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                        store.adjustPausesUsed(for: side, by: -1)
+                    },
+                    ActionDescriptor(
+                        title: "Pause +",
+                        tint: tint,
+                        foreground: tintText,
+                        isEnabled: store.pausesUsed(for: side) < store.pausesAllowed(for: side)
+                    ) {
+                        store.adjustPausesUsed(for: side, by: 1)
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+    }
+
     private func hockeyPenaltyPanel(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let timers = side == .home ? store.homePenaltyTimers : store.guestPenaltyTimers
         let tintText = teamAccentText(for: side)
@@ -9499,6 +9925,20 @@ struct ContentView: View {
     }
 
     private func handleRootAppear() {
+        guard !didStartRootInitialization else {
+            return
+        }
+
+        didStartRootInitialization = true
+        Task {
+            await bootstrapRootAfterFileMigration()
+        }
+    }
+
+    @MainActor
+    private func bootstrapRootAfterFileMigration() async {
+        await migrateLegacyUserVisibleFilesIfNeeded()
+        ensureDefaultCustomWebPageIfNeeded()
         initializeWorkingGameFile()
         isInitialSetupStateLoaded = true
         refreshStoredLogSessions()
@@ -9511,6 +9951,44 @@ struct ContentView: View {
         #endif
         updateIdleTimer(for: scenePhase)
         presentGettingStartedIfNeeded()
+    }
+
+    @MainActor
+    private func migrateLegacyUserVisibleFilesIfNeeded() async {
+        #if os(iOS)
+        do {
+            let result = try await ScoreboardFileStorage.migrateLegacyFilesToUserVisibleStorage { progress in
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    fileMigrationProgress = progress
+                }
+            }
+
+            if result.failedFiles > 0 {
+                NSLog(
+                    "Scoreboard migrated %lld of %lld legacy files to Files-visible storage; %lld failed.",
+                    result.migratedFiles,
+                    result.totalFiles,
+                    result.failedFiles
+                )
+            }
+        } catch {
+            presentFileOperationError(error)
+        }
+
+        withAnimation(.easeInOut(duration: 0.16)) {
+            fileMigrationProgress = nil
+        }
+        #endif
+    }
+
+    private func ensureDefaultCustomWebPageIfNeeded() {
+        #if ENABLE_CUSTOM_USER_PAGE
+        do {
+            try ScoreboardCustomWebPage.ensureDefaultPageIfNeeded()
+        } catch {
+            NSLog("Scoreboard failed to prepare default custom web page: %@", String(describing: error))
+        }
+        #endif
     }
 
     private func presentGettingStartedIfNeeded() {
@@ -9682,11 +10160,209 @@ struct ContentView: View {
                 .padding(.horizontal, layout.outerPadding)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
+
+            if let fileMigrationProgress, !showsSetup {
+                fileMigrationOverlay(fileMigrationProgress, layout: layout)
+                    .transition(.opacity)
+                    .zIndex(40)
+            }
+
+            #if os(iOS)
+            if !showsSetup, showsLocalScoreboard {
+                localScoreboardOverlay()
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
+            #endif
         }
         .animation(.easeInOut(duration: 0.24), value: showsSetup)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.companionFailureNotice?.id)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.remoteDisplayWarningNotice?.id)
+        #if os(iOS)
+        .animation(.easeInOut(duration: 0.18), value: showsLocalScoreboard)
+        #endif
     }
+
+    #if os(iOS)
+    private func localScoreboardOverlay() -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                if shouldShowLocalScoreboardIPhoneLandscapePrompt(in: proxy.size) {
+                    localScoreboardIPhoneLandscapePrompt()
+                } else {
+                    ExternalScoreboardView()
+                        .ignoresSafeArea()
+                }
+
+                if showsLocalScoreboardReturnHint {
+                    VStack {
+                        localScoreboardReturnHint()
+                            .padding(.top, localScoreboardReturnHintTopPadding(in: proxy))
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 18)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    exitLocalScoreboardMode()
+                }
+            )
+        }
+        .ignoresSafeArea()
+        .background(Color.black.ignoresSafeArea())
+        .onAppear {
+            AppSleepPrevention.setReason(.localScoreboardVisible, active: true)
+        }
+        .onDisappear {
+            AppSleepPrevention.setReason(.localScoreboardVisible, active: false)
+            cancelLocalScoreboardReturnHint()
+        }
+        .accessibilityLabel(localizedAppString("Local Scoreboard"))
+        .accessibilityHint(localizedAppString("Tap anywhere on screen to return to the control board."))
+    }
+
+    private func localScoreboardReturnHintTopPadding(in proxy: GeometryProxy) -> CGFloat {
+        let basePadding = CGFloat(18)
+        let safeTopPadding = proxy.safeAreaInsets.top + basePadding
+
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return safeTopPadding
+        }
+
+        guard proxy.size.height > proxy.size.width else {
+            return safeTopPadding
+        }
+
+        return max(safeTopPadding, 78)
+    }
+
+    private func localScoreboardReturnHint() -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.tap.fill")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.black.opacity(0.84))
+                .accessibilityHidden(true)
+
+            Text("Tap anywhere on screen to return to the control board.")
+                .font(.callout.weight(.bold))
+                .foregroundStyle(.black.opacity(0.86))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.white.opacity(0.42), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+        .frame(maxWidth: 460)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func localScoreboardIPhoneLandscapePrompt() -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.03, blue: 0.05),
+                    Color(red: 0.04, green: 0.09, blue: 0.08),
+                    .black
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "iphone.landscape")
+                    .font(.system(size: 46, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .frame(width: 76, height: 76)
+                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(.white.opacity(0.16), lineWidth: 1)
+                    )
+
+                VStack(spacing: 10) {
+                    Text("Turn iPhone to Landscape")
+                        .font(.title2.weight(.black))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+
+                    Text("Local Scoreboard is live. Rotate iPhone to show the scoreboard on this screen.")
+                        .font(.callout.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 28)
+            .frame(maxWidth: 430)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .safeAreaPadding(.horizontal, 18)
+        .safeAreaPadding(.vertical, 16)
+    }
+
+    private func shouldShowLocalScoreboardIPhoneLandscapePrompt(in size: CGSize) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && size.height > size.width
+    }
+
+    private func scheduleLocalScoreboardReturnHintDismissal() {
+        localScoreboardReturnHintDismissTask?.cancel()
+        localScoreboardReturnHintDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard showsLocalScoreboard else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showsLocalScoreboardReturnHint = false
+                }
+                localScoreboardReturnHintDismissTask = nil
+            }
+        }
+    }
+
+    private func cancelLocalScoreboardReturnHint() {
+        localScoreboardReturnHintDismissTask?.cancel()
+        localScoreboardReturnHintDismissTask = nil
+        showsLocalScoreboardReturnHint = false
+    }
+
+    private func showLocalScoreboardReturnHint() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showsLocalScoreboardReturnHint = true
+        }
+        scheduleLocalScoreboardReturnHintDismissal()
+    }
+
+    private func enterLocalScoreboardMode() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showsLocalScoreboard = true
+        }
+        showLocalScoreboardReturnHint()
+    }
+
+    private func exitLocalScoreboardMode() {
+        dashboardPage = .main
+        cancelLocalScoreboardReturnHint()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showsLocalScoreboard = false
+        }
+    }
+    #endif
 
     private func companionFailureBanner(_ notice: ScoreboardCompanionFailureNotice) -> some View {
         HStack(alignment: .top, spacing: 14) {
@@ -9995,6 +10671,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsAllowed : 0,
             homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.homeSubstitutionsUsed : 0,
             guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? store.guestSubstitutionsUsed : 0,
+            homePausesAllowed: setupRules.showsPauseTracking ? store.homePausesAllowed : 0,
+            guestPausesAllowed: setupRules.showsPauseTracking ? store.guestPausesAllowed : 0,
+            homePausesUsed: setupRules.showsPauseTracking ? store.homePausesUsed : 0,
+            guestPausesUsed: setupRules.showsPauseTracking ? store.guestPausesUsed : 0,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homeChessClockSeconds: setupRules.usesChessClocks ? draftClockSeconds : nil,
@@ -10241,6 +10921,10 @@ struct ContentView: View {
         do {
             try deleteAllStoredGameFiles()
             try logManager.replaceSessions(with: [])
+            #if ENABLE_CUSTOM_USER_PAGE
+            try ScoreboardCustomWebPage.deleteAll()
+            try ScoreboardCustomWebPage.ensureDefaultPageIfNeeded()
+            #endif
             store.resetToFactoryDefaults()
 
             storedGameFiles = []
@@ -11247,17 +11931,7 @@ struct ContentView: View {
     }
 
     private func storedGameFilesDirectory() throws -> URL {
-        let fileManager = FileManager.default
-        let baseDirectory = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directoryURL = baseDirectory.appendingPathComponent("StoredGames", isDirectory: true)
-
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        return directoryURL
+        try ScoreboardFileStorage.storedGamesDirectory()
     }
 
     private func uniqueStoredGameFileURL(preferredFilename: String, excluding excludedURL: URL? = nil) throws -> URL {
@@ -11557,6 +12231,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsAllowed : 0,
             homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsUsed : 0,
             guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsUsed : 0,
+            homePausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.homePausesAllowed : 0,
+            guestPausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesAllowed : 0,
+            homePausesUsed: setupRules.showsPauseTracking ? currentSnapshot.homePausesUsed : 0,
+            guestPausesUsed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesUsed : 0,
             homeTeamFouls: currentSnapshot.homeTeamFouls,
             guestTeamFouls: currentSnapshot.guestTeamFouls,
             homeChessClockSeconds: homeChessClockSeconds,
@@ -11803,6 +12481,10 @@ struct ContentView: View {
                     guestSubstitutionsAllowed: preset.sport.defaultSubstitutionLimit,
                     homeSubstitutionsUsed: 0,
                     guestSubstitutionsUsed: 0,
+                    homePausesAllowed: preset.sport.rules(customConfig: preset.customSportConfig).defaultPauseLimit,
+                    guestPausesAllowed: preset.sport.rules(customConfig: preset.customSportConfig).defaultPauseLimit,
+                    homePausesUsed: 0,
+                    guestPausesUsed: 0,
                     homeTeamFouls: 0,
                     guestTeamFouls: 0,
                     homeChessClockSeconds: preset.sport.rules(customConfig: preset.customSportConfig).usesChessClocks ? preset.clockSeconds : nil,
@@ -11983,6 +12665,10 @@ struct ContentView: View {
             guestSubstitutionsAllowed: store.guestSubstitutionsAllowed,
             homeSubstitutionsUsed: store.homeSubstitutionsUsed,
             guestSubstitutionsUsed: store.guestSubstitutionsUsed,
+            homePausesAllowed: store.homePausesAllowed,
+            guestPausesAllowed: store.guestPausesAllowed,
+            homePausesUsed: store.homePausesUsed,
+            guestPausesUsed: store.guestPausesUsed,
             homeTeamFouls: store.homeTeamFouls,
             guestTeamFouls: store.guestTeamFouls,
             homePenaltyTimers: store.homePenaltyTimers,
@@ -12027,7 +12713,7 @@ struct ContentView: View {
 
     private var displayStatusTitle: String {
         #if os(macOS)
-        return publicBoardState.isPresented ? "Public Board Open" : "Public Board Closed"
+        return publicBoardState.isPresented ? "Public Scoreboard Open" : "Public Scoreboard Closed"
         #else
         return publicBoardState.isPresented ? "External Display Live" : "External Display Ready"
         #endif
@@ -12038,21 +12724,36 @@ struct ContentView: View {
             return nil
         }
 
-        let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
-        let pairedDisplayCount = pairedDisplayIDs.count
-        guard pairedDisplayCount > 0 else {
+        guard remoteDisplayHeaderTotalDisplayCount > 0 else {
             return nil
         }
 
-        let connectedDisplayCount = store.remoteDisplayConnectedDisplays.filter {
-            pairedDisplayIDs.contains($0.id)
-        }.count
+        return remoteDisplayHeaderCountStatusTitle
+    }
 
-        return localizedAppFormat(
+    private var remoteDisplayHeaderCountStatusTitle: String {
+        localizedAppFormat(
             "Remote Display %d/%d",
-            connectedDisplayCount,
-            pairedDisplayCount
+            remoteDisplayHeaderConnectedDisplayCount,
+            remoteDisplayHeaderTotalDisplayCount
         )
+    }
+
+    private var remoteDisplayHeaderConnectedDisplayCount: Int {
+        let knownDisplayIDs = remoteDisplayHeaderKnownDisplayIDs
+        return store.remoteDisplayConnectedDisplays.filter {
+            knownDisplayIDs.contains($0.id)
+        }.count
+    }
+
+    private var remoteDisplayHeaderTotalDisplayCount: Int {
+        remoteDisplayHeaderKnownDisplayIDs.count
+    }
+
+    private var remoteDisplayHeaderKnownDisplayIDs: Set<String> {
+        let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
+        let connectedDisplayIDs = Set(store.remoteDisplayConnectedDisplays.map(\.id))
+        return pairedDisplayIDs.union(connectedDisplayIDs)
     }
 
     private var displayStatusSystemImage: String {
@@ -12955,6 +13656,7 @@ private struct InterfaceLayout {
     var headerActionVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 10 }
     var headerActionRowStride: CGFloat { 52 }
     var headerToggleButtonSize: CGFloat { denseControls ? 34 : 38 }
+    var headerIconButtonSize: CGFloat { headerToggleButtonSize }
     var headerToggleIconFont: Font { denseControls ? .subheadline.weight(.bold) : .headline.weight(.bold) }
     var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
