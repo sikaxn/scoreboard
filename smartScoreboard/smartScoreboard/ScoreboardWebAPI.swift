@@ -183,6 +183,7 @@ nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let eventLogo: ScoreboardWebAPIEventLogo?
     let viewMode: ScoreboardDisplayViewMode?
     let controlStatus: ScoreboardWebAPIDisplayControlStatus?
+    let broadcastControl: ScoreboardWebAPIBroadcastControlStatus?
     let playerViewRosterScope: PlayerViewRosterScope?
     let direction: ScoreboardDisplayDirection?
     let remoteExternalDirection: ScoreboardDisplayDirection?
@@ -195,6 +196,30 @@ nonisolated struct ScoreboardWebAPIDisplayControlStatus: Codable, Sendable {
     let isBlackScreen: Bool
     let isBackgroundOnly: Bool
     let isForegroundVisible: Bool
+}
+
+nonisolated struct ScoreboardWebAPIBroadcastControlStatus: Codable, Sendable {
+    let isEnabled: Bool
+    let enabledDisplayCount: Int
+    let enabledDisplayIDs: [Int]
+    let displayIDRange: ScoreboardWebAPIBroadcastDisplayIDRange
+    let currentDisplayControlMode: ScoreboardDisplayViewMode
+    let assignments: [ScoreboardWebAPIBroadcastDisplayAssignment]
+}
+
+nonisolated struct ScoreboardWebAPIBroadcastDisplayIDRange: Codable, Sendable {
+    let minimum: Int
+    let maximum: Int
+}
+
+nonisolated struct ScoreboardWebAPIBroadcastDisplayAssignment: Codable, Sendable {
+    let displayID: Int
+    let isEnabled: Bool
+    let assignedMode: ScoreboardWebAPIBroadcastDisplayMode
+    let assignedModeTitle: String
+    let effectiveRenderMode: ScoreboardDisplayViewMode
+    let followsDisplayControl: Bool
+    let isCustomMode: Bool
 }
 
 nonisolated struct ScoreboardWebAPIDisplayControlMode: Codable, Sendable {
@@ -603,6 +628,7 @@ extension ScoreboardWebAPIDisplay {
             eventLogo: eventLogo?.v2ImagePathPayload,
             viewMode: viewMode,
             controlStatus: controlStatus,
+            broadcastControl: broadcastControl,
             playerViewRosterScope: playerViewRosterScope,
             direction: direction,
             remoteExternalDirection: remoteExternalDirection
@@ -1843,6 +1869,7 @@ extension ScoreboardStore {
                 eventLogo: webAPIEventLogoMetadata(),
                 viewMode: publicDisplayViewMode,
                 controlStatus: webAPIDisplayControlStatus(),
+                broadcastControl: webAPIBroadcastControlStatus(),
                 playerViewRosterScope: .fullRoster,
                 direction: displayDirection,
                 remoteExternalDirection: remoteExternalDirection
@@ -1982,6 +2009,52 @@ extension ScoreboardStore {
             isBlackScreen: currentMode == .blackScreen,
             isBackgroundOnly: currentMode == .backgroundOnly,
             isForegroundVisible: currentMode != .blackScreen && currentMode != .backgroundOnly
+        )
+    }
+
+    private func webAPIBroadcastControlStatus() -> ScoreboardWebAPIBroadcastControlStatus {
+        let currentMode = publicDisplayViewMode
+        let enabledDisplayIDs = isWebAPIBroadcastControlEnabled
+            ? Array(ScoreboardStore.minWebAPIBroadcastCustomDisplayID...webAPIBroadcastEnabledDisplayCount)
+            : []
+        let assignments = (ScoreboardStore.minWebAPIBroadcastDisplayID...ScoreboardStore.maxWebAPIBroadcastDisplayID).map { displayID in
+            webAPIBroadcastDisplayAssignment(displayID: displayID, currentDisplayControlMode: currentMode)
+        }
+
+        return ScoreboardWebAPIBroadcastControlStatus(
+            isEnabled: isWebAPIBroadcastControlEnabled,
+            enabledDisplayCount: isWebAPIBroadcastControlEnabled ? webAPIBroadcastEnabledDisplayCount : 0,
+            enabledDisplayIDs: enabledDisplayIDs,
+            displayIDRange: ScoreboardWebAPIBroadcastDisplayIDRange(
+                minimum: ScoreboardStore.minWebAPIBroadcastDisplayID,
+                maximum: ScoreboardStore.maxWebAPIBroadcastDisplayID
+            ),
+            currentDisplayControlMode: currentMode,
+            assignments: assignments
+        )
+    }
+
+    private func webAPIBroadcastDisplayAssignment(
+        displayID: Int,
+        currentDisplayControlMode: ScoreboardDisplayViewMode
+    ) -> ScoreboardWebAPIBroadcastDisplayAssignment {
+        let isInternalFallbackDisplay = displayID == ScoreboardStore.minWebAPIBroadcastDisplayID
+        let isEnabledDisplay = isWebAPIBroadcastControlEnabled &&
+            displayID >= ScoreboardStore.minWebAPIBroadcastCustomDisplayID &&
+            displayID <= webAPIBroadcastEnabledDisplayCount
+        let isEnabled = isInternalFallbackDisplay || isEnabledDisplay
+        let assignedMode: ScoreboardWebAPIBroadcastDisplayMode = isEnabledDisplay
+            ? webAPIBroadcastDisplayMode(for: displayID)
+            : .followDisplayControl
+
+        return ScoreboardWebAPIBroadcastDisplayAssignment(
+            displayID: displayID,
+            isEnabled: isEnabled,
+            assignedMode: assignedMode,
+            assignedModeTitle: assignedMode.title,
+            effectiveRenderMode: assignedMode.effectiveRenderMode(fallbackDisplayControlMode: currentDisplayControlMode),
+            followsDisplayControl: assignedMode.followsDisplayControl,
+            isCustomMode: assignedMode.isCustomMode
         )
     }
 

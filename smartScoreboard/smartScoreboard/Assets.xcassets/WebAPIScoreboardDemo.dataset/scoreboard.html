@@ -671,6 +671,7 @@
     const strings = translations[language];
     const host = location.hostname || '127.0.0.1';
     const wsURL = `ws://${host}:5517/api/v2/ws`;
+    const displayID = requestedDisplayID(1);
     const v2State = {};
     let socket;
     let reconnectTimer;
@@ -782,7 +783,22 @@
       }
     }
 
+    function requestedDisplayID(defaultID) {
+      const params = new URLSearchParams(location.search);
+      const raw = params.get('displayId') || params.get('displayID') || params.get('id');
+      const value = Number.parseInt(raw, 10);
+      return Number.isInteger(value) && value >= 0 && value <= 8 ? value : defaultID;
+    }
+
+    function broadcastAssignment(display) {
+      const broadcast = display.broadcastControl || {};
+      const assignments = Array.isArray(broadcast.assignments) ? broadcast.assignments : [];
+      return assignments.find(assignment => Number(assignment.displayID) === displayID);
+    }
+
     function displayMode(display) {
+      const assignment = broadcastAssignment(display);
+      if (assignment && assignment.effectiveRenderMode) return assignment.effectiveRenderMode;
       return (display.controlStatus && display.controlStatus.currentMode) || display.viewMode || 'scoreboard';
     }
 
@@ -952,11 +968,15 @@
         : '';
       const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')} / seconds ${valueText(display.showsDateTimeSeconds, true)}` : '';
       const eventName = valueText(game.eventName, '');
+      const assignment = broadcastAssignment(display);
+      const displayIDStatus = assignment
+        ? ` / ID ${displayID} / ${assignment.isEnabled ? assignment.assignedMode : 'disabled'}`
+        : ` / ID ${displayID}`;
       el('mode').textContent = viewMode === 'playerView'
-        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+        ? `${t('display')}: ${viewMode}${displayIDStatus} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
         : viewMode === 'eventLogo' && eventName
-          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
-          : `${t('display')}: ${viewMode} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
+          ? `${t('display')}: ${viewMode}${displayIDStatus} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+          : `${t('display')}: ${viewMode}${displayIDStatus} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
     }
 
     function handleV2Message(message) {

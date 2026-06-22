@@ -15,7 +15,11 @@ import AppKit
 #if !os(tvOS)
 
 private func localizedAppString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    guard !key.isEmpty else {
+        return ""
+    }
+
+    return Bundle.main.localizedString(forKey: key, value: key, table: nil)
 }
 
 private func localizedAppFormat(_ key: String, _ arguments: CVarArg...) -> String {
@@ -23,7 +27,7 @@ private func localizedAppFormat(_ key: String, _ arguments: CVarArg...) -> Strin
 }
 
 private func localizedAppText(_ key: String) -> Text {
-    Text(localizedAppString(key))
+    Text(LocalizedStringKey(key))
 }
 
 private let automaticDiskWriteThrottleInterval: TimeInterval = 5
@@ -90,6 +94,7 @@ struct ContentView: View {
     @State private var selectedStoredLogSessionID: String?
     @State private var selectedLogSessionIDs: Set<String> = []
     @State private var isSelectingLogSessions = false
+    @State private var isApplyingSetupSportDefaults = false
     @State private var showsGameImporter = false
     @State private var showsBackupImporter = false
     @State private var showsRosterCSVImporter = false
@@ -178,7 +183,9 @@ struct ContentView: View {
         setupSport == .volleyball ||
             (setupSport == .custom && setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode == .serve)
     }
-    private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
+    private var isSetupDraftUpdateSuppressed: Bool {
+        !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits || isApplyingSetupSportDefaults
+    }
     private var resolvedSetupCustomSportConfig: CustomSportConfig {
         var config = setupCustomSportConfig
         config.defaultClockSeconds = setupClockSeconds
@@ -331,8 +338,7 @@ struct ContentView: View {
         .onChange(of: eventNameDraft) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupSport) { _, newValue in
             guard !isSetupDraftUpdateSuppressed else { return }
-            applySetupSportDefaults(newValue)
-            handleSetupDraftChanged()
+            applySetupSportDefaultsAndCommit(newValue)
         }
         .onChange(of: setupPeriod) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupClockSeconds) { _, _ in handleSetupDraftChanged() }
@@ -345,9 +351,10 @@ struct ContentView: View {
         .onChange(of: setupGuestClockSeconds) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupChessPreset) { _, _ in
             guard !isSetupDraftUpdateSuppressed else { return }
-            setupClockSeconds = setupChessPreset.seconds
-            setupGuestClockSeconds = setupChessPreset.seconds
-            handleSetupDraftChanged()
+            applySetupClockDefaultsAndCommit {
+                setupClockSeconds = setupChessPreset.seconds
+                setupGuestClockSeconds = setupChessPreset.seconds
+            }
         }
     }
 
@@ -3136,6 +3143,8 @@ struct ContentView: View {
                 }
             }
 
+            settingsWebAPIBroadcastControlSection()
+
             #if ENABLE_CUSTOM_USER_PAGE
             settingsSection(title: "Custom User Page", footer: "Files are stored locally on this device and served read-only at /user while the Web API is running. Edit the files in Files or Finder, and add index.html at the root or inside a folder.") {
                 settingsOptionTip(customWebPageFilesTip, systemImage: "curlybraces.square")
@@ -3164,6 +3173,50 @@ struct ContentView: View {
                     .padding(.vertical, 10)
             }
         }
+    }
+
+    private func settingsWebAPIBroadcastControlSection() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            localizedAppText("Broadcast Display Control")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .textCase(.uppercase)
+
+            VStack(spacing: 0) {
+                settingsToggleRow(title: "Enable Broadcast Display Control", isOn: Binding(
+                    get: { store.isWebAPIBroadcastControlEnabled },
+                    set: { store.setWebAPIBroadcastControlEnabled($0) }
+                ))
+
+                if store.isWebAPIBroadcastControlEnabled {
+                    settingsDivider()
+                    settingsWebAPIBroadcastEnabledDisplaysRow()
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(settingsPalette.cardBorder)
+            )
+
+            localizedAppText("Let Web API browser sources use display IDs 1-8 so each source can receive its own display mode. ID 0 follows the main Display Control.")
+                .font(.footnote)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func settingsWebAPIBroadcastEnabledDisplaysRow() -> some View {
+        settingsStepperValueRow(
+            title: "Enabled Displays",
+            value: "\(store.webAPIBroadcastEnabledDisplayCount)",
+            decrement: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount - 1) },
+            increment: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount + 1) }
+        )
     }
 
     private func settingsIntegrationConfigurationSection() -> some View {
@@ -7719,6 +7772,11 @@ struct ContentView: View {
                 displayPresetPanel(layout: layout)
                     .transition(.move(edge: .top).combined(with: .opacity))
 
+                if store.isWebAPIBroadcastControlEnabled {
+                    broadcastDisplayControlPanel(layout: layout)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 dashboardInlineTip(
                     "The preview renders from the current game state, theme, display direction, background, logos, and player settings. Treat it as an operator check of the selected public mode, not as a pixel-perfect guarantee for every connected screen.",
                     systemImage: "eye",
@@ -7910,6 +7968,71 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+    }
+
+    private func broadcastDisplayControlPanel(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                localizedAppText("Broadcast Display Control")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text("\(store.webAPIBroadcastEnabledDisplayCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            dashboardPanelTip(
+                "Use Broadcast Display Control to assign display modes to enabled Web API browser sources. ID 0 is reserved for the main Display Control fallback and is not shown here.",
+                systemImage: "rectangle.connected.to.line.below",
+                layout: layout
+            )
+
+            VStack(spacing: 0) {
+                ForEach(Array(store.webAPIBroadcastEnabledDisplayIDs.enumerated()), id: \.element) { index, displayID in
+                    if index > 0 {
+                        Rectangle()
+                            .fill(themePalette.dashboardCardBorder)
+                            .frame(height: 1)
+                    }
+                    broadcastDisplayAssignmentRow(displayID: displayID)
+                }
+            }
+        }
+        .padding(.horizontal, layout.controlCardPadding)
+        .padding(.vertical, layout.controlCardPadding)
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder)
+        )
+    }
+
+    private func broadcastDisplayAssignmentRow(displayID: Int) -> some View {
+        HStack(spacing: 14) {
+            Label(localizedAppFormat("Display %d", displayID), systemImage: "display")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+
+            Spacer(minLength: 0)
+
+            Picker(
+                localizedAppFormat("Display %d", displayID),
+                selection: Binding(
+                    get: { store.webAPIBroadcastDisplayMode(for: displayID) },
+                    set: { store.setWebAPIBroadcastDisplayMode($0, for: displayID) }
+                )
+            ) {
+                ForEach(ScoreboardWebAPIBroadcastDisplayMode.allCases) { mode in
+                    localizedAppText(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.vertical, 10)
     }
 
     private var displayPresetModes: [ScoreboardDisplayViewMode] {
@@ -10683,6 +10806,23 @@ struct ContentView: View {
         }
 
         commitSetupEdits(animated: true)
+    }
+
+    private func applySetupSportDefaultsAndCommit(_ sport: SportType) {
+        applySetupClockDefaultsAndCommit {
+            applySetupSportDefaults(sport)
+        }
+    }
+
+    private func applySetupClockDefaultsAndCommit(_ updates: () -> Void) {
+        isApplyingSetupSportDefaults = true
+        updates()
+        DispatchQueue.main.async {
+            commitSetupEdits(animated: true)
+            DispatchQueue.main.async {
+                isApplyingSetupSportDefaults = false
+            }
+        }
     }
 
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {

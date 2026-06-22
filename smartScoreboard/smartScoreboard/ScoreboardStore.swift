@@ -309,6 +309,82 @@ enum ScoreboardDisplayViewMode: String, Codable, CaseIterable, Identifiable, Sen
     }
 }
 
+enum ScoreboardWebAPIBroadcastDisplayMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case followDisplayControl
+    case scoreboard
+    case blackScreen
+    case backgroundOnly
+    case eventLogo
+    case teamView
+    case playerView
+    case custom1
+    case custom2
+    case custom3
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .followDisplayControl:
+            return NSLocalizedString("Follow Main", comment: "")
+        case .scoreboard:
+            return ScoreboardDisplayViewMode.scoreboard.title
+        case .blackScreen:
+            return ScoreboardDisplayViewMode.blackScreen.title
+        case .backgroundOnly:
+            return ScoreboardDisplayViewMode.backgroundOnly.title
+        case .eventLogo:
+            return ScoreboardDisplayViewMode.eventLogo.title
+        case .teamView:
+            return ScoreboardDisplayViewMode.teamView.title
+        case .playerView:
+            return ScoreboardDisplayViewMode.playerView.title
+        case .custom1:
+            return NSLocalizedString("Custom 1", comment: "")
+        case .custom2:
+            return NSLocalizedString("Custom 2", comment: "")
+        case .custom3:
+            return NSLocalizedString("Custom 3", comment: "")
+        }
+    }
+
+    var displayViewMode: ScoreboardDisplayViewMode? {
+        switch self {
+        case .followDisplayControl, .custom1, .custom2, .custom3:
+            return nil
+        case .scoreboard:
+            return .scoreboard
+        case .blackScreen:
+            return .blackScreen
+        case .backgroundOnly:
+            return .backgroundOnly
+        case .eventLogo:
+            return .eventLogo
+        case .teamView:
+            return .teamView
+        case .playerView:
+            return .playerView
+        }
+    }
+
+    var isCustomMode: Bool {
+        switch self {
+        case .custom1, .custom2, .custom3:
+            return true
+        case .followDisplayControl, .scoreboard, .blackScreen, .backgroundOnly, .eventLogo, .teamView, .playerView:
+            return false
+        }
+    }
+
+    var followsDisplayControl: Bool {
+        displayViewMode == nil
+    }
+
+    func effectiveRenderMode(fallbackDisplayControlMode: ScoreboardDisplayViewMode) -> ScoreboardDisplayViewMode {
+        displayViewMode ?? fallbackDisplayControlMode
+    }
+}
+
 enum PlayerViewRosterScope: String, Codable, CaseIterable, Identifiable, Sendable {
     case activeLineup
     case fullRoster
@@ -489,6 +565,10 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
     nonisolated static let maxInjuryTimeMinutes = 15
+    nonisolated static let minWebAPIBroadcastDisplayID = 0
+    nonisolated static let maxWebAPIBroadcastDisplayID = 8
+    nonisolated static let minWebAPIBroadcastCustomDisplayID = 1
+    nonisolated static let defaultWebAPIBroadcastEnabledDisplayCount = 2
     nonisolated static let defaultRosterSize = 12
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
@@ -676,6 +756,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var setupPresets: [SetupPreset] = []
     @Published var isWebAPIEnabled = false
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
+    @Published var isWebAPIBroadcastControlEnabled = false
+    @Published var webAPIBroadcastEnabledDisplayCount = ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount
+    @Published var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
     @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
     @Published private(set) var webAPILocalAddresses: [String] = []
     @Published var isRemoteDisplayHostEnabled = false
@@ -1522,7 +1605,7 @@ final class ScoreboardStore: ObservableObject {
 
         if periodWinMatchWinner == nil {
             period = min(periodUpperBound, period + 1)
-            resetInjuryTimeForPeriod()
+            resetClockForPeriodTransition(direction: 1)
         }
 
         recordLog(
@@ -1585,7 +1668,7 @@ final class ScoreboardStore: ObservableObject {
         let previousPeriod = period
         period = max(1, min(periodUpperBound, period + delta))
         if period != previousPeriod {
-            resetInjuryTimeForPeriod()
+            resetClockForPeriodTransition(direction: delta)
         }
         recordLog(
             kind: .periodAdjustment,
@@ -4284,6 +4367,16 @@ final class ScoreboardStore: ObservableObject {
         hasAppliedInjuryTimeThisPeriod = false
     }
 
+    private func resetClockForPeriodTransition(direction: Int) {
+        resetInjuryTimeForPeriod()
+
+        guard direction > 0, showsGameClock, !usesChessClocks else { return }
+
+        pauseClock()
+        gameClockSeconds = boundedGameClockSeconds(defaultClockSeconds)
+        requestGameClockAutosave()
+    }
+
     private func normalizeInjuryTimeState() {
         pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(pendingInjuryTimeMinutes)
         activeInjuryTimeMinutes = boundedInjuryTimeMinutes(activeInjuryTimeMinutes)
@@ -4796,6 +4889,83 @@ final class ScoreboardStore: ObservableObject {
 
     func setWebAPIUpdateMode(_ mode: ScoreboardWebAPIUpdateMode) {
         webAPIUpdateMode = mode
+    }
+
+    var webAPIBroadcastEnabledDisplayIDs: [Int] {
+        guard isWebAPIBroadcastControlEnabled else {
+            return []
+        }
+
+        let enabledDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        guard enabledDisplayCount >= Self.minWebAPIBroadcastCustomDisplayID else {
+            return []
+        }
+
+        return Array(Self.minWebAPIBroadcastCustomDisplayID...enabledDisplayCount)
+    }
+
+    func setWebAPIBroadcastControlEnabled(_ isEnabled: Bool) {
+        if isWebAPIBroadcastControlEnabled != isEnabled {
+            isWebAPIBroadcastControlEnabled = isEnabled
+        }
+        normalizeWebAPIBroadcastControlState()
+    }
+
+    func setWebAPIBroadcastEnabledDisplayCount(_ count: Int) {
+        let boundedCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(count)
+        if webAPIBroadcastEnabledDisplayCount != boundedCount {
+            webAPIBroadcastEnabledDisplayCount = boundedCount
+        }
+    }
+
+    func webAPIBroadcastDisplayMode(for displayID: Int) -> ScoreboardWebAPIBroadcastDisplayMode {
+        guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
+            return .followDisplayControl
+        }
+
+        return webAPIBroadcastDisplayModesByID[displayID] ?? .followDisplayControl
+    }
+
+    func setWebAPIBroadcastDisplayMode(_ mode: ScoreboardWebAPIBroadcastDisplayMode, for displayID: Int) {
+        guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
+            return
+        }
+
+        var modes = webAPIBroadcastDisplayModesByID
+        if mode == .followDisplayControl {
+            modes.removeValue(forKey: displayID)
+        } else {
+            modes[displayID] = mode
+        }
+        webAPIBroadcastDisplayModesByID = Self.normalizedWebAPIBroadcastDisplayModes(modes)
+    }
+
+    fileprivate static func boundedWebAPIBroadcastEnabledDisplayCount(_ count: Int) -> Int {
+        max(minWebAPIBroadcastCustomDisplayID, min(maxWebAPIBroadcastDisplayID, count))
+    }
+
+    private static func isWebAPIBroadcastCustomDisplayID(_ displayID: Int) -> Bool {
+        displayID >= minWebAPIBroadcastCustomDisplayID && displayID <= maxWebAPIBroadcastDisplayID
+    }
+
+    fileprivate static func normalizedWebAPIBroadcastDisplayModes(_ modes: [Int: ScoreboardWebAPIBroadcastDisplayMode]) -> [Int: ScoreboardWebAPIBroadcastDisplayMode] {
+        var normalized: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
+        for (displayID, mode) in modes where isWebAPIBroadcastCustomDisplayID(displayID) && mode != .followDisplayControl {
+            normalized[displayID] = mode
+        }
+        return normalized
+    }
+
+    private func normalizeWebAPIBroadcastControlState() {
+        let boundedDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        if webAPIBroadcastEnabledDisplayCount != boundedDisplayCount {
+            webAPIBroadcastEnabledDisplayCount = boundedDisplayCount
+        }
+
+        let normalizedModes = Self.normalizedWebAPIBroadcastDisplayModes(webAPIBroadcastDisplayModesByID)
+        if webAPIBroadcastDisplayModesByID != normalizedModes {
+            webAPIBroadcastDisplayModesByID = normalizedModes
+        }
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
@@ -5387,6 +5557,9 @@ final class ScoreboardStore: ObservableObject {
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
+            $isWebAPIBroadcastControlEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIBroadcastEnabledDisplayCount.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIBroadcastDisplayModesByID.map { _ in () }.eraseToAnyPublisher(),
             $isRemoteDisplayHostEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher(),
             $remoteDisplayNetworkMode.map { _ in () }.eraseToAnyPublisher()
@@ -5935,6 +6108,9 @@ final class ScoreboardStore: ObservableObject {
             setupPresets: setupPresets,
             isWebAPIEnabled: isWebAPIEnabled,
             webAPIUpdateMode: webAPIUpdateMode,
+            isWebAPIBroadcastControlEnabled: isWebAPIBroadcastControlEnabled,
+            webAPIBroadcastEnabledDisplayCount: webAPIBroadcastEnabledDisplayCount,
+            webAPIBroadcastDisplayModesByID: webAPIBroadcastDisplayModesByID,
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
             isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
             remoteDisplayNetworkMode: remoteDisplayNetworkMode
@@ -6208,6 +6384,9 @@ private struct PersistedState: Codable {
     var setupPresets: [SetupPreset]
     var isWebAPIEnabled: Bool
     var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
+    var isWebAPIBroadcastControlEnabled: Bool
+    var webAPIBroadcastEnabledDisplayCount: Int
+    var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode]
     var isRemoteDisplayHostEnabled: Bool
     var isRemoteDisplayViewerModeEnabled: Bool
     var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
@@ -6316,6 +6495,9 @@ private struct PersistedState: Codable {
         case setupPresets
         case isWebAPIEnabled
         case webAPIUpdateMode
+        case isWebAPIBroadcastControlEnabled
+        case webAPIBroadcastEnabledDisplayCount
+        case webAPIBroadcastDisplayModesByID
         case isRemoteDisplayHostEnabled
         case isRemoteDisplayViewerModeEnabled
         case remoteDisplayNetworkMode
@@ -6421,6 +6603,9 @@ private struct PersistedState: Codable {
         setupPresets: [SetupPreset],
         isWebAPIEnabled: Bool,
         webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
+        isWebAPIBroadcastControlEnabled: Bool,
+        webAPIBroadcastEnabledDisplayCount: Int,
+        webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode],
         isRemoteDisplayHostEnabled: Bool,
         isRemoteDisplayViewerModeEnabled: Bool,
         remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
@@ -6524,6 +6709,9 @@ private struct PersistedState: Codable {
         self.setupPresets = setupPresets
         self.isWebAPIEnabled = isWebAPIEnabled
         self.webAPIUpdateMode = webAPIUpdateMode
+        self.isWebAPIBroadcastControlEnabled = isWebAPIBroadcastControlEnabled
+        self.webAPIBroadcastEnabledDisplayCount = ScoreboardStore.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        self.webAPIBroadcastDisplayModesByID = ScoreboardStore.normalizedWebAPIBroadcastDisplayModes(webAPIBroadcastDisplayModesByID)
         self.isRemoteDisplayHostEnabled = isRemoteDisplayHostEnabled
         self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
         self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
@@ -6671,6 +6859,13 @@ private struct PersistedState: Codable {
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
         isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
         webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
+        isWebAPIBroadcastControlEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIBroadcastControlEnabled) ?? false
+        webAPIBroadcastEnabledDisplayCount = ScoreboardStore.boundedWebAPIBroadcastEnabledDisplayCount(
+            try container.decodeIfPresent(Int.self, forKey: .webAPIBroadcastEnabledDisplayCount) ?? ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount
+        )
+        webAPIBroadcastDisplayModesByID = ScoreboardStore.normalizedWebAPIBroadcastDisplayModes(
+            try container.decodeIfPresent([Int: ScoreboardWebAPIBroadcastDisplayMode].self, forKey: .webAPIBroadcastDisplayModesByID) ?? [:]
+        )
         isRemoteDisplayHostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayHostEnabled) ?? false
         isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
         remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
@@ -6778,6 +6973,9 @@ private struct PersistedState: Codable {
         try container.encode(setupPresets, forKey: .setupPresets)
         try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
+        try container.encode(isWebAPIBroadcastControlEnabled, forKey: .isWebAPIBroadcastControlEnabled)
+        try container.encode(webAPIBroadcastEnabledDisplayCount, forKey: .webAPIBroadcastEnabledDisplayCount)
+        try container.encode(webAPIBroadcastDisplayModesByID, forKey: .webAPIBroadcastDisplayModesByID)
         try container.encode(isRemoteDisplayHostEnabled, forKey: .isRemoteDisplayHostEnabled)
         try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
         try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
@@ -6894,6 +7092,9 @@ private extension PersistedState {
             setupPresets: [],
             isWebAPIEnabled: false,
             webAPIUpdateMode: .fixedInterval,
+            isWebAPIBroadcastControlEnabled: false,
+            webAPIBroadcastEnabledDisplayCount: ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount,
+            webAPIBroadcastDisplayModesByID: [:],
             isRemoteDisplayHostEnabled: false,
             isRemoteDisplayViewerModeEnabled: false,
             remoteDisplayNetworkMode: .nearbyAndLocalNetwork

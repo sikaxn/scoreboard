@@ -1894,6 +1894,16 @@
         }
       }
     },
+    "Broadcast Display Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "广播显示控制"
+          }
+        }
+      }
+    },
     "Blitz" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3187,6 +3197,36 @@
         }
       }
     },
+    "Custom 1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义 1"
+          }
+        }
+      }
+    },
+    "Custom 2" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义 2"
+          }
+        }
+      }
+    },
+    "Custom 3" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义 3"
+          }
+        }
+      }
+    },
     "Custom Controls" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3908,6 +3948,16 @@
         }
       }
     },
+    "Display %d" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示 %d"
+          }
+        }
+      }
+    },
     "Display Date & Time" : {
       "localizations" : {
         "zh-Hans" : {
@@ -4236,6 +4286,16 @@
         }
       }
     },
+    "Enable Broadcast Display Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用广播显示控制"
+          }
+        }
+      }
+    },
     "Enable Companion" : {
       "localizations" : {
         "zh-Hans" : {
@@ -4393,6 +4453,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已启用"
+          }
+        }
+      }
+    },
+    "Enabled Displays" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已启用显示"
           }
         }
       }
@@ -4877,6 +4947,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "固定间隔"
+          }
+        }
+      }
+    },
+    "Follow Main" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跟随主显示"
           }
         }
       }
@@ -6395,6 +6475,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记分牌外的外部显示背景保持透明。"
+          }
+        }
+      }
+    },
+    "Let Web API browser sources use display IDs 1-8 so each source can receive its own display mode. ID 0 follows the main Display Control." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让 Web API 浏览器源使用显示 ID 1-8，使每个源都能接收自己的显示模式。ID 0 跟随主显示控制。"
           }
         }
       }
@@ -13836,6 +13926,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当记分牌事件需要触发制作自动化时使用 Companion，例如切换场景、触发图形或控制外部设备。Scoreboard 会向 Companion 发送按钮按下命令；Companion 负责后续动作。"
+          }
+        }
+      }
+    },
+    "Use Broadcast Display Control to assign display modes to enabled Web API browser sources. ID 0 is reserved for the main Display Control fallback and is not shown here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用广播显示控制为已启用的 Web API 浏览器源分配显示模式。ID 0 保留为主显示控制回退，不会显示在这里。"
           }
         }
       }

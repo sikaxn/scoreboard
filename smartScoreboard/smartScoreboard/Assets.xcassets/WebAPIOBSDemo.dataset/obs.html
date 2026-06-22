@@ -491,6 +491,7 @@
     const strings = translations[language];
     const host = location.hostname || '127.0.0.1';
     const wsURL = `ws://${host}:5517/api/v2/ws`;
+    const displayID = requestedDisplayID(2);
     const v2State = {};
     let socket;
     let reconnectTimer;
@@ -585,7 +586,22 @@
       }
     }
 
+    function requestedDisplayID(defaultID) {
+      const params = new URLSearchParams(location.search);
+      const raw = params.get('displayId') || params.get('displayID') || params.get('id');
+      const value = Number.parseInt(raw, 10);
+      return Number.isInteger(value) && value >= 0 && value <= 8 ? value : defaultID;
+    }
+
+    function broadcastAssignment(display) {
+      const broadcast = display.broadcastControl || {};
+      const assignments = Array.isArray(broadcast.assignments) ? broadcast.assignments : [];
+      return assignments.find(assignment => Number(assignment.displayID) === displayID);
+    }
+
     function displayMode(display) {
+      const assignment = broadcastAssignment(display);
+      if (assignment && assignment.effectiveRenderMode) return assignment.effectiveRenderMode;
       return (display.controlStatus && display.controlStatus.currentMode) || display.viewMode || 'scoreboard';
     }
 

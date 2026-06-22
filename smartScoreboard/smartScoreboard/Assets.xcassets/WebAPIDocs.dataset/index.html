@@ -232,6 +232,19 @@
         <tr><td><code>WS /api/v1/ws</code></td><td data-i18n-html="v1WSUse">Backward-compatible v1 WebSocket behavior. Existing clients receive <code>scoreboard.state</code> envelopes and can send <code>{"type":"get"}</code>.</td></tr>
       </table>
     </section>
+
+    <section class="card">
+      <h2 data-i18n="broadcastTitle">Broadcast Display Control</h2>
+      <p class="note" data-i18n="broadcastBody">The display resource always includes display.broadcastControl with assignments for display IDs 0-8. ID 0 is the internal fallback that follows the main Display Control. IDs 1-8 are for Web API browser/custom displays.</p>
+      <table>
+        <tr><th data-i18n="fieldColumn">Field</th><th data-i18n="useColumn">Use</th></tr>
+        <tr><td><code>display.broadcastControl.isEnabled</code></td><td data-i18n="broadcastEnabledUse">True when Broadcast Display Control is enabled in Settings > Integration > Web API. When false, IDs 1-8 are disabled and follow display 0.</td></tr>
+        <tr><td><code>display.broadcastControl.assignments[]</code></td><td data-i18n="broadcastAssignmentsUse">One assignment for every display ID 0-8. Each item includes displayID, isEnabled, assignedMode, assignedModeTitle, effectiveRenderMode, followsDisplayControl, and isCustomMode.</td></tr>
+        <tr><td><code>assignedMode</code></td><td data-i18n="broadcastAssignedModeUse">The operator-selected mode for enabled IDs. Disabled IDs report followDisplayControl. Custom pages can inspect custom1, custom2, or custom3.</td></tr>
+        <tr><td><code>effectiveRenderMode</code></td><td data-i18n="broadcastEffectiveModeUse">The built-in render mode first-party pages should show. Custom modes resolve to the current main Display Control mode.</td></tr>
+        <tr><td><code>/demo/scoreboard?displayId=1</code><br><code>/demo/obs?displayId=2</code></td><td data-i18n="broadcastDemoUse">The reference scoreboard defaults to ID 1 and the OBS source defaults to ID 2. Add displayId=0...8 to override either demo.</td></tr>
+      </table>
+    </section>
   </main>
 
   <script>
@@ -255,6 +268,7 @@
         health: 'v1 health',
         docsTitle: 'API Docs',
         endpointColumn: 'Endpoint',
+        fieldColumn: 'Field',
         useColumn: 'Use',
         apiStatusUse: 'Web API service status only: API version, supported versions, ports, update mode, status, client count, and generated time.',
         appStatusUse: 'App identity/status only: app name, version, build, API version marker, and generated time.',
@@ -266,7 +280,14 @@
         v1StateUse: 'Backward-compatible v1 full state payload. Image fields are metadata and URLs only; no image payloads are embedded.',
         healthUse: 'Backward-compatible v1 service health payload with app status embedded.',
         wsUse: 'Send <code>{"type":"subscribe","apiVersion":"v2"}</code> after connecting. The server sends a v2 manifest and separate <code>scoreboard.v2.resource</code> messages, then pushes changed resources only.',
-        v1WSUse: 'Backward-compatible v1 WebSocket behavior. Existing clients receive <code>scoreboard.state</code> envelopes and can send <code>{"type":"get"}</code>.'
+        v1WSUse: 'Backward-compatible v1 WebSocket behavior. Existing clients receive <code>scoreboard.state</code> envelopes and can send <code>{"type":"get"}</code>.',
+        broadcastTitle: 'Broadcast Display Control',
+        broadcastBody: 'The display resource always includes display.broadcastControl with assignments for display IDs 0-8. ID 0 is the internal fallback that follows the main Display Control. IDs 1-8 are for Web API browser/custom displays.',
+        broadcastEnabledUse: 'True when Broadcast Display Control is enabled in Settings > Integration > Web API. When false, IDs 1-8 are disabled and follow display 0.',
+        broadcastAssignmentsUse: 'One assignment for every display ID 0-8. Each item includes displayID, isEnabled, assignedMode, assignedModeTitle, effectiveRenderMode, followsDisplayControl, and isCustomMode.',
+        broadcastAssignedModeUse: 'The operator-selected mode for enabled IDs. Disabled IDs report followDisplayControl. Custom pages can inspect custom1, custom2, or custom3.',
+        broadcastEffectiveModeUse: 'The built-in render mode first-party pages should show. Custom modes resolve to the current main Display Control mode.',
+        broadcastDemoUse: 'The reference scoreboard defaults to ID 1 and the OBS source defaults to ID 2. Add displayId=0...8 to override either demo.'
       },
       zh: {
         title: 'SmartScoreboard Web API',
@@ -287,6 +308,7 @@
         health: 'v1 健康检查',
         docsTitle: 'API 文档',
         endpointColumn: '端点',
+        fieldColumn: '字段',
         useColumn: '用途',
         apiStatusUse: '仅 Web API 服务状态：API 版本、支持版本、端口、更新模式、状态、客户端数量和生成时间。',
         appStatusUse: '仅 App 身份和状态：App 名称、版本、构建号、API 版本标记和生成时间。',
@@ -298,7 +320,14 @@
         v1StateUse: '向后兼容的 v1 完整状态负载。图片字段只包含元数据和 URL，不嵌入图片内容。',
         healthUse: '向后兼容的 v1 服务健康负载，并嵌入 App 状态。',
         wsUse: '连接后发送 <code>{"type":"subscribe","apiVersion":"v2"}</code>。服务器会发送 v2 清单和独立的 <code>scoreboard.v2.resource</code> 消息，之后只推送变化的资源。',
-        v1WSUse: '向后兼容的 v1 WebSocket 行为。现有客户端会收到 <code>scoreboard.state</code> 信封，并可发送 <code>{"type":"get"}</code>。'
+        v1WSUse: '向后兼容的 v1 WebSocket 行为。现有客户端会收到 <code>scoreboard.state</code> 信封，并可发送 <code>{"type":"get"}</code>。',
+        broadcastTitle: '广播显示控制',
+        broadcastBody: 'display 资源始终包含 display.broadcastControl，并列出显示 ID 0-8 的分配。ID 0 是内部回退，跟随主显示控制。ID 1-8 用于 Web API 浏览器/自定义显示。',
+        broadcastEnabledUse: '在“设置 > 集成 > Web API”中启用 Broadcast Display Control 时为 true。关闭时，ID 1-8 都处于停用状态并跟随显示 0。',
+        broadcastAssignmentsUse: '每个显示 ID 0-8 都有一个分配项。每项包含 displayID、isEnabled、assignedMode、assignedModeTitle、effectiveRenderMode、followsDisplayControl 和 isCustomMode。',
+        broadcastAssignedModeUse: '已启用 ID 的操作员选择模式。停用的 ID 会报告 followDisplayControl。自定义页面可以检查 custom1、custom2 或 custom3。',
+        broadcastEffectiveModeUse: '第一方页面应显示的内置渲染模式。自定义模式会解析为当前主显示控制模式。',
+        broadcastDemoUse: '参考记分牌默认使用 ID 1，OBS 源默认使用 ID 2。可添加 displayId=0...8 覆盖任一演示。'
       }
     };
 
