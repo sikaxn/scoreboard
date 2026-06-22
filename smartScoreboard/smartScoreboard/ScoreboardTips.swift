@@ -159,8 +159,13 @@ enum ScoreboardTips {
 }
 
 extension View {
-    func scoreboardPopoverTip(_ tip: (any Tip)?, isEnabled: Bool, arrowEdge: Edge? = nil) -> some View {
-        popoverTip(isEnabled ? tip : nil, arrowEdge: arrowEdge)
+    @ViewBuilder
+    func scoreboardPopoverTip<T: Tip>(_ tip: T?, isEnabled: Bool, arrowEdge: Edge = .top) -> some View {
+        if isEnabled, let tip {
+            popoverTip(tip, arrowEdge: arrowEdge)
+        } else {
+            self
+        }
     }
 }
 #endif

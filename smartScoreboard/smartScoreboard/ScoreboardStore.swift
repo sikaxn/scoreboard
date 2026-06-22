@@ -488,6 +488,7 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
+    nonisolated static let maxInjuryTimeMinutes = 15
     nonisolated static let defaultRosterSize = 12
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
@@ -577,6 +578,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var gameClockSeconds = 10 * 60
     @Published var defaultClockSeconds = 10 * 60
     @Published var isGameClockEnabled = true
+    @Published var pendingInjuryTimeMinutes = 0
+    @Published var activeInjuryTimeMinutes = 0
+    @Published var hasAppliedInjuryTimeThisPeriod = false
     @Published var shotClockMilliseconds = 0
     @Published var defaultShotClockSeconds = 0
     @Published var activeShotClockPresetSeconds = 0
@@ -819,6 +823,29 @@ final class ScoreboardStore: ObservableObject {
         case .countdown, .countUp:
             return currentRules.sport != .volleyball || isGameClockEnabled
         }
+    }
+
+    var supportsInjuryTime: Bool {
+        guard showsGameClock, !usesChessClocks, gameClockMode == .countdown else {
+            return false
+        }
+
+        if selectedSport == .soccer {
+            return true
+        }
+
+        return selectedSport == .custom &&
+            isGameClockEnabled &&
+            customSportConfig.mainClockMode == .countdown &&
+            !customSportConfig.usesChessClocks
+    }
+
+    var isInjuryTimeActive: Bool {
+        activeInjuryTimeMinutes > 0
+    }
+
+    var formattedInjuryTime: String {
+        localizedStoreFormat("+%d min", max(0, activeInjuryTimeMinutes))
     }
 
     var displayedHomePlayers: [TrackedPlayer] {
@@ -1495,6 +1522,7 @@ final class ScoreboardStore: ObservableObject {
 
         if periodWinMatchWinner == nil {
             period = min(periodUpperBound, period + 1)
+            resetInjuryTimeForPeriod()
         }
 
         recordLog(
@@ -1525,6 +1553,7 @@ final class ScoreboardStore: ObservableObject {
 
         volleyballSetResults.removeLast()
         period = max(1, min(periodUpperBound, result.setNumber))
+        resetInjuryTimeForPeriod()
         homeScore = result.homeScore
         guestScore = result.guestScore
         pauseShotClock()
@@ -1555,6 +1584,9 @@ final class ScoreboardStore: ObservableObject {
 
         let previousPeriod = period
         period = max(1, min(periodUpperBound, period + delta))
+        if period != previousPeriod {
+            resetInjuryTimeForPeriod()
+        }
         recordLog(
             kind: .periodAdjustment,
             summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
@@ -1568,10 +1600,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPeriod(_ value: Int) {
+        let previousPeriod = period
         if supportsPeriod {
             period = max(1, min(periodUpperBound, value))
         } else {
             period = 1
+        }
+        if period != previousPeriod {
+            resetInjuryTimeForPeriod()
         }
     }
 
@@ -1659,6 +1695,7 @@ final class ScoreboardStore: ObservableObject {
 
         guard showsGameClock else {
             pauseClock()
+            resetInjuryTimeForPeriod()
             recordLog(
                 kind: .clockReset,
                 summary: localizedStoreString("Reset game clock"),
@@ -1680,6 +1717,7 @@ final class ScoreboardStore: ObservableObject {
 
         pauseClock()
         gameClockSeconds = boundedGameClockSeconds(seconds ?? defaultClockSeconds)
+        resetInjuryTimeForPeriod()
         recordLog(
             kind: .clockReset,
             summary: localizedStoreString("Reset game clock"),
@@ -2208,6 +2246,7 @@ final class ScoreboardStore: ObservableObject {
         possessionDirection = .none
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
+        resetInjuryTimeForPeriod()
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
         homeSubstitutionsUsed = 0
         guestSubstitutionsUsed = 0
@@ -3242,6 +3281,16 @@ final class ScoreboardStore: ObservableObject {
         if !showsGameClock {
             pauseClock()
         }
+        normalizeInjuryTimeState()
+    }
+
+    func setPendingInjuryTimeMinutes(_ minutes: Int) {
+        normalizeInjuryTimeState()
+        guard supportsInjuryTime, !hasAppliedInjuryTimeThisPeriod else {
+            return
+        }
+
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(minutes)
     }
 
     func restoreRuntimeAfterSetupApply(
@@ -3252,6 +3301,7 @@ final class ScoreboardStore: ObservableObject {
         isClockRunning = clockWasRunning && (showsGameClock || usesChessClocks)
         isShotClockRunning = shotClockWasRunning && supportsShotClock
         isDebatePrepClockRunning = debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
+        normalizeInjuryTimeState()
         updateTimerState()
     }
 
@@ -3299,6 +3349,7 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerCardsEnabled = false
             homePenaltyTimers = []
             guestPenaltyTimers = []
+            resetInjuryTimeForPeriod()
             setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
             if sport == .simple || sport == .debate {
@@ -3345,6 +3396,7 @@ final class ScoreboardStore: ObservableObject {
                 isPlayerTrackingEnabled = false
             }
         }
+        normalizeInjuryTimeState()
     }
 
     private func clearSubstitutionTracking() {
@@ -3512,7 +3564,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -3527,6 +3579,9 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
@@ -3717,6 +3772,10 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.gameClockSeconds) : boundedGameClockSeconds(snapshot.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
             isGameClockEnabled = snapshot.isGameClockEnabled ?? true
+            pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.pendingInjuryTimeMinutes ?? 0)
+            activeInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.activeInjuryTimeMinutes ?? 0)
+            hasAppliedInjuryTimeThisPeriod = snapshot.hasAppliedInjuryTimeThisPeriod ?? (activeInjuryTimeMinutes > 0)
+            normalizeInjuryTimeState()
             shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
@@ -3816,6 +3875,7 @@ final class ScoreboardStore: ObservableObject {
             if !showsGameClock {
                 pauseClock()
             }
+            normalizeInjuryTimeState()
             didCompleteSetup = true
         }
     }
@@ -3925,6 +3985,10 @@ final class ScoreboardStore: ObservableObject {
         }
 
         if gameClockMode == .countdown && gameClockSeconds == 0 {
+            if hasAppliedInjuryTimeThisPeriod && activeInjuryTimeMinutes > 0 {
+                return
+            }
+            resetInjuryTimeForPeriod()
             gameClockSeconds = defaultClockSeconds
         }
 
@@ -4103,26 +4167,11 @@ final class ScoreboardStore: ObservableObject {
                 } else {
                     switch gameClockMode {
                     case .countdown:
-                        gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
-
-                        if gameClockSeconds == 0 {
-                            let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .gameClockExpired
-                            isClockRunning = false
-                            accumulatedGameClockElapsed = 0
-                            if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
-                                clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
-                            } else if isDebateMode, debateActiveTimer == .segment {
-                                clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
-                            }
-                            soundEvents.append(fallbackEvent)
-                            recordLog(
-                                kind: .clockExpired,
-                                summary: localizedStoreString("Game clock expired"),
-                                outcome: .applied,
-                                value: gameClockSeconds
-                            )
-                            requestGameClockAutosave()
-                        }
+                        advanceCountdownGameClock(
+                            by: elapsedWholeSeconds,
+                            soundEvents: &soundEvents,
+                            clockEventDispatches: &clockEventDispatches
+                        )
                     case .countUp:
                         gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
 
@@ -4229,6 +4278,22 @@ final class ScoreboardStore: ObservableObject {
         timer?.invalidate()
     }
 
+    private func resetInjuryTimeForPeriod() {
+        pendingInjuryTimeMinutes = 0
+        activeInjuryTimeMinutes = 0
+        hasAppliedInjuryTimeThisPeriod = false
+    }
+
+    private func normalizeInjuryTimeState() {
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(pendingInjuryTimeMinutes)
+        activeInjuryTimeMinutes = boundedInjuryTimeMinutes(activeInjuryTimeMinutes)
+        if !supportsInjuryTime {
+            resetInjuryTimeForPeriod()
+        } else if !hasAppliedInjuryTimeThisPeriod {
+            activeInjuryTimeMinutes = 0
+        }
+    }
+
     private func normalizedTeamName(_ name: String) -> String {
         name
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4252,6 +4317,10 @@ final class ScoreboardStore: ObservableObject {
 
     private func boundedGameClockSeconds(_ value: Int) -> Int {
         max(0, min(Self.maxGameClockSeconds, value))
+    }
+
+    private func boundedInjuryTimeMinutes(_ value: Int) -> Int {
+        max(0, min(Self.maxInjuryTimeMinutes, value))
     }
 
     private func boundedDebateSegmentSeconds(_ value: Int) -> Int {
@@ -4283,6 +4352,61 @@ final class ScoreboardStore: ObservableObject {
         case .guest:
             return guestPenaltyTimers
         }
+    }
+
+    private func advanceCountdownGameClock(
+        by elapsedWholeSeconds: Int,
+        soundEvents: inout [ScoreboardSoundEvent],
+        clockEventDispatches: inout [ScoreboardEventDispatch]
+    ) {
+        guard elapsedWholeSeconds > 0 else {
+            return
+        }
+
+        normalizeInjuryTimeState()
+        if supportsInjuryTime,
+           !hasAppliedInjuryTimeThisPeriod,
+           pendingInjuryTimeMinutes > 0,
+           elapsedWholeSeconds >= gameClockSeconds {
+            let overflowSeconds = max(0, elapsedWholeSeconds - gameClockSeconds)
+            hasAppliedInjuryTimeThisPeriod = true
+            activeInjuryTimeMinutes = pendingInjuryTimeMinutes
+            gameClockSeconds = max(0, (activeInjuryTimeMinutes * 60) - overflowSeconds)
+
+            if gameClockSeconds == 0 {
+                expireCountdownGameClock(soundEvents: &soundEvents, clockEventDispatches: &clockEventDispatches)
+            } else {
+                requestGameClockAutosave()
+            }
+            return
+        }
+
+        gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
+        if gameClockSeconds == 0 {
+            expireCountdownGameClock(soundEvents: &soundEvents, clockEventDispatches: &clockEventDispatches)
+        }
+    }
+
+    private func expireCountdownGameClock(
+        soundEvents: inout [ScoreboardSoundEvent],
+        clockEventDispatches: inout [ScoreboardEventDispatch]
+    ) {
+        let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .gameClockExpired
+        isClockRunning = false
+        accumulatedGameClockElapsed = 0
+        if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
+            clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
+        } else if isDebateMode, debateActiveTimer == .segment {
+            clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
+        }
+        soundEvents.append(fallbackEvent)
+        recordLog(
+            kind: .clockExpired,
+            summary: localizedStoreString("Game clock expired"),
+            outcome: .applied,
+            value: gameClockSeconds
+        )
+        requestGameClockAutosave()
     }
 
     private func updatePenaltyTimers(for side: TeamSide, mutate: (inout [HockeyPenaltyTimer]) -> Void) {
@@ -5170,6 +5294,9 @@ final class ScoreboardStore: ObservableObject {
             $gameClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $pendingInjuryTimeMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $activeInjuryTimeMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $hasAppliedInjuryTimeThisPeriod.map { _ in () }.eraseToAnyPublisher(),
             $shotClockMilliseconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultShotClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -5393,6 +5520,10 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.gameClockSeconds) : boundedGameClockSeconds(persistedState.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.defaultClockSeconds) : boundedGameClockSeconds(persistedState.defaultClockSeconds)
             isGameClockEnabled = persistedState.isGameClockEnabled
+            pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(persistedState.pendingInjuryTimeMinutes)
+            activeInjuryTimeMinutes = boundedInjuryTimeMinutes(persistedState.activeInjuryTimeMinutes)
+            hasAppliedInjuryTimeThisPeriod = persistedState.hasAppliedInjuryTimeThisPeriod || activeInjuryTimeMinutes > 0
+            normalizeInjuryTimeState()
             shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
@@ -5429,6 +5560,7 @@ final class ScoreboardStore: ObservableObject {
             if !currentRules.showsPauseTracking {
                 clearPauseTracking()
             }
+            normalizeInjuryTimeState()
             homeTeamFouls = max(0, persistedState.homeTeamFouls)
             guestTeamFouls = max(0, persistedState.guestTeamFouls)
             homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.homeChessClockSeconds) : boundedGameClockSeconds(persistedState.homeChessClockSeconds)
@@ -5593,6 +5725,10 @@ final class ScoreboardStore: ObservableObject {
             }
         }
 
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.pendingInjuryTimeMinutes ?? pendingInjuryTimeMinutes)
+        activeInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.activeInjuryTimeMinutes ?? activeInjuryTimeMinutes)
+        hasAppliedInjuryTimeThisPeriod = snapshot.hasAppliedInjuryTimeThisPeriod ?? (hasAppliedInjuryTimeThisPeriod || activeInjuryTimeMinutes > 0)
+        normalizeInjuryTimeState()
         lastTimerFireDate = Date(timeIntervalSince1970: snapshot.savedAtUnixTime)
         lastPrimaryTimerPersistenceSignature = snapshot.signature
         updateTimerState()
@@ -5627,7 +5763,10 @@ final class ScoreboardStore: ObservableObject {
                 activeChessClockSide: activeChessClockSide,
                 debateActiveTimer: debateActiveTimer,
                 debatePrepHomeSeconds: debatePrepHomeSeconds,
-                debatePrepGuestSeconds: debatePrepGuestSeconds
+                debatePrepGuestSeconds: debatePrepGuestSeconds,
+                pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+                activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+                hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
             )
         }
 
@@ -5655,7 +5794,10 @@ final class ScoreboardStore: ObservableObject {
                 activeChessClockSide: activeChessClockSide,
                 debateActiveTimer: debateActiveTimer,
                 debatePrepHomeSeconds: debatePrepHomeSeconds,
-                debatePrepGuestSeconds: debatePrepGuestSeconds
+                debatePrepGuestSeconds: debatePrepGuestSeconds,
+                pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+                activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+                hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
             )
         }
 
@@ -5666,9 +5808,9 @@ final class ScoreboardStore: ObservableObject {
         let signature: String
         switch gameClockMode {
         case .countdown:
-            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)"
+            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)-injury-\(pendingInjuryTimeMinutes)-\(activeInjuryTimeMinutes)-\(hasAppliedInjuryTimeThisPeriod)"
         case .countUp:
-            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)"
+            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)-injury-\(pendingInjuryTimeMinutes)-\(activeInjuryTimeMinutes)-\(hasAppliedInjuryTimeThisPeriod)"
         }
 
         return PrimaryTimerPersistenceSnapshot(
@@ -5681,7 +5823,10 @@ final class ScoreboardStore: ObservableObject {
             activeChessClockSide: activeChessClockSide,
             debateActiveTimer: debateActiveTimer,
             debatePrepHomeSeconds: debatePrepHomeSeconds,
-            debatePrepGuestSeconds: debatePrepGuestSeconds
+            debatePrepGuestSeconds: debatePrepGuestSeconds,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
         )
     }
 
@@ -5704,6 +5849,9 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
@@ -5955,6 +6103,9 @@ private struct PrimaryTimerPersistenceSnapshot: Codable {
     var debateActiveTimer: DebateActiveTimer
     var debatePrepHomeSeconds: Int
     var debatePrepGuestSeconds: Int
+    var pendingInjuryTimeMinutes: Int?
+    var activeInjuryTimeMinutes: Int?
+    var hasAppliedInjuryTimeThisPeriod: Bool?
 }
 
 private struct PersistedState: Codable {
@@ -5971,6 +6122,9 @@ private struct PersistedState: Codable {
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool
+    var pendingInjuryTimeMinutes: Int
+    var activeInjuryTimeMinutes: Int
+    var hasAppliedInjuryTimeThisPeriod: Bool
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
     var activeShotClockPresetSeconds: Int
@@ -6072,6 +6226,9 @@ private struct PersistedState: Codable {
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
+        case pendingInjuryTimeMinutes
+        case activeInjuryTimeMinutes
+        case hasAppliedInjuryTimeThisPeriod
         case shotClockMilliseconds
         case shotClockSeconds
         case defaultShotClockSeconds
@@ -6178,6 +6335,9 @@ private struct PersistedState: Codable {
         gameClockSeconds: Int,
         defaultClockSeconds: Int,
         isGameClockEnabled: Bool,
+        pendingInjuryTimeMinutes: Int,
+        activeInjuryTimeMinutes: Int,
+        hasAppliedInjuryTimeThisPeriod: Bool,
         shotClockMilliseconds: Int,
         defaultShotClockSeconds: Int,
         activeShotClockPresetSeconds: Int,
@@ -6278,6 +6438,9 @@ private struct PersistedState: Codable {
         self.gameClockSeconds = gameClockSeconds
         self.defaultClockSeconds = defaultClockSeconds
         self.isGameClockEnabled = isGameClockEnabled
+        self.pendingInjuryTimeMinutes = pendingInjuryTimeMinutes
+        self.activeInjuryTimeMinutes = activeInjuryTimeMinutes
+        self.hasAppliedInjuryTimeThisPeriod = hasAppliedInjuryTimeThisPeriod
         self.shotClockMilliseconds = shotClockMilliseconds
         self.defaultShotClockSeconds = defaultShotClockSeconds
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
@@ -6381,6 +6544,9 @@ private struct PersistedState: Codable {
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled) ?? true
+        pendingInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .pendingInjuryTimeMinutes) ?? 0
+        activeInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .activeInjuryTimeMinutes) ?? 0
+        hasAppliedInjuryTimeThisPeriod = try container.decodeIfPresent(Bool.self, forKey: .hasAppliedInjuryTimeThisPeriod) ?? (activeInjuryTimeMinutes > 0)
         if let shotClockMilliseconds = try container.decodeIfPresent(Int.self, forKey: .shotClockMilliseconds) {
             self.shotClockMilliseconds = shotClockMilliseconds
         } else {
@@ -6525,6 +6691,9 @@ private struct PersistedState: Codable {
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(isGameClockEnabled, forKey: .isGameClockEnabled)
+        try container.encode(pendingInjuryTimeMinutes, forKey: .pendingInjuryTimeMinutes)
+        try container.encode(activeInjuryTimeMinutes, forKey: .activeInjuryTimeMinutes)
+        try container.encode(hasAppliedInjuryTimeThisPeriod, forKey: .hasAppliedInjuryTimeThisPeriod)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
@@ -6639,6 +6808,9 @@ private extension PersistedState {
             gameClockSeconds: 10 * 60,
             defaultClockSeconds: 10 * 60,
             isGameClockEnabled: true,
+            pendingInjuryTimeMinutes: 0,
+            activeInjuryTimeMinutes: 0,
+            hasAppliedInjuryTimeThisPeriod: false,
             shotClockMilliseconds: 0,
             defaultShotClockSeconds: 0,
             activeShotClockPresetSeconds: 0,

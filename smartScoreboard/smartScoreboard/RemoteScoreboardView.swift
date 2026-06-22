@@ -343,6 +343,7 @@ private struct RemoteScoreboardFace: View {
             period: state.game.period,
             formattedClock: projection.formattedGameClock,
             showsGameClock: state.clocks.showsGameClock,
+            activeInjuryTimeMinutes: state.clocks.activeInjuryTimeMinutes ?? 0,
             showsDualClocks: state.rules.usesChessClocks,
             formattedHomeChessClock: projection.formattedHomeChessClock,
             formattedGuestChessClock: projection.formattedGuestChessClock,

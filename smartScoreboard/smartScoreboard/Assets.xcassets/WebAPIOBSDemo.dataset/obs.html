@@ -332,6 +332,13 @@
       font-weight: 950;
       text-transform: uppercase;
     }
+    .extra.injury {
+      margin: 0 16px 8px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #f59e0b;
+      color: #101623;
+    }
     .disconnected::after {
       content: attr(data-disconnected-label);
       position: absolute;
@@ -711,7 +718,11 @@
       }
       fitClockToOneLine();
 
-      el('extra').textContent = rules.supportsShotClock ? `${t('shotClockShort')} ${text(clocks.formattedShotClock, '0.0')}` : text(rules.title, t('live'));
+      const injuryMinutes = Number(clocks.activeInjuryTimeMinutes || 0);
+      el('extra').classList.toggle('injury', injuryMinutes > 0);
+      el('extra').textContent = injuryMinutes > 0
+        ? `+${injuryMinutes} min`
+        : (rules.supportsShotClock ? `${t('shotClockShort')} ${text(clocks.formattedShotClock, '0.0')}` : text(rules.title, t('live')));
     }
 
     function handleV2Message(message) {

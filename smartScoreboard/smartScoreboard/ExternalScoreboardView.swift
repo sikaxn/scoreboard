@@ -46,6 +46,7 @@ struct ExternalScoreboardView: View {
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
+            activeInjuryTimeMinutes: store.activeInjuryTimeMinutes,
             showsDualClocks: store.usesChessClocks,
             formattedHomeChessClock: store.formattedHomeChessClock,
             formattedGuestChessClock: store.formattedGuestChessClock,
@@ -215,6 +216,7 @@ struct PublicScoreboardDisplayView: View {
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
+    let activeInjuryTimeMinutes: Int
     let showsDualClocks: Bool
     let formattedHomeChessClock: String
     let formattedGuestChessClock: String
@@ -530,6 +532,7 @@ struct PublicScoreboardDisplayView: View {
             period: period,
             formattedClock: formattedClock,
             showsGameClock: showsGameClock,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
             showsDualClocks: showsDualClocks,
             formattedHomeChessClock: formattedHomeChessClock,
             formattedGuestChessClock: formattedGuestChessClock,

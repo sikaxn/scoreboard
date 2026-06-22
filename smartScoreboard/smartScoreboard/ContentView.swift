@@ -101,8 +101,8 @@ struct ContentView: View {
     @State private var showsLocalScoreboard = false
     @State private var showsLocalScoreboardReturnHint = false
     @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
-    @State private var dashboardTipGroup: TipGroup?
-    @State private var dashboardTipGroupSignature = ""
+    @State private var dashboardTourSignatureSnapshot = ""
+    @State private var dashboardCurrentTourTipID: String?
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingBackupRestore: PendingBackupRestore?
     @State private var pendingLogDeletion: StoredLogSession?
@@ -1234,8 +1234,8 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func scoreboardInlineTip(_ tip: (any Tip)?) -> some View {
-        if store.areTipsEnabled {
+    private func scoreboardInlineTip<T: Tip>(_ tip: T?) -> some View {
+        if store.areTipsEnabled, let tip {
             TipView(tip)
         }
     }
@@ -7091,10 +7091,10 @@ struct ContentView: View {
                 }
             }
             .onAppear {
-                refreshDashboardTipGroup()
+                refreshDashboardCurrentTourTip()
             }
             .onChange(of: dashboardTourSignature) { _, _ in
-                refreshDashboardTipGroup()
+                refreshDashboardCurrentTourTip()
             }
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isDashboardHeaderHidden)
         }
@@ -7147,14 +7147,16 @@ struct ContentView: View {
                     .padding(.trailing, layout.headerHorizontalPadding)
             }
         }
-        .scoreboardPopoverTip(dashboardHeaderTip(layout: layout), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
-    }
-
-    private func dashboardHeaderTip(layout: InterfaceLayout) -> (any Tip)? {
-        if shouldShowIPhonePortraitLandscapeTip(layout: layout) {
-            return ScoreboardTips.iPhoneLandscape
-        }
-        return dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard)
+        .scoreboardPopoverTip(
+            shouldShowIPhonePortraitLandscapeTip(layout: layout) ? ScoreboardTips.iPhoneLandscape : nil,
+            isEnabled: arePopoverTipsEnabled,
+            arrowEdge: .bottom
+        )
+        .scoreboardPopoverTip(
+            shouldShowIPhonePortraitLandscapeTip(layout: layout) ? nil : dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard),
+            isEnabled: arePopoverTipsEnabled,
+            arrowEdge: .bottom
+        )
     }
 
     private func shouldShowIPhonePortraitLandscapeTip(layout: InterfaceLayout) -> Bool {
@@ -7838,28 +7840,24 @@ struct ContentView: View {
         dashboardTourTips.map(\.id).joined(separator: "|")
     }
 
-    private func refreshDashboardTipGroup() {
+    private func refreshDashboardCurrentTourTip() {
         let signature = dashboardTourSignature
-        guard signature != dashboardTipGroupSignature else { return }
+        let currentTipID = dashboardTourTips.first { $0.shouldDisplay }?.id
+        guard signature != dashboardTourSignatureSnapshot || currentTipID != dashboardCurrentTourTipID else { return }
 
-        let tips = dashboardTourTips
-        dashboardTipGroupSignature = signature
-        dashboardTipGroup = TipGroup(.ordered) {
-            for tip in tips {
-                tip
-            }
-        }
+        dashboardTourSignatureSnapshot = signature
+        dashboardCurrentTourTipID = currentTipID
     }
 
-    private func dashboardCurrentTourTip(matching tip: any Tip) -> (any Tip)? {
-        guard dashboardPage == .main, let currentTip = dashboardTipGroup?.currentTip, currentTip.id == tip.id else {
+    private func dashboardCurrentTourTip<T: Tip>(matching tip: T) -> T? {
+        guard dashboardPage == .main, dashboardCurrentTourTipID == tip.id else {
             return nil
         }
-        return currentTip
+        return tip
     }
 
     @ViewBuilder
-    private func dashboardOrderedTip(_ tip: any Tip) -> some View {
+    private func dashboardOrderedTip<T: Tip>(_ tip: T) -> some View {
         if store.areTipsEnabled, let currentTip = dashboardCurrentTourTip(matching: tip) {
             scoreboardInlineTip(currentTip)
         }
@@ -8336,6 +8334,9 @@ struct ContentView: View {
                 }
                 if store.supportsPeriod {
                     gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                }
+                if store.activeInjuryTimeMinutes > 0 {
+                    gameMetricCard(title: "Added Time", value: localizedAppFormat("+%d min", store.activeInjuryTimeMinutes), layout: layout)
                 }
                 if store.supportsPeriodWinTracking {
                     gameMetricCard(title: "Periods", value: "\(store.homePeriodWins)-\(store.guestPeriodWins)", layout: layout)
@@ -9033,6 +9034,10 @@ struct ContentView: View {
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
+
+                if store.supportsInjuryTime {
+                    injuryTimeControl(layout: layout)
+                }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Match Controls")
@@ -9591,6 +9596,63 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
         }
+    }
+
+    private func injuryTimeControl(layout: InterfaceLayout) -> some View {
+        let isLocked = store.hasAppliedInjuryTimeThisPeriod
+        let pendingValue = store.pendingInjuryTimeMinutes == 0
+            ? localizedAppString("Off")
+            : localizedAppFormat("+%d min", store.pendingInjuryTimeMinutes)
+        let valueText = store.activeInjuryTimeMinutes > 0
+            ? localizedAppFormat("Applied +%d min", store.activeInjuryTimeMinutes)
+            : pendingValue
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Added Time")
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardSubtleText)
+
+                Text(valueText)
+                    .font(.headline.weight(.black))
+                    .singleLineFitted(minScale: 0.6)
+                    .foregroundStyle(store.activeInjuryTimeMinutes > 0 ? themePalette.dashboardWarningButton : themePalette.dashboardPrimaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ForEach(0...ScoreboardStore.maxInjuryTimeMinutes, id: \.self) { minutes in
+                    Button {
+                        store.setPendingInjuryTimeMinutes(minutes)
+                    } label: {
+                        Label {
+                            Text(minutes == 0 ? localizedAppString("Off") : localizedAppFormat("+%d min", minutes))
+                        } icon: {
+                            Image(systemName: store.pendingInjuryTimeMinutes == minutes ? "checkmark.circle.fill" : "plus.circle")
+                        }
+                    }
+                }
+            } label: {
+                Label("Set", systemImage: "plus.circle")
+                    .font(.headline.weight(.bold))
+                    .singleLineFitted(minScale: 0.62)
+                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, layout.advancedButtonVerticalPadding)
+                    .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .disabled(isLocked)
+            .opacity(isLocked ? 0.42 : 1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(themePalette.dashboardCardBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
+        )
     }
 
     private var periodWinStatusText: String {
@@ -10630,7 +10692,7 @@ struct ContentView: View {
             (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -12190,7 +12252,7 @@ struct ContentView: View {
             (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -12442,7 +12504,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 11,
+                    fileVersion: 12,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
@@ -12640,6 +12702,7 @@ struct ContentView: View {
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
+            activeInjuryTimeMinutes: store.activeInjuryTimeMinutes,
             showsDualClocks: store.usesChessClocks,
             formattedHomeChessClock: store.formattedHomeChessClock,
             formattedGuestChessClock: store.formattedGuestChessClock,

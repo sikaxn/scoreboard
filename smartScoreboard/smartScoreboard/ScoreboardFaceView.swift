@@ -74,6 +74,7 @@ struct ScoreboardFaceView: View {
     let period: Int
     let formattedClock: String
     let showsGameClock: Bool
+    let activeInjuryTimeMinutes: Int
     let showsDualClocks: Bool
     let formattedHomeChessClock: String
     let formattedGuestChessClock: String
@@ -615,6 +616,16 @@ struct ScoreboardFaceView: View {
                         headerBadge(title: "CLOCK", value: localizedBoardString(isClockRunning ? "RUNNING" : "STOPPED"), condensed: condensed, ultraCondensed: ultraCondensed)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
+                    if activeInjuryTimeMinutes > 0 {
+                        headerBadge(
+                            title: "Added Time",
+                            value: localizedBoardFormat("+%d min", activeInjuryTimeMinutes),
+                            condensed: condensed,
+                            ultraCondensed: ultraCondensed,
+                            valueColor: palette.dashboardWarningButton
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     if rules.supportsPeriod {
                         headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
                     }
@@ -646,6 +657,7 @@ struct ScoreboardFaceView: View {
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isDisplayShotClockAlertActive)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: period)
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: activeInjuryTimeMinutes)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: showsEventBranding)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: trimmedEventName)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))

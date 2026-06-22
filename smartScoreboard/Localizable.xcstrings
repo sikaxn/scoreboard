@@ -23,6 +23,16 @@
         }
       }
     },
+    "+%d min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%d 分钟"
+          }
+        }
+      }
+    },
     "-1 Min" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1427,6 +1437,16 @@
         }
       }
     },
+    "Added Time" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "补时"
+          }
+        }
+      }
+    },
     "Application" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1443,6 +1463,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已应用"
+          }
+        }
+      }
+    },
+    "Applied +%d min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已应用 +%d 分钟"
           }
         }
       }
@@ -10942,6 +10972,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "会话"
+          }
+        }
+      }
+    },
+    "Set" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置"
           }
         }
       }

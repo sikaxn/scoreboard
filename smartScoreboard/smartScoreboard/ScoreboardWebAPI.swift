@@ -229,6 +229,7 @@ nonisolated struct ScoreboardWebAPIRules: Codable, Sendable {
     let supportsPauses: Bool?
     let supportsHockeyPenalties: Bool
     let usesChessClocks: Bool
+    let supportsInjuryTime: Bool?
 }
 
 nonisolated struct ScoreboardWebAPITeams: Codable, Sendable {
@@ -260,6 +261,9 @@ nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
     let showsGameClock: Bool
     let gameClockMode: GameClockMode
     let isGameClockRunning: Bool
+    let pendingInjuryTimeMinutes: Int?
+    let activeInjuryTimeMinutes: Int?
+    let isInjuryTimeActive: Bool?
     let shotClockMilliseconds: Int
     let formattedShotClock: String
     let defaultShotClockSeconds: Int
@@ -1867,7 +1871,8 @@ extension ScoreboardStore {
                 supportsSubstitutions: rules.showsSubstitutionTracking || showsSubstitutionTracking,
                 supportsPauses: rules.showsPauseTracking || showsPauseTracking,
                 supportsHockeyPenalties: supportsHockeyPenalties,
-                usesChessClocks: usesChessClocks
+                usesChessClocks: usesChessClocks,
+                supportsInjuryTime: supportsInjuryTime
             ),
             teams: ScoreboardWebAPITeams(
                 home: webAPITeam(for: .home),
@@ -1880,6 +1885,9 @@ extension ScoreboardStore {
                 showsGameClock: showsGameClock,
                 gameClockMode: gameClockMode,
                 isGameClockRunning: isClockRunning,
+                pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+                activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+                isInjuryTimeActive: isInjuryTimeActive,
                 shotClockMilliseconds: shotClockMilliseconds,
                 formattedShotClock: formattedShotClock,
                 defaultShotClockSeconds: defaultShotClockSeconds,

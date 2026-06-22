@@ -231,6 +231,17 @@
       text-overflow: clip;
       white-space: nowrap;
     }
+    .injury-time {
+      margin-top: 10px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #f59e0b;
+      color: #111827;
+      font-size: clamp(16px, 2vw, 22px);
+      font-weight: 1000;
+      text-transform: uppercase;
+      line-height: 1;
+    }
     .shot-box {
       min-height: 86px;
       padding: 8px 12px;
@@ -543,6 +554,7 @@
         <div id="period" class="period-box">P 1</div>
         <div class="clock-box">
           <div id="clock" class="clock">00:00</div>
+          <div id="injuryTime" class="injury-time hidden">+0 min</div>
         </div>
         <div id="shot" class="shot-box hidden">24.0</div>
         <div id="possession" class="possession-box">Possession Off</div>
@@ -916,6 +928,9 @@
       } else {
         el('clock').textContent = clocks.showsGameClock ? valueText(clocks.formattedGameClock, '00:00') : '--:--';
       }
+      const injuryMinutes = Number(clocks.activeInjuryTimeMinutes || 0);
+      el('injuryTime').classList.toggle('hidden', injuryMinutes <= 0);
+      if (injuryMinutes > 0) el('injuryTime').textContent = `+${injuryMinutes} min`;
       fitClockToOneLine();
 
       const showShot = Boolean(rules.supportsShotClock);

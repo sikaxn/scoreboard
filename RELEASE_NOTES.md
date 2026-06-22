@@ -6,6 +6,7 @@
 
 - Added team pause tracking for Basketball, Volleyball, Hockey, and Custom Sports that enable pauses.
 - Added pause allowance setup, live pause controls, public display pause indicators, logs, sounds, Companion events, Remote Display sync, and Web API output.
+- Added Soccer and Custom countdown injury-time controls with automatic +N minute public display.
 - Added optional Web API Custom User Page support, served from `/user` and `/user/...` when included by the build setting, with a default Hello World `index.html`.
 - Added Files app access on iPhone and iPad for Library, Logs, and Custom User Page files so user-managed files can be edited outside the app.
 - Added Finder access on Mac for the Custom User Page folder.

@@ -14,7 +14,7 @@ This project use AI generated contents.
 
 Scoreboard turns your iPhone, iPad, or Mac into a flexible, easy-to-control scoreboard for games, practices, tournaments, and debate rounds.
 
-Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
+Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, soccer injury time, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
 
 Built-in presets include Simple, Basketball, Volleyball, Soccer, Hockey, Chess, Debate, and Custom Sport modes. Debate supports Public Forum, Lincoln-Douglas, Policy, and custom round formats.
 
@@ -29,6 +29,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 ## Features
 
 - Real-time score, period, and game clock controls
+- Soccer and Custom countdown injury-time controls with public +N minute display
 - Public scoreboard support for external displays and AirPlay, including Apple TV AirPlay without installing the tvOS app
 - Apple TV, iPhone, iPad, and Mac Remote Display pairing with live scoreboard sync across multiple displays
 - Built-in modes for Simple, Basketball, Volleyball, Soccer, Hockey, Chess, and Debate
