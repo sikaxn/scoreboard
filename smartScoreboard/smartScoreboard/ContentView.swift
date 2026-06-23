@@ -1346,25 +1346,65 @@ struct ContentView: View {
     }
 
     private func builtInSportGameSettingsSection() -> some View {
-        settingsSection(title: "Game") {
-            settingsOptionTip("Review the starting game state for the selected sport before opening the control board. Only options that matter to this sport appear here, such as period, clock presets, chess clocks, match timer, or shot clock.", systemImage: "slider.horizontal.3")
-            builtInSportGameSettingsRows()
+        VStack(alignment: .leading, spacing: 10) {
+            localizedAppText("Game")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .textCase(.uppercase)
+
+            VStack(spacing: 0) {
+                settingsOptionTip("Review the starting game state for the selected sport before opening the control board. Only options that matter to this sport appear here, such as period, clock presets, chess clocks, match timer, or shot clock.", systemImage: "slider.horizontal.3")
+                builtInSportGameSettingsRows()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(settingsPalette.cardBorder)
+            )
         }
     }
 
-    @ViewBuilder
     private func builtInSportGameSettingsRows() -> some View {
-        if setupRules.supportsPeriod {
-            settingsStepperValueRow(
-                title: "Starting \(setupRules.periodTitle)",
-                value: "\(setupPeriod)",
-                decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                increment: { setupPeriod = min(setupPeriodUpperBound, setupPeriod + 1) }
-            )
+        SettingsErasedRows(rows: builtInSportGameSettingsRowViews())
+    }
+
+    private func builtInSportGameSettingsRowViews() -> [AnyView] {
+        let rules = setupRules
+        var rows: [AnyView] = []
+
+        if rules.supportsPeriod {
+            rows.append(AnyView(
+                settingsStepperValueRow(
+                    title: "Starting \(rules.periodTitle)",
+                    value: "\(setupPeriod)",
+                    decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                    increment: { setupPeriod = min(setupPeriodUpperBound, setupPeriod + 1) }
+                )
+            ))
         }
 
         if setupSport == .volleyball {
-            settingsDivider()
+            appendVolleyballSetupRows(to: &rows)
+        }
+
+        if rules.usesChessClocks {
+            appendChessClockSetupRows(to: &rows)
+        } else if rules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
+            appendSharedClockSetupRows(to: &rows)
+        }
+
+        if rules.supportsShotClock {
+            appendShotClockSetupRows(to: &rows)
+        }
+
+        return rows
+    }
+
+    private func appendVolleyballSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
             settingsSegmentRow(
                 title: "Match Format",
                 options: [
@@ -1376,107 +1416,112 @@ struct ContentView: View {
                     set: { setupVolleyballMatchFormat = $0 == VolleyballMatchFormat.bestOf3.maximumSets ? .bestOf3 : .bestOf5 }
                 )
             )
-            settingsDivider()
-            settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
-        }
-
-        if setupRules.usesChessClocks {
-            chessClockSetupRows()
-        } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
-            sharedClockSetupRows()
-        }
-
-        if setupRules.supportsShotClock {
-            shotClockSetupRows()
-        }
+        ))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)))
     }
 
-    @ViewBuilder
-    private func chessClockSetupRows() -> some View {
+    private func appendChessClockSetupRows(to rows: inout [AnyView]) {
         if setupSport == .chess {
-            settingsDivider()
-            settingsSegmentRow(
-                title: "Preset",
-                options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
-                selection: Binding(
-                    get: { setupChessPreset.seconds },
-                    set: { value in
-                        if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
-                            setupChessPreset = preset
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Preset",
+                    options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                    selection: Binding(
+                        get: { setupChessPreset.seconds },
+                        set: { value in
+                            if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                                setupChessPreset = preset
+                            }
                         }
-                    }
+                    )
                 )
-            )
+            ))
         }
 
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Home Clock",
-            value: formatClock(setupClockSeconds),
-            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-        )
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Guest Clock",
-            value: formatClock(setupGuestClockSeconds),
-            decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
-            increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
-        )
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Home Clock",
+                value: formatClock(setupClockSeconds),
+                decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Guest Clock",
+                value: formatClock(setupGuestClockSeconds),
+                decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+            )
+        ))
     }
 
-    @ViewBuilder
-    private func sharedClockSetupRows() -> some View {
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Opening Clock",
-            value: formatClock(setupClockSeconds),
-            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-        )
-        settingsDivider()
+    private func appendSharedClockSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Opening Clock",
+                value: formatClock(setupClockSeconds),
+                decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
         if setupSport == .simple {
-            settingsPresetButtonGrid(
-                title: "Clock Preset",
-                options: clockPresetOptions(for: setupSport),
-                selection: $setupClockSeconds
-            )
+            rows.append(AnyView(
+                settingsPresetButtonGrid(
+                    title: "Clock Preset",
+                    options: clockPresetOptions(for: setupSport),
+                    selection: $setupClockSeconds
+                )
+            ))
         } else {
-            settingsSegmentRow(
-                title: "Clock Preset",
-                options: clockPresetOptions(for: setupSport),
-                selection: $setupClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Clock Preset",
+                    options: clockPresetOptions(for: setupSport),
+                    selection: $setupClockSeconds
+                )
+            ))
         }
     }
 
-    @ViewBuilder
-    private func shotClockSetupRows() -> some View {
-        settingsDivider()
-        settingsStepperValueRow(
-            title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock",
-            value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-            decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-            increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-        )
-        settingsDivider()
+    private func appendShotClockSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock",
+                value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
         if setupUsesServeTimer {
-            settingsSegmentRow(
-                title: "Serve Preset",
-                options: [
-                    ("8", 8)
-                ],
-                selection: $setupShotClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Serve Preset",
+                    options: [
+                        ("8", 8)
+                    ],
+                    selection: $setupShotClockSeconds
+                )
+            ))
         } else {
-            settingsSegmentRow(
-                title: "Shot Preset",
-                options: [
-                    ("24", 24),
-                    ("14", 14)
-                ],
-                selection: $setupShotClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Shot Preset",
+                    options: [
+                        ("24", 24),
+                        ("14", 14)
+                    ],
+                    selection: $setupShotClockSeconds
+                )
+            ))
         }
     }
 
@@ -3177,20 +3222,22 @@ struct ContentView: View {
 
     private func settingsWebAPIBroadcastControlSection() -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            localizedAppText("Broadcast Display Control")
+            localizedAppText("Custom Display Control")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(settingsPalette.secondaryText)
                 .textCase(.uppercase)
 
             VStack(spacing: 0) {
-                settingsToggleRow(title: "Enable Broadcast Display Control", isOn: Binding(
+                settingsToggleRow(title: "Enable Custom Display Control", isOn: Binding(
                     get: { store.isWebAPIBroadcastControlEnabled },
                     set: { store.setWebAPIBroadcastControlEnabled($0) }
                 ))
 
-                if store.isWebAPIBroadcastControlEnabled {
+                if store.isCustomDisplayControlVisible {
                     settingsDivider()
-                    settingsWebAPIBroadcastEnabledDisplaysRow()
+                    settingsCustomDisplayEnabledDisplaysRow()
+                    settingsDivider()
+                    settingsCustomDisplayModeNameRows()
                 }
             }
             .padding(.horizontal, 18)
@@ -3210,13 +3257,49 @@ struct ContentView: View {
         }
     }
 
-    private func settingsWebAPIBroadcastEnabledDisplaysRow() -> some View {
+    private func settingsCustomDisplayEnabledDisplaysRow() -> some View {
         settingsStepperValueRow(
             title: "Enabled Displays",
             value: "\(store.webAPIBroadcastEnabledDisplayCount)",
             decrement: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount - 1) },
             increment: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount + 1) }
         )
+    }
+
+    private func settingsCustomDisplayModeNameRows() -> some View {
+        VStack(spacing: 0) {
+            settingsSummaryValueRow(title: "Custom Mode Names", value: localizedAppString("Menu labels"))
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 1 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom1) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom1) }
+                ),
+                placeholder: "Custom 1",
+                focusID: "custom-display-mode-custom1-name"
+            )
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 2 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom2) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom2) }
+                ),
+                placeholder: "Custom 2",
+                focusID: "custom-display-mode-custom2-name"
+            )
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 3 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom3) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom3) }
+                ),
+                placeholder: "Custom 3",
+                focusID: "custom-display-mode-custom3-name"
+            )
+        }
     }
 
     private func settingsIntegrationConfigurationSection() -> some View {
@@ -3391,6 +3474,29 @@ struct ContentView: View {
             ))
             settingsDivider()
             settingsRemoteDisplayNetworkModeRow()
+            settingsDivider()
+            settingsToggleRow(title: "Allow Individual Remote Display Control", isOn: Binding(
+                get: { store.isRemoteDisplayIndividualControlEnabled },
+                set: { store.setRemoteDisplayIndividualControlEnabled($0) }
+            ))
+            if store.isRemoteDisplayIndividualControlEnabled {
+                settingsDivider()
+                settingsCustomDisplayEnabledDisplaysRow()
+                settingsDivider()
+                Text("Enabled Displays is shared with Web API Custom Display Control. Changes here are mirrored on the Web API page.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                settingsDivider()
+                Text("Assign saved or connected Remote Displays to enabled Custom Display Control IDs. Displays set to ID 0 follow the main Display Control.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
             settingsDivider()
             settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
             settingsDivider()
@@ -3772,7 +3878,12 @@ struct ContentView: View {
             }
 
             if row.isTrusted || row.isConnected {
-                remoteDisplayDirectionControls(row)
+                VStack(alignment: .leading, spacing: 8) {
+                    remoteDisplayDirectionControls(row)
+                    if store.isRemoteDisplayIndividualControlEnabled {
+                        remoteDisplayCustomDisplayIDPicker(row)
+                    }
+                }
                     .padding(.leading, 46)
             }
         }
@@ -3800,6 +3911,32 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func remoteDisplayCustomDisplayIDPicker(_ row: RemoteDisplaySettingsRow) -> some View {
+        HStack(spacing: 8) {
+            Text(localizedAppString("Display ID"))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(settingsPalette.secondaryText)
+
+            Picker(localizedAppString("Display ID"), selection: Binding(
+                get: { store.remoteDisplayCustomDisplayID(displayID: row.id) },
+                set: { store.setRemoteDisplayCustomDisplayID(displayID: row.id, customDisplayID: $0) }
+            )) {
+                Text(localizedAppString("Follow Main (ID 0)")).tag(ScoreboardStore.minWebAPIBroadcastDisplayID)
+                ForEach(store.customDisplayEnabledDisplayIDs, id: \.self) { displayID in
+                    Text(localizedAppFormat("Display %d", displayID)).tag(displayID)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(settingsPalette.cardBorder.opacity(0.7), lineWidth: 1)
+        )
     }
 
     private func remoteDisplayDirectionPicker(
@@ -7772,7 +7909,7 @@ struct ContentView: View {
                 displayPresetPanel(layout: layout)
                     .transition(.move(edge: .top).combined(with: .opacity))
 
-                if store.isWebAPIBroadcastControlEnabled {
+                if store.isCustomDisplayControlVisible {
                     broadcastDisplayControlPanel(layout: layout)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -7973,7 +8110,7 @@ struct ContentView: View {
     private func broadcastDisplayControlPanel(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                localizedAppText("Broadcast Display Control")
+                localizedAppText("Custom Display Control")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themePalette.dashboardPrimaryText)
 
@@ -7986,13 +8123,13 @@ struct ContentView: View {
             }
 
             dashboardPanelTip(
-                "Use Broadcast Display Control to assign display modes to enabled Web API browser sources. ID 0 is reserved for the main Display Control fallback and is not shown here.",
+                "Assign display modes to enabled Custom Display Control IDs used by Web API custom pages and Remote Displays. ID 0 follows the main Display Control and is not shown here.",
                 systemImage: "rectangle.connected.to.line.below",
                 layout: layout
             )
 
             VStack(spacing: 0) {
-                ForEach(Array(store.webAPIBroadcastEnabledDisplayIDs.enumerated()), id: \.element) { index, displayID in
+                ForEach(Array(store.customDisplayEnabledDisplayIDs.enumerated()), id: \.element) { index, displayID in
                     if index > 0 {
                         Rectangle()
                             .fill(themePalette.dashboardCardBorder)
@@ -8027,7 +8164,7 @@ struct ContentView: View {
                 )
             ) {
                 ForEach(ScoreboardWebAPIBroadcastDisplayMode.allCases) { mode in
-                    localizedAppText(mode.title).tag(mode)
+                    Text(store.customDisplayModeTitle(for: mode)).tag(mode)
                 }
             }
             .pickerStyle(.menu)
@@ -13260,6 +13397,16 @@ private struct SettingsDetailRow: Identifiable {
     let id: String
     let title: String
     let value: String
+}
+
+private struct SettingsErasedRows: View {
+    let rows: [AnyView]
+
+    var body: some View {
+        ForEach(rows.indices, id: \.self) { index in
+            rows[index]
+        }
+    }
 }
 
 private struct SettingsGameFileDetailPane: View {

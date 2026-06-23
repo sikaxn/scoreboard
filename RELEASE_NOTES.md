@@ -3,7 +3,8 @@
 ## 1.3
 
 - Added Soccer and Custom countdown injury-time controls with automatic +N minute public display.
-- Added Broadcast Display Control for Web API v2 browser/custom displays, with enabled display IDs 1-8, ID 0 fallback behavior, custom 1-3 modes, and demo display ID overrides.
+- Added Custom Display Control for Web API custom pages and Remote Display, with shared display IDs 1-8, ID 0 fallback to the main Display Control, configurable enabled display count, and renamed Custom 1-3 mode labels.
+- Expanded Web API v2 and bundled demos for Custom Display Control while keeping the compatible `display.broadcastControl` JSON key; Remote Display clients continue to follow the main display unless individual control is enabled.
 - Fixed next-period changes so modes with a standard game clock reset the game clock and injury time while preserving previous-period and custom dual-clock/disabled-clock behavior.
 
 ## 1.2

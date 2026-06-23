@@ -1827,16 +1827,19 @@ extension ScoreboardStore {
         let externalDirection = displayID.map { resolvedRemoteDisplayExternalDirection(displayID: $0) } ?? resolvedDisplayDirection(for: .homeLeft)
         return currentWebAPIState(
             displayDirection: displayDirection,
-            remoteExternalDirection: externalDirection
+            remoteExternalDirection: externalDirection,
+            displayViewMode: remoteDisplayEffectiveViewMode(forDisplayID: displayID)
         ).remoteDisplayPayload
     }
 
     private func currentWebAPIState(
         displayDirection: ScoreboardDisplayDirection,
-        remoteExternalDirection: ScoreboardDisplayDirection?
+        remoteExternalDirection: ScoreboardDisplayDirection?,
+        displayViewMode: ScoreboardDisplayViewMode? = nil
     ) -> ScoreboardWebAPIState {
         let now = Date()
         let rules = currentRules
+        let resolvedDisplayViewMode = displayViewMode ?? publicDisplayViewMode
 
         return ScoreboardWebAPIState(
             schemaVersion: 1,
@@ -1867,8 +1870,8 @@ extension ScoreboardStore {
                 showsTeamLogos: showsTeamLogos,
                 showsEventLogo: showsEventLogo,
                 eventLogo: webAPIEventLogoMetadata(),
-                viewMode: publicDisplayViewMode,
-                controlStatus: webAPIDisplayControlStatus(),
+                viewMode: resolvedDisplayViewMode,
+                controlStatus: webAPIDisplayControlStatus(currentMode: resolvedDisplayViewMode),
                 broadcastControl: webAPIBroadcastControlStatus(),
                 playerViewRosterScope: .fullRoster,
                 direction: displayDirection,
@@ -1986,8 +1989,22 @@ extension ScoreboardStore {
         )
     }
 
-    private func webAPIDisplayControlStatus() -> ScoreboardWebAPIDisplayControlStatus {
+    private func remoteDisplayEffectiveViewMode(forDisplayID displayID: String?) -> ScoreboardDisplayViewMode {
         let currentMode = publicDisplayViewMode
+        guard let displayID else {
+            return currentMode
+        }
+
+        let customDisplayID = remoteDisplayCustomDisplayID(displayID: displayID)
+        guard customDisplayID != ScoreboardStore.minWebAPIBroadcastDisplayID else {
+            return currentMode
+        }
+
+        return webAPIBroadcastDisplayMode(for: customDisplayID)
+            .effectiveRenderMode(fallbackDisplayControlMode: currentMode)
+    }
+
+    private func webAPIDisplayControlStatus(currentMode: ScoreboardDisplayViewMode) -> ScoreboardWebAPIDisplayControlStatus {
         let modes: [ScoreboardDisplayViewMode] = [
             .blackScreen,
             .backgroundOnly,
@@ -2014,16 +2031,14 @@ extension ScoreboardStore {
 
     private func webAPIBroadcastControlStatus() -> ScoreboardWebAPIBroadcastControlStatus {
         let currentMode = publicDisplayViewMode
-        let enabledDisplayIDs = isWebAPIBroadcastControlEnabled
-            ? Array(ScoreboardStore.minWebAPIBroadcastCustomDisplayID...webAPIBroadcastEnabledDisplayCount)
-            : []
+        let enabledDisplayIDs = webAPIBroadcastEnabledDisplayIDs
         let assignments = (ScoreboardStore.minWebAPIBroadcastDisplayID...ScoreboardStore.maxWebAPIBroadcastDisplayID).map { displayID in
             webAPIBroadcastDisplayAssignment(displayID: displayID, currentDisplayControlMode: currentMode)
         }
 
         return ScoreboardWebAPIBroadcastControlStatus(
             isEnabled: isWebAPIBroadcastControlEnabled,
-            enabledDisplayCount: isWebAPIBroadcastControlEnabled ? webAPIBroadcastEnabledDisplayCount : 0,
+            enabledDisplayCount: isWebAPIBroadcastControlEnabled ? webAPIBroadcastEnabledDisplayIDs.count : 0,
             enabledDisplayIDs: enabledDisplayIDs,
             displayIDRange: ScoreboardWebAPIBroadcastDisplayIDRange(
                 minimum: ScoreboardStore.minWebAPIBroadcastDisplayID,
@@ -2039,9 +2054,7 @@ extension ScoreboardStore {
         currentDisplayControlMode: ScoreboardDisplayViewMode
     ) -> ScoreboardWebAPIBroadcastDisplayAssignment {
         let isInternalFallbackDisplay = displayID == ScoreboardStore.minWebAPIBroadcastDisplayID
-        let isEnabledDisplay = isWebAPIBroadcastControlEnabled &&
-            displayID >= ScoreboardStore.minWebAPIBroadcastCustomDisplayID &&
-            displayID <= webAPIBroadcastEnabledDisplayCount
+        let isEnabledDisplay = webAPIBroadcastEnabledDisplayIDs.contains(displayID)
         let isEnabled = isInternalFallbackDisplay || isEnabledDisplay
         let assignedMode: ScoreboardWebAPIBroadcastDisplayMode = isEnabledDisplay
             ? webAPIBroadcastDisplayMode(for: displayID)
@@ -2051,7 +2064,7 @@ extension ScoreboardStore {
             displayID: displayID,
             isEnabled: isEnabled,
             assignedMode: assignedMode,
-            assignedModeTitle: assignedMode.title,
+            assignedModeTitle: customDisplayModeTitle(for: assignedMode),
             effectiveRenderMode: assignedMode.effectiveRenderMode(fallbackDisplayControlMode: currentDisplayControlMode),
             followsDisplayControl: assignedMode.followsDisplayControl,
             isCustomMode: assignedMode.isCustomMode
