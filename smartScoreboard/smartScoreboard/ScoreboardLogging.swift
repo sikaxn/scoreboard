@@ -430,7 +430,7 @@ struct StoredLogSession: Identifiable {
             return gameFiles[0]
         }
 
-        return String(format: NSLocalizedString("%@ +%lld more", comment: ""), locale: Locale.current, gameFiles[0], gameFiles.count - 1)
+        return scoreboardLocalizedFormat(NSLocalizedString("%@ +%lld more", comment: ""), locale: Locale.current, arguments: [gameFiles[0], gameFiles.count - 1])
     }
 }
 

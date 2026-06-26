@@ -5,12 +5,12 @@ private func localizedBoardString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedBoardFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedBoardString(key), locale: Locale.current, arguments: arguments)
+private func localizedBoardFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedBoardString(key), locale: Locale.current, arguments: arguments)
 }
 
 private func localizedBoardText(_ key: String) -> Text {
-    Text(localizedBoardString(key))
+    Text(verbatim: localizedBoardString(key))
 }
 
 struct ScoreboardFaceView: View {

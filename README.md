@@ -62,6 +62,13 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 4. Choose an iPhone simulator, iPad simulator, connected iPhone or iPad, Mac, or Apple TV simulator as the run destination.
 5. Build and run.
 
+## Localization Notes
+
+- Use the local wrapper functions (`localizedAppText`, `localizedAppFormat`, and the matching store/display wrappers) instead of raw `Text(LocalizedStringKey(...))` or direct localized `String(format:)` calls.
+- Treat runtime strings, user-entered names, generated titles, and already-formatted strings as resolved text. Localize them first, then render with `Text(verbatim:)` so SwiftUI does not reinterpret them as localization keys during view rendering.
+- Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
+- The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
+
 ## Project Structure
 
 - `smartScoreboard/smartScoreboard/ContentView.swift` - main operator interface and setup flow

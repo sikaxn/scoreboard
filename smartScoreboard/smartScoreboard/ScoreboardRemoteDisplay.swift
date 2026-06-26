@@ -13,8 +13,8 @@ private func localizedRemoteDisplayString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
+private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
 }
 
 nonisolated enum ScoreboardRemoteDisplayHostStatus: Equatable, Sendable {

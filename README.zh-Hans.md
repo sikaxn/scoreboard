@@ -62,6 +62,13 @@ iPhone、iPad 和 Mac 应用包含操作界面，也可以在设置中切换为�
 4. 选择 iPhone 模拟器、iPad 模拟器、已连接的 iPhone 或 iPad、Mac，或 Apple TV 模拟器作为运行目标。
 5. 构建并运行。
 
+## 本地化说明
+
+- 使用本地封装函数（`localizedAppText`、`localizedAppFormat`，以及对应的 store/display 封装），不要直接使用 `Text(LocalizedStringKey(...))` 或本地化后的 `String(format:)`。
+- 对运行时字符串、用户输入名称、生成的标题和已经格式化过的字符串，先完成本地化，再用 `Text(verbatim:)` 渲染，避免 SwiftUI 在视图渲染时重新解释为本地化 key。
+- `Localizable.xcstrings` 中各语言的格式占位符必须保持类型兼容。可以使用 `%1$@` 这类带位置的占位符，但参数数量和占位符类型仍必须与源字符串匹配。
+- `Localizable.xcstrings` 顶层的 `version` 字段是字符串目录 schema 版本，不是应用发布版本。
+
 ## 项目结构
 
 - `smartScoreboard/smartScoreboard/ContentView.swift` - 主操作界面和设置流程

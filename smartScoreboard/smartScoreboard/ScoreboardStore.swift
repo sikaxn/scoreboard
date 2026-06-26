@@ -1,12 +1,299 @@
 import Combine
 import Foundation
 
-private func localizedStoreString(_ key: String) -> String {
+private enum ScoreboardLocalizedFormatArgumentType {
+    case object
+    case signedInteger(length: String?)
+    case unsignedInteger(length: String?)
+    case floatingPoint
+    case character
+    case cString
+}
+
+private struct ScoreboardLocalizedFormatPlaceholder {
+    let position: Int?
+    let argumentType: ScoreboardLocalizedFormatArgumentType
+}
+
+private enum ScoreboardLocalizedFormatNormalizer {
+    nonisolated private static let placeholderPattern = "%(?:(\\d+)\\$)?[-+#0 ]*(?:\\d+|\\*)?(?:\\.(?:\\d+|\\*))?(hh|h|ll|l|q|L|z|t|j)?([@diuoxXfFeEgGaAcCsS])"
+
+    nonisolated static func normalizedArguments(for format: String, arguments: [Any]) -> [CVarArg] {
+        let placeholders = placeholders(in: format)
+        guard !placeholders.isEmpty else {
+            return arguments.map { fallbackArgument($0) }
+        }
+
+        var argumentTypes: [Int: ScoreboardLocalizedFormatArgumentType] = [:]
+        var nextSequentialIndex = 0
+        for placeholder in placeholders {
+            let argumentIndex: Int
+            if let position = placeholder.position {
+                argumentIndex = max(0, position - 1)
+            } else {
+                argumentIndex = nextSequentialIndex
+                nextSequentialIndex += 1
+            }
+
+            if argumentTypes[argumentIndex] == nil {
+                argumentTypes[argumentIndex] = placeholder.argumentType
+            }
+        }
+
+        return arguments.enumerated().map { index, argument in
+            normalize(argument, as: argumentTypes[index])
+        }
+    }
+
+    nonisolated private static func placeholders(in format: String) -> [ScoreboardLocalizedFormatPlaceholder] {
+        guard let regex = try? NSRegularExpression(pattern: placeholderPattern) else {
+            return []
+        }
+
+        let range = NSRange(format.startIndex..<format.endIndex, in: format)
+        return regex.matches(in: format, range: range).compactMap { match in
+            let position: Int?
+            if let positionRange = Range(match.range(at: 1), in: format), !positionRange.isEmpty {
+                position = Int(format[positionRange])
+            } else {
+                position = nil
+            }
+
+            let length: String?
+            if let lengthRange = Range(match.range(at: 2), in: format), !lengthRange.isEmpty {
+                length = String(format[lengthRange])
+            } else {
+                length = nil
+            }
+
+            guard let conversionRange = Range(match.range(at: 3), in: format),
+                  let conversion = format[conversionRange].first else {
+                return nil
+            }
+
+            return ScoreboardLocalizedFormatPlaceholder(
+                position: position,
+                argumentType: argumentType(conversion: conversion, length: length)
+            )
+        }
+    }
+
+    nonisolated private static func argumentType(conversion: Character, length: String?) -> ScoreboardLocalizedFormatArgumentType {
+        switch conversion {
+        case "@":
+            return .object
+        case "d", "i":
+            return .signedInteger(length: length)
+        case "u", "o", "x", "X":
+            return .unsignedInteger(length: length)
+        case "f", "F", "e", "E", "g", "G", "a", "A":
+            return .floatingPoint
+        case "c", "C":
+            return .character
+        case "s", "S":
+            return .cString
+        default:
+            return .object
+        }
+    }
+
+    nonisolated private static func normalize(_ value: Any, as argumentType: ScoreboardLocalizedFormatArgumentType?) -> CVarArg {
+        guard let argumentType else {
+            return fallbackArgument(value)
+        }
+
+        switch argumentType {
+        case .object:
+            return objectArgument(value)
+        case .signedInteger(let length):
+            return signedIntegerArgument(value, length: length)
+        case .unsignedInteger(let length):
+            return unsignedIntegerArgument(value, length: length)
+        case .floatingPoint:
+            return doubleArgument(value)
+        case .character:
+            return Int32(clamping: integerValue(value))
+        case .cString:
+            return stringValue(value)
+        }
+    }
+
+    nonisolated private static func fallbackArgument(_ value: Any) -> CVarArg {
+        if let argument = value as? CVarArg {
+            return argument
+        }
+        return stringValue(value) as NSString
+    }
+
+    nonisolated private static func objectArgument(_ value: Any) -> CVarArg {
+        if let string = value as? String {
+            return string as NSString
+        }
+        if let substring = value as? Substring {
+            return String(substring) as NSString
+        }
+        if let object = value as? NSObject {
+            return object
+        }
+        return stringValue(value) as NSString
+    }
+
+    nonisolated private static func signedIntegerArgument(_ value: Any, length: String?) -> CVarArg {
+        let integer = integerValue(value)
+        switch length {
+        case "ll", "q", "j":
+            return Int64(integer)
+        case "l", "z", "t":
+            return Int(integer)
+        case "h":
+            return Int16(clamping: integer)
+        case "hh":
+            return Int8(clamping: integer)
+        default:
+            return Int32(clamping: integer)
+        }
+    }
+
+    nonisolated private static func unsignedIntegerArgument(_ value: Any, length: String?) -> CVarArg {
+        let unsigned = unsignedIntegerValue(value)
+        switch length {
+        case "ll", "q", "j":
+            return UInt64(unsigned)
+        case "l", "z", "t":
+            return UInt(unsigned)
+        case "h":
+            return UInt16(clamping: unsigned)
+        case "hh":
+            return UInt8(clamping: unsigned)
+        default:
+            return UInt32(clamping: unsigned)
+        }
+    }
+
+    nonisolated private static func integerValue(_ value: Any) -> Int64 {
+        switch value {
+        case let number as Int:
+            return Int64(number)
+        case let number as Int8:
+            return Int64(number)
+        case let number as Int16:
+            return Int64(number)
+        case let number as Int32:
+            return Int64(number)
+        case let number as Int64:
+            return number
+        case let number as UInt:
+            return Int64(clamping: number)
+        case let number as UInt8:
+            return Int64(number)
+        case let number as UInt16:
+            return Int64(number)
+        case let number as UInt32:
+            return Int64(number)
+        case let number as UInt64:
+            return Int64(clamping: number)
+        case let number as Double:
+            return Int64(number)
+        case let number as Float:
+            return Int64(number)
+        case let number as Bool:
+            return number ? 1 : 0
+        case let number as NSNumber:
+            return number.int64Value
+        case let string as String:
+            return Int64(string) ?? 0
+        default:
+            return 0
+        }
+    }
+
+    nonisolated private static func unsignedIntegerValue(_ value: Any) -> UInt64 {
+        switch value {
+        case let number as UInt:
+            return UInt64(number)
+        case let number as UInt8:
+            return UInt64(number)
+        case let number as UInt16:
+            return UInt64(number)
+        case let number as UInt32:
+            return UInt64(number)
+        case let number as UInt64:
+            return number
+        case let number as Int:
+            return UInt64(clamping: number)
+        case let number as Int8:
+            return UInt64(clamping: number)
+        case let number as Int16:
+            return UInt64(clamping: number)
+        case let number as Int32:
+            return UInt64(clamping: number)
+        case let number as Int64:
+            return UInt64(clamping: number)
+        case let number as Double:
+            return UInt64(number)
+        case let number as Float:
+            return UInt64(number)
+        case let number as Bool:
+            return number ? 1 : 0
+        case let number as NSNumber:
+            return number.uint64Value
+        case let string as String:
+            return UInt64(string) ?? 0
+        default:
+            return 0
+        }
+    }
+
+    nonisolated private static func doubleArgument(_ value: Any) -> CVarArg {
+        switch value {
+        case let number as Double:
+            return number
+        case let number as Float:
+            return Double(number)
+        case let number as CGFloat:
+            return Double(number)
+        case let number as NSNumber:
+            return number.doubleValue
+        case let number as Int:
+            return Double(number)
+        case let number as Int64:
+            return Double(number)
+        case let number as UInt:
+            return Double(number)
+        case let number as UInt64:
+            return Double(number)
+        case let string as String:
+            return Double(string) ?? 0
+        default:
+            return 0.0
+        }
+    }
+
+    nonisolated private static func stringValue(_ value: Any) -> String {
+        if let string = value as? String {
+            return string
+        }
+        if let substring = value as? Substring {
+            return String(substring)
+        }
+        return String(describing: value)
+    }
+}
+
+nonisolated func scoreboardLocalizedFormat(_ format: String, locale: Locale = .current, arguments: [Any]) -> String {
+    String(
+        format: format,
+        locale: locale,
+        arguments: ScoreboardLocalizedFormatNormalizer.normalizedArguments(for: format, arguments: arguments)
+    )
+}
+
+nonisolated private func localizedStoreString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedStoreFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedStoreString(key), locale: Locale.current, arguments: arguments)
+nonisolated private func localizedStoreFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedStoreString(key), locale: Locale.current, arguments: arguments)
 }
 
 private func signedStoreDelta(_ delta: Int, suffix: String = "") -> String {
