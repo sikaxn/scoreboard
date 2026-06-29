@@ -4263,7 +4263,8 @@ struct ContentView: View {
     }
 
     private func settingsBitfocusCompanionPane(layout: InterfaceLayout) -> some View {
-        let events = store.assignableSoundEvents(for: selectedCompanionSettingsSport)
+        let sport = selectedCompanionSettingsSport
+        let events = store.assignableSoundEvents(for: sport)
 
         return VStack(alignment: .leading, spacing: 22) {
             settingsCompanionAboutSection()
@@ -4274,37 +4275,45 @@ struct ContentView: View {
                     settingsCompanionSportSection(layout: layout)
                 }
             } right: {
-                settingsCompanionEventsSection(events)
+                settingsCompanionEventsSection(events, sport: sport)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
 
     private func settingsCompanionConnectionSection() -> some View {
-        settingsSection(title: "Bitfocus Companion", footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.") {
-            settingsOptionTip("Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent.", systemImage: "square.grid.3x3")
-            settingsToggleRow(title: "Show Companion", isOn: Binding(
+        settingsSection(
+            title: "Bitfocus Companion",
+            footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.",
+            rows: settingsCompanionConnectionRows()
+        )
+    }
+
+    private func settingsCompanionConnectionRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent.", systemImage: "square.grid.3x3")),
+            AnyView(settingsToggleRow(title: "Show Companion", isOn: Binding(
                 get: { store.isCompanionVisible },
                 set: { store.setCompanionVisible($0) }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Enable Companion", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Enable Companion", isOn: Binding(
                 get: { store.isCompanionEnabled },
                 set: { store.setCompanionEnabled($0) }
             ))
             .disabled(!store.isCompanionVisible)
-            .opacity(store.isCompanionVisible ? 1 : 0.42)
-            settingsDivider()
-            settingsPlainTextEntryRow(
+            .opacity(store.isCompanionVisible ? 1 : 0.42)),
+            AnyView(settingsDivider()),
+            AnyView(settingsPlainTextEntryRow(
                 title: "Companion IP",
                 text: Binding(
                     get: { store.companionHost },
                     set: { store.setCompanionHost($0) }
                 ),
                 placeholder: "192.168.1.50"
-            )
-            settingsDivider()
-            settingsPickerRow(
+            )),
+            AnyView(settingsDivider()),
+            AnyView(settingsPickerRow(
                 title: "Mode",
                 selection: Binding(
                     get: { store.companionMode },
@@ -4312,62 +4321,83 @@ struct ContentView: View {
                 ),
                 options: ScoreboardCompanionMode.allCases,
                 label: { $0.title }
-            )
-            settingsDivider()
-            settingsCompanionPortRow()
-            settingsDivider()
-            settingsSummaryValueRow(title: "Status", value: companionStatusTitle)
-            settingsDivider()
-            Text(companionStatusDetail)
+            )),
+            AnyView(settingsDivider()),
+            AnyView(settingsCompanionPortRow()),
+            AnyView(settingsDivider()),
+            AnyView(settingsSummaryValueRow(title: "Status", value: companionStatusTitle)),
+            AnyView(settingsDivider()),
+            AnyView(Text(verbatim: companionStatusDetail)
                 .font(.subheadline)
                 .foregroundStyle(companionStatusIsError ? themePalette.destructiveTint : settingsPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-        }
+                .padding(.vertical, 10))
+        ]
     }
 
     private func settingsCompanionAboutSection() -> some View {
-        settingsSection(title: "About Companion") {
-            settingsOptionTip("Use Companion when scoreboard events should trigger production automation, such as switching scenes, firing graphics, or controlling external gear. Scoreboard sends button press commands to Companion; Companion handles the downstream actions.", systemImage: "bolt.horizontal")
-            Text("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
+        settingsSection(title: "About Companion", rows: settingsCompanionAboutRows())
+    }
+
+    private func settingsCompanionAboutRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Companion when scoreboard events should trigger production automation, such as switching scenes, firing graphics, or controlling external gear. Scoreboard sends button press commands to Companion; Companion handles the downstream actions.", systemImage: "bolt.horizontal")),
+            AnyView(localizedAppText("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-            settingsDivider()
-            settingsLinkRow(
+                .padding(.vertical, 10)),
+            AnyView(settingsDivider()),
+            AnyView(settingsLinkRow(
                 title: "Bitfocus Companion",
                 subtitle: "bitfocus.io/companion",
                 systemImage: "square.grid.3x3",
                 urlString: "https://bitfocus.io/companion"
-            )
-        }
+            ))
+        ]
     }
 
     private func settingsCompanionSportSection(layout: InterfaceLayout) -> some View {
-        settingsSection(title: "Configure Sport", footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.") {
-            settingsOptionTip("Choose the sport whose Companion assignments you want to edit. Assignments are stored per sport, so basketball, soccer, debate, and custom games can each trigger different Companion buttons.", systemImage: "slider.horizontal.3")
-            compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport)
-        }
+        settingsSection(
+            title: "Configure Sport",
+            footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.",
+            rows: settingsCompanionSportRows(layout: layout)
+        )
     }
 
-    private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
-        settingsSection(title: "Event Commands", footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.") {
-            settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3")
-            if events.isEmpty {
-                settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
+    private func settingsCompanionSportRows(layout: InterfaceLayout) -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Choose the sport whose Companion assignments you want to edit. Assignments are stored per sport, so basketball, soccer, debate, and custom games can each trigger different Companion buttons.", systemImage: "slider.horizontal.3")),
+            AnyView(compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport))
+        ]
+    }
 
-                        if index < events.count - 1 {
-                            settingsDivider()
-                        }
-                    }
+    private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent], sport: SportType) -> some View {
+        settingsSection(
+            title: "Event Commands",
+            footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.",
+            rows: settingsCompanionEventRows(events, sport: sport)
+        )
+    }
+
+    private func settingsCompanionEventRows(_ events: [ScoreboardSoundEvent], sport: SportType) -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3"))
+        ]
+
+        if events.isEmpty {
+            rows.append(AnyView(settingsSummaryValueRow(title: sport.title, value: localizedAppString("No configurable sound events"))))
+        } else {
+            for (index, event) in events.enumerated() {
+                rows.append(AnyView(settingsCompanionAssignmentRow(event, sport: sport)))
+
+                if index < events.count - 1 {
+                    rows.append(AnyView(settingsDivider()))
                 }
             }
         }
+
+        return rows
     }
 
     private func settingsLocalNetworkPermissionSection() -> some View {
@@ -4521,12 +4551,12 @@ struct ContentView: View {
             }
 
             if let validationMessage {
-                Text(validationMessage)
+                Text(verbatim: validationMessage)
                     .font(.footnote)
                     .foregroundStyle(themePalette.destructiveTint)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if let normalizedLocation {
-                Text(localizedAppFormat("Sends LOCATION %@ PRESS.", normalizedLocation))
+                Text(verbatim: localizedAppFormat("Sends LOCATION %@ PRESS.", normalizedLocation))
                     .font(.footnote)
                     .foregroundStyle(settingsPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -6527,7 +6557,7 @@ struct ContentView: View {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
             Spacer(minLength: 0)
-            Text(localizedAppString(value))
+            Text(verbatim: localizedAppString(value))
                 .foregroundStyle(settingsPalette.secondaryText)
                 .multilineTextAlignment(.trailing)
         }

@@ -438,6 +438,1094 @@ nonisolated struct ScoreboardWebAPIPayload: Sendable {
     )
 }
 
+nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
+    static let defaultEntryLimit = 80
+    static let maximumEntryLimit = 250
+
+    var schemaVersion: Int
+    var generatedAt: String
+    var generatedAtUnixTime: TimeInterval?
+    var revision: String
+    var session: ScoreboardWebAPICommentatorSession?
+    var summary: ScoreboardWebAPICommentatorSummary
+    var insights: [ScoreboardWebAPICommentatorInsight]
+    var entries: [ScoreboardWebAPICommentatorEntry]
+
+    static let empty: ScoreboardWebAPICommentatorPayload = {
+        let now = Date()
+        var payload = ScoreboardWebAPICommentatorPayload(
+            schemaVersion: 2,
+            generatedAt: timestamp(now),
+            generatedAtUnixTime: now.timeIntervalSince1970,
+            revision: "",
+            session: nil,
+            summary: .empty,
+            insights: [],
+            entries: []
+        )
+        payload.refreshRevision()
+        return payload
+    }()
+
+    static func make(
+        from state: ScoreboardWebAPIState,
+        logSession: ScoreboardLogSession?
+    ) -> ScoreboardWebAPICommentatorPayload {
+        let rawEntries = logSession?.entries ?? []
+        let limitedEntries = Array(rawEntries.suffix(maximumEntryLimit).reversed())
+        let entries = limitedEntries.map(makeEntry)
+        let summary = makeSummary(from: state, logSession: logSession)
+        var payload = ScoreboardWebAPICommentatorPayload(
+            schemaVersion: 2,
+            generatedAt: state.generatedAt,
+            generatedAtUnixTime: state.generatedAtUnixTime,
+            revision: "",
+            session: makeSession(from: logSession),
+            summary: summary,
+            insights: makeInsights(from: state, logSession: logSession, summary: summary),
+            entries: entries
+        )
+        payload.refreshRevision()
+        return payload
+    }
+
+    func limited(to requestedLimit: Int?) -> ScoreboardWebAPICommentatorPayload {
+        let limit = Self.clampedEntryLimit(requestedLimit)
+        guard entries.count > limit else {
+            return self
+        }
+
+        var payload = self
+        payload.entries = Array(entries.prefix(limit))
+        payload.refreshRevision()
+        return payload
+    }
+
+    static func clampedEntryLimit(_ requestedLimit: Int?) -> Int {
+        max(0, min(maximumEntryLimit, requestedLimit ?? defaultEntryLimit))
+    }
+
+    private mutating func refreshRevision() {
+        revision = ""
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        let data = (try? encoder.encode(self)) ?? Data()
+        revision = data.scoreboardWebAPIStableRevision
+    }
+
+    private static func makeSession(from session: ScoreboardLogSession?) -> ScoreboardWebAPICommentatorSession? {
+        guard let session else {
+            return nil
+        }
+
+        return ScoreboardWebAPICommentatorSession(
+            sessionID: session.sessionID,
+            startedAt: timestamp(session.startedAt),
+            startedAtUnixTime: session.startedAt.timeIntervalSince1970,
+            lastUpdatedAt: timestamp(session.lastUpdatedAt),
+            lastUpdatedAtUnixTime: session.lastUpdatedAt.timeIntervalSince1970,
+            entryCount: session.entries.count,
+            gameFileName: session.entries.reversed().compactMap(\.context.gameFileName).first
+        )
+    }
+
+    private static func makeSummary(
+        from state: ScoreboardWebAPIState,
+        logSession: ScoreboardLogSession?
+    ) -> ScoreboardWebAPICommentatorSummary {
+        let rules = state.rules
+        let home = state.teams.home
+        let guest = state.teams.guest
+        let leader = leaderValue(homeScore: home.score, guestScore: guest.score, supportsScore: rules.supportsScore)
+        let margin = rules.supportsScore && leader != "tied" ? abs(home.score - guest.score) : nil
+        let latestHockeyPenaltySummary = logSession?.entries
+            .reversed()
+            .compactMap(\.context.hockeyPenaltySummary)
+            .first { !$0.isEmpty }
+
+        return ScoreboardWebAPICommentatorSummary(
+            sport: rules.sport,
+            sportTitle: rules.title,
+            eventName: state.game.eventName,
+            period: rules.supportsPeriod ? state.game.period : nil,
+            periodLabel: rules.supportsPeriod ? "\(rules.periodShortTitle) \(state.game.period)" : nil,
+            home: makeTeamSummary(from: home, supportsScore: rules.supportsScore),
+            guest: makeTeamSummary(from: guest, supportsScore: rules.supportsScore),
+            leader: leader,
+            leadMargin: margin,
+            clock: makeClockSummary(from: state),
+            shotClock: makeShotClockSummary(from: state),
+            chessClock: makeChessClockSummary(from: state),
+            debate: makeDebateSummary(from: state),
+            possession: makePossessionSummary(from: state),
+            hockeyPenaltySummary: rules.supportsHockeyPenalties ? latestHockeyPenaltySummary : nil,
+            rosterWatch: makeRosterWatch(from: state),
+            modeTags: makeModeTags(from: state)
+        )
+    }
+
+    private static func makeTeamSummary(
+        from team: ScoreboardWebAPITeam,
+        supportsScore: Bool
+    ) -> ScoreboardWebAPICommentatorTeamSummary {
+        ScoreboardWebAPICommentatorTeamSummary(
+            side: team.side,
+            name: team.name,
+            roleLabel: team.roleLabel,
+            score: supportsScore ? team.score : nil,
+            periodsWon: team.periodsWon ?? team.setsWon,
+            teamFouls: team.teamFouls,
+            substitutionsRemaining: team.substitutionsRemaining,
+            pausesRemaining: team.pausesRemaining
+        )
+    }
+
+    private static func makeClockSummary(from state: ScoreboardWebAPIState) -> ScoreboardWebAPICommentatorClockSummary? {
+        let rules = state.rules
+        let clocks = state.clocks
+        if rules.usesChessClocks {
+            return ScoreboardWebAPICommentatorClockSummary(
+                mode: "dualClock",
+                label: "Dual Clock",
+                value: "\(clocks.formattedHomeChessClock) / \(clocks.formattedGuestChessClock)",
+                state: clocks.activeChessClockSide == nil ? "stopped" : "running",
+                side: clocks.activeChessClockSide,
+                secondaryValue: nil
+            )
+        }
+
+        guard clocks.showsGameClock else {
+            return ScoreboardWebAPICommentatorClockSummary(
+                mode: "disabled",
+                label: "Clock",
+                value: "--:--",
+                state: "disabled",
+                side: nil,
+                secondaryValue: nil
+            )
+        }
+
+        return ScoreboardWebAPICommentatorClockSummary(
+            mode: clocks.gameClockMode.rawValue,
+            label: "Clock",
+            value: clocks.formattedGameClock,
+            state: clocks.isGameClockRunning ? "running" : "stopped",
+            side: nil,
+            secondaryValue: (clocks.activeInjuryTimeMinutes ?? 0) > 0 ? "+\(clocks.activeInjuryTimeMinutes ?? 0) min" : nil
+        )
+    }
+
+    private static func makeShotClockSummary(from state: ScoreboardWebAPIState) -> ScoreboardWebAPICommentatorClockSummary? {
+        guard state.rules.supportsShotClock else {
+            return nil
+        }
+
+        return ScoreboardWebAPICommentatorClockSummary(
+            mode: state.rules.usesServeTimer == true ? "serveTimer" : "shotClock",
+            label: state.rules.usesServeTimer == true ? "Serve Timer" : "Shot Clock",
+            value: state.clocks.formattedShotClock,
+            state: state.clocks.isShotClockRunning ? "running" : "stopped",
+            side: nil,
+            secondaryValue: "\(state.clocks.activeShotClockPresetSeconds)s preset"
+        )
+    }
+
+    private static func makeChessClockSummary(from state: ScoreboardWebAPIState) -> ScoreboardWebAPICommentatorChessSummary? {
+        guard state.rules.usesChessClocks else {
+            return nil
+        }
+
+        return ScoreboardWebAPICommentatorChessSummary(
+            homeSeconds: state.clocks.homeChessClockSeconds,
+            formattedHomeClock: state.clocks.formattedHomeChessClock,
+            guestSeconds: state.clocks.guestChessClockSeconds,
+            formattedGuestClock: state.clocks.formattedGuestChessClock,
+            activeSide: state.clocks.activeChessClockSide
+        )
+    }
+
+    private static func makeDebateSummary(from state: ScoreboardWebAPIState) -> ScoreboardWebAPICommentatorDebateSummary? {
+        guard let debate = state.debate else {
+            return nil
+        }
+
+        return ScoreboardWebAPICommentatorDebateSummary(
+            presetTitle: debate.presetTitle,
+            segmentIndex: debate.segmentIndex,
+            segmentTitle: debate.segmentTitle,
+            segmentTimerMode: debate.segmentTimerMode,
+            speakingSide: debate.speakingSide,
+            activeTimer: debate.activeTimer,
+            homeSideLabel: debate.homeSideLabel,
+            guestSideLabel: debate.guestSideLabel,
+            prepTimeEnabled: debate.prepTimeEnabled,
+            formattedPrepHomeClock: debate.formattedPrepHomeClock,
+            formattedPrepGuestClock: debate.formattedPrepGuestClock
+        )
+    }
+
+    private static func makePossessionSummary(from state: ScoreboardWebAPIState) -> ScoreboardWebAPICommentatorPossessionSummary? {
+        guard state.rules.supportsPossession else {
+            return nil
+        }
+
+        return ScoreboardWebAPICommentatorPossessionSummary(
+            direction: state.runtime.possessionDirection,
+            label: possessionDisplayName(state.runtime.possessionDirection)
+        )
+    }
+
+    private static func makeRosterWatch(from state: ScoreboardWebAPIState) -> [ScoreboardWebAPICommentatorPlayerWatch] {
+        guard state.rules.supportsPlayerTracking else {
+            return []
+        }
+
+        let home = state.players.homeRoster.players.map { makePlayerWatch($0, side: .home) }
+        let guest = state.players.guestRoster.players.map { makePlayerWatch($0, side: .guest) }
+        return (home + guest)
+            .filter { $0.foulCount > 0 || $0.cardStatus != .none }
+            .sorted { lhs, rhs in
+                if lhs.cardPriority != rhs.cardPriority {
+                    return lhs.cardPriority > rhs.cardPriority
+                }
+                if lhs.foulCount != rhs.foulCount {
+                    return lhs.foulCount > rhs.foulCount
+                }
+                return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+            }
+            .prefix(10)
+            .map { $0 }
+    }
+
+    private static func makePlayerWatch(_ player: TrackedPlayer, side: TeamSide) -> ScoreboardWebAPICommentatorPlayerWatch {
+        ScoreboardWebAPICommentatorPlayerWatch(
+            side: side,
+            playerID: player.id,
+            number: player.number,
+            name: player.name,
+            displayName: playerDisplayName(number: player.number, name: player.name),
+            foulCount: player.foulCount,
+            cardStatus: player.cardStatus,
+            isInActiveLineup: player.isInActiveLineup
+        )
+    }
+
+    private static func makeModeTags(from state: ScoreboardWebAPIState) -> [String] {
+        var tags: [String] = []
+        let rules = state.rules
+        if rules.supportsScore {
+            tags.append("score")
+        } else {
+            tags.append("noScore")
+        }
+        if rules.usesChessClocks {
+            tags.append("dualClock")
+        } else if rules.mainClockMode == .disabled || !state.clocks.showsGameClock {
+            tags.append("noGameClock")
+        } else {
+            tags.append("gameClock")
+        }
+        if rules.supportsShotClock {
+            tags.append(rules.usesServeTimer == true ? "serveTimer" : "shotClock")
+        }
+        if rules.supportsPeriodWins == true {
+            tags.append("periodWins")
+        }
+        if rules.supportsPossession {
+            tags.append("possession")
+        }
+        if rules.supportsPlayerTracking {
+            tags.append("players")
+        }
+        if rules.supportsCards {
+            tags.append("cards")
+        }
+        if rules.supportsSubstitutions {
+            tags.append("substitutions")
+        }
+        if rules.supportsPauses == true {
+            tags.append("pauses")
+        }
+        if rules.supportsHockeyPenalties {
+            tags.append("penalties")
+        }
+        if rules.supportsInjuryTime == true {
+            tags.append("injuryTime")
+        }
+        if state.debate != nil {
+            tags.append("debate")
+        }
+        return tags
+    }
+
+    private static func makeInsights(
+        from state: ScoreboardWebAPIState,
+        logSession: ScoreboardLogSession?,
+        summary: ScoreboardWebAPICommentatorSummary
+    ) -> [ScoreboardWebAPICommentatorInsight] {
+        var insights: [ScoreboardWebAPICommentatorInsight] = []
+        insights.append(contentsOf: stateInsights(from: state, summary: summary))
+        if let logSession {
+            insights.append(contentsOf: logInsights(from: logSession, supportsScore: state.rules.supportsScore))
+        }
+
+        var seen = Set<String>()
+        return insights.filter { insight in
+            let key = "\(insight.category)|\(insight.title)|\(insight.detail)"
+            return seen.insert(key).inserted
+        }.prefix(12).map { $0 }
+    }
+
+    private static func stateInsights(
+        from state: ScoreboardWebAPIState,
+        summary: ScoreboardWebAPICommentatorSummary
+    ) -> [ScoreboardWebAPICommentatorInsight] {
+        let rules = state.rules
+        let home = state.teams.home
+        let guest = state.teams.guest
+        let clocks = state.clocks
+        var insights: [ScoreboardWebAPICommentatorInsight] = []
+
+        if rules.supportsScore {
+            if summary.leader == "tied" {
+                insights.append(insight(id: "score-tied", priority: "normal", category: "score", title: "Score tied", detail: "\(home.name) \(home.score)-\(guest.score) \(guest.name)"))
+            } else {
+                let leader = summary.leader == "home" ? home : guest
+                insights.append(insight(id: "score-leader", priority: (summary.leadMargin ?? 0) <= 2 ? "high" : "normal", category: "score", title: "\(leader.name) leads", detail: "Lead margin \(summary.leadMargin ?? 0)."))
+            }
+        } else {
+            insights.append(insight(id: "mode-no-score", priority: "normal", category: "mode", title: "No score tracking", detail: "\(rules.title) is running without score output."))
+        }
+
+        if rules.supportsPeriodWins == true {
+            insights.append(insight(
+                id: "period-wins",
+                priority: "normal",
+                category: "score",
+                title: "Period wins",
+                detail: "\(home.name) \(home.periodsWon ?? 0)-\(guest.periodsWon ?? 0) \(guest.name)"
+            ))
+        }
+
+        if let debate = state.debate {
+            insights.append(insight(
+                id: "debate-segment",
+                priority: "high",
+                category: "debate",
+                title: debate.segmentTitle,
+                detail: debate.speakingSide.map { "Speaking side: \(sideLabel($0, state: state))." } ?? "No speaking side assigned."
+            ))
+            if debate.prepTimeEnabled {
+                insights.append(insight(
+                    id: "debate-prep",
+                    priority: state.runtime.isDebatePrepClockRunning ? "high" : "normal",
+                    category: "debate",
+                    title: "Prep time",
+                    detail: "\(debate.homeSideLabel) \(debate.formattedPrepHomeClock) / \(debate.guestSideLabel) \(debate.formattedPrepGuestClock)"
+                ))
+            }
+            return insights
+        }
+
+        if rules.usesChessClocks {
+            let activeText = clocks.activeChessClockSide.map { "\(sideLabel($0, state: state)) to move" } ?? "Clock stopped"
+            insights.append(insight(
+                id: "dual-clock",
+                priority: clocks.activeChessClockSide == nil ? "normal" : "high",
+                category: "clock",
+                title: "Dual clock",
+                detail: "\(clocks.formattedHomeChessClock) / \(clocks.formattedGuestChessClock). \(activeText)."
+            ))
+        } else if clocks.showsGameClock {
+            let priority = clocks.isGameClockRunning && clocks.gameClockMode == .countdown && clocks.gameClockSeconds <= 60 ? "high" : "normal"
+            insights.append(insight(
+                id: "game-clock",
+                priority: priority,
+                category: "clock",
+                title: clocks.isGameClockRunning ? "Clock running" : "Clock stopped",
+                detail: "Game clock \(clocks.formattedGameClock)."
+            ))
+        } else {
+            insights.append(insight(id: "clock-disabled", priority: "normal", category: "clock", title: "Clock disabled", detail: "\(rules.title) is not using a game clock."))
+        }
+
+        if rules.supportsShotClock {
+            let priority = clocks.isShotClockRunning && clocks.shotClockMilliseconds <= 5_000 ? "high" : "normal"
+            insights.append(insight(
+                id: "shot-clock",
+                priority: priority,
+                category: "clock",
+                title: rules.usesServeTimer == true ? "Serve timer" : "Shot clock",
+                detail: "\(clocks.formattedShotClock) seconds, \(clocks.isShotClockRunning ? "running" : "stopped")."
+            ))
+        }
+
+        if rules.supportsPossession, state.runtime.possessionDirection != .none {
+            insights.append(insight(
+                id: "possession",
+                priority: "normal",
+                category: "possession",
+                title: "Possession",
+                detail: "\(sideLabel(state.runtime.possessionDirection, state: state)) has possession.",
+                side: possessionSide(state.runtime.possessionDirection)
+            ))
+        }
+
+        if rules.supportsHockeyPenalties, let summary = summary.hockeyPenaltySummary, !summary.isEmpty {
+            insights.append(insight(id: "hockey-penalties", priority: "high", category: "penalty", title: "Penalty timers", detail: summary))
+        }
+
+        if !summary.rosterWatch.isEmpty {
+            let watched = summary.rosterWatch.prefix(3).map { "\($0.displayName) \(playerWatchDetail($0))" }.joined(separator: " / ")
+            insights.append(insight(id: "roster-watch", priority: "normal", category: "player", title: "Roster watch", detail: watched))
+        }
+
+        return insights
+    }
+
+    private static func logInsights(
+        from session: ScoreboardLogSession,
+        supportsScore: Bool
+    ) -> [ScoreboardWebAPICommentatorInsight] {
+        var insights: [ScoreboardWebAPICommentatorInsight] = []
+        if supportsScore, let leadChange = latestLeadChangeInsight(from: session.entries) {
+            insights.append(leadChange)
+        }
+
+        for entry in session.entries.reversed() where entry.outcome == .applied {
+            guard insights.count < 8 else {
+                break
+            }
+
+            switch entry.operation.kind {
+            case .scoreAdjustment, .scoresReset:
+                insights.append(entryInsight(entry, priority: "normal", category: "score"))
+            case .clockExpired, .shotClockExpired:
+                insights.append(entryInsight(entry, priority: "high", category: "clock"))
+            case .clockToggle, .clockAdjustment, .clockReset, .shotClockToggle, .shotClockAssignment, .shotClockAdjustment, .shotClockReset:
+                insights.append(entryInsight(entry, priority: "normal", category: "clock"))
+            case .playerFoulAdjustment, .teamFoulAdjustment, .playerCardSet, .playerCardReset, .teamPauseAdjustment:
+                insights.append(entryInsight(entry, priority: "high", category: "discipline"))
+            case .substitutionsAdjustment, .lineupToggle, .playerOverlayToggle:
+                insights.append(entryInsight(entry, priority: "normal", category: "player"))
+            case .hockeyPenaltyAdd, .hockeyPenaltyRemove, .hockeyPenaltyToggle, .hockeyPenaltyAdjustment, .hockeyPenaltyPlayerEdit:
+                insights.append(entryInsight(entry, priority: "high", category: "penalty"))
+            case .debatePresetChange, .debateSegmentChange, .debateSegmentReset, .debateRoundReset, .debateTimerToggle, .debateTimerAdjustment, .debateActiveSideSwitch, .debateActiveSideSet, .debatePrepToggle, .debatePrepAdjustment, .debatePrepReset:
+                insights.append(entryInsight(entry, priority: "high", category: "debate"))
+            case .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset:
+                insights.append(entryInsight(entry, priority: "high", category: "clock"))
+            case .possessionChange, .sideSwap, .periodAdjustment, .volleyballSetAward, .volleyballSetUndo:
+                insights.append(entryInsight(entry, priority: "normal", category: "match"))
+            case .customSportConfigChange:
+                insights.append(entryInsight(entry, priority: "normal", category: "mode"))
+            case .fileCreate, .fileImport, .fileLoad, .fileRename, .fileExport, .fileDelete:
+                continue
+            case .playerFoulReset, .playerFoulResetAll, .playerCardResetAll, .teamFoulReset, .teamFoulResetAll:
+                continue
+            }
+        }
+
+        return insights
+    }
+
+    private static func latestLeadChangeInsight(from entries: [ScoreboardLogEntry]) -> ScoreboardWebAPICommentatorInsight? {
+        var previousLeader: String?
+        var latestChange: ScoreboardWebAPICommentatorInsight?
+        for entry in entries where entry.outcome == .applied {
+            let currentLeader = leaderValue(homeScore: entry.context.homeScore, guestScore: entry.context.guestScore, supportsScore: true)
+            if let previousLeader, previousLeader != currentLeader {
+                let title = currentLeader == "tied" ? "Game tied" : "Lead change"
+                let leadingTeam = currentLeader == "home" ? entry.context.homeTeamName : entry.context.guestTeamName
+                let detail = currentLeader == "tied"
+                    ? "\(teamName(entry.context.homeTeamName, fallback: "Home")) \(entry.context.homeScore)-\(entry.context.guestScore) \(teamName(entry.context.guestTeamName, fallback: "Guest"))"
+                    : "\(teamName(leadingTeam, fallback: "Leader")) now leads \(entry.context.homeScore)-\(entry.context.guestScore)."
+                latestChange = insight(
+                    id: "lead-\(entry.id.uuidString)",
+                    priority: "high",
+                    category: "score",
+                    title: title,
+                    detail: detail,
+                    side: currentLeader == "home" ? .home : currentLeader == "guest" ? .guest : nil,
+                    entry: entry
+                )
+            }
+            previousLeader = currentLeader
+        }
+        return latestChange
+    }
+
+    private static func makeEntry(_ entry: ScoreboardLogEntry) -> ScoreboardWebAPICommentatorEntry {
+        ScoreboardWebAPICommentatorEntry(
+            id: entry.id,
+            timestamp: timestamp(entry.timestamp),
+            timestampUnixTime: entry.timestamp.timeIntervalSince1970,
+            kind: entry.operation.kind,
+            kindTitle: operationTitle(entry.operation.kind),
+            category: category(for: entry.operation.kind),
+            summary: entry.operation.summary,
+            contextLine: contextLine(for: entry),
+            playerLine: playerLine(for: entry),
+            fileLine: fileLine(for: entry),
+            side: entry.operation.teamSide,
+            playerID: entry.operation.playerID,
+            playerNumber: entry.operation.playerNumber,
+            playerName: entry.operation.playerName,
+            delta: entry.operation.delta,
+            value: entry.operation.value,
+            score: ScoreboardWebAPICommentatorScoreSnapshot(
+                home: entry.context.homeScore,
+                guest: entry.context.guestScore
+            ),
+            period: entry.context.period,
+            outcome: entry.outcome
+        )
+    }
+
+    private static func category(for kind: ScoreboardLogOperationKind) -> String {
+        switch kind {
+        case .scoreAdjustment, .scoresReset, .volleyballSetAward, .volleyballSetUndo:
+            return "score"
+        case .clockToggle, .clockExpired, .clockAdjustment, .clockReset, .shotClockAssignment, .shotClockToggle, .shotClockExpired, .shotClockAdjustment, .shotClockReset, .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset:
+            return "clock"
+        case .playerFoulAdjustment, .playerFoulReset, .playerFoulResetAll, .playerCardSet, .playerCardReset, .playerCardResetAll, .teamFoulAdjustment, .teamFoulReset, .teamFoulResetAll, .teamPauseAdjustment:
+            return "discipline"
+        case .substitutionsAdjustment, .lineupToggle, .playerOverlayToggle:
+            return "player"
+        case .hockeyPenaltyAdd, .hockeyPenaltyRemove, .hockeyPenaltyToggle, .hockeyPenaltyAdjustment, .hockeyPenaltyPlayerEdit:
+            return "penalty"
+        case .debatePresetChange, .debateSegmentChange, .debateSegmentReset, .debateRoundReset, .debateTimerToggle, .debateTimerAdjustment, .debateActiveSideSwitch, .debateActiveSideSet, .debatePrepToggle, .debatePrepAdjustment, .debatePrepReset:
+            return "debate"
+        case .possessionChange:
+            return "possession"
+        case .periodAdjustment, .sideSwap, .customSportConfigChange:
+            return "match"
+        case .fileCreate, .fileImport, .fileLoad, .fileRename, .fileExport, .fileDelete:
+            return "admin"
+        }
+    }
+
+    private static func operationTitle(_ kind: ScoreboardLogOperationKind) -> String {
+        switch kind {
+        case .scoreAdjustment:
+            return "Score Change"
+        case .scoresReset:
+            return "Zero Scores"
+        case .clockToggle:
+            return "Game Clock Toggle"
+        case .clockExpired:
+            return "Game Clock Expired"
+        case .clockAdjustment:
+            return "Game Clock Adjust"
+        case .clockReset:
+            return "Game Clock Reset"
+        case .periodAdjustment:
+            return "Period Change"
+        case .volleyballSetAward:
+            return "Period Win Award"
+        case .volleyballSetUndo:
+            return "Period Win Undo"
+        case .shotClockAssignment:
+            return "Shot Clock Preset"
+        case .shotClockToggle:
+            return "Shot Clock Toggle"
+        case .shotClockExpired:
+            return "Shot Clock Expired"
+        case .shotClockAdjustment:
+            return "Shot Clock Adjust"
+        case .shotClockReset:
+            return "Shot Clock Reset"
+        case .possessionChange:
+            return "Possession Change"
+        case .sideSwap:
+            return "Swap Sides"
+        case .substitutionsAdjustment:
+            return "Substitution Swap"
+        case .teamPauseAdjustment:
+            return "Team Pause Change"
+        case .chessClockToggle:
+            return "Chess Clock Toggle"
+        case .chessClockSwitch:
+            return "Chess Clock Switch"
+        case .chessClockAdjustment:
+            return "Chess Clock Adjust"
+        case .chessClockReset:
+            return "Chess Clock Reset"
+        case .debatePresetChange:
+            return "Debate Preset"
+        case .debateSegmentChange:
+            return "Debate Segment"
+        case .debateSegmentReset:
+            return "Debate Segment Reset"
+        case .debateRoundReset:
+            return "Debate Round Reset"
+        case .debateTimerToggle:
+            return "Debate Timer Toggle"
+        case .debateTimerAdjustment:
+            return "Debate Timer Adjust"
+        case .debateActiveSideSwitch:
+            return "Debate Side Switch"
+        case .debateActiveSideSet:
+            return "Debate Side Set"
+        case .debatePrepToggle:
+            return "Debate Prep Toggle"
+        case .debatePrepAdjustment:
+            return "Debate Prep Adjust"
+        case .debatePrepReset:
+            return "Debate Prep Reset"
+        case .hockeyPenaltyAdd:
+            return "Hockey Penalty Add"
+        case .hockeyPenaltyRemove:
+            return "Hockey Penalty Remove"
+        case .hockeyPenaltyToggle:
+            return "Hockey Penalty Toggle"
+        case .hockeyPenaltyAdjustment:
+            return "Hockey Penalty Adjust"
+        case .hockeyPenaltyPlayerEdit:
+            return "Hockey Penalty Player"
+        case .customSportConfigChange:
+            return "Custom Sport Config"
+        case .playerFoulAdjustment:
+            return "Player Foul Change"
+        case .playerFoulReset:
+            return "Player Foul Reset"
+        case .playerFoulResetAll:
+            return "Player Fouls Reset"
+        case .playerCardSet:
+            return "Player Card"
+        case .playerCardReset:
+            return "Player Cards Reset"
+        case .playerCardResetAll:
+            return "All Cards Reset"
+        case .teamFoulAdjustment:
+            return "Team Foul Change"
+        case .teamFoulReset:
+            return "Team Fouls Reset"
+        case .teamFoulResetAll:
+            return "All Team Fouls Reset"
+        case .lineupToggle:
+            return "Lineup Toggle"
+        case .playerOverlayToggle:
+            return "Overlay Toggle"
+        case .fileCreate:
+            return "Game File Create"
+        case .fileImport:
+            return "Game File Import"
+        case .fileLoad:
+            return "Game File Load"
+        case .fileRename:
+            return "Game File Rename"
+        case .fileExport:
+            return "Game File Export"
+        case .fileDelete:
+            return "Game File Delete"
+        }
+    }
+
+    private static func contextLine(for entry: ScoreboardLogEntry) -> String {
+        var segments: [String] = []
+        segments.append(entry.context.customSportTitle ?? sportTitle(entry.context.sport))
+        if let debatePresetTitle = entry.context.debatePresetTitle {
+            segments.append(debatePresetTitle)
+        }
+        if let debateSegmentTitle = entry.context.debateSegmentTitle {
+            segments.append(debateSegmentTitle)
+        }
+        if entry.context.homeChessClockSeconds == nil && entry.context.guestChessClockSeconds == nil {
+            segments.append("\(sportPeriodTitle(entry.context.sport)) \(entry.context.period)")
+        }
+        if entry.context.homeChessClockSeconds != nil || entry.context.guestChessClockSeconds != nil {
+            let home = entry.context.homeChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
+            let guest = entry.context.guestChessClockSeconds.map(ScoreboardStore.formatGameClock) ?? "--:--"
+            let activeSide = entry.context.activeChessClockSide.map { side in
+                side == .home ? (entry.context.debateHomeSideLabel ?? teamSideTitle(side)) : (entry.context.debateGuestSideLabel ?? teamSideTitle(side))
+            } ?? "None"
+            segments.append("Dual Clock \(home) / \(guest) • \(activeSide)")
+        } else if entry.context.showsGameClock {
+            let clockState = entry.context.isClockRunning ? "Running" : "Stopped"
+            segments.append("Clock \(clockState) \(ScoreboardStore.formatGameClock(entry.context.gameClockSeconds))")
+        } else {
+            segments.append("Clock Disabled")
+        }
+
+        if entry.context.supportsShotClock, let milliseconds = entry.context.shotClockMilliseconds {
+            let shotState = entry.context.isShotClockRunning == true ? "Running" : "Stopped"
+            segments.append("Shot \(shotState) \(ScoreboardStore.formatShotClock(milliseconds: milliseconds))")
+        }
+
+        if let hockeyPenaltySummary = entry.context.hockeyPenaltySummary, !hockeyPenaltySummary.isEmpty {
+            segments.append(hockeyPenaltySummary)
+        }
+
+        segments.append("\(teamName(entry.context.homeTeamName, fallback: "Home")) \(entry.context.homeScore)-\(entry.context.guestScore) \(teamName(entry.context.guestTeamName, fallback: "Guest"))")
+        return segments.joined(separator: " • ")
+    }
+
+    private static func playerLine(for entry: ScoreboardLogEntry) -> String? {
+        guard
+            entry.operation.playerNumber != nil ||
+            !(entry.operation.playerName?.isEmpty ?? true) ||
+            entry.operation.teamSide != nil
+        else {
+            return nil
+        }
+
+        var segments: [String] = []
+        if let side = entry.operation.teamSide {
+            if entry.context.sport == .debate {
+                segments.append(side == .home ? (entry.context.debateHomeSideLabel ?? teamSideTitle(side)) : (entry.context.debateGuestSideLabel ?? teamSideTitle(side)))
+            } else {
+                segments.append(teamSideTitle(side))
+            }
+        }
+        if let number = entry.operation.playerNumber, !number.isEmpty {
+            segments.append("#\(number)")
+        }
+        if let name = entry.operation.playerName, !name.isEmpty {
+            segments.append(name)
+        }
+        return segments.joined(separator: " • ")
+    }
+
+    private static func fileLine(for entry: ScoreboardLogEntry) -> String? {
+        guard let fileName = entry.operation.fileName ?? entry.context.gameFileName else {
+            return nil
+        }
+        return "File: \(fileName)"
+    }
+
+    private static func leaderValue(homeScore: Int, guestScore: Int, supportsScore: Bool) -> String {
+        guard supportsScore else {
+            return "none"
+        }
+        if homeScore == guestScore {
+            return "tied"
+        }
+        return homeScore > guestScore ? "home" : "guest"
+    }
+
+    private static func sportTitle(_ sport: SportType) -> String {
+        switch sport {
+        case .simple:
+            return "Simple"
+        case .basketball:
+            return "Basketball"
+        case .volleyball:
+            return "Volleyball"
+        case .soccer:
+            return "Soccer"
+        case .hockey:
+            return "Hockey"
+        case .chess:
+            return "Chess"
+        case .debate:
+            return "Debate"
+        case .custom:
+            return "Custom Sport"
+        }
+    }
+
+    private static func sportPeriodTitle(_ sport: SportType) -> String {
+        switch sport {
+        case .soccer:
+            return "Half"
+        case .chess, .debate:
+            return "Round"
+        case .simple, .basketball, .volleyball, .hockey, .custom:
+            return "Period"
+        }
+    }
+
+    private static func teamSideTitle(_ side: TeamSide) -> String {
+        switch side {
+        case .home:
+            return "Home"
+        case .guest:
+            return "Guest"
+        }
+    }
+
+    private static func possessionDisplayName(_ direction: PossessionDirection) -> String {
+        switch direction {
+        case .home:
+            return "HOME"
+        case .guest:
+            return "GUEST"
+        case .none:
+            return "OFF"
+        }
+    }
+
+    private static func cardStatusTitle(_ status: PlayerCardStatus) -> String {
+        switch status {
+        case .none:
+            return "None"
+        case .yellow:
+            return "Yellow"
+        case .red:
+            return "Red"
+        }
+    }
+
+    private static func sideLabel(_ direction: PossessionDirection, state: ScoreboardWebAPIState) -> String {
+        switch direction {
+        case .home:
+            return sideLabel(TeamSide.home, state: state)
+        case .guest:
+            return sideLabel(TeamSide.guest, state: state)
+        case .none:
+            return "None"
+        }
+    }
+
+    private static func sideLabel(_ side: TeamSide, state: ScoreboardWebAPIState) -> String {
+        if state.rules.sport == .debate, let debate = state.debate {
+            return side == .home ? debate.homeSideLabel : debate.guestSideLabel
+        }
+        return side == .home ? state.teams.home.name : state.teams.guest.name
+    }
+
+    private static func possessionSide(_ direction: PossessionDirection) -> TeamSide? {
+        switch direction {
+        case .home:
+            return .home
+        case .guest:
+            return .guest
+        case .none:
+            return nil
+        }
+    }
+
+    private static func teamName(_ name: String, fallback: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private static func playerDisplayName(number: String, name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNumber = number.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedNumber.isEmpty && !trimmedName.isEmpty {
+            return "#\(trimmedNumber) \(trimmedName)"
+        }
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+        if !trimmedNumber.isEmpty {
+            return "#\(trimmedNumber)"
+        }
+        return "Player"
+    }
+
+    private static func playerWatchDetail(_ player: ScoreboardWebAPICommentatorPlayerWatch) -> String {
+        var parts: [String] = []
+        if player.foulCount > 0 {
+            parts.append("F\(player.foulCount)")
+        }
+        if player.cardStatus != .none {
+            parts.append(cardStatusTitle(player.cardStatus))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private static func entryInsight(
+        _ entry: ScoreboardLogEntry,
+        priority: String,
+        category: String
+    ) -> ScoreboardWebAPICommentatorInsight {
+        insight(
+            id: "entry-\(entry.id.uuidString)",
+            priority: priority,
+            category: category,
+            title: operationTitle(entry.operation.kind),
+            detail: entry.operation.summary,
+            side: entry.operation.teamSide,
+            entry: entry
+        )
+    }
+
+    private static func insight(
+        id: String,
+        priority: String,
+        category: String,
+        title: String,
+        detail: String,
+        side: TeamSide? = nil,
+        entry: ScoreboardLogEntry? = nil
+    ) -> ScoreboardWebAPICommentatorInsight {
+        ScoreboardWebAPICommentatorInsight(
+            id: id,
+            priority: priority,
+            category: category,
+            title: title,
+            detail: detail,
+            side: side,
+            entryID: entry?.id,
+            timestamp: entry.map { timestamp($0.timestamp) },
+            timestampUnixTime: entry?.timestamp.timeIntervalSince1970
+        )
+    }
+
+    private static func timestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+}
+
+nonisolated struct ScoreboardWebAPICommentatorSession: Codable, Sendable {
+    let sessionID: UUID
+    let startedAt: String
+    let startedAtUnixTime: TimeInterval
+    let lastUpdatedAt: String
+    let lastUpdatedAtUnixTime: TimeInterval
+    let entryCount: Int
+    let gameFileName: String?
+}
+
+nonisolated struct ScoreboardWebAPICommentatorSummary: Codable, Sendable {
+    let sport: SportType
+    let sportTitle: String
+    let eventName: String
+    let period: Int?
+    let periodLabel: String?
+    let home: ScoreboardWebAPICommentatorTeamSummary
+    let guest: ScoreboardWebAPICommentatorTeamSummary
+    let leader: String
+    let leadMargin: Int?
+    let clock: ScoreboardWebAPICommentatorClockSummary?
+    let shotClock: ScoreboardWebAPICommentatorClockSummary?
+    let chessClock: ScoreboardWebAPICommentatorChessSummary?
+    let debate: ScoreboardWebAPICommentatorDebateSummary?
+    let possession: ScoreboardWebAPICommentatorPossessionSummary?
+    let hockeyPenaltySummary: String?
+    let rosterWatch: [ScoreboardWebAPICommentatorPlayerWatch]
+    let modeTags: [String]
+
+    static let empty = ScoreboardWebAPICommentatorSummary(
+        sport: .simple,
+        sportTitle: "Scoreboard",
+        eventName: "",
+        period: nil,
+        periodLabel: nil,
+        home: ScoreboardWebAPICommentatorTeamSummary(side: .home, name: "HOME", roleLabel: "Home", score: 0, periodsWon: nil, teamFouls: 0, substitutionsRemaining: nil, pausesRemaining: nil),
+        guest: ScoreboardWebAPICommentatorTeamSummary(side: .guest, name: "GUEST", roleLabel: "Guest", score: 0, periodsWon: nil, teamFouls: 0, substitutionsRemaining: nil, pausesRemaining: nil),
+        leader: "tied",
+        leadMargin: 0,
+        clock: nil,
+        shotClock: nil,
+        chessClock: nil,
+        debate: nil,
+        possession: nil,
+        hockeyPenaltySummary: nil,
+        rosterWatch: [],
+        modeTags: []
+    )
+}
+
+nonisolated struct ScoreboardWebAPICommentatorTeamSummary: Codable, Sendable {
+    let side: TeamSide
+    let name: String
+    let roleLabel: String
+    let score: Int?
+    let periodsWon: Int?
+    let teamFouls: Int
+    let substitutionsRemaining: Int?
+    let pausesRemaining: Int?
+}
+
+nonisolated struct ScoreboardWebAPICommentatorClockSummary: Codable, Sendable {
+    let mode: String
+    let label: String
+    let value: String
+    let state: String
+    let side: TeamSide?
+    let secondaryValue: String?
+}
+
+nonisolated struct ScoreboardWebAPICommentatorChessSummary: Codable, Sendable {
+    let homeSeconds: Int
+    let formattedHomeClock: String
+    let guestSeconds: Int
+    let formattedGuestClock: String
+    let activeSide: TeamSide?
+}
+
+nonisolated struct ScoreboardWebAPICommentatorDebateSummary: Codable, Sendable {
+    let presetTitle: String
+    let segmentIndex: Int
+    let segmentTitle: String
+    let segmentTimerMode: DebateTimerMode?
+    let speakingSide: TeamSide?
+    let activeTimer: DebateActiveTimer
+    let homeSideLabel: String
+    let guestSideLabel: String
+    let prepTimeEnabled: Bool
+    let formattedPrepHomeClock: String
+    let formattedPrepGuestClock: String
+}
+
+nonisolated struct ScoreboardWebAPICommentatorPossessionSummary: Codable, Sendable {
+    let direction: PossessionDirection
+    let label: String
+}
+
+nonisolated struct ScoreboardWebAPICommentatorPlayerWatch: Codable, Sendable {
+    let side: TeamSide
+    let playerID: UUID
+    let number: String
+    let name: String
+    let displayName: String
+    let foulCount: Int
+    let cardStatus: PlayerCardStatus
+    let isInActiveLineup: Bool
+
+    var cardPriority: Int {
+        switch cardStatus {
+        case .red:
+            return 2
+        case .yellow:
+            return 1
+        case .none:
+            return 0
+        }
+    }
+}
+
+nonisolated struct ScoreboardWebAPICommentatorInsight: Codable, Sendable {
+    let id: String
+    let priority: String
+    let category: String
+    let title: String
+    let detail: String
+    let side: TeamSide?
+    let entryID: UUID?
+    let timestamp: String?
+    let timestampUnixTime: TimeInterval?
+}
+
+nonisolated struct ScoreboardWebAPICommentatorEntry: Codable, Sendable {
+    let id: UUID
+    let timestamp: String
+    let timestampUnixTime: TimeInterval
+    let kind: ScoreboardLogOperationKind
+    let kindTitle: String
+    let category: String
+    let summary: String
+    let contextLine: String
+    let playerLine: String?
+    let fileLine: String?
+    let side: TeamSide?
+    let playerID: UUID?
+    let playerNumber: String?
+    let playerName: String?
+    let delta: Int?
+    let value: Int?
+    let score: ScoreboardWebAPICommentatorScoreSnapshot
+    let period: Int
+    let outcome: ScoreboardLogOutcome
+}
+
+nonisolated struct ScoreboardWebAPICommentatorScoreSnapshot: Codable, Sendable {
+    let home: Int
+    let guest: Int
+}
+
 nonisolated struct ScoreboardWebAPIRemoteDisplayStateV2: Codable, Sendable {
     let schemaVersion: Int
     let generatedAt: String
@@ -739,7 +1827,7 @@ private extension Array where Element == String {
 }
 
 private extension Data {
-    var scoreboardWebAPIStableRevision: String {
+    nonisolated var scoreboardWebAPIStableRevision: String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in self {
             hash ^= UInt64(byte)
@@ -855,6 +1943,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private var status: ScoreboardWebAPIStatus = .off
     private var statusHandler: (@Sendable (ScoreboardWebAPIStatus) -> Void)?
     private var latestPayload = ScoreboardWebAPIPayload.empty
+    private var latestCommentatorPayload = ScoreboardWebAPICommentatorPayload.empty
+    private var latestCommentatorData = ScoreboardWebAPIService.encodedCommentatorData(ScoreboardWebAPICommentatorPayload.empty.limited(to: nil))
     private var latestImageResponses: [String: ScoreboardWebAPIImageResponse] = [:]
     private var updateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     private var clients: [UUID: WebSocketClient] = [:]
@@ -863,6 +1953,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 
     func start(
         initialPayload: ScoreboardWebAPIPayload,
+        initialCommentatorPayload: ScoreboardWebAPICommentatorPayload,
         updateMode: ScoreboardWebAPIUpdateMode,
         imageResponses: [String: ScoreboardWebAPIImageResponse],
         statusHandler: @escaping @Sendable (ScoreboardWebAPIStatus) -> Void
@@ -870,6 +1961,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         queue.async {
             self.statusHandler = statusHandler
             self.latestPayload = initialPayload
+            self.latestCommentatorPayload = initialCommentatorPayload
+            self.latestCommentatorData = Self.encodedCommentatorData(initialCommentatorPayload.limited(to: nil))
             self.latestImageResponses = imageResponses
             self.updateMode = updateMode
             self.stopLocked(notify: false)
@@ -914,9 +2007,15 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         }
     }
 
-    func updateState(_ payload: ScoreboardWebAPIPayload, imageResponses: [String: ScoreboardWebAPIImageResponse]) {
+    func updateState(
+        _ payload: ScoreboardWebAPIPayload,
+        imageResponses: [String: ScoreboardWebAPIImageResponse],
+        commentatorPayload: ScoreboardWebAPICommentatorPayload
+    ) {
         queue.async {
             self.latestPayload = payload
+            self.latestCommentatorPayload = commentatorPayload
+            self.latestCommentatorData = Self.encodedCommentatorData(commentatorPayload.limited(to: nil))
             self.latestImageResponses = imageResponses
             guard self.status.isRunning, !self.clients.isEmpty else {
                 return
@@ -1105,7 +2204,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         }
 
         let method = parts[0].uppercased()
-        let path = parts[1].split(separator: "?", maxSplits: 1).first.map(String.init) ?? "/"
+        let target = parts[1]
+        let path = target.split(separator: "?", maxSplits: 1).first.map(String.init) ?? "/"
 
         guard method == "GET" else {
             sendHTTPResponse(
@@ -1161,6 +2261,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 contentType: "text/html; charset=utf-8",
                 body: Self.webAssetData(.obs)
             )
+        case "/commentator", "/commentator.html":
+            sendHTTPResponse(
+                connection,
+                statusCode: 200,
+                reason: "OK",
+                contentType: "text/html; charset=utf-8",
+                body: Self.webAssetData(.commentator)
+            )
         case "/api/v1/state":
             sendHTTPResponse(
                 connection,
@@ -1204,6 +2312,15 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 reason: "OK",
                 contentType: "application/json; charset=utf-8",
                 body: latestPayload.v2State.manifestData,
+                apiVersion: "v2"
+            )
+        case "/api/v2/commentator":
+            sendHTTPResponse(
+                connection,
+                statusCode: 200,
+                reason: "OK",
+                contentType: "application/json; charset=utf-8",
+                body: commentatorDataLocked(limit: Self.commentatorLimit(from: target)),
                 apiVersion: "v2"
             )
         default:
@@ -1489,6 +2606,44 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         )
         let encoder = ScoreboardWebAPIJSON.encoder()
         return (try? encoder.encode(response)) ?? Data(#"{"schemaVersion":2,"status":"failed"}"#.utf8)
+    }
+
+    private func commentatorDataLocked(limit: Int?) -> Data {
+        let clampedLimit = ScoreboardWebAPICommentatorPayload.clampedEntryLimit(limit)
+        guard clampedLimit != ScoreboardWebAPICommentatorPayload.defaultEntryLimit else {
+            return latestCommentatorData
+        }
+
+        return Self.encodedCommentatorData(latestCommentatorPayload.limited(to: clampedLimit))
+    }
+
+    private static func encodedCommentatorData(_ payload: ScoreboardWebAPICommentatorPayload) -> Data {
+        let encoder = ScoreboardWebAPIJSON.encoder()
+        return (try? encoder.encode(payload)) ?? Data(#"{"schemaVersion":2,"error":"encodingFailed","summary":{},"insights":[],"entries":[]}"#.utf8)
+    }
+
+    private static func commentatorLimit(from target: String) -> Int? {
+        guard let questionMarkIndex = target.firstIndex(of: "?") else {
+            return nil
+        }
+
+        let queryStart = target.index(after: questionMarkIndex)
+        guard queryStart < target.endIndex else {
+            return nil
+        }
+
+        let query = target[queryStart...]
+        for pair in query.split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.first.map(String.init) == "limit", parts.count == 2 else {
+                continue
+            }
+
+            let rawValue = String(parts[1]).removingPercentEncoding ?? String(parts[1])
+            return Int(rawValue)
+        }
+
+        return nil
     }
 
     private func headerEndIndex(in data: Data) -> Data.Index? {
@@ -1791,6 +2946,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         case docs
         case scoreboard
         case obs
+        case commentator
         case notFound
 
         var assetName: String {
@@ -1801,6 +2957,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return "WebAPIScoreboardDemo"
             case .obs:
                 return "WebAPIOBSDemo"
+            case .commentator:
+                return "WebAPICommentator"
             case .notFound:
                 return "WebAPI404"
             }

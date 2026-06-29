@@ -5576,6 +5576,12 @@ final class ScoreboardStore: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .scoreboardLogCurrentSessionDidChange)
+            .sink { [weak self] _ in
+                self?.scheduleStateSideEffectRefresh()
+            }
+            .store(in: &cancellables)
     }
 
     private func configureRemoteDisplayService() {
@@ -5767,8 +5773,10 @@ final class ScoreboardStore: ObservableObject {
     private func startWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
+        let payloads = encodedWebAPIOutputPayloads()
         webAPIService.start(
-            initialPayload: encodedWebAPIPayload(),
+            initialPayload: payloads.state,
+            initialCommentatorPayload: payloads.commentator,
             updateMode: webAPIUpdateMode,
             imageResponses: currentWebAPIImageResponses()
         ) { [weak self] status in
@@ -5786,7 +5794,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshWebAPIState() {
-        webAPIService.updateState(encodedWebAPIPayload(), imageResponses: currentWebAPIImageResponses())
+        let payloads = encodedWebAPIOutputPayloads()
+        webAPIService.updateState(
+            payloads.state,
+            imageResponses: currentWebAPIImageResponses(),
+            commentatorPayload: payloads.commentator
+        )
     }
 
     private func startRemoteDisplayHostService() {
@@ -5815,6 +5828,17 @@ final class ScoreboardStore: ObservableObject {
 
     private func encodedWebAPIPayload() -> ScoreboardWebAPIPayload {
         ScoreboardWebAPIPayload.make(from: currentWebAPIState())
+    }
+
+    private func encodedWebAPIOutputPayloads() -> (state: ScoreboardWebAPIPayload, commentator: ScoreboardWebAPICommentatorPayload) {
+        let state = currentWebAPIState()
+        return (
+            state: ScoreboardWebAPIPayload.make(from: state),
+            commentator: ScoreboardWebAPICommentatorPayload.make(
+                from: state,
+                logSession: logManager.currentSessionSnapshot()
+            )
+        )
     }
 
     private func encodedRemoteDisplayState() -> Data {

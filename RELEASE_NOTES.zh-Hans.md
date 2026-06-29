@@ -3,6 +3,7 @@
 ## 1.3
 
 - 新增足球和自定义倒计时模式的补时控制，并自动在公共显示上显示 +N 分钟。
+- 新增 Web API 解说信息面板 `/commentator`，并通过非阻塞的当前会话 `/api/v2/commentator` 缓存提供实时事件线、球员提醒和确定性解说提示。
 - 新增 Web API 自定义页面和 Remote Display 共用的自定义显示控制，支持共享显示 ID 1-8、ID 0 回退到主显示控制、可配置启用显示数量，以及重命名 Custom 1-3 模式标签。
 - 扩展 Web API v2 和内置演示页面以支持自定义显示控制，同时保留兼容的 `display.broadcastControl` JSON 键；Remote Display 客户端在未启用单独控制时会继续跟随主显示。
 - 修复 iOS 真机在渲染自定义运动或辩论设置区块时可能崩溃的问题。

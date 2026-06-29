@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let scoreboardLogSessionsDidChange = Notification.Name("scoreboardLogSessionsDidChange")
+    static let scoreboardLogCurrentSessionDidChange = Notification.Name("scoreboardLogCurrentSessionDidChange")
 }
 
 extension UTType {
@@ -498,10 +499,12 @@ final class ScoreboardLogManager {
             currentSessionURL = sessionURL
             try persist(session, to: sessionURL)
             lastPersistDate = Date()
+            notifyCurrentSessionChange()
             notifyChange()
         } catch {
             currentSession = session
             currentSessionURL = nil
+            notifyCurrentSessionChange()
             NSLog("ScoreboardLogManager failed to start session: %@", String(describing: error))
         }
     }
@@ -532,7 +535,12 @@ final class ScoreboardLogManager {
         session.lastUpdatedAt = now
         currentSession = session
 
+        notifyCurrentSessionChange()
         requestPersistCurrentSession()
+    }
+
+    func currentSessionSnapshot() -> ScoreboardLogSession? {
+        currentSession
     }
 
     func listSessions() throws -> [StoredLogSession] {
@@ -628,6 +636,7 @@ final class ScoreboardLogManager {
         if let firstSession = try listSessions().first {
             currentSession = firstSession.session
             currentSessionURL = firstSession.url
+            notifyCurrentSessionChange()
             notifyChange()
         } else {
             currentSession = nil
@@ -825,6 +834,10 @@ final class ScoreboardLogManager {
 
     private func notifyChange() {
         NotificationCenter.default.post(name: .scoreboardLogSessionsDidChange, object: nil)
+    }
+
+    private func notifyCurrentSessionChange() {
+        NotificationCenter.default.post(name: .scoreboardLogCurrentSessionDidChange, object: nil)
     }
 
     private func shotClockStatus(for context: ScoreboardLogContext) -> String {

@@ -198,6 +198,12 @@
         <p data-i18n="obsBody">This demo is for API testing and reference only. Treat it as a starting point, not a finished broadcast package.</p>
         <a class="button" href="/demo/obs" data-i18n="openOBS">Open OBS Source</a>
       </article>
+
+      <article class="card">
+        <h2 data-i18n="commentatorTitle">Commentator Dashboard</h2>
+        <p data-i18n="commentatorBody">Live score, clock, timeline, roster alerts, and deterministic talking points for commentators on the local network.</p>
+        <a class="button" href="/commentator" data-i18n="openCommentator">Open Commentator</a>
+      </article>
     </section>
 
     <section class="card">
@@ -223,9 +229,11 @@
         <tr><td><code>GET /api/v2/status/app</code></td><td data-i18n="appStatusUse">App identity/status only: app name, version, build, API version marker, and generated time.</td></tr>
         <tr><td><code>GET /api/v2/state</code></td><td data-i18n="stateUse">Lightweight v2 manifest listing resource names, hrefs, revisions, and generated time.</td></tr>
         <tr><td><code>GET /api/v2/state/{game|runtime|display|rules|teams|clocks|players|debate|audio}</code></td><td data-i18n="resourceUse">One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate.</td></tr>
+        <tr><td><code>GET /api/v2/commentator?limit=120</code></td><td data-i18n="commentatorAPIUse">Current in-memory log session and mode-aware commentator summaries. The HTTP handler serves cached data and does not read log files.</td></tr>
         <tr><td><code>GET /api/v2/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. v1 image paths remain valid aliases.</td></tr>
         <tr><td><code>GET /api/v2/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. v1 image paths remain valid aliases.</td></tr>
         <tr><td><code>GET /api/v2/teams/{home|guest}/logo</code></td><td data-i18n="teamLogoUse">Current team logo binary with alpha preserved. v1 image paths remain valid aliases.</td></tr>
+        <tr><td><code>/commentator</code></td><td data-i18n="commentatorPageUse">Bundled read-only browser dashboard using v2 WebSocket match state and the commentator endpoint.</td></tr>
         <tr><td><code>WS /api/v2/ws</code></td><td data-i18n-html="wsUse">Send <code>{"type":"subscribe","apiVersion":"v2"}</code> after connecting. The server sends a v2 manifest and separate <code>scoreboard.v2.resource</code> messages, then pushes changed resources only.</td></tr>
         <tr><td><code>GET /api/v1/state</code></td><td data-i18n="v1StateUse">Backward-compatible v1 full state payload.</td></tr>
         <tr><td><code>GET /api/v1/health</code></td><td data-i18n="healthUse">Backward-compatible v1 service health payload.</td></tr>
@@ -259,6 +267,9 @@
         obsTitle: 'Reference OBS Browser Source',
         obsBody: 'This demo is for API testing and reference only. Treat it as a starting point, not a finished broadcast package.',
         openOBS: 'Open OBS Source',
+        commentatorTitle: 'Commentator Dashboard',
+        commentatorBody: 'Live score, clock, timeline, roster alerts, and deterministic talking points for commentators on the local network.',
+        openCommentator: 'Open Commentator',
         endpointsTitle: 'Endpoints',
         endpointsBody: 'The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.',
         httpState: 'HTTP state manifest',
@@ -274,6 +285,8 @@
         appStatusUse: 'App identity/status only: app name, version, build, API version marker, and generated time.',
         stateUse: 'Lightweight v2 manifest listing resource names, hrefs, revisions, and generated time. It does not embed app status, API status, or full scoreboard state.',
         resourceUse: 'One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate. rules includes injury-time support and clocks includes pending/active added-time values.',
+        commentatorAPIUse: 'Current in-memory log session, recent timeline, roster watch, and mode-aware commentator summaries. The HTTP handler serves cached data and does not read log files.',
+        commentatorPageUse: 'Bundled read-only browser dashboard using v2 WebSocket match state and the commentator endpoint.',
         backgroundImageUse: 'Current external display background image binary. Photo and Animated Logo modes use this same image asset. Use the response Content-Type; v1 image paths remain valid aliases.',
         eventLogoUse: 'Current event logo binary with alpha preserved. Use the response Content-Type; display.showsEventLogo controls whether display.eventLogo metadata appears in state. v1 image paths remain valid aliases.',
         teamLogoUse: 'Current team logo binary with alpha preserved. Use the response Content-Type; display.showsTeamLogos controls whether logo metadata appears in state. v1 image paths remain valid aliases.',
@@ -299,6 +312,9 @@
         obsTitle: '参考 OBS 浏览器源',
         obsBody: '此演示仅用于 API 测试和参考。请将它作为起点，而不是完整的播出包装。',
         openOBS: '打开 OBS 源',
+        commentatorTitle: '解说信息面板',
+        commentatorBody: '为局域网内解说席提供实时比分、计时、事件线、球员提醒和确定性解说提示。',
+        openCommentator: '打开解说面板',
         endpointsTitle: '端点',
         endpointsBody: '演示页面只是参考实现，并且仅使用 WebSocket。HTTP 仍可供通用轮询客户端使用。WebSocket 发送方式遵循 App 设置中的更新模式。',
         httpState: 'HTTP 状态清单',
@@ -314,6 +330,8 @@
         appStatusUse: '仅 App 身份和状态：App 名称、版本、构建号、API 版本标记和生成时间。',
         stateUse: '轻量 v2 清单，列出资源名称、href、修订号和生成时间。不嵌入 App 状态、API 状态或完整记分牌状态。',
         resourceUse: '单个 v2 资源信封：schemaVersion、resource、revision、generatedAt 和 data。当前运动不是辩论时 debate 返回 null。rules 包含补时支持状态，clocks 包含待应用和已激活的补时数值。',
+        commentatorAPIUse: '当前内存中的日志会话、最近事件线、球员关注和按比赛模式生成的解说摘要。HTTP 处理只返回缓存数据，不读取日志文件。',
+        commentatorPageUse: '内置只读浏览器面板，使用 v2 WebSocket 比赛状态和解说端点。',
         backgroundImageUse: '当前外接显示背景图片二进制内容。照片和动态标志模式共用同一图片资源。请使用响应 Content-Type；v1 图片路径仍作为别名有效。',
         eventLogoUse: '当前赛事标志图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsEventLogo 控制状态中是否显示 display.eventLogo 元数据。v1 图片路径仍作为别名有效。',
         teamLogoUse: '当前队标图片二进制内容，并保留透明通道。请使用响应 Content-Type；display.showsTeamLogos 控制状态中是否显示队标元数据。v1 图片路径仍作为别名有效。',

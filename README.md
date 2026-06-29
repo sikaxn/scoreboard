@@ -44,6 +44,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Configurable event sounds for clocks, alerts, fouls, cards, substitutions, and score changes
 - Save, import, export, and autosave game files
 - Event logs with export support
+- Local Web API demos, including a commentator dashboard with live match data, current-session timeline, roster alerts, and deterministic talking points
 
 ## Supported Platforms
 
