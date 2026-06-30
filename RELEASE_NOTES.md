@@ -1,5 +1,12 @@
 # Release Notes
 
+## 1.4
+
+- Added a Keyboard Shortcuts settings page for iPhone, iPad, and Mac operator devices.
+- Added configurable hardware-keyboard shortcuts for stable live control board actions, with safe defaults for timer toggle, basic scoring, secondary timer action, home/guest secondary-timer assignment, and player-page navigation.
+- Left reset and other higher-risk actions unassigned by default while keeping them configurable through the new settings page.
+- Added conflict normalization so each shortcut belongs to one action and destructive actions continue through the existing confirmation flow.
+
 ## 1.3
 
 - Added Soccer and Custom countdown injury-time controls with automatic +N minute public display.

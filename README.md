@@ -42,6 +42,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Team fouls, player fouls, cards, substitutions, and possession tracking where supported
 - Theme options for different lighting and presentation needs
 - Configurable event sounds for clocks, alerts, fouls, cards, substitutions, and score changes
+- Configurable hardware keyboard shortcuts for live control board actions on iPhone, iPad, and Mac
 - Save, import, export, and autosave game files
 - Event logs with export support
 - Local Web API demos, including a commentator dashboard with live match data, current-session timeline, roster alerts, and deterministic talking points
@@ -73,6 +74,7 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 ## Project Structure
 
 - `smartScoreboard/smartScoreboard/ContentView.swift` - main operator interface and setup flow
+- `smartScoreboard/smartScoreboard/ScoreboardKeyboardShortcuts.swift` - keyboard shortcut catalog, settings UI, and platform key handling
 - `smartScoreboard/smartScoreboard/ExternalScoreboardView.swift` - public scoreboard display
 - `smartScoreboard/smartScoreboard/ScoreboardStore.swift` - app state and scoring logic
 - `smartScoreboard/smartScoreboard/SportType.swift` - sport presets and rule capabilities

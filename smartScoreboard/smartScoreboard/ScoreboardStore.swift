@@ -934,6 +934,17 @@ final class ScoreboardStore: ObservableObject {
             (sport, defaultSoundAssignments)
         })
     }()
+    nonisolated static let defaultKeyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut] = [
+        .togglePrimaryTimer: ScoreboardKeyboardShortcut(key: " "),
+        .homeScorePrimary: ScoreboardKeyboardShortcut(key: "H"),
+        .guestScorePrimary: ScoreboardKeyboardShortcut(key: "G"),
+        .homeScoreMinusOne: ScoreboardKeyboardShortcut(key: "H", modifiers: .shift),
+        .guestScoreMinusOne: ScoreboardKeyboardShortcut(key: "G", modifiers: .shift),
+        .secondaryTimerPrimary: ScoreboardKeyboardShortcut(key: "S"),
+        .homeSecondaryPrimary: ScoreboardKeyboardShortcut(key: "H", modifiers: .option),
+        .guestSecondaryPrimary: ScoreboardKeyboardShortcut(key: "G", modifiers: .option),
+        .togglePlayersPage: ScoreboardKeyboardShortcut(key: "P")
+    ]
 
     @Published var selectedSport: SportType = .simple
     @Published var customSportConfig: CustomSportConfig = .default
@@ -1027,6 +1038,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var isSoundEnabled = true
     @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
+    @Published var keyboardShortcutsByAction = ScoreboardStore.defaultKeyboardShortcutsByAction
     @Published var isCompanionVisible = false
     @Published var isCompanionEnabled = false
     @Published var companionHost = ""
@@ -2400,6 +2412,41 @@ final class ScoreboardStore: ObservableObject {
         stopTestSound()
         isSoundEnabled = true
         soundAssignmentsBySport = Self.defaultSoundAssignmentsBySport
+    }
+
+    func keyboardShortcut(for action: ScoreboardKeyboardShortcutAction) -> ScoreboardKeyboardShortcut? {
+        keyboardShortcutsByAction[action]?.normalized
+    }
+
+    func keyboardShortcutAction(for shortcut: ScoreboardKeyboardShortcut) -> ScoreboardKeyboardShortcutAction? {
+        guard let normalizedShortcut = shortcut.normalized else {
+            return nil
+        }
+        return ScoreboardKeyboardShortcutAction.allCases.first {
+            keyboardShortcutsByAction[$0]?.normalized == normalizedShortcut
+        }
+    }
+
+    func setKeyboardShortcut(_ shortcut: ScoreboardKeyboardShortcut?, for action: ScoreboardKeyboardShortcutAction) {
+        var assignments = keyboardShortcutsByAction
+        assignments.removeValue(forKey: action)
+
+        if let normalizedShortcut = shortcut?.normalized {
+            for (assignedAction, assignedShortcut) in assignments where assignedShortcut.normalized == normalizedShortcut {
+                assignments.removeValue(forKey: assignedAction)
+            }
+            assignments[action] = normalizedShortcut
+        }
+
+        keyboardShortcutsByAction = Self.normalizedKeyboardShortcuts(assignments)
+    }
+
+    func clearKeyboardShortcut(for action: ScoreboardKeyboardShortcutAction) {
+        setKeyboardShortcut(nil, for: action)
+    }
+
+    func resetKeyboardShortcutsToDefaults() {
+        keyboardShortcutsByAction = Self.defaultKeyboardShortcutsByAction
     }
 
     func playTestSound(_ event: ScoreboardSoundEvent) {
@@ -5962,6 +6009,7 @@ final class ScoreboardStore: ObservableObject {
             $eventLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
             $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
+            $keyboardShortcutsByAction.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionEnabled.map { _ in () }.eraseToAnyPublisher(),
             $companionHost.map { _ in () }.eraseToAnyPublisher(),
@@ -6200,6 +6248,7 @@ final class ScoreboardStore: ObservableObject {
             externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image || persistedState.externalDisplayBackgroundMode == .animatedLogo ? .blurred : persistedState.externalDisplayBackgroundMode
             isSoundEnabled = persistedState.isSoundEnabled
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
+            keyboardShortcutsByAction = Self.normalizedKeyboardShortcuts(persistedState.keyboardShortcutsByAction)
             isCompanionVisible = persistedState.isCompanionVisible
             isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
             companionHost = persistedState.companionHost
@@ -6523,6 +6572,7 @@ final class ScoreboardStore: ObservableObject {
             showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
             soundAssignmentsBySport: soundAssignmentsBySport,
+            keyboardShortcutsByAction: keyboardShortcutsByAction,
             isCompanionVisible: isCompanionVisible,
             isCompanionEnabled: isCompanionEnabled,
             companionHost: companionHost,
@@ -6556,6 +6606,19 @@ final class ScoreboardStore: ObservableObject {
                 sportAssignments[event] = effect
             }
             resolved[sport] = sportAssignments
+        }
+        return resolved
+    }
+
+    static func normalizedKeyboardShortcuts(_ assignments: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut]) -> [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut] {
+        var resolved: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut] = [:]
+        var usedShortcuts = Set<ScoreboardKeyboardShortcut>()
+        for action in ScoreboardKeyboardShortcutAction.allCases {
+            guard let shortcut = assignments[action]?.normalized, !usedShortcuts.contains(shortcut) else {
+                continue
+            }
+            resolved[action] = shortcut
+            usedShortcuts.insert(shortcut)
         }
         return resolved
     }
@@ -6801,6 +6864,7 @@ private struct PersistedState: Codable {
     var showsEventLogo: Bool
     var isSoundEnabled: Bool
     var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
+    var keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut]
     var isCompanionVisible: Bool
     var isCompanionEnabled: Bool
     var companionHost: String
@@ -6913,6 +6977,7 @@ private struct PersistedState: Codable {
         case isSoundEnabled
         case soundAssignments
         case soundAssignmentsBySport
+        case keyboardShortcutsByAction
         case isCompanionVisible
         case isCompanionEnabled
         case companionHost
@@ -7024,6 +7089,7 @@ private struct PersistedState: Codable {
         showsEventLogo: Bool,
         isSoundEnabled: Bool,
         soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
+        keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut],
         isCompanionVisible: Bool,
         isCompanionEnabled: Bool,
         companionHost: String,
@@ -7132,6 +7198,7 @@ private struct PersistedState: Codable {
         self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
         self.soundAssignmentsBySport = soundAssignmentsBySport
+        self.keyboardShortcutsByAction = ScoreboardStore.normalizedKeyboardShortcuts(keyboardShortcutsByAction)
         self.isCompanionVisible = isCompanionVisible
         self.isCompanionEnabled = isCompanionEnabled
         self.companionHost = companionHost
@@ -7275,6 +7342,10 @@ private struct PersistedState: Codable {
         } else {
             soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
         }
+        keyboardShortcutsByAction = ScoreboardStore.normalizedKeyboardShortcuts(
+            try container.decodeIfPresent([ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut].self, forKey: .keyboardShortcutsByAction)
+                ?? ScoreboardStore.defaultKeyboardShortcutsByAction
+        )
         isCompanionVisible = try container.decodeIfPresent(Bool.self, forKey: .isCompanionVisible) ?? false
         let decodedCompanionEnabled = try container.decodeIfPresent(Bool.self, forKey: .isCompanionEnabled) ?? false
         isCompanionEnabled = isCompanionVisible && decodedCompanionEnabled
@@ -7402,6 +7473,7 @@ private struct PersistedState: Codable {
         try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
         try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
+        try container.encode(keyboardShortcutsByAction, forKey: .keyboardShortcutsByAction)
         try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
         try container.encode(isCompanionEnabled, forKey: .isCompanionEnabled)
         try container.encode(companionHost, forKey: .companionHost)
@@ -7523,6 +7595,7 @@ private extension PersistedState {
             showsEventLogo: true,
             isSoundEnabled: true,
             soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
+            keyboardShortcutsByAction: ScoreboardStore.defaultKeyboardShortcutsByAction,
             isCompanionVisible: false,
             isCompanionEnabled: false,
             companionHost: "",
