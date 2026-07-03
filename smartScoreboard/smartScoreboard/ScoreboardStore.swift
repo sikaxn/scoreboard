@@ -4508,7 +4508,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         lastTimerFireDate = Date()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self else {
                 return
             }
@@ -4517,6 +4517,8 @@ final class ScoreboardStore: ObservableObject {
                 self.reconcileRunningTimersWithWallClock()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func reconcileRunningTimersWithWallClock() {
