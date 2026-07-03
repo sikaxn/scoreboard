@@ -1,12 +1,299 @@
 import Combine
 import Foundation
 
-private func localizedStoreString(_ key: String) -> String {
+private enum ScoreboardLocalizedFormatArgumentType {
+    case object
+    case signedInteger(length: String?)
+    case unsignedInteger(length: String?)
+    case floatingPoint
+    case character
+    case cString
+}
+
+private struct ScoreboardLocalizedFormatPlaceholder {
+    let position: Int?
+    let argumentType: ScoreboardLocalizedFormatArgumentType
+}
+
+private enum ScoreboardLocalizedFormatNormalizer {
+    nonisolated private static let placeholderPattern = "%(?:(\\d+)\\$)?[-+#0 ]*(?:\\d+|\\*)?(?:\\.(?:\\d+|\\*))?(hh|h|ll|l|q|L|z|t|j)?([@diuoxXfFeEgGaAcCsS])"
+
+    nonisolated static func normalizedArguments(for format: String, arguments: [Any]) -> [CVarArg] {
+        let placeholders = placeholders(in: format)
+        guard !placeholders.isEmpty else {
+            return arguments.map { fallbackArgument($0) }
+        }
+
+        var argumentTypes: [Int: ScoreboardLocalizedFormatArgumentType] = [:]
+        var nextSequentialIndex = 0
+        for placeholder in placeholders {
+            let argumentIndex: Int
+            if let position = placeholder.position {
+                argumentIndex = max(0, position - 1)
+            } else {
+                argumentIndex = nextSequentialIndex
+                nextSequentialIndex += 1
+            }
+
+            if argumentTypes[argumentIndex] == nil {
+                argumentTypes[argumentIndex] = placeholder.argumentType
+            }
+        }
+
+        return arguments.enumerated().map { index, argument in
+            normalize(argument, as: argumentTypes[index])
+        }
+    }
+
+    nonisolated private static func placeholders(in format: String) -> [ScoreboardLocalizedFormatPlaceholder] {
+        guard let regex = try? NSRegularExpression(pattern: placeholderPattern) else {
+            return []
+        }
+
+        let range = NSRange(format.startIndex..<format.endIndex, in: format)
+        return regex.matches(in: format, range: range).compactMap { match in
+            let position: Int?
+            if let positionRange = Range(match.range(at: 1), in: format), !positionRange.isEmpty {
+                position = Int(format[positionRange])
+            } else {
+                position = nil
+            }
+
+            let length: String?
+            if let lengthRange = Range(match.range(at: 2), in: format), !lengthRange.isEmpty {
+                length = String(format[lengthRange])
+            } else {
+                length = nil
+            }
+
+            guard let conversionRange = Range(match.range(at: 3), in: format),
+                  let conversion = format[conversionRange].first else {
+                return nil
+            }
+
+            return ScoreboardLocalizedFormatPlaceholder(
+                position: position,
+                argumentType: argumentType(conversion: conversion, length: length)
+            )
+        }
+    }
+
+    nonisolated private static func argumentType(conversion: Character, length: String?) -> ScoreboardLocalizedFormatArgumentType {
+        switch conversion {
+        case "@":
+            return .object
+        case "d", "i":
+            return .signedInteger(length: length)
+        case "u", "o", "x", "X":
+            return .unsignedInteger(length: length)
+        case "f", "F", "e", "E", "g", "G", "a", "A":
+            return .floatingPoint
+        case "c", "C":
+            return .character
+        case "s", "S":
+            return .cString
+        default:
+            return .object
+        }
+    }
+
+    nonisolated private static func normalize(_ value: Any, as argumentType: ScoreboardLocalizedFormatArgumentType?) -> CVarArg {
+        guard let argumentType else {
+            return fallbackArgument(value)
+        }
+
+        switch argumentType {
+        case .object:
+            return objectArgument(value)
+        case .signedInteger(let length):
+            return signedIntegerArgument(value, length: length)
+        case .unsignedInteger(let length):
+            return unsignedIntegerArgument(value, length: length)
+        case .floatingPoint:
+            return doubleArgument(value)
+        case .character:
+            return Int32(clamping: integerValue(value))
+        case .cString:
+            return stringValue(value)
+        }
+    }
+
+    nonisolated private static func fallbackArgument(_ value: Any) -> CVarArg {
+        if let argument = value as? CVarArg {
+            return argument
+        }
+        return stringValue(value) as NSString
+    }
+
+    nonisolated private static func objectArgument(_ value: Any) -> CVarArg {
+        if let string = value as? String {
+            return string as NSString
+        }
+        if let substring = value as? Substring {
+            return String(substring) as NSString
+        }
+        if let object = value as? NSObject {
+            return object
+        }
+        return stringValue(value) as NSString
+    }
+
+    nonisolated private static func signedIntegerArgument(_ value: Any, length: String?) -> CVarArg {
+        let integer = integerValue(value)
+        switch length {
+        case "ll", "q", "j":
+            return Int64(integer)
+        case "l", "z", "t":
+            return Int(integer)
+        case "h":
+            return Int16(clamping: integer)
+        case "hh":
+            return Int8(clamping: integer)
+        default:
+            return Int32(clamping: integer)
+        }
+    }
+
+    nonisolated private static func unsignedIntegerArgument(_ value: Any, length: String?) -> CVarArg {
+        let unsigned = unsignedIntegerValue(value)
+        switch length {
+        case "ll", "q", "j":
+            return UInt64(unsigned)
+        case "l", "z", "t":
+            return UInt(unsigned)
+        case "h":
+            return UInt16(clamping: unsigned)
+        case "hh":
+            return UInt8(clamping: unsigned)
+        default:
+            return UInt32(clamping: unsigned)
+        }
+    }
+
+    nonisolated private static func integerValue(_ value: Any) -> Int64 {
+        switch value {
+        case let number as Int:
+            return Int64(number)
+        case let number as Int8:
+            return Int64(number)
+        case let number as Int16:
+            return Int64(number)
+        case let number as Int32:
+            return Int64(number)
+        case let number as Int64:
+            return number
+        case let number as UInt:
+            return Int64(clamping: number)
+        case let number as UInt8:
+            return Int64(number)
+        case let number as UInt16:
+            return Int64(number)
+        case let number as UInt32:
+            return Int64(number)
+        case let number as UInt64:
+            return Int64(clamping: number)
+        case let number as Double:
+            return Int64(number)
+        case let number as Float:
+            return Int64(number)
+        case let number as Bool:
+            return number ? 1 : 0
+        case let number as NSNumber:
+            return number.int64Value
+        case let string as String:
+            return Int64(string) ?? 0
+        default:
+            return 0
+        }
+    }
+
+    nonisolated private static func unsignedIntegerValue(_ value: Any) -> UInt64 {
+        switch value {
+        case let number as UInt:
+            return UInt64(number)
+        case let number as UInt8:
+            return UInt64(number)
+        case let number as UInt16:
+            return UInt64(number)
+        case let number as UInt32:
+            return UInt64(number)
+        case let number as UInt64:
+            return number
+        case let number as Int:
+            return UInt64(clamping: number)
+        case let number as Int8:
+            return UInt64(clamping: number)
+        case let number as Int16:
+            return UInt64(clamping: number)
+        case let number as Int32:
+            return UInt64(clamping: number)
+        case let number as Int64:
+            return UInt64(clamping: number)
+        case let number as Double:
+            return UInt64(number)
+        case let number as Float:
+            return UInt64(number)
+        case let number as Bool:
+            return number ? 1 : 0
+        case let number as NSNumber:
+            return number.uint64Value
+        case let string as String:
+            return UInt64(string) ?? 0
+        default:
+            return 0
+        }
+    }
+
+    nonisolated private static func doubleArgument(_ value: Any) -> CVarArg {
+        switch value {
+        case let number as Double:
+            return number
+        case let number as Float:
+            return Double(number)
+        case let number as CGFloat:
+            return Double(number)
+        case let number as NSNumber:
+            return number.doubleValue
+        case let number as Int:
+            return Double(number)
+        case let number as Int64:
+            return Double(number)
+        case let number as UInt:
+            return Double(number)
+        case let number as UInt64:
+            return Double(number)
+        case let string as String:
+            return Double(string) ?? 0
+        default:
+            return 0.0
+        }
+    }
+
+    nonisolated private static func stringValue(_ value: Any) -> String {
+        if let string = value as? String {
+            return string
+        }
+        if let substring = value as? Substring {
+            return String(substring)
+        }
+        return String(describing: value)
+    }
+}
+
+nonisolated func scoreboardLocalizedFormat(_ format: String, locale: Locale = .current, arguments: [Any]) -> String {
+    String(
+        format: format,
+        locale: locale,
+        arguments: ScoreboardLocalizedFormatNormalizer.normalizedArguments(for: format, arguments: arguments)
+    )
+}
+
+nonisolated private func localizedStoreString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedStoreFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedStoreString(key), locale: Locale.current, arguments: arguments)
+nonisolated private func localizedStoreFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedStoreString(key), locale: Locale.current, arguments: arguments)
 }
 
 private func signedStoreDelta(_ delta: Int, suffix: String = "") -> String {
@@ -309,6 +596,84 @@ enum ScoreboardDisplayViewMode: String, Codable, CaseIterable, Identifiable, Sen
     }
 }
 
+enum ScoreboardWebAPIBroadcastDisplayMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case followDisplayControl
+    case scoreboard
+    case blackScreen
+    case backgroundOnly
+    case eventLogo
+    case teamView
+    case playerView
+    case custom1
+    case custom2
+    case custom3
+
+    var id: String { rawValue }
+
+    static let customizableModes: [ScoreboardWebAPIBroadcastDisplayMode] = [.custom1, .custom2, .custom3]
+
+    var title: String {
+        switch self {
+        case .followDisplayControl:
+            return NSLocalizedString("Follow Main", comment: "")
+        case .scoreboard:
+            return ScoreboardDisplayViewMode.scoreboard.title
+        case .blackScreen:
+            return ScoreboardDisplayViewMode.blackScreen.title
+        case .backgroundOnly:
+            return ScoreboardDisplayViewMode.backgroundOnly.title
+        case .eventLogo:
+            return ScoreboardDisplayViewMode.eventLogo.title
+        case .teamView:
+            return ScoreboardDisplayViewMode.teamView.title
+        case .playerView:
+            return ScoreboardDisplayViewMode.playerView.title
+        case .custom1:
+            return NSLocalizedString("Custom 1", comment: "")
+        case .custom2:
+            return NSLocalizedString("Custom 2", comment: "")
+        case .custom3:
+            return NSLocalizedString("Custom 3", comment: "")
+        }
+    }
+
+    var displayViewMode: ScoreboardDisplayViewMode? {
+        switch self {
+        case .followDisplayControl, .custom1, .custom2, .custom3:
+            return nil
+        case .scoreboard:
+            return .scoreboard
+        case .blackScreen:
+            return .blackScreen
+        case .backgroundOnly:
+            return .backgroundOnly
+        case .eventLogo:
+            return .eventLogo
+        case .teamView:
+            return .teamView
+        case .playerView:
+            return .playerView
+        }
+    }
+
+    var isCustomMode: Bool {
+        switch self {
+        case .custom1, .custom2, .custom3:
+            return true
+        case .followDisplayControl, .scoreboard, .blackScreen, .backgroundOnly, .eventLogo, .teamView, .playerView:
+            return false
+        }
+    }
+
+    var followsDisplayControl: Bool {
+        displayViewMode == nil
+    }
+
+    func effectiveRenderMode(fallbackDisplayControlMode: ScoreboardDisplayViewMode) -> ScoreboardDisplayViewMode {
+        displayViewMode ?? fallbackDisplayControlMode
+    }
+}
+
 enum PlayerViewRosterScope: String, Codable, CaseIterable, Identifiable, Sendable {
     case activeLineup
     case fullRoster
@@ -488,6 +853,12 @@ final class ScoreboardStore: ObservableObject {
     nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
+    nonisolated static let maxInjuryTimeMinutes = 15
+    nonisolated static let minWebAPIBroadcastDisplayID = 0
+    nonisolated static let maxWebAPIBroadcastDisplayID = 8
+    nonisolated static let minWebAPIBroadcastCustomDisplayID = 1
+    nonisolated static let defaultWebAPIBroadcastEnabledDisplayCount = 2
+    nonisolated static let maxCustomDisplayModeTitleLength = 32
     nonisolated static let defaultRosterSize = 12
     nonisolated static let minRosterSize = 5
     nonisolated static let maxRosterSize = 15
@@ -577,6 +948,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var gameClockSeconds = 10 * 60
     @Published var defaultClockSeconds = 10 * 60
     @Published var isGameClockEnabled = true
+    @Published var pendingInjuryTimeMinutes = 0
+    @Published var activeInjuryTimeMinutes = 0
+    @Published var hasAppliedInjuryTimeThisPeriod = false
     @Published var shotClockMilliseconds = 0
     @Published var defaultShotClockSeconds = 0
     @Published var activeShotClockPresetSeconds = 0
@@ -672,10 +1046,15 @@ final class ScoreboardStore: ObservableObject {
     @Published var setupPresets: [SetupPreset] = []
     @Published var isWebAPIEnabled = false
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
+    @Published var isWebAPIBroadcastControlEnabled = false
+    @Published var webAPIBroadcastEnabledDisplayCount = ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount
+    @Published var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
+    @Published var customDisplayModeTitlesByMode: [String: String] = [:]
     @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
     @Published private(set) var webAPILocalAddresses: [String] = []
     @Published var isRemoteDisplayHostEnabled = false
     @Published var isRemoteDisplayViewerModeEnabled = false
+    @Published var isRemoteDisplayIndividualControlEnabled = false
     @Published var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     @Published private(set) var remoteDisplayHostStatus: ScoreboardRemoteDisplayHostStatus = .off
     @Published private(set) var remoteDisplaySources: [ScoreboardRemoteDisplaySource] = []
@@ -683,6 +1062,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteDisplayTrustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = []
     @Published private(set) var remoteDisplayMutedDisplayIDs: Set<String> = []
     @Published private(set) var remoteDisplayDirectionsByID: [String: ScoreboardRemoteDisplayDirectionSettings] = [:]
+    @Published private(set) var remoteDisplayCustomDisplayIDsByDisplayID: [String: Int] = [:]
     @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
 
     var remoteDisplayHostID: String {
@@ -819,6 +1199,29 @@ final class ScoreboardStore: ObservableObject {
         case .countdown, .countUp:
             return currentRules.sport != .volleyball || isGameClockEnabled
         }
+    }
+
+    var supportsInjuryTime: Bool {
+        guard showsGameClock, !usesChessClocks, gameClockMode == .countdown else {
+            return false
+        }
+
+        if selectedSport == .soccer {
+            return true
+        }
+
+        return selectedSport == .custom &&
+            isGameClockEnabled &&
+            customSportConfig.mainClockMode == .countdown &&
+            !customSportConfig.usesChessClocks
+    }
+
+    var isInjuryTimeActive: Bool {
+        activeInjuryTimeMinutes > 0
+    }
+
+    var formattedInjuryTime: String {
+        localizedStoreFormat("+%d min", max(0, activeInjuryTimeMinutes))
     }
 
     var displayedHomePlayers: [TrackedPlayer] {
@@ -1495,6 +1898,7 @@ final class ScoreboardStore: ObservableObject {
 
         if periodWinMatchWinner == nil {
             period = min(periodUpperBound, period + 1)
+            resetClockForPeriodTransition(direction: 1)
         }
 
         recordLog(
@@ -1525,6 +1929,7 @@ final class ScoreboardStore: ObservableObject {
 
         volleyballSetResults.removeLast()
         period = max(1, min(periodUpperBound, result.setNumber))
+        resetInjuryTimeForPeriod()
         homeScore = result.homeScore
         guestScore = result.guestScore
         pauseShotClock()
@@ -1555,6 +1960,9 @@ final class ScoreboardStore: ObservableObject {
 
         let previousPeriod = period
         period = max(1, min(periodUpperBound, period + delta))
+        if period != previousPeriod {
+            resetClockForPeriodTransition(direction: delta)
+        }
         recordLog(
             kind: .periodAdjustment,
             summary: localizedStoreFormat(delta >= 0 ? "Next %@" : "Previous %@", localizedStoreString(periodTitle)),
@@ -1568,10 +1976,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPeriod(_ value: Int) {
+        let previousPeriod = period
         if supportsPeriod {
             period = max(1, min(periodUpperBound, value))
         } else {
             period = 1
+        }
+        if period != previousPeriod {
+            resetInjuryTimeForPeriod()
         }
     }
 
@@ -1659,6 +2071,7 @@ final class ScoreboardStore: ObservableObject {
 
         guard showsGameClock else {
             pauseClock()
+            resetInjuryTimeForPeriod()
             recordLog(
                 kind: .clockReset,
                 summary: localizedStoreString("Reset game clock"),
@@ -1680,6 +2093,7 @@ final class ScoreboardStore: ObservableObject {
 
         pauseClock()
         gameClockSeconds = boundedGameClockSeconds(seconds ?? defaultClockSeconds)
+        resetInjuryTimeForPeriod()
         recordLog(
             kind: .clockReset,
             summary: localizedStoreString("Reset game clock"),
@@ -2208,6 +2622,7 @@ final class ScoreboardStore: ObservableObject {
         possessionDirection = .none
         activeShotClockPresetSeconds = defaultShotClockSeconds
         gameClockSeconds = defaultClockSeconds
+        resetInjuryTimeForPeriod()
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
         homeSubstitutionsUsed = 0
         guestSubstitutionsUsed = 0
@@ -3242,6 +3657,16 @@ final class ScoreboardStore: ObservableObject {
         if !showsGameClock {
             pauseClock()
         }
+        normalizeInjuryTimeState()
+    }
+
+    func setPendingInjuryTimeMinutes(_ minutes: Int) {
+        normalizeInjuryTimeState()
+        guard supportsInjuryTime, !hasAppliedInjuryTimeThisPeriod else {
+            return
+        }
+
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(minutes)
     }
 
     func restoreRuntimeAfterSetupApply(
@@ -3252,6 +3677,7 @@ final class ScoreboardStore: ObservableObject {
         isClockRunning = clockWasRunning && (showsGameClock || usesChessClocks)
         isShotClockRunning = shotClockWasRunning && supportsShotClock
         isDebatePrepClockRunning = debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
+        normalizeInjuryTimeState()
         updateTimerState()
     }
 
@@ -3299,6 +3725,7 @@ final class ScoreboardStore: ObservableObject {
             isDebatePlayerCardsEnabled = false
             homePenaltyTimers = []
             guestPenaltyTimers = []
+            resetInjuryTimeForPeriod()
             setRosterSizePerTeam(max(rules.defaultRosterSize, Self.minRosterSize))
             setDisplayLineupSize(max(1, rules.defaultDisplayLineupSize))
             if sport == .simple || sport == .debate {
@@ -3345,6 +3772,7 @@ final class ScoreboardStore: ObservableObject {
                 isPlayerTrackingEnabled = false
             }
         }
+        normalizeInjuryTimeState()
     }
 
     private func clearSubstitutionTracking() {
@@ -3512,7 +3940,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -3527,6 +3955,9 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
@@ -3717,6 +4148,10 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.gameClockSeconds) : boundedGameClockSeconds(snapshot.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(snapshot.defaultClockSeconds) : boundedGameClockSeconds(snapshot.defaultClockSeconds)
             isGameClockEnabled = snapshot.isGameClockEnabled ?? true
+            pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.pendingInjuryTimeMinutes ?? 0)
+            activeInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.activeInjuryTimeMinutes ?? 0)
+            hasAppliedInjuryTimeThisPeriod = snapshot.hasAppliedInjuryTimeThisPeriod ?? (activeInjuryTimeMinutes > 0)
+            normalizeInjuryTimeState()
             shotClockMilliseconds = boundedShotClockMilliseconds(snapshot.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(snapshot.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(snapshot.activeShotClockPresetSeconds ?? snapshot.defaultShotClockSeconds)
@@ -3816,6 +4251,7 @@ final class ScoreboardStore: ObservableObject {
             if !showsGameClock {
                 pauseClock()
             }
+            normalizeInjuryTimeState()
             didCompleteSetup = true
         }
     }
@@ -3925,6 +4361,10 @@ final class ScoreboardStore: ObservableObject {
         }
 
         if gameClockMode == .countdown && gameClockSeconds == 0 {
+            if hasAppliedInjuryTimeThisPeriod && activeInjuryTimeMinutes > 0 {
+                return
+            }
+            resetInjuryTimeForPeriod()
             gameClockSeconds = defaultClockSeconds
         }
 
@@ -4103,26 +4543,11 @@ final class ScoreboardStore: ObservableObject {
                 } else {
                     switch gameClockMode {
                     case .countdown:
-                        gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
-
-                        if gameClockSeconds == 0 {
-                            let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .gameClockExpired
-                            isClockRunning = false
-                            accumulatedGameClockElapsed = 0
-                            if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
-                                clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
-                            } else if isDebateMode, debateActiveTimer == .segment {
-                                clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
-                            }
-                            soundEvents.append(fallbackEvent)
-                            recordLog(
-                                kind: .clockExpired,
-                                summary: localizedStoreString("Game clock expired"),
-                                outcome: .applied,
-                                value: gameClockSeconds
-                            )
-                            requestGameClockAutosave()
-                        }
+                        advanceCountdownGameClock(
+                            by: elapsedWholeSeconds,
+                            soundEvents: &soundEvents,
+                            clockEventDispatches: &clockEventDispatches
+                        )
                     case .countUp:
                         gameClockSeconds = min(Self.maxGameClockSeconds, gameClockSeconds + elapsedWholeSeconds)
 
@@ -4229,6 +4654,32 @@ final class ScoreboardStore: ObservableObject {
         timer?.invalidate()
     }
 
+    private func resetInjuryTimeForPeriod() {
+        pendingInjuryTimeMinutes = 0
+        activeInjuryTimeMinutes = 0
+        hasAppliedInjuryTimeThisPeriod = false
+    }
+
+    private func resetClockForPeriodTransition(direction: Int) {
+        resetInjuryTimeForPeriod()
+
+        guard direction > 0, showsGameClock, !usesChessClocks else { return }
+
+        pauseClock()
+        gameClockSeconds = boundedGameClockSeconds(defaultClockSeconds)
+        requestGameClockAutosave()
+    }
+
+    private func normalizeInjuryTimeState() {
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(pendingInjuryTimeMinutes)
+        activeInjuryTimeMinutes = boundedInjuryTimeMinutes(activeInjuryTimeMinutes)
+        if !supportsInjuryTime {
+            resetInjuryTimeForPeriod()
+        } else if !hasAppliedInjuryTimeThisPeriod {
+            activeInjuryTimeMinutes = 0
+        }
+    }
+
     private func normalizedTeamName(_ name: String) -> String {
         name
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4252,6 +4703,10 @@ final class ScoreboardStore: ObservableObject {
 
     private func boundedGameClockSeconds(_ value: Int) -> Int {
         max(0, min(Self.maxGameClockSeconds, value))
+    }
+
+    private func boundedInjuryTimeMinutes(_ value: Int) -> Int {
+        max(0, min(Self.maxInjuryTimeMinutes, value))
     }
 
     private func boundedDebateSegmentSeconds(_ value: Int) -> Int {
@@ -4283,6 +4738,61 @@ final class ScoreboardStore: ObservableObject {
         case .guest:
             return guestPenaltyTimers
         }
+    }
+
+    private func advanceCountdownGameClock(
+        by elapsedWholeSeconds: Int,
+        soundEvents: inout [ScoreboardSoundEvent],
+        clockEventDispatches: inout [ScoreboardEventDispatch]
+    ) {
+        guard elapsedWholeSeconds > 0 else {
+            return
+        }
+
+        normalizeInjuryTimeState()
+        if supportsInjuryTime,
+           !hasAppliedInjuryTimeThisPeriod,
+           pendingInjuryTimeMinutes > 0,
+           elapsedWholeSeconds >= gameClockSeconds {
+            let overflowSeconds = max(0, elapsedWholeSeconds - gameClockSeconds)
+            hasAppliedInjuryTimeThisPeriod = true
+            activeInjuryTimeMinutes = pendingInjuryTimeMinutes
+            gameClockSeconds = max(0, (activeInjuryTimeMinutes * 60) - overflowSeconds)
+
+            if gameClockSeconds == 0 {
+                expireCountdownGameClock(soundEvents: &soundEvents, clockEventDispatches: &clockEventDispatches)
+            } else {
+                requestGameClockAutosave()
+            }
+            return
+        }
+
+        gameClockSeconds = max(0, gameClockSeconds - elapsedWholeSeconds)
+        if gameClockSeconds == 0 {
+            expireCountdownGameClock(soundEvents: &soundEvents, clockEventDispatches: &clockEventDispatches)
+        }
+    }
+
+    private func expireCountdownGameClock(
+        soundEvents: inout [ScoreboardSoundEvent],
+        clockEventDispatches: inout [ScoreboardEventDispatch]
+    ) {
+        let fallbackEvent: ScoreboardSoundEvent = isDebateMode ? .debateSegmentExpired : .gameClockExpired
+        isClockRunning = false
+        accumulatedGameClockElapsed = 0
+        if isDebateMode, debateActiveTimer == .segment, let speakingSide = currentDebateSegment?.speakingSide {
+            clockEventDispatches.append(eventDispatch(sideClockExpiredEvent(for: speakingSide), fallbackEvent: fallbackEvent))
+        } else if isDebateMode, debateActiveTimer == .segment {
+            clockEventDispatches.append(eventDispatch(debateUnassignedClockExpiredEvent(), fallbackEvent: fallbackEvent))
+        }
+        soundEvents.append(fallbackEvent)
+        recordLog(
+            kind: .clockExpired,
+            summary: localizedStoreString("Game clock expired"),
+            outcome: .applied,
+            value: gameClockSeconds
+        )
+        requestGameClockAutosave()
     }
 
     private func updatePenaltyTimers(for side: TeamSide, mutate: (inout [HockeyPenaltyTimer]) -> Void) {
@@ -4674,6 +5184,180 @@ final class ScoreboardStore: ObservableObject {
         webAPIUpdateMode = mode
     }
 
+    var customDisplayEnabledDisplayIDs: [Int] {
+        let enabledDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        guard enabledDisplayCount >= Self.minWebAPIBroadcastCustomDisplayID else {
+            return []
+        }
+
+        return Array(Self.minWebAPIBroadcastCustomDisplayID...enabledDisplayCount)
+    }
+
+    var webAPIBroadcastEnabledDisplayIDs: [Int] {
+        guard isWebAPIBroadcastControlEnabled else {
+            return []
+        }
+
+        return customDisplayEnabledDisplayIDs
+    }
+
+    var isCustomDisplayControlVisible: Bool {
+        isWebAPIBroadcastControlEnabled || isRemoteDisplayIndividualControlEnabled
+    }
+
+    func setWebAPIBroadcastControlEnabled(_ isEnabled: Bool) {
+        if isWebAPIBroadcastControlEnabled != isEnabled {
+            isWebAPIBroadcastControlEnabled = isEnabled
+        }
+        normalizeWebAPIBroadcastControlState()
+    }
+
+    func setWebAPIBroadcastEnabledDisplayCount(_ count: Int) {
+        let boundedCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(count)
+        if webAPIBroadcastEnabledDisplayCount != boundedCount {
+            webAPIBroadcastEnabledDisplayCount = boundedCount
+        }
+    }
+
+    func webAPIBroadcastDisplayMode(for displayID: Int) -> ScoreboardWebAPIBroadcastDisplayMode {
+        guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
+            return .followDisplayControl
+        }
+
+        return webAPIBroadcastDisplayModesByID[displayID] ?? .followDisplayControl
+    }
+
+    func setWebAPIBroadcastDisplayMode(_ mode: ScoreboardWebAPIBroadcastDisplayMode, for displayID: Int) {
+        guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
+            return
+        }
+
+        var modes = webAPIBroadcastDisplayModesByID
+        if mode == .followDisplayControl {
+            modes.removeValue(forKey: displayID)
+        } else {
+            modes[displayID] = mode
+        }
+        let normalizedModes = Self.normalizedWebAPIBroadcastDisplayModes(modes)
+        if webAPIBroadcastDisplayModesByID != normalizedModes {
+            webAPIBroadcastDisplayModesByID = normalizedModes
+        }
+    }
+
+    func customDisplayModeTitle(for mode: ScoreboardWebAPIBroadcastDisplayMode) -> String {
+        guard mode.isCustomMode else {
+            return mode.title
+        }
+
+        return customDisplayModeTitlesByMode[mode.rawValue] ?? mode.title
+    }
+
+    func setCustomDisplayModeTitle(_ title: String, for mode: ScoreboardWebAPIBroadcastDisplayMode) {
+        guard mode.isCustomMode else {
+            return
+        }
+
+        var titles = customDisplayModeTitlesByMode
+        if let normalizedTitle = Self.normalizedCustomDisplayModeTitle(title), normalizedTitle != mode.title {
+            titles[mode.rawValue] = normalizedTitle
+        } else {
+            titles.removeValue(forKey: mode.rawValue)
+        }
+
+        let normalizedTitles = Self.normalizedCustomDisplayModeTitles(titles)
+        if customDisplayModeTitlesByMode != normalizedTitles {
+            customDisplayModeTitlesByMode = normalizedTitles
+        }
+    }
+
+    func setRemoteDisplayIndividualControlEnabled(_ isEnabled: Bool) {
+        guard isRemoteDisplayIndividualControlEnabled != isEnabled else {
+            return
+        }
+
+        isRemoteDisplayIndividualControlEnabled = isEnabled
+    }
+
+    func remoteDisplayCustomDisplayID(displayID: String) -> Int {
+        guard isRemoteDisplayIndividualControlEnabled else {
+            return Self.minWebAPIBroadcastDisplayID
+        }
+
+        let assignedDisplayID = remoteDisplayHostService.customDisplayID(id: displayID)
+        guard assignedDisplayID == Self.minWebAPIBroadcastDisplayID || customDisplayEnabledDisplayIDs.contains(assignedDisplayID) else {
+            return Self.minWebAPIBroadcastDisplayID
+        }
+        return assignedDisplayID
+    }
+
+    func setRemoteDisplayCustomDisplayID(displayID: String, customDisplayID: Int) {
+        let normalizedDisplayID = Self.normalizedWebAPIBroadcastDisplayID(customDisplayID)
+        let resolvedDisplayID = normalizedDisplayID == Self.minWebAPIBroadcastDisplayID || customDisplayEnabledDisplayIDs.contains(normalizedDisplayID)
+            ? normalizedDisplayID
+            : Self.minWebAPIBroadcastDisplayID
+        remoteDisplayHostService.setCustomDisplayID(id: displayID, customDisplayID: resolvedDisplayID)
+        refreshRemoteDisplayState()
+    }
+
+    fileprivate static func boundedWebAPIBroadcastEnabledDisplayCount(_ count: Int) -> Int {
+        max(minWebAPIBroadcastCustomDisplayID, min(maxWebAPIBroadcastDisplayID, count))
+    }
+
+    nonisolated static func normalizedWebAPIBroadcastDisplayID(_ displayID: Int) -> Int {
+        guard displayID >= minWebAPIBroadcastDisplayID && displayID <= maxWebAPIBroadcastDisplayID else {
+            return minWebAPIBroadcastDisplayID
+        }
+        return displayID
+    }
+
+    private static func isWebAPIBroadcastCustomDisplayID(_ displayID: Int) -> Bool {
+        displayID >= minWebAPIBroadcastCustomDisplayID && displayID <= maxWebAPIBroadcastDisplayID
+    }
+
+    fileprivate static func normalizedWebAPIBroadcastDisplayModes(_ modes: [Int: ScoreboardWebAPIBroadcastDisplayMode]) -> [Int: ScoreboardWebAPIBroadcastDisplayMode] {
+        var normalized: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
+        for (displayID, mode) in modes where isWebAPIBroadcastCustomDisplayID(displayID) && mode != .followDisplayControl {
+            normalized[displayID] = mode
+        }
+        return normalized
+    }
+
+    fileprivate static func normalizedCustomDisplayModeTitles(_ titles: [String: String]) -> [String: String] {
+        var normalized: [String: String] = [:]
+        for mode in ScoreboardWebAPIBroadcastDisplayMode.customizableModes {
+            guard let title = normalizedCustomDisplayModeTitle(titles[mode.rawValue] ?? ""), title != mode.title else {
+                continue
+            }
+            normalized[mode.rawValue] = title
+        }
+        return normalized
+    }
+
+    private static func normalizedCustomDisplayModeTitle(_ title: String) -> String? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return nil
+        }
+        return String(trimmedTitle.prefix(maxCustomDisplayModeTitleLength))
+    }
+
+    private func normalizeWebAPIBroadcastControlState() {
+        let boundedDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        if webAPIBroadcastEnabledDisplayCount != boundedDisplayCount {
+            webAPIBroadcastEnabledDisplayCount = boundedDisplayCount
+        }
+
+        let normalizedModes = Self.normalizedWebAPIBroadcastDisplayModes(webAPIBroadcastDisplayModesByID)
+        if webAPIBroadcastDisplayModesByID != normalizedModes {
+            webAPIBroadcastDisplayModesByID = normalizedModes
+        }
+
+        let normalizedTitles = Self.normalizedCustomDisplayModeTitles(customDisplayModeTitlesByMode)
+        if customDisplayModeTitlesByMode != normalizedTitles {
+            customDisplayModeTitlesByMode = normalizedTitles
+        }
+    }
+
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
         isRemoteDisplayHostEnabled = isEnabled
         if !isEnabled {
@@ -4892,6 +5576,12 @@ final class ScoreboardStore: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .scoreboardLogCurrentSessionDidChange)
+            .sink { [weak self] _ in
+                self?.scheduleStateSideEffectRefresh()
+            }
+            .store(in: &cancellables)
     }
 
     private func configureRemoteDisplayService() {
@@ -4928,6 +5618,12 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.$displayDirectionsByID
             .sink { [weak self] displayDirectionsByID in
                 self?.remoteDisplayDirectionsByID = displayDirectionsByID
+            }
+            .store(in: &cancellables)
+
+        remoteDisplayHostService.$customDisplayIDsByID
+            .sink { [weak self] customDisplayIDsByID in
+                self?.remoteDisplayCustomDisplayIDsByDisplayID = customDisplayIDsByID
             }
             .store(in: &cancellables)
 
@@ -5077,8 +5773,10 @@ final class ScoreboardStore: ObservableObject {
     private func startWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
+        let payloads = encodedWebAPIOutputPayloads()
         webAPIService.start(
-            initialPayload: encodedWebAPIPayload(),
+            initialPayload: payloads.state,
+            initialCommentatorPayload: payloads.commentator,
             updateMode: webAPIUpdateMode,
             imageResponses: currentWebAPIImageResponses()
         ) { [weak self] status in
@@ -5096,7 +5794,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshWebAPIState() {
-        webAPIService.updateState(encodedWebAPIPayload(), imageResponses: currentWebAPIImageResponses())
+        let payloads = encodedWebAPIOutputPayloads()
+        webAPIService.updateState(
+            payloads.state,
+            imageResponses: currentWebAPIImageResponses(),
+            commentatorPayload: payloads.commentator
+        )
     }
 
     private func startRemoteDisplayHostService() {
@@ -5125,6 +5828,17 @@ final class ScoreboardStore: ObservableObject {
 
     private func encodedWebAPIPayload() -> ScoreboardWebAPIPayload {
         ScoreboardWebAPIPayload.make(from: currentWebAPIState())
+    }
+
+    private func encodedWebAPIOutputPayloads() -> (state: ScoreboardWebAPIPayload, commentator: ScoreboardWebAPICommentatorPayload) {
+        let state = currentWebAPIState()
+        return (
+            state: ScoreboardWebAPIPayload.make(from: state),
+            commentator: ScoreboardWebAPICommentatorPayload.make(
+                from: state,
+                logSession: logManager.currentSessionSnapshot()
+            )
+        )
     }
 
     private func encodedRemoteDisplayState() -> Data {
@@ -5170,6 +5884,9 @@ final class ScoreboardStore: ObservableObject {
             $gameClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $isGameClockEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $pendingInjuryTimeMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $activeInjuryTimeMinutes.map { _ in () }.eraseToAnyPublisher(),
+            $hasAppliedInjuryTimeThisPeriod.map { _ in () }.eraseToAnyPublisher(),
             $shotClockMilliseconds.map { _ in () }.eraseToAnyPublisher(),
             $defaultShotClockSeconds.map { _ in () }.eraseToAnyPublisher(),
             $activeShotClockPresetSeconds.map { _ in () }.eraseToAnyPublisher(),
@@ -5260,9 +5977,15 @@ final class ScoreboardStore: ObservableObject {
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
+            $isWebAPIBroadcastControlEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIBroadcastEnabledDisplayCount.map { _ in () }.eraseToAnyPublisher(),
+            $webAPIBroadcastDisplayModesByID.map { _ in () }.eraseToAnyPublisher(),
+            $customDisplayModeTitlesByMode.map { _ in () }.eraseToAnyPublisher(),
             $isRemoteDisplayHostEnabled.map { _ in () }.eraseToAnyPublisher(),
             $isRemoteDisplayViewerModeEnabled.map { _ in () }.eraseToAnyPublisher(),
-            $remoteDisplayNetworkMode.map { _ in () }.eraseToAnyPublisher()
+            $isRemoteDisplayIndividualControlEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $remoteDisplayNetworkMode.map { _ in () }.eraseToAnyPublisher(),
+            $remoteDisplayCustomDisplayIDsByDisplayID.map { _ in () }.eraseToAnyPublisher()
         ]
 
         let stateChanges = Publishers.MergeMany(persistencePublishers)
@@ -5393,6 +6116,10 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.gameClockSeconds) : boundedGameClockSeconds(persistedState.gameClockSeconds)
             defaultClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.defaultClockSeconds) : boundedGameClockSeconds(persistedState.defaultClockSeconds)
             isGameClockEnabled = persistedState.isGameClockEnabled
+            pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(persistedState.pendingInjuryTimeMinutes)
+            activeInjuryTimeMinutes = boundedInjuryTimeMinutes(persistedState.activeInjuryTimeMinutes)
+            hasAppliedInjuryTimeThisPeriod = persistedState.hasAppliedInjuryTimeThisPeriod || activeInjuryTimeMinutes > 0
+            normalizeInjuryTimeState()
             shotClockMilliseconds = boundedShotClockMilliseconds(persistedState.shotClockMilliseconds)
             defaultShotClockSeconds = boundedShotClockSeconds(persistedState.defaultShotClockSeconds)
             activeShotClockPresetSeconds = boundedShotClockSeconds(persistedState.activeShotClockPresetSeconds)
@@ -5429,6 +6156,7 @@ final class ScoreboardStore: ObservableObject {
             if !currentRules.showsPauseTracking {
                 clearPauseTracking()
             }
+            normalizeInjuryTimeState()
             homeTeamFouls = max(0, persistedState.homeTeamFouls)
             guestTeamFouls = max(0, persistedState.guestTeamFouls)
             homeChessClockSeconds = isDebateMode ? boundedDebateSegmentSeconds(persistedState.homeChessClockSeconds) : boundedGameClockSeconds(persistedState.homeChessClockSeconds)
@@ -5482,8 +6210,13 @@ final class ScoreboardStore: ObservableObject {
             setupPresets = persistedState.setupPresets
             isWebAPIEnabled = persistedState.isWebAPIEnabled
             webAPIUpdateMode = persistedState.webAPIUpdateMode
+            isWebAPIBroadcastControlEnabled = persistedState.isWebAPIBroadcastControlEnabled
+            webAPIBroadcastEnabledDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(persistedState.webAPIBroadcastEnabledDisplayCount)
+            webAPIBroadcastDisplayModesByID = Self.normalizedWebAPIBroadcastDisplayModes(persistedState.webAPIBroadcastDisplayModesByID)
+            customDisplayModeTitlesByMode = Self.normalizedCustomDisplayModeTitles(persistedState.customDisplayModeTitlesByMode)
             isRemoteDisplayHostEnabled = persistedState.isRemoteDisplayHostEnabled
             isRemoteDisplayViewerModeEnabled = persistedState.isRemoteDisplayViewerModeEnabled
+            isRemoteDisplayIndividualControlEnabled = persistedState.isRemoteDisplayIndividualControlEnabled
             remoteDisplayNetworkMode = persistedState.remoteDisplayNetworkMode
             if !currentRules.supportsShotClock {
                 defaultShotClockSeconds = 0
@@ -5593,6 +6326,10 @@ final class ScoreboardStore: ObservableObject {
             }
         }
 
+        pendingInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.pendingInjuryTimeMinutes ?? pendingInjuryTimeMinutes)
+        activeInjuryTimeMinutes = boundedInjuryTimeMinutes(snapshot.activeInjuryTimeMinutes ?? activeInjuryTimeMinutes)
+        hasAppliedInjuryTimeThisPeriod = snapshot.hasAppliedInjuryTimeThisPeriod ?? (hasAppliedInjuryTimeThisPeriod || activeInjuryTimeMinutes > 0)
+        normalizeInjuryTimeState()
         lastTimerFireDate = Date(timeIntervalSince1970: snapshot.savedAtUnixTime)
         lastPrimaryTimerPersistenceSignature = snapshot.signature
         updateTimerState()
@@ -5627,7 +6364,10 @@ final class ScoreboardStore: ObservableObject {
                 activeChessClockSide: activeChessClockSide,
                 debateActiveTimer: debateActiveTimer,
                 debatePrepHomeSeconds: debatePrepHomeSeconds,
-                debatePrepGuestSeconds: debatePrepGuestSeconds
+                debatePrepGuestSeconds: debatePrepGuestSeconds,
+                pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+                activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+                hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
             )
         }
 
@@ -5655,7 +6395,10 @@ final class ScoreboardStore: ObservableObject {
                 activeChessClockSide: activeChessClockSide,
                 debateActiveTimer: debateActiveTimer,
                 debatePrepHomeSeconds: debatePrepHomeSeconds,
-                debatePrepGuestSeconds: debatePrepGuestSeconds
+                debatePrepGuestSeconds: debatePrepGuestSeconds,
+                pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+                activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+                hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
             )
         }
 
@@ -5666,9 +6409,9 @@ final class ScoreboardStore: ObservableObject {
         let signature: String
         switch gameClockMode {
         case .countdown:
-            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)"
+            signature = "standard-countdown-\(Int(roundedNow) + gameClockSeconds)-injury-\(pendingInjuryTimeMinutes)-\(activeInjuryTimeMinutes)-\(hasAppliedInjuryTimeThisPeriod)"
         case .countUp:
-            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)"
+            signature = "standard-countUp-\(Int(roundedNow) - gameClockSeconds)-injury-\(pendingInjuryTimeMinutes)-\(activeInjuryTimeMinutes)-\(hasAppliedInjuryTimeThisPeriod)"
         }
 
         return PrimaryTimerPersistenceSnapshot(
@@ -5681,7 +6424,10 @@ final class ScoreboardStore: ObservableObject {
             activeChessClockSide: activeChessClockSide,
             debateActiveTimer: debateActiveTimer,
             debatePrepHomeSeconds: debatePrepHomeSeconds,
-            debatePrepGuestSeconds: debatePrepGuestSeconds
+            debatePrepGuestSeconds: debatePrepGuestSeconds,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod
         )
     }
 
@@ -5704,6 +6450,9 @@ final class ScoreboardStore: ObservableObject {
             gameClockSeconds: gameClockSeconds,
             defaultClockSeconds: defaultClockSeconds,
             isGameClockEnabled: isGameClockEnabled,
+            pendingInjuryTimeMinutes: pendingInjuryTimeMinutes,
+            activeInjuryTimeMinutes: activeInjuryTimeMinutes,
+            hasAppliedInjuryTimeThisPeriod: hasAppliedInjuryTimeThisPeriod,
             shotClockMilliseconds: shotClockMilliseconds,
             defaultShotClockSeconds: defaultShotClockSeconds,
             activeShotClockPresetSeconds: activeShotClockPresetSeconds,
@@ -5787,8 +6536,13 @@ final class ScoreboardStore: ObservableObject {
             setupPresets: setupPresets,
             isWebAPIEnabled: isWebAPIEnabled,
             webAPIUpdateMode: webAPIUpdateMode,
+            isWebAPIBroadcastControlEnabled: isWebAPIBroadcastControlEnabled,
+            webAPIBroadcastEnabledDisplayCount: webAPIBroadcastEnabledDisplayCount,
+            webAPIBroadcastDisplayModesByID: webAPIBroadcastDisplayModesByID,
+            customDisplayModeTitlesByMode: customDisplayModeTitlesByMode,
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
             isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
+            isRemoteDisplayIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
             remoteDisplayNetworkMode: remoteDisplayNetworkMode
         )
     }
@@ -5955,6 +6709,9 @@ private struct PrimaryTimerPersistenceSnapshot: Codable {
     var debateActiveTimer: DebateActiveTimer
     var debatePrepHomeSeconds: Int
     var debatePrepGuestSeconds: Int
+    var pendingInjuryTimeMinutes: Int?
+    var activeInjuryTimeMinutes: Int?
+    var hasAppliedInjuryTimeThisPeriod: Bool?
 }
 
 private struct PersistedState: Codable {
@@ -5971,6 +6728,9 @@ private struct PersistedState: Codable {
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool
+    var pendingInjuryTimeMinutes: Int
+    var activeInjuryTimeMinutes: Int
+    var hasAppliedInjuryTimeThisPeriod: Bool
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
     var activeShotClockPresetSeconds: Int
@@ -6054,8 +6814,13 @@ private struct PersistedState: Codable {
     var setupPresets: [SetupPreset]
     var isWebAPIEnabled: Bool
     var webAPIUpdateMode: ScoreboardWebAPIUpdateMode
+    var isWebAPIBroadcastControlEnabled: Bool
+    var webAPIBroadcastEnabledDisplayCount: Int
+    var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode]
+    var customDisplayModeTitlesByMode: [String: String]
     var isRemoteDisplayHostEnabled: Bool
     var isRemoteDisplayViewerModeEnabled: Bool
+    var isRemoteDisplayIndividualControlEnabled: Bool
     var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
 
     private enum CodingKeys: String, CodingKey {
@@ -6072,6 +6837,9 @@ private struct PersistedState: Codable {
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
+        case pendingInjuryTimeMinutes
+        case activeInjuryTimeMinutes
+        case hasAppliedInjuryTimeThisPeriod
         case shotClockMilliseconds
         case shotClockSeconds
         case defaultShotClockSeconds
@@ -6159,8 +6927,13 @@ private struct PersistedState: Codable {
         case setupPresets
         case isWebAPIEnabled
         case webAPIUpdateMode
+        case isWebAPIBroadcastControlEnabled
+        case webAPIBroadcastEnabledDisplayCount
+        case webAPIBroadcastDisplayModesByID
+        case customDisplayModeTitlesByMode
         case isRemoteDisplayHostEnabled
         case isRemoteDisplayViewerModeEnabled
+        case isRemoteDisplayIndividualControlEnabled
         case remoteDisplayNetworkMode
     }
 
@@ -6178,6 +6951,9 @@ private struct PersistedState: Codable {
         gameClockSeconds: Int,
         defaultClockSeconds: Int,
         isGameClockEnabled: Bool,
+        pendingInjuryTimeMinutes: Int,
+        activeInjuryTimeMinutes: Int,
+        hasAppliedInjuryTimeThisPeriod: Bool,
         shotClockMilliseconds: Int,
         defaultShotClockSeconds: Int,
         activeShotClockPresetSeconds: Int,
@@ -6261,8 +7037,13 @@ private struct PersistedState: Codable {
         setupPresets: [SetupPreset],
         isWebAPIEnabled: Bool,
         webAPIUpdateMode: ScoreboardWebAPIUpdateMode,
+        isWebAPIBroadcastControlEnabled: Bool,
+        webAPIBroadcastEnabledDisplayCount: Int,
+        webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode],
+        customDisplayModeTitlesByMode: [String: String],
         isRemoteDisplayHostEnabled: Bool,
         isRemoteDisplayViewerModeEnabled: Bool,
+        isRemoteDisplayIndividualControlEnabled: Bool,
         remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
     ) {
         self.selectedSport = selectedSport
@@ -6278,6 +7059,9 @@ private struct PersistedState: Codable {
         self.gameClockSeconds = gameClockSeconds
         self.defaultClockSeconds = defaultClockSeconds
         self.isGameClockEnabled = isGameClockEnabled
+        self.pendingInjuryTimeMinutes = pendingInjuryTimeMinutes
+        self.activeInjuryTimeMinutes = activeInjuryTimeMinutes
+        self.hasAppliedInjuryTimeThisPeriod = hasAppliedInjuryTimeThisPeriod
         self.shotClockMilliseconds = shotClockMilliseconds
         self.defaultShotClockSeconds = defaultShotClockSeconds
         self.activeShotClockPresetSeconds = activeShotClockPresetSeconds
@@ -6361,8 +7145,13 @@ private struct PersistedState: Codable {
         self.setupPresets = setupPresets
         self.isWebAPIEnabled = isWebAPIEnabled
         self.webAPIUpdateMode = webAPIUpdateMode
+        self.isWebAPIBroadcastControlEnabled = isWebAPIBroadcastControlEnabled
+        self.webAPIBroadcastEnabledDisplayCount = ScoreboardStore.boundedWebAPIBroadcastEnabledDisplayCount(webAPIBroadcastEnabledDisplayCount)
+        self.webAPIBroadcastDisplayModesByID = ScoreboardStore.normalizedWebAPIBroadcastDisplayModes(webAPIBroadcastDisplayModesByID)
+        self.customDisplayModeTitlesByMode = ScoreboardStore.normalizedCustomDisplayModeTitles(customDisplayModeTitlesByMode)
         self.isRemoteDisplayHostEnabled = isRemoteDisplayHostEnabled
         self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
+        self.isRemoteDisplayIndividualControlEnabled = isRemoteDisplayIndividualControlEnabled
         self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
     }
 
@@ -6381,6 +7170,9 @@ private struct PersistedState: Codable {
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled) ?? true
+        pendingInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .pendingInjuryTimeMinutes) ?? 0
+        activeInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .activeInjuryTimeMinutes) ?? 0
+        hasAppliedInjuryTimeThisPeriod = try container.decodeIfPresent(Bool.self, forKey: .hasAppliedInjuryTimeThisPeriod) ?? (activeInjuryTimeMinutes > 0)
         if let shotClockMilliseconds = try container.decodeIfPresent(Int.self, forKey: .shotClockMilliseconds) {
             self.shotClockMilliseconds = shotClockMilliseconds
         } else {
@@ -6505,8 +7297,19 @@ private struct PersistedState: Codable {
         setupPresets = try container.decode([SetupPreset].self, forKey: .setupPresets)
         isWebAPIEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIEnabled) ?? false
         webAPIUpdateMode = try container.decodeIfPresent(ScoreboardWebAPIUpdateMode.self, forKey: .webAPIUpdateMode) ?? .fixedInterval
+        isWebAPIBroadcastControlEnabled = try container.decodeIfPresent(Bool.self, forKey: .isWebAPIBroadcastControlEnabled) ?? false
+        webAPIBroadcastEnabledDisplayCount = ScoreboardStore.boundedWebAPIBroadcastEnabledDisplayCount(
+            try container.decodeIfPresent(Int.self, forKey: .webAPIBroadcastEnabledDisplayCount) ?? ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount
+        )
+        webAPIBroadcastDisplayModesByID = ScoreboardStore.normalizedWebAPIBroadcastDisplayModes(
+            try container.decodeIfPresent([Int: ScoreboardWebAPIBroadcastDisplayMode].self, forKey: .webAPIBroadcastDisplayModesByID) ?? [:]
+        )
+        customDisplayModeTitlesByMode = ScoreboardStore.normalizedCustomDisplayModeTitles(
+            try container.decodeIfPresent([String: String].self, forKey: .customDisplayModeTitlesByMode) ?? [:]
+        )
         isRemoteDisplayHostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayHostEnabled) ?? false
         isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
+        isRemoteDisplayIndividualControlEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayIndividualControlEnabled) ?? false
         remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
     }
 
@@ -6525,6 +7328,9 @@ private struct PersistedState: Codable {
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encode(isGameClockEnabled, forKey: .isGameClockEnabled)
+        try container.encode(pendingInjuryTimeMinutes, forKey: .pendingInjuryTimeMinutes)
+        try container.encode(activeInjuryTimeMinutes, forKey: .activeInjuryTimeMinutes)
+        try container.encode(hasAppliedInjuryTimeThisPeriod, forKey: .hasAppliedInjuryTimeThisPeriod)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)
@@ -6609,8 +7415,13 @@ private struct PersistedState: Codable {
         try container.encode(setupPresets, forKey: .setupPresets)
         try container.encode(isWebAPIEnabled, forKey: .isWebAPIEnabled)
         try container.encode(webAPIUpdateMode, forKey: .webAPIUpdateMode)
+        try container.encode(isWebAPIBroadcastControlEnabled, forKey: .isWebAPIBroadcastControlEnabled)
+        try container.encode(webAPIBroadcastEnabledDisplayCount, forKey: .webAPIBroadcastEnabledDisplayCount)
+        try container.encode(webAPIBroadcastDisplayModesByID, forKey: .webAPIBroadcastDisplayModesByID)
+        try container.encode(customDisplayModeTitlesByMode, forKey: .customDisplayModeTitlesByMode)
         try container.encode(isRemoteDisplayHostEnabled, forKey: .isRemoteDisplayHostEnabled)
         try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
+        try container.encode(isRemoteDisplayIndividualControlEnabled, forKey: .isRemoteDisplayIndividualControlEnabled)
         try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
     }
 }
@@ -6639,6 +7450,9 @@ private extension PersistedState {
             gameClockSeconds: 10 * 60,
             defaultClockSeconds: 10 * 60,
             isGameClockEnabled: true,
+            pendingInjuryTimeMinutes: 0,
+            activeInjuryTimeMinutes: 0,
+            hasAppliedInjuryTimeThisPeriod: false,
             shotClockMilliseconds: 0,
             defaultShotClockSeconds: 0,
             activeShotClockPresetSeconds: 0,
@@ -6722,8 +7536,13 @@ private extension PersistedState {
             setupPresets: [],
             isWebAPIEnabled: false,
             webAPIUpdateMode: .fixedInterval,
+            isWebAPIBroadcastControlEnabled: false,
+            webAPIBroadcastEnabledDisplayCount: ScoreboardStore.defaultWebAPIBroadcastEnabledDisplayCount,
+            webAPIBroadcastDisplayModesByID: [:],
+            customDisplayModeTitlesByMode: [:],
             isRemoteDisplayHostEnabled: false,
             isRemoteDisplayViewerModeEnabled: false,
+            isRemoteDisplayIndividualControlEnabled: false,
             remoteDisplayNetworkMode: .nearbyAndLocalNetwork
         )
     }

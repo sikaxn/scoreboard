@@ -13,8 +13,8 @@ private func localizedRemoteDisplayString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
+private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
 }
 
 nonisolated enum ScoreboardRemoteDisplayHostStatus: Equatable, Sendable {
@@ -659,6 +659,7 @@ private enum ScoreboardRemoteDisplayPairingStore {
     private static let trustedHostsKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedHosts"
     private static let mutedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayMutedDisplays"
     private static let displayDirectionsKey = "com.ironmaple.smartscoreboard.remoteDisplayDirections"
+    private static let customDisplayIDsKey = "com.ironmaple.smartscoreboard.remoteDisplayCustomDisplayIDs"
     private static let displayDirectionModelVersionKey = "com.ironmaple.smartscoreboard.remoteDisplayDirectionModelVersion"
     private static let lastActiveOperatorKey = "com.ironmaple.smartscoreboard.remoteDisplayLastActiveOperator"
 
@@ -716,6 +717,27 @@ private enum ScoreboardRemoteDisplayPairingStore {
         }
     }
 
+    static func customDisplayIDsByID() -> [String: Int] {
+        guard
+            let data = UserDefaults.standard.data(forKey: customDisplayIDsKey),
+            let assignments = try? JSONDecoder().decode([String: Int].self, from: data)
+        else {
+            return [:]
+        }
+        return normalizedCustomDisplayIDsByID(assignments)
+    }
+
+    static func saveCustomDisplayIDsByID(_ assignments: [String: Int]) {
+        let normalizedAssignments = normalizedCustomDisplayIDsByID(assignments)
+        guard !normalizedAssignments.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: customDisplayIDsKey)
+            return
+        }
+        if let data = try? JSONEncoder().encode(normalizedAssignments) {
+            UserDefaults.standard.set(data, forKey: customDisplayIDsKey)
+        }
+    }
+
     static func displayDirectionModelVersion() -> Int {
         guard UserDefaults.standard.object(forKey: displayDirectionModelVersionKey) != nil else {
             return 1
@@ -742,6 +764,21 @@ private enum ScoreboardRemoteDisplayPairingStore {
         if let data = try? JSONEncoder().encode(sortedPeers) {
             UserDefaults.standard.set(data, forKey: key)
         }
+    }
+
+    private static func normalizedCustomDisplayIDsByID(_ assignments: [String: Int]) -> [String: Int] {
+        var normalized: [String: Int] = [:]
+        for (displayID, customDisplayID) in assignments {
+            guard !displayID.isEmpty else {
+                continue
+            }
+            let normalizedDisplayID = ScoreboardStore.normalizedWebAPIBroadcastDisplayID(customDisplayID)
+            guard normalizedDisplayID != ScoreboardStore.minWebAPIBroadcastDisplayID else {
+                continue
+            }
+            normalized[displayID] = normalizedDisplayID
+        }
+        return normalized
     }
 }
 
@@ -803,6 +840,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     @Published private(set) var trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer] = ScoreboardRemoteDisplayPairingStore.trustedDisplays()
     @Published private(set) var mutedDisplayIDs: Set<String> = ScoreboardRemoteDisplayPairingStore.mutedDisplayIDs()
     @Published private(set) var displayDirectionsByID: [String: ScoreboardRemoteDisplayDirectionSettings] = ScoreboardRemoteDisplayPairingStore.displayDirectionsByID()
+    @Published private(set) var customDisplayIDsByID: [String: Int] = ScoreboardRemoteDisplayPairingStore.customDisplayIDsByID()
     @Published private(set) var displayInitiatedDisconnectNotice: ScoreboardRemoteDisplayDisconnectNotice?
 
     let hostID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayHostID")
@@ -982,6 +1020,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
         displayDirectionsByID.removeValue(forKey: displayID)
         ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        customDisplayIDsByID.removeValue(forKey: displayID)
+        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
         operatorDisconnectedDisplayIDs.remove(displayID)
 
         if let endpoint = connectedEndpoint(forDisplayID: displayID) {
@@ -1098,6 +1138,29 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         settings.externalDisplayDirection = direction
         displayDirectionsByID[displayID] = settings
         ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+    }
+
+    func customDisplayID(id displayID: String) -> Int {
+        customDisplayIDsByID[displayID] ?? ScoreboardStore.minWebAPIBroadcastDisplayID
+    }
+
+    func setCustomDisplayID(id displayID: String, customDisplayID: Int) {
+        guard !displayID.isEmpty else {
+            return
+        }
+
+        let normalizedDisplayID = ScoreboardStore.normalizedWebAPIBroadcastDisplayID(customDisplayID)
+        guard self.customDisplayID(id: displayID) != normalizedDisplayID else {
+            return
+        }
+
+        if normalizedDisplayID == ScoreboardStore.minWebAPIBroadcastDisplayID {
+            customDisplayIDsByID.removeValue(forKey: displayID)
+        } else {
+            customDisplayIDsByID[displayID] = normalizedDisplayID
+        }
+        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
+        sendCurrentState()
     }
 
     func isTrustedDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
@@ -1454,6 +1517,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
         displayDirectionsByID.removeValue(forKey: displayID)
         ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        customDisplayIDsByID.removeValue(forKey: displayID)
+        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
         endpointsResettingPairing.insert(endpoint)
         displayConnectionsByEndpoint.removeValue(forKey: endpoint)
         invitedPeerIDs.remove(displayID)
@@ -1659,6 +1724,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
         displayDirectionsByID.removeValue(forKey: source.id)
         ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        customDisplayIDsByID.removeValue(forKey: source.id)
+        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
     }
 
     private func trustDisplay(

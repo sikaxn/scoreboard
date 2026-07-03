@@ -14,16 +14,20 @@ import AppKit
 
 #if !os(tvOS)
 
-private func localizedAppString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+nonisolated private func localizedAppString(_ key: String) -> String {
+    guard !key.isEmpty else {
+        return ""
+    }
+
+    return NSLocalizedString(key, comment: "")
 }
 
-private func localizedAppFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedAppString(key), locale: Locale.current, arguments: arguments)
+nonisolated private func localizedAppFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedAppString(key), locale: Locale.current, arguments: arguments)
 }
 
-private func localizedAppText(_ key: String) -> Text {
-    Text(localizedAppString(key))
+nonisolated private func localizedAppText(_ key: String) -> Text {
+    Text(verbatim: localizedAppString(key))
 }
 
 private let automaticDiskWriteThrottleInterval: TimeInterval = 5
@@ -90,6 +94,7 @@ struct ContentView: View {
     @State private var selectedStoredLogSessionID: String?
     @State private var selectedLogSessionIDs: Set<String> = []
     @State private var isSelectingLogSessions = false
+    @State private var isApplyingSetupSportDefaults = false
     @State private var showsGameImporter = false
     @State private var showsBackupImporter = false
     @State private var showsRosterCSVImporter = false
@@ -101,8 +106,8 @@ struct ContentView: View {
     @State private var showsLocalScoreboard = false
     @State private var showsLocalScoreboardReturnHint = false
     @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
-    @State private var dashboardTipGroup: TipGroup?
-    @State private var dashboardTipGroupSignature = ""
+    @State private var dashboardTourSignatureSnapshot = ""
+    @State private var dashboardCurrentTourTipID: String?
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingBackupRestore: PendingBackupRestore?
     @State private var pendingLogDeletion: StoredLogSession?
@@ -178,7 +183,9 @@ struct ContentView: View {
         setupSport == .volleyball ||
             (setupSport == .custom && setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode == .serve)
     }
-    private var isSetupDraftUpdateSuppressed: Bool { !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits }
+    private var isSetupDraftUpdateSuppressed: Bool {
+        !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits || isApplyingSetupSportDefaults
+    }
     private var resolvedSetupCustomSportConfig: CustomSportConfig {
         var config = setupCustomSportConfig
         config.defaultClockSeconds = setupClockSeconds
@@ -331,8 +338,7 @@ struct ContentView: View {
         .onChange(of: eventNameDraft) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupSport) { _, newValue in
             guard !isSetupDraftUpdateSuppressed else { return }
-            applySetupSportDefaults(newValue)
-            handleSetupDraftChanged()
+            applySetupSportDefaultsAndCommit(newValue)
         }
         .onChange(of: setupPeriod) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupClockSeconds) { _, _ in handleSetupDraftChanged() }
@@ -345,9 +351,10 @@ struct ContentView: View {
         .onChange(of: setupGuestClockSeconds) { _, _ in handleSetupDraftChanged() }
         .onChange(of: setupChessPreset) { _, _ in
             guard !isSetupDraftUpdateSuppressed else { return }
-            setupClockSeconds = setupChessPreset.seconds
-            setupGuestClockSeconds = setupChessPreset.seconds
-            handleSetupDraftChanged()
+            applySetupClockDefaultsAndCommit {
+                setupClockSeconds = setupChessPreset.seconds
+                setupGuestClockSeconds = setupChessPreset.seconds
+            }
         }
     }
 
@@ -1234,8 +1241,8 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func scoreboardInlineTip(_ tip: (any Tip)?) -> some View {
-        if store.areTipsEnabled {
+    private func scoreboardInlineTip<T: Tip>(_ tip: T?) -> some View {
+        if store.areTipsEnabled, let tip {
             TipView(tip)
         }
     }
@@ -1339,25 +1346,65 @@ struct ContentView: View {
     }
 
     private func builtInSportGameSettingsSection() -> some View {
-        settingsSection(title: "Game") {
-            settingsOptionTip("Review the starting game state for the selected sport before opening the control board. Only options that matter to this sport appear here, such as period, clock presets, chess clocks, match timer, or shot clock.", systemImage: "slider.horizontal.3")
-            builtInSportGameSettingsRows()
+        VStack(alignment: .leading, spacing: 10) {
+            localizedAppText("Game")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .textCase(.uppercase)
+
+            VStack(spacing: 0) {
+                settingsOptionTip("Review the starting game state for the selected sport before opening the control board. Only options that matter to this sport appear here, such as period, clock presets, chess clocks, match timer, or shot clock.", systemImage: "slider.horizontal.3")
+                builtInSportGameSettingsRows()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(settingsPalette.cardBorder)
+            )
         }
     }
 
-    @ViewBuilder
     private func builtInSportGameSettingsRows() -> some View {
-        if setupRules.supportsPeriod {
-            settingsStepperValueRow(
-                title: "Starting \(setupRules.periodTitle)",
-                value: "\(setupPeriod)",
-                decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                increment: { setupPeriod = min(setupPeriodUpperBound, setupPeriod + 1) }
-            )
+        SettingsErasedRows(rows: builtInSportGameSettingsRowViews())
+    }
+
+    private func builtInSportGameSettingsRowViews() -> [AnyView] {
+        let rules = setupRules
+        var rows: [AnyView] = []
+
+        if rules.supportsPeriod {
+            rows.append(AnyView(
+                settingsStepperValueRow(
+                    title: "Starting \(rules.periodTitle)",
+                    value: "\(setupPeriod)",
+                    decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                    increment: { setupPeriod = min(setupPeriodUpperBound, setupPeriod + 1) }
+                )
+            ))
         }
 
         if setupSport == .volleyball {
-            settingsDivider()
+            appendVolleyballSetupRows(to: &rows)
+        }
+
+        if rules.usesChessClocks {
+            appendChessClockSetupRows(to: &rows)
+        } else if rules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
+            appendSharedClockSetupRows(to: &rows)
+        }
+
+        if rules.supportsShotClock {
+            appendShotClockSetupRows(to: &rows)
+        }
+
+        return rows
+    }
+
+    private func appendVolleyballSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
             settingsSegmentRow(
                 title: "Match Format",
                 options: [
@@ -1369,107 +1416,112 @@ struct ContentView: View {
                     set: { setupVolleyballMatchFormat = $0 == VolleyballMatchFormat.bestOf3.maximumSets ? .bestOf3 : .bestOf5 }
                 )
             )
-            settingsDivider()
-            settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)
-        }
-
-        if setupRules.usesChessClocks {
-            chessClockSetupRows()
-        } else if setupRules.mainClockMode != .disabled && (setupSport != .volleyball || setupUsesGameClock) {
-            sharedClockSetupRows()
-        }
-
-        if setupRules.supportsShotClock {
-            shotClockSetupRows()
-        }
+        ))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(settingsToggleRow(title: "Enable Match Timer", isOn: $setupUsesGameClock)))
     }
 
-    @ViewBuilder
-    private func chessClockSetupRows() -> some View {
+    private func appendChessClockSetupRows(to rows: inout [AnyView]) {
         if setupSport == .chess {
-            settingsDivider()
-            settingsSegmentRow(
-                title: "Preset",
-                options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
-                selection: Binding(
-                    get: { setupChessPreset.seconds },
-                    set: { value in
-                        if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
-                            setupChessPreset = preset
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Preset",
+                    options: ChessClockPreset.allCases.map { ($0.title, $0.seconds) },
+                    selection: Binding(
+                        get: { setupChessPreset.seconds },
+                        set: { value in
+                            if let preset = ChessClockPreset.allCases.first(where: { $0.seconds == value }) {
+                                setupChessPreset = preset
+                            }
                         }
-                    }
+                    )
                 )
-            )
+            ))
         }
 
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Home Clock",
-            value: formatClock(setupClockSeconds),
-            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-        )
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Guest Clock",
-            value: formatClock(setupGuestClockSeconds),
-            decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
-            increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
-        )
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Home Clock",
+                value: formatClock(setupClockSeconds),
+                decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Guest Clock",
+                value: formatClock(setupGuestClockSeconds),
+                decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+            )
+        ))
     }
 
-    @ViewBuilder
-    private func sharedClockSetupRows() -> some View {
-        settingsDivider()
-        settingsStepperValueRow(
-            title: "Opening Clock",
-            value: formatClock(setupClockSeconds),
-            decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-            increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-        )
-        settingsDivider()
+    private func appendSharedClockSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: "Opening Clock",
+                value: formatClock(setupClockSeconds),
+                decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
         if setupSport == .simple {
-            settingsPresetButtonGrid(
-                title: "Clock Preset",
-                options: clockPresetOptions(for: setupSport),
-                selection: $setupClockSeconds
-            )
+            rows.append(AnyView(
+                settingsPresetButtonGrid(
+                    title: "Clock Preset",
+                    options: clockPresetOptions(for: setupSport),
+                    selection: $setupClockSeconds
+                )
+            ))
         } else {
-            settingsSegmentRow(
-                title: "Clock Preset",
-                options: clockPresetOptions(for: setupSport),
-                selection: $setupClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Clock Preset",
+                    options: clockPresetOptions(for: setupSport),
+                    selection: $setupClockSeconds
+                )
+            ))
         }
     }
 
-    @ViewBuilder
-    private func shotClockSetupRows() -> some View {
-        settingsDivider()
-        settingsStepperValueRow(
-            title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock",
-            value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-            decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-            increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-        )
-        settingsDivider()
+    private func appendShotClockSetupRows(to rows: inout [AnyView]) {
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(
+            settingsStepperValueRow(
+                title: setupUsesServeTimer ? "Serve Timer" : "Shot Clock",
+                value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+            )
+        ))
+        rows.append(AnyView(settingsDivider()))
         if setupUsesServeTimer {
-            settingsSegmentRow(
-                title: "Serve Preset",
-                options: [
-                    ("8", 8)
-                ],
-                selection: $setupShotClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Serve Preset",
+                    options: [
+                        ("8", 8)
+                    ],
+                    selection: $setupShotClockSeconds
+                )
+            ))
         } else {
-            settingsSegmentRow(
-                title: "Shot Preset",
-                options: [
-                    ("24", 24),
-                    ("14", 14)
-                ],
-                selection: $setupShotClockSeconds
-            )
+            rows.append(AnyView(
+                settingsSegmentRow(
+                    title: "Shot Preset",
+                    options: [
+                        ("24", 24),
+                        ("14", 14)
+                    ],
+                    selection: $setupShotClockSeconds
+                )
+            ))
         }
     }
 
@@ -1519,14 +1571,44 @@ struct ContentView: View {
 
     @ViewBuilder
     private func customSportSettingsSections() -> some View {
-        settingsSection(title: "General", footer: "Core custom sport identity and scoring behavior.") {
-            settingsOptionTip("Use General to define the custom sport name and whether the scoreboard should track points at all. When score tracking is enabled, choose the button layout that best matches how operators usually add points.", systemImage: "tag")
-            settingsTextEntryRow(title: "Custom Title", text: Binding(
+        settingsSection(title: "General", footer: "Core custom sport identity and scoring behavior.", rows: customSportGeneralRows())
+        settingsSection(title: "Clock", footer: "Choose between a shared game clock and chess-style side clocks.", rows: customSportClockRows())
+        settingsSection(title: "Period", footer: "Enable period tracking and define the labels shown on the board.", rows: customSportPeriodRows())
+        settingsSection(title: "Secondary Timer", footer: "Enable a separate shot or serve timer and configure how it resets.", rows: customSportSecondaryTimerRows())
+        settingsSection(
+            title: "Possession",
+            footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the secondary timer." : "Enable Secondary Timer first to use the possession arrow.",
+            rows: customSportPossessionRows()
+        )
+        settingsSection(title: "Player", footer: "Enable player tracking, lineup style, and player-specific state.", rows: customSportPlayerRows())
+        settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.", rows: customSportTeamRows())
+    }
+
+    @ViewBuilder
+    private func debateSettingsSections(layout: InterfaceLayout) -> some View {
+        settingsSection(title: "General", footer: "Choose the debate format, round title, side labels, and whether score is tracked.", rows: debateGeneralRows(layout: layout))
+        settingsSection(
+            title: "Segments",
+            footer: setupDebatePresetID == DebatePreset.customID ? "Preview the full custom debate flow. Use Open Designer under Preset to edit these blocks." : "Preview the full debate timer flow for the selected preset.",
+            rows: debateSegmentsRows()
+        )
+        settingsSection(title: "Player", footer: "Enable player tracking and choose whether debate players carry fouls or cards.", rows: debatePlayerRows())
+        settingsSection(
+            title: "Prep",
+            footer: setupDebatePrepTimeEnabled ? "Prep time is tracked per side and shown on the live board and display." : "Turn prep time on to expose per-side prep clocks.",
+            rows: debatePrepRows()
+        )
+    }
+
+    private func customSportGeneralRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use General to define the custom sport name and whether the scoreboard should track points at all. When score tracking is enabled, choose the button layout that best matches how operators usually add points.", systemImage: "tag")),
+            AnyView(settingsTextEntryRow(title: "Custom Title", text: Binding(
                 get: { setupCustomSportConfig.title },
                 set: { setupCustomSportConfig.title = $0 }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Score Tracking", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Score Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isScoreEnabled },
                 set: {
                     setupCustomSportConfig.isScoreEnabled = $0
@@ -1534,72 +1616,82 @@ struct ContentView: View {
                         setupCustomSportConfig.isPeriodWinTrackingEnabled = false
                     }
                 }
-            ))
-            if setupCustomSportConfig.isScoreEnabled {
-                settingsDivider()
-                settingsPickerRow(
-                    title: "Score Buttons",
-                    selection: Binding(
-                        get: { setupCustomSportConfig.scoreStepPreset },
-                        set: { setupCustomSportConfig.scoreStepPreset = $0 }
-                    ),
-                    options: CustomScoreStepPreset.allCases
-                ) { $0.title }
-            }
+            )))
+        ]
+
+        if setupCustomSportConfig.isScoreEnabled {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsPickerRow(
+                title: "Score Buttons",
+                selection: Binding(
+                    get: { setupCustomSportConfig.scoreStepPreset },
+                    set: { setupCustomSportConfig.scoreStepPreset = $0 }
+                ),
+                options: CustomScoreStepPreset.allCases
+            ) { $0.title }))
         }
 
-        settingsSection(title: "Clock", footer: "Choose between a shared game clock and chess-style side clocks.") {
-            settingsOptionTip("Use Clock to decide whether the custom sport has one shared timer, no main timer, count-up or count-down behavior, or separate side clocks. The opening values here become the live board reset targets.", systemImage: "timer")
-            settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
+        return rows
+    }
+
+    private func customSportClockRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Clock to decide whether the custom sport has one shared timer, no main timer, count-up or count-down behavior, or separate side clocks. The opening values here become the live board reset targets.", systemImage: "timer")),
+            AnyView(settingsToggleRow(title: "Chess Style Clocks", isOn: Binding(
                 get: { setupCustomSportConfig.usesChessClocks },
                 set: { setupCustomSportConfig.usesChessClocks = $0 }
-            ))
-            if setupCustomSportConfig.usesChessClocks {
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Home Clock",
+            )))
+        ]
+
+        if setupCustomSportConfig.usesChessClocks {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsStepperValueRow(
+                title: "Home Clock",
+                value: formatClock(setupClockSeconds),
+                decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
+                increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
+            )))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsStepperValueRow(
+                title: "Guest Clock",
+                value: formatClock(setupGuestClockSeconds),
+                decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
+                increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
+            )))
+        } else {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsPickerRow(
+                title: "Clock Mode",
+                selection: Binding(
+                    get: { setupCustomSportConfig.mainClockMode },
+                    set: { setupCustomSportConfig.mainClockMode = $0 }
+                ),
+                options: MainClockMode.allCases
+            ) { $0.title }))
+            if setupCustomSportConfig.mainClockMode != .disabled {
+                rows.append(AnyView(settingsDivider()))
+                rows.append(AnyView(settingsStepperValueRow(
+                    title: "Opening Clock",
                     value: formatClock(setupClockSeconds),
                     decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
                     increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                )
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Guest Clock",
-                    value: formatClock(setupGuestClockSeconds),
-                    decrement: { setupGuestClockSeconds = max(0, setupGuestClockSeconds - 60) },
-                    increment: { setupGuestClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupGuestClockSeconds + 60) }
-                )
-            } else {
-                settingsDivider()
-                settingsPickerRow(
-                    title: "Clock Mode",
-                    selection: Binding(
-                        get: { setupCustomSportConfig.mainClockMode },
-                        set: { setupCustomSportConfig.mainClockMode = $0 }
-                    ),
-                    options: MainClockMode.allCases
-                ) { $0.title }
-                if setupCustomSportConfig.mainClockMode != .disabled {
-                    settingsDivider()
-                    settingsStepperValueRow(
-                        title: "Opening Clock",
-                        value: formatClock(setupClockSeconds),
-                        decrement: { setupClockSeconds = max(0, setupClockSeconds - 60) },
-                        increment: { setupClockSeconds = min(ScoreboardStore.maxGameClockSeconds, setupClockSeconds + 60) }
-                    )
-                    settingsDivider()
-                    settingsSegmentRow(
-                        title: "Clock Preset",
-                        options: clockPresetOptions(for: .custom),
-                        selection: $setupClockSeconds
-                    )
-                }
+                )))
+                rows.append(AnyView(settingsDivider()))
+                rows.append(AnyView(settingsSegmentRow(
+                    title: "Clock Preset",
+                    options: clockPresetOptions(for: .custom),
+                    selection: $setupClockSeconds
+                )))
             }
         }
 
-        settingsSection(title: "Period", footer: "Enable period tracking and define the labels shown on the board.") {
-            settingsOptionTip("Use Period when the custom sport has halves, innings, rounds, segments, or another phase label. The full and short labels are used by the public board, live controls, and logs.", systemImage: "number")
-            settingsToggleRow(title: "Period Tracking", isOn: Binding(
+        return rows
+    }
+
+    private func customSportPeriodRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Period when the custom sport has halves, innings, rounds, segments, or another phase label. The full and short labels are used by the public board, live controls, and logs.", systemImage: "number")),
+            AnyView(settingsToggleRow(title: "Period Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isPeriodEnabled },
                 set: {
                     setupCustomSportConfig.isPeriodEnabled = $0
@@ -1607,38 +1699,43 @@ struct ContentView: View {
                         setupCustomSportConfig.isPeriodWinTrackingEnabled = false
                     }
                 }
-            ))
-            if setupCustomSportConfig.isPeriodEnabled {
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: "Starting Period",
-                    value: "\(setupPeriod)",
-                    decrement: { setupPeriod = max(1, setupPeriod - 1) },
-                    increment: { setupPeriod = min(9, setupPeriod + 1) }
-                )
-                settingsDivider()
-                settingsTextEntryRow(title: "Period Label", text: Binding(
-                    get: { setupCustomSportConfig.periodTitle },
-                    set: { setupCustomSportConfig.periodTitle = $0 }
-                ))
-                settingsDivider()
-                settingsTextEntryRow(title: "Short Label", text: Binding(
-                    get: { setupCustomSportConfig.periodShortTitle },
-                    set: { setupCustomSportConfig.periodShortTitle = $0 }
-                ))
-                if setupCustomSportConfig.isScoreEnabled {
-                    settingsDivider()
-                    settingsToggleRow(title: "Track Period Wins", isOn: Binding(
-                        get: { setupCustomSportConfig.isPeriodWinTrackingEnabled },
-                        set: { setupCustomSportConfig.isPeriodWinTrackingEnabled = $0 }
-                    ))
-                }
+            )))
+        ]
+
+        if setupCustomSportConfig.isPeriodEnabled {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsStepperValueRow(
+                title: "Starting Period",
+                value: "\(setupPeriod)",
+                decrement: { setupPeriod = max(1, setupPeriod - 1) },
+                increment: { setupPeriod = min(9, setupPeriod + 1) }
+            )))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsTextEntryRow(title: "Period Label", text: Binding(
+                get: { setupCustomSportConfig.periodTitle },
+                set: { setupCustomSportConfig.periodTitle = $0 }
+            ))))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsTextEntryRow(title: "Short Label", text: Binding(
+                get: { setupCustomSportConfig.periodShortTitle },
+                set: { setupCustomSportConfig.periodShortTitle = $0 }
+            ))))
+            if setupCustomSportConfig.isScoreEnabled {
+                rows.append(AnyView(settingsDivider()))
+                rows.append(AnyView(settingsToggleRow(title: "Track Period Wins", isOn: Binding(
+                    get: { setupCustomSportConfig.isPeriodWinTrackingEnabled },
+                    set: { setupCustomSportConfig.isPeriodWinTrackingEnabled = $0 }
+                ))))
             }
         }
 
-        settingsSection(title: "Secondary Timer", footer: "Enable a separate shot or serve timer and configure how it resets.") {
-            settingsOptionTip("Use Secondary Timer when the sport needs a possession-style timer beside the main game clock. Shot Clock gives operators preset reset buttons; Serve Timer gives each side a Serve Here action that resets and starts the timer.", systemImage: "timer.circle")
-            settingsToggleRow(title: "Secondary Timer", isOn: Binding(
+        return rows
+    }
+
+    private func customSportSecondaryTimerRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Secondary Timer when the sport needs a possession-style timer beside the main game clock. Shot Clock gives operators preset reset buttons; Serve Timer gives each side a Serve Here action that resets and starts the timer.", systemImage: "timer.circle")),
+            AnyView(settingsToggleRow(title: "Secondary Timer", isOn: Binding(
                 get: { setupCustomSportConfig.isShotClockEnabled },
                 set: {
                     setupCustomSportConfig.isShotClockEnabled = $0
@@ -1647,89 +1744,96 @@ struct ContentView: View {
                         setupCustomSportConfig.isPossessionEnabled = false
                     }
                 }
-            ))
-            if setupCustomSportConfig.isShotClockEnabled {
-                settingsDivider()
-                settingsPickerRow(
-                    title: "Timer Type",
-                    selection: Binding(
-                        get: { setupCustomSportConfig.shotClockMode },
-                        set: { setupCustomSportConfig.shotClockMode = $0 }
-                    ),
-                    options: CustomShotClockMode.allCases
-                ) { $0.title }
-                settingsDivider()
-                settingsStepperValueRow(
-                    title: setupCustomSportConfig.shotClockMode == .serve ? "Serve Default" : "Shot Default",
-                    value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
-                    decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
-                    increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
-                )
-                settingsDivider()
-                if setupCustomSportConfig.shotClockMode == .serve {
-                    settingsSegmentRow(
-                        title: "Serve Preset",
-                        options: [
-                            ("8", 8)
-                        ],
-                        selection: $setupShotClockSeconds
-                    )
-                } else {
-                    settingsSegmentRow(
-                        title: "Shot Preset",
-                        options: [
-                            ("24", 24),
-                            ("14", 14)
-                        ],
-                        selection: $setupShotClockSeconds
-                    )
-                }
+            )))
+        ]
+
+        if setupCustomSportConfig.isShotClockEnabled {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsPickerRow(
+                title: "Timer Type",
+                selection: Binding(
+                    get: { setupCustomSportConfig.shotClockMode },
+                    set: { setupCustomSportConfig.shotClockMode = $0 }
+                ),
+                options: CustomShotClockMode.allCases
+            ) { $0.title }))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsStepperValueRow(
+                title: setupCustomSportConfig.shotClockMode == .serve ? "Serve Default" : "Shot Default",
+                value: ScoreboardStore.formatShotClock(setupShotClockSeconds),
+                decrement: { setupShotClockSeconds = max(0, setupShotClockSeconds - 1) },
+                increment: { setupShotClockSeconds = min(ScoreboardStore.maxShotClockSeconds, setupShotClockSeconds + 1) }
+            )))
+            rows.append(AnyView(settingsDivider()))
+            if setupCustomSportConfig.shotClockMode == .serve {
+                rows.append(AnyView(settingsSegmentRow(
+                    title: "Serve Preset",
+                    options: [("8", 8)],
+                    selection: $setupShotClockSeconds
+                )))
+            } else {
+                rows.append(AnyView(settingsSegmentRow(
+                    title: "Shot Preset",
+                    options: [("24", 24), ("14", 14)],
+                    selection: $setupShotClockSeconds
+                )))
             }
         }
 
-        settingsSection(title: "Possession", footer: setupCustomSportConfig.isShotClockEnabled ? "Show the center possession arrow alongside the secondary timer." : "Enable Secondary Timer first to use the possession arrow.") {
-            settingsOptionTip("Use Possession to show which side currently controls play. It is available for custom sports that use the Shot Clock timer type; Serve Timer uses serving side instead.", systemImage: "arrow.left.and.right")
-            settingsToggleRow(title: "Possession Arrow", isOn: Binding(
+        return rows
+    }
+
+    private func customSportPossessionRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Possession to show which side currently controls play. It is available for custom sports that use the Shot Clock timer type; Serve Timer uses serving side instead.", systemImage: "arrow.left.and.right")),
+            AnyView(settingsToggleRow(title: "Possession Arrow", isOn: Binding(
                 get: { setupCustomSportConfig.isPossessionEnabled },
                 set: { setupCustomSportConfig.isPossessionEnabled = $0 }
             ))
             .disabled(!setupCustomSportConfig.isShotClockEnabled || setupCustomSportConfig.shotClockMode == .serve)
-            .opacity(setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode != .serve ? 1 : 0.42)
-        }
+            .opacity(setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode != .serve ? 1 : 0.42))
+        ]
+    }
 
-        settingsSection(title: "Player", footer: "Enable player tracking, lineup style, and player-specific state.") {
-            settingsOptionTip("Use Player settings when the custom sport needs rosters, active lineups, player fouls, cards, or a soccer-style center player strip. Turning tracking on also enables the Players settings page.", systemImage: "person.3")
-            settingsToggleRow(title: "Player Tracking", isOn: Binding(
+    private func customSportPlayerRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Player settings when the custom sport needs rosters, active lineups, player fouls, cards, or a soccer-style center player strip. Turning tracking on also enables the Players settings page.", systemImage: "person.3")),
+            AnyView(settingsToggleRow(title: "Player Tracking", isOn: Binding(
                 get: { setupCustomSportConfig.isPlayerTrackingEnabled },
                 set: { setupCustomSportConfig.isPlayerTrackingEnabled = $0 }
-            ))
-            if setupCustomSportConfig.isPlayerTrackingEnabled {
-                settingsDivider()
-                settingsToggleRow(title: "Soccer Style Player Display", isOn: Binding(
-                    get: { setupCustomSportConfig.usesCenterPlayerStrip },
-                    set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
-                ))
-                settingsDivider()
-                settingsToggleRow(title: "Player Fouls", isOn: Binding(
-                    get: { setupCustomSportConfig.isPlayerFoulsEnabled },
-                    set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
-                ))
-                settingsDivider()
-                settingsToggleRow(title: "Player Cards", isOn: Binding(
-                    get: { setupCustomSportConfig.isPlayerCardsEnabled },
-                    set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
-                ))
-            }
+            )))
+        ]
+
+        if setupCustomSportConfig.isPlayerTrackingEnabled {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsToggleRow(title: "Soccer Style Player Display", isOn: Binding(
+                get: { setupCustomSportConfig.usesCenterPlayerStrip },
+                set: { setupCustomSportConfig.usesCenterPlayerStrip = $0 }
+            ))))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsToggleRow(title: "Player Fouls", isOn: Binding(
+                get: { setupCustomSportConfig.isPlayerFoulsEnabled },
+                set: { setupCustomSportConfig.isPlayerFoulsEnabled = $0 }
+            ))))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsToggleRow(title: "Player Cards", isOn: Binding(
+                get: { setupCustomSportConfig.isPlayerCardsEnabled },
+                set: { setupCustomSportConfig.isPlayerCardsEnabled = $0 }
+            ))))
         }
 
-        settingsSection(title: "Team", footer: "Turn on team-level tracking controls for the live board and display.") {
-            settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, pauses, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")
-            settingsToggleRow(title: "Substitutions", isOn: Binding(
+        return rows
+    }
+
+    private func customSportTeamRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Team settings for counters and timers that belong to a side rather than an individual player. Substitutions, pauses, team fouls, and penalty timers add live controls, public display state, and log entries for both sides.", systemImage: "person.2")),
+            AnyView(settingsToggleRow(title: "Substitutions", isOn: Binding(
                 get: { setupCustomSportConfig.isSubstitutionTrackingEnabled },
                 set: { setupCustomSportConfig.isSubstitutionTrackingEnabled = $0 }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Pauses", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Pauses", isOn: Binding(
                 get: { setupCustomSportConfig.isPauseTrackingEnabled },
                 set: { isEnabled in
                     setupCustomSportConfig.isPauseTrackingEnabled = isEnabled
@@ -1738,89 +1842,103 @@ struct ContentView: View {
                         store.setPausesAllowed(for: .guest, to: setupCustomSportConfig.defaultPauseLimit)
                     }
                 }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Team Fouls", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Team Fouls", isOn: Binding(
                 get: { setupCustomSportConfig.isTeamFoulsEnabled },
                 set: { setupCustomSportConfig.isTeamFoulsEnabled = $0 }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Penalty Timers", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Penalty Timers", isOn: Binding(
                 get: { setupCustomSportConfig.isPenaltyTimerEnabled },
                 set: { setupCustomSportConfig.isPenaltyTimerEnabled = $0 }
-            ))
-        }
+            )))
+        ]
     }
 
-    @ViewBuilder
-    private func debateSettingsSections(layout: InterfaceLayout) -> some View {
-        settingsSection(title: "General", footer: "Choose the debate format, round title, side labels, and whether score is tracked.") {
-            settingsOptionTip("Use General to choose the debate format, label each side, and decide whether the round has score tracking. Presets fill in standard flows, while Custom Debate lets you design a format for this event.", systemImage: "quote.bubble")
-            settingsPickerRow(
+    private func debateGeneralRows(layout: InterfaceLayout) -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use General to choose the debate format, label each side, and decide whether the round has score tracking. Presets fill in standard flows, while Custom Debate lets you design a format for this event.", systemImage: "quote.bubble")),
+            AnyView(settingsPickerRow(
                 title: "Preset",
                 selection: $setupDebatePresetID,
                 options: DebatePreset.selectablePresetIDs
             ) { presetID in
                 presetID == DebatePreset.customID ? "Custom Debate" : DebatePreset.preset(id: presetID).title
-            }
-            if setupDebatePresetID == DebatePreset.customID {
-                settingsDivider()
-                debateDesignerLauncherRow(layout: layout)
-                settingsDivider()
-                settingsTextEntryRow(
-                    title: "Format Title",
-                    text: Binding(
-                        get: { setupCustomDebatePreset.title },
-                        set: { setupCustomDebatePreset.title = $0 }
-                    )
+            })
+        ]
+
+        if setupDebatePresetID == DebatePreset.customID {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(debateDesignerLauncherRow(layout: layout)))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsTextEntryRow(
+                title: "Format Title",
+                text: Binding(
+                    get: { setupCustomDebatePreset.title },
+                    set: { setupCustomDebatePreset.title = $0 }
                 )
-            }
-            settingsDivider()
-            settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)
-            settingsDivider()
-            settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)
-            settingsDivider()
-            settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)
+            )))
         }
 
-        settingsSection(title: "Segments", footer: setupDebatePresetID == DebatePreset.customID ? "Preview the full custom debate flow. Use Open Designer under Preset to edit these blocks." : "Preview the full debate timer flow for the selected preset.") {
-            settingsOptionTip("Use Segments to confirm the speaking order, timing mode, active side, and duration before the round starts. This preview is the sequence operators will advance through on the live debate board.", systemImage: "list.number")
-            debateSegmentPreviewModeTips(preset: setupDebatePreset)
-            debateSegmentPreviewList(preset: setupDebatePreset)
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(settingsTextEntryRow(title: "First Side", text: $setupDebateHomeSideLabel)))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(settingsTextEntryRow(title: "Second Side", text: $setupDebateGuestSideLabel)))
+        rows.append(AnyView(settingsDivider()))
+        rows.append(AnyView(settingsToggleRow(title: "Enable Score Tracking", isOn: $setupDebateScoreTrackingEnabled)))
+        return rows
+    }
+
+    private func debateSegmentsRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Segments to confirm the speaking order, timing mode, active side, and duration before the round starts. This preview is the sequence operators will advance through on the live debate board.", systemImage: "list.number")),
+            AnyView(debateSegmentPreviewModeTips(preset: setupDebatePreset)),
+            AnyView(debateSegmentPreviewList(preset: setupDebatePreset))
+        ]
+    }
+
+    private func debatePlayerRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Player settings for debate when speakers need roster entries, active lineup visibility, fouls, or cards. These options control whether the Players page and player overlay tools appear for debate rounds.", systemImage: "person.3")),
+            AnyView(settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled))
+        ]
+
+        if setupDebatePlayerTrackingEnabled {
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsToggleRow(title: "Player Fouls", isOn: $setupDebatePlayerFoulsEnabled)))
+            rows.append(AnyView(settingsDivider()))
+            rows.append(AnyView(settingsToggleRow(title: "Player Cards", isOn: $setupDebatePlayerCardsEnabled)))
         }
 
-        settingsSection(title: "Player", footer: "Enable player tracking and choose whether debate players carry fouls or cards.") {
-            settingsOptionTip("Use Player settings for debate when speakers need roster entries, active lineup visibility, fouls, or cards. These options control whether the Players page and player overlay tools appear for debate rounds.", systemImage: "person.3")
-            settingsToggleRow(title: "Enable Player Tracking", isOn: $setupDebatePlayerTrackingEnabled)
-            if setupDebatePlayerTrackingEnabled {
-                settingsDivider()
-                settingsToggleRow(title: "Player Fouls", isOn: $setupDebatePlayerFoulsEnabled)
-                settingsDivider()
-                settingsToggleRow(title: "Player Cards", isOn: $setupDebatePlayerCardsEnabled)
+        return rows
+    }
+
+    private func debatePrepRows() -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Prep to give each side its own preparation clock. Prep time appears beside the segment timer on the live board so operators can pause the speech flow and run side-specific prep.", systemImage: "hourglass")),
+            AnyView(settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled))
+        ]
+
+        if setupDebatePrepTimeEnabled {
+            rows.append(AnyView(settingsDivider()))
+            if setupDebatePresetID == DebatePreset.customID {
+                rows.append(AnyView(settingsStepperValueRow(
+                    title: "Prep Time",
+                    value: formatClock(setupCustomDebatePreset.prepSecondsPerSide),
+                    decrement: {
+                        setupCustomDebatePreset.prepSecondsPerSide = max(0, setupCustomDebatePreset.prepSecondsPerSide - 15)
+                    },
+                    increment: {
+                        setupCustomDebatePreset.prepSecondsPerSide = min(ScoreboardStore.maxGameClockSeconds, setupCustomDebatePreset.prepSecondsPerSide + 15)
+                    }
+                )))
+            } else {
+                rows.append(AnyView(settingsSummaryValueRow(title: "Prep Time", value: formatClock(setupDebatePreset.prepSecondsPerSide))))
             }
         }
 
-        settingsSection(title: "Prep", footer: setupDebatePrepTimeEnabled ? "Prep time is tracked per side and shown on the live board and display." : "Turn prep time on to expose per-side prep clocks.") {
-            settingsOptionTip("Use Prep to give each side its own preparation clock. Prep time appears beside the segment timer on the live board so operators can pause the speech flow and run side-specific prep.", systemImage: "hourglass")
-            settingsToggleRow(title: "Enable Prep Time", isOn: $setupDebatePrepTimeEnabled)
-            if setupDebatePrepTimeEnabled {
-                settingsDivider()
-                if setupDebatePresetID == DebatePreset.customID {
-                    settingsStepperValueRow(
-                        title: "Prep Time",
-                        value: formatClock(setupCustomDebatePreset.prepSecondsPerSide),
-                        decrement: {
-                            setupCustomDebatePreset.prepSecondsPerSide = max(0, setupCustomDebatePreset.prepSecondsPerSide - 15)
-                        },
-                        increment: {
-                            setupCustomDebatePreset.prepSecondsPerSide = min(ScoreboardStore.maxGameClockSeconds, setupCustomDebatePreset.prepSecondsPerSide + 15)
-                        }
-                    )
-                } else {
-                    settingsSummaryValueRow(title: "Prep Time", value: formatClock(setupDebatePreset.prepSecondsPerSide))
-                }
-            }
-        }
+        return rows
     }
 
     private func debateDesignerLauncherRow(layout: InterfaceLayout) -> some View {
@@ -3136,6 +3254,8 @@ struct ContentView: View {
                 }
             }
 
+            settingsWebAPIBroadcastControlSection()
+
             #if ENABLE_CUSTOM_USER_PAGE
             settingsSection(title: "Custom User Page", footer: "Files are stored locally on this device and served read-only at /user while the Web API is running. Edit the files in Files or Finder, and add index.html at the root or inside a folder.") {
                 settingsOptionTip(customWebPageFilesTip, systemImage: "curlybraces.square")
@@ -3163,6 +3283,88 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
             }
+        }
+    }
+
+    private func settingsWebAPIBroadcastControlSection() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            localizedAppText("Custom Display Control")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(settingsPalette.secondaryText)
+                .textCase(.uppercase)
+
+            VStack(spacing: 0) {
+                settingsToggleRow(title: "Enable Custom Display Control", isOn: Binding(
+                    get: { store.isWebAPIBroadcastControlEnabled },
+                    set: { store.setWebAPIBroadcastControlEnabled($0) }
+                ))
+
+                if store.isCustomDisplayControlVisible {
+                    settingsDivider()
+                    settingsCustomDisplayEnabledDisplaysRow()
+                    settingsDivider()
+                    settingsCustomDisplayModeNameRows()
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(settingsPalette.cardBorder)
+            )
+
+            localizedAppText("Let Web API browser sources use display IDs 1-8 so each source can receive its own display mode. ID 0 follows the main Display Control.")
+                .font(.footnote)
+                .foregroundStyle(settingsPalette.secondaryText)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func settingsCustomDisplayEnabledDisplaysRow() -> some View {
+        settingsStepperValueRow(
+            title: "Enabled Displays",
+            value: "\(store.webAPIBroadcastEnabledDisplayCount)",
+            decrement: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount - 1) },
+            increment: { store.setWebAPIBroadcastEnabledDisplayCount(store.webAPIBroadcastEnabledDisplayCount + 1) }
+        )
+    }
+
+    private func settingsCustomDisplayModeNameRows() -> some View {
+        VStack(spacing: 0) {
+            settingsSummaryValueRow(title: "Custom Mode Names", value: localizedAppString("Menu labels"))
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 1 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom1) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom1) }
+                ),
+                placeholder: "Custom 1",
+                focusID: "custom-display-mode-custom1-name"
+            )
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 2 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom2) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom2) }
+                ),
+                placeholder: "Custom 2",
+                focusID: "custom-display-mode-custom2-name"
+            )
+            settingsDivider()
+            settingsPlainTextEntryRow(
+                title: "Custom 3 Name",
+                text: Binding(
+                    get: { store.customDisplayModeTitle(for: .custom3) },
+                    set: { store.setCustomDisplayModeTitle($0, for: .custom3) }
+                ),
+                placeholder: "Custom 3",
+                focusID: "custom-display-mode-custom3-name"
+            )
         }
     }
 
@@ -3338,6 +3540,29 @@ struct ContentView: View {
             ))
             settingsDivider()
             settingsRemoteDisplayNetworkModeRow()
+            settingsDivider()
+            settingsToggleRow(title: "Allow Individual Remote Display Control", isOn: Binding(
+                get: { store.isRemoteDisplayIndividualControlEnabled },
+                set: { store.setRemoteDisplayIndividualControlEnabled($0) }
+            ))
+            if store.isRemoteDisplayIndividualControlEnabled {
+                settingsDivider()
+                settingsCustomDisplayEnabledDisplaysRow()
+                settingsDivider()
+                Text("Enabled Displays is shared with Web API Custom Display Control. Changes here are mirrored on the Web API page.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                settingsDivider()
+                Text("Assign saved or connected Remote Displays to enabled Custom Display Control IDs. Displays set to ID 0 follow the main Display Control.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
             settingsDivider()
             settingsSummaryValueRow(title: "Status", value: localizedRemoteDisplayHostStatusTitle(store.remoteDisplayHostStatus))
             settingsDivider()
@@ -3719,7 +3944,12 @@ struct ContentView: View {
             }
 
             if row.isTrusted || row.isConnected {
-                remoteDisplayDirectionControls(row)
+                VStack(alignment: .leading, spacing: 8) {
+                    remoteDisplayDirectionControls(row)
+                    if store.isRemoteDisplayIndividualControlEnabled {
+                        remoteDisplayCustomDisplayIDPicker(row)
+                    }
+                }
                     .padding(.leading, 46)
             }
         }
@@ -3747,6 +3977,32 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func remoteDisplayCustomDisplayIDPicker(_ row: RemoteDisplaySettingsRow) -> some View {
+        HStack(spacing: 8) {
+            Text(localizedAppString("Display ID"))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(settingsPalette.secondaryText)
+
+            Picker(localizedAppString("Display ID"), selection: Binding(
+                get: { store.remoteDisplayCustomDisplayID(displayID: row.id) },
+                set: { store.setRemoteDisplayCustomDisplayID(displayID: row.id, customDisplayID: $0) }
+            )) {
+                Text(localizedAppString("Follow Main (ID 0)")).tag(ScoreboardStore.minWebAPIBroadcastDisplayID)
+                ForEach(store.customDisplayEnabledDisplayIDs, id: \.self) { displayID in
+                    Text(localizedAppFormat("Display %d", displayID)).tag(displayID)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(settingsPalette.cardBorder.opacity(0.7), lineWidth: 1)
+        )
     }
 
     private func remoteDisplayDirectionPicker(
@@ -4007,7 +4263,8 @@ struct ContentView: View {
     }
 
     private func settingsBitfocusCompanionPane(layout: InterfaceLayout) -> some View {
-        let events = store.assignableSoundEvents(for: selectedCompanionSettingsSport)
+        let sport = selectedCompanionSettingsSport
+        let events = store.assignableSoundEvents(for: sport)
 
         return VStack(alignment: .leading, spacing: 22) {
             settingsCompanionAboutSection()
@@ -4018,37 +4275,45 @@ struct ContentView: View {
                     settingsCompanionSportSection(layout: layout)
                 }
             } right: {
-                settingsCompanionEventsSection(events)
+                settingsCompanionEventsSection(events, sport: sport)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
 
     private func settingsCompanionConnectionSection() -> some View {
-        settingsSection(title: "Bitfocus Companion", footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.") {
-            settingsOptionTip("Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent.", systemImage: "square.grid.3x3")
-            settingsToggleRow(title: "Show Companion", isOn: Binding(
+        settingsSection(
+            title: "Bitfocus Companion",
+            footer: "Show Companion controls the live-board button. Turning it off also disables Companion, while keeping every option and event assignment saved.",
+            rows: settingsCompanionConnectionRows()
+        )
+    }
+
+    private func settingsCompanionConnectionRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent.", systemImage: "square.grid.3x3")),
+            AnyView(settingsToggleRow(title: "Show Companion", isOn: Binding(
                 get: { store.isCompanionVisible },
                 set: { store.setCompanionVisible($0) }
-            ))
-            settingsDivider()
-            settingsToggleRow(title: "Enable Companion", isOn: Binding(
+            ))),
+            AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Enable Companion", isOn: Binding(
                 get: { store.isCompanionEnabled },
                 set: { store.setCompanionEnabled($0) }
             ))
             .disabled(!store.isCompanionVisible)
-            .opacity(store.isCompanionVisible ? 1 : 0.42)
-            settingsDivider()
-            settingsPlainTextEntryRow(
+            .opacity(store.isCompanionVisible ? 1 : 0.42)),
+            AnyView(settingsDivider()),
+            AnyView(settingsPlainTextEntryRow(
                 title: "Companion IP",
                 text: Binding(
                     get: { store.companionHost },
                     set: { store.setCompanionHost($0) }
                 ),
                 placeholder: "192.168.1.50"
-            )
-            settingsDivider()
-            settingsPickerRow(
+            )),
+            AnyView(settingsDivider()),
+            AnyView(settingsPickerRow(
                 title: "Mode",
                 selection: Binding(
                     get: { store.companionMode },
@@ -4056,62 +4321,83 @@ struct ContentView: View {
                 ),
                 options: ScoreboardCompanionMode.allCases,
                 label: { $0.title }
-            )
-            settingsDivider()
-            settingsCompanionPortRow()
-            settingsDivider()
-            settingsSummaryValueRow(title: "Status", value: companionStatusTitle)
-            settingsDivider()
-            Text(companionStatusDetail)
+            )),
+            AnyView(settingsDivider()),
+            AnyView(settingsCompanionPortRow()),
+            AnyView(settingsDivider()),
+            AnyView(settingsSummaryValueRow(title: "Status", value: companionStatusTitle)),
+            AnyView(settingsDivider()),
+            AnyView(Text(verbatim: companionStatusDetail)
                 .font(.subheadline)
                 .foregroundStyle(companionStatusIsError ? themePalette.destructiveTint : settingsPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-        }
+                .padding(.vertical, 10))
+        ]
     }
 
     private func settingsCompanionAboutSection() -> some View {
-        settingsSection(title: "About Companion") {
-            settingsOptionTip("Use Companion when scoreboard events should trigger production automation, such as switching scenes, firing graphics, or controlling external gear. Scoreboard sends button press commands to Companion; Companion handles the downstream actions.", systemImage: "bolt.horizontal")
-            Text("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
+        settingsSection(title: "About Companion", rows: settingsCompanionAboutRows())
+    }
+
+    private func settingsCompanionAboutRows() -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Use Companion when scoreboard events should trigger production automation, such as switching scenes, firing graphics, or controlling external gear. Scoreboard sends button press commands to Companion; Companion handles the downstream actions.", systemImage: "bolt.horizontal")),
+            AnyView(localizedAppText("Bitfocus Companion is a separate automation tool for triggering actions on production gear and software. SmartScoreboard can send Companion PRESS commands from scoreboard events.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
-            settingsDivider()
-            settingsLinkRow(
+                .padding(.vertical, 10)),
+            AnyView(settingsDivider()),
+            AnyView(settingsLinkRow(
                 title: "Bitfocus Companion",
                 subtitle: "bitfocus.io/companion",
                 systemImage: "square.grid.3x3",
                 urlString: "https://bitfocus.io/companion"
-            )
-        }
+            ))
+        ]
     }
 
     private func settingsCompanionSportSection(layout: InterfaceLayout) -> some View {
-        settingsSection(title: "Configure Sport", footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.") {
-            settingsOptionTip("Choose the sport whose Companion assignments you want to edit. Assignments are stored per sport, so basketball, soccer, debate, and custom games can each trigger different Companion buttons.", systemImage: "slider.horizontal.3")
-            compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport)
-        }
+        settingsSection(
+            title: "Configure Sport",
+            footer: "Choose which sport's automation assignments to edit. The live board keeps using the currently configured game sport.",
+            rows: settingsCompanionSportRows(layout: layout)
+        )
     }
 
-    private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
-        settingsSection(title: "Event Commands", footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.") {
-            settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3")
-            if events.isEmpty {
-                settingsSummaryValueRow(title: selectedCompanionSettingsSport.title, value: localizedAppString("No configurable sound events"))
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        settingsCompanionAssignmentRow(event, sport: selectedCompanionSettingsSport)
+    private func settingsCompanionSportRows(layout: InterfaceLayout) -> [AnyView] {
+        [
+            AnyView(settingsOptionTip("Choose the sport whose Companion assignments you want to edit. Assignments are stored per sport, so basketball, soccer, debate, and custom games can each trigger different Companion buttons.", systemImage: "slider.horizontal.3")),
+            AnyView(compactSportSelectionGrid(layout: layout, selection: $selectedCompanionSettingsSport))
+        ]
+    }
 
-                        if index < events.count - 1 {
-                            settingsDivider()
-                        }
-                    }
+    private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent], sport: SportType) -> some View {
+        settingsSection(
+            title: "Event Commands",
+            footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.",
+            rows: settingsCompanionEventRows(events, sport: sport)
+        )
+    }
+
+    private func settingsCompanionEventRows(_ events: [ScoreboardSoundEvent], sport: SportType) -> [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3"))
+        ]
+
+        if events.isEmpty {
+            rows.append(AnyView(settingsSummaryValueRow(title: sport.title, value: localizedAppString("No configurable sound events"))))
+        } else {
+            for (index, event) in events.enumerated() {
+                rows.append(AnyView(settingsCompanionAssignmentRow(event, sport: sport)))
+
+                if index < events.count - 1 {
+                    rows.append(AnyView(settingsDivider()))
                 }
             }
         }
+
+        return rows
     }
 
     private func settingsLocalNetworkPermissionSection() -> some View {
@@ -4265,12 +4551,12 @@ struct ContentView: View {
             }
 
             if let validationMessage {
-                Text(validationMessage)
+                Text(verbatim: validationMessage)
                     .font(.footnote)
                     .foregroundStyle(themePalette.destructiveTint)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if let normalizedLocation {
-                Text(localizedAppFormat("Sends LOCATION %@ PRESS.", normalizedLocation))
+                Text(verbatim: localizedAppFormat("Sends LOCATION %@ PRESS.", normalizedLocation))
                     .font(.footnote)
                     .foregroundStyle(settingsPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -5580,6 +5866,12 @@ struct ContentView: View {
         }
     }
 
+    private func settingsSection(title: String, footer: String? = nil, rows: [AnyView]) -> some View {
+        settingsSection(title: title, footer: footer) {
+            SettingsErasedRows(rows: rows)
+        }
+    }
+
     private func settingsTextEntryRow(
         title: String,
         text: Binding<String>,
@@ -6265,7 +6557,7 @@ struct ContentView: View {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
             Spacer(minLength: 0)
-            Text(localizedAppString(value))
+            Text(verbatim: localizedAppString(value))
                 .foregroundStyle(settingsPalette.secondaryText)
                 .multilineTextAlignment(.trailing)
         }
@@ -7091,10 +7383,10 @@ struct ContentView: View {
                 }
             }
             .onAppear {
-                refreshDashboardTipGroup()
+                refreshDashboardCurrentTourTip()
             }
             .onChange(of: dashboardTourSignature) { _, _ in
-                refreshDashboardTipGroup()
+                refreshDashboardCurrentTourTip()
             }
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isDashboardHeaderHidden)
         }
@@ -7147,14 +7439,16 @@ struct ContentView: View {
                     .padding(.trailing, layout.headerHorizontalPadding)
             }
         }
-        .scoreboardPopoverTip(dashboardHeaderTip(layout: layout), isEnabled: arePopoverTipsEnabled, arrowEdge: .bottom)
-    }
-
-    private func dashboardHeaderTip(layout: InterfaceLayout) -> (any Tip)? {
-        if shouldShowIPhonePortraitLandscapeTip(layout: layout) {
-            return ScoreboardTips.iPhoneLandscape
-        }
-        return dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard)
+        .scoreboardPopoverTip(
+            shouldShowIPhonePortraitLandscapeTip(layout: layout) ? ScoreboardTips.iPhoneLandscape : nil,
+            isEnabled: arePopoverTipsEnabled,
+            arrowEdge: .bottom
+        )
+        .scoreboardPopoverTip(
+            shouldShowIPhonePortraitLandscapeTip(layout: layout) ? nil : dashboardCurrentTourTip(matching: ScoreboardTips.liveBoard),
+            isEnabled: arePopoverTipsEnabled,
+            arrowEdge: .bottom
+        )
     }
 
     private func shouldShowIPhonePortraitLandscapeTip(layout: InterfaceLayout) -> Bool {
@@ -7717,6 +8011,11 @@ struct ContentView: View {
                 displayPresetPanel(layout: layout)
                     .transition(.move(edge: .top).combined(with: .opacity))
 
+                if store.isCustomDisplayControlVisible {
+                    broadcastDisplayControlPanel(layout: layout)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 dashboardInlineTip(
                     "The preview renders from the current game state, theme, display direction, background, logos, and player settings. Treat it as an operator check of the selected public mode, not as a pixel-perfect guarantee for every connected screen.",
                     systemImage: "eye",
@@ -7838,28 +8137,24 @@ struct ContentView: View {
         dashboardTourTips.map(\.id).joined(separator: "|")
     }
 
-    private func refreshDashboardTipGroup() {
+    private func refreshDashboardCurrentTourTip() {
         let signature = dashboardTourSignature
-        guard signature != dashboardTipGroupSignature else { return }
+        let currentTipID = dashboardTourTips.first { $0.shouldDisplay }?.id
+        guard signature != dashboardTourSignatureSnapshot || currentTipID != dashboardCurrentTourTipID else { return }
 
-        let tips = dashboardTourTips
-        dashboardTipGroupSignature = signature
-        dashboardTipGroup = TipGroup(.ordered) {
-            for tip in tips {
-                tip
-            }
-        }
+        dashboardTourSignatureSnapshot = signature
+        dashboardCurrentTourTipID = currentTipID
     }
 
-    private func dashboardCurrentTourTip(matching tip: any Tip) -> (any Tip)? {
-        guard dashboardPage == .main, let currentTip = dashboardTipGroup?.currentTip, currentTip.id == tip.id else {
+    private func dashboardCurrentTourTip<T: Tip>(matching tip: T) -> T? {
+        guard dashboardPage == .main, dashboardCurrentTourTipID == tip.id else {
             return nil
         }
-        return currentTip
+        return tip
     }
 
     @ViewBuilder
-    private func dashboardOrderedTip(_ tip: any Tip) -> some View {
+    private func dashboardOrderedTip<T: Tip>(_ tip: T) -> some View {
         if store.areTipsEnabled, let currentTip = dashboardCurrentTourTip(matching: tip) {
             scoreboardInlineTip(currentTip)
         }
@@ -7912,6 +8207,71 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
+    }
+
+    private func broadcastDisplayControlPanel(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                localizedAppText("Custom Display Control")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+
+                Spacer(minLength: 0)
+
+                Text("\(store.webAPIBroadcastEnabledDisplayCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            dashboardPanelTip(
+                "Assign display modes to enabled Custom Display Control IDs used by Web API custom pages and Remote Displays. ID 0 follows the main Display Control and is not shown here.",
+                systemImage: "rectangle.connected.to.line.below",
+                layout: layout
+            )
+
+            VStack(spacing: 0) {
+                ForEach(Array(store.customDisplayEnabledDisplayIDs.enumerated()), id: \.element) { index, displayID in
+                    if index > 0 {
+                        Rectangle()
+                            .fill(themePalette.dashboardCardBorder)
+                            .frame(height: 1)
+                    }
+                    broadcastDisplayAssignmentRow(displayID: displayID)
+                }
+            }
+        }
+        .padding(.horizontal, layout.controlCardPadding)
+        .padding(.vertical, layout.controlCardPadding)
+        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: layout.controlCardCornerRadius, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder)
+        )
+    }
+
+    private func broadcastDisplayAssignmentRow(displayID: Int) -> some View {
+        HStack(spacing: 14) {
+            Label(localizedAppFormat("Display %d", displayID), systemImage: "display")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+
+            Spacer(minLength: 0)
+
+            Picker(
+                localizedAppFormat("Display %d", displayID),
+                selection: Binding(
+                    get: { store.webAPIBroadcastDisplayMode(for: displayID) },
+                    set: { store.setWebAPIBroadcastDisplayMode($0, for: displayID) }
+                )
+            ) {
+                ForEach(ScoreboardWebAPIBroadcastDisplayMode.allCases) { mode in
+                    Text(store.customDisplayModeTitle(for: mode)).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.vertical, 10)
     }
 
     private var displayPresetModes: [ScoreboardDisplayViewMode] {
@@ -8336,6 +8696,9 @@ struct ContentView: View {
                 }
                 if store.supportsPeriod {
                     gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                }
+                if store.activeInjuryTimeMinutes > 0 {
+                    gameMetricCard(title: "Added Time", value: localizedAppFormat("+%d min", store.activeInjuryTimeMinutes), layout: layout)
                 }
                 if store.supportsPeriodWinTracking {
                     gameMetricCard(title: "Periods", value: "\(store.homePeriodWins)-\(store.guestPeriodWins)", layout: layout)
@@ -9033,6 +9396,10 @@ struct ContentView: View {
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
+
+                if store.supportsInjuryTime {
+                    injuryTimeControl(layout: layout)
+                }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Match Controls")
@@ -9591,6 +9958,63 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(store.isClockRunning ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
         }
+    }
+
+    private func injuryTimeControl(layout: InterfaceLayout) -> some View {
+        let isLocked = store.hasAppliedInjuryTimeThisPeriod
+        let pendingValue = store.pendingInjuryTimeMinutes == 0
+            ? localizedAppString("Off")
+            : localizedAppFormat("+%d min", store.pendingInjuryTimeMinutes)
+        let valueText = store.activeInjuryTimeMinutes > 0
+            ? localizedAppFormat("Applied +%d min", store.activeInjuryTimeMinutes)
+            : pendingValue
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Added Time")
+                    .font(.subheadline.weight(.semibold))
+                    .singleLineFitted(minScale: 0.7)
+                    .foregroundStyle(themePalette.dashboardSubtleText)
+
+                Text(valueText)
+                    .font(.headline.weight(.black))
+                    .singleLineFitted(minScale: 0.6)
+                    .foregroundStyle(store.activeInjuryTimeMinutes > 0 ? themePalette.dashboardWarningButton : themePalette.dashboardPrimaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ForEach(0...ScoreboardStore.maxInjuryTimeMinutes, id: \.self) { minutes in
+                    Button {
+                        store.setPendingInjuryTimeMinutes(minutes)
+                    } label: {
+                        Label {
+                            Text(minutes == 0 ? localizedAppString("Off") : localizedAppFormat("+%d min", minutes))
+                        } icon: {
+                            Image(systemName: store.pendingInjuryTimeMinutes == minutes ? "checkmark.circle.fill" : "plus.circle")
+                        }
+                    }
+                }
+            } label: {
+                Label("Set", systemImage: "plus.circle")
+                    .font(.headline.weight(.bold))
+                    .singleLineFitted(minScale: 0.62)
+                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, layout.advancedButtonVerticalPadding)
+                    .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .disabled(isLocked)
+            .opacity(isLocked ? 0.42 : 1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(themePalette.dashboardCardBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
+        )
     }
 
     private var periodWinStatusText: String {
@@ -10623,6 +11047,23 @@ struct ContentView: View {
         commitSetupEdits(animated: true)
     }
 
+    private func applySetupSportDefaultsAndCommit(_ sport: SportType) {
+        applySetupClockDefaultsAndCommit {
+            applySetupSportDefaults(sport)
+        }
+    }
+
+    private func applySetupClockDefaultsAndCommit(_ updates: () -> Void) {
+        isApplyingSetupSportDefaults = true
+        updates()
+        DispatchQueue.main.async {
+            commitSetupEdits(animated: true)
+            DispatchQueue.main.async {
+                isApplyingSetupSportDefaults = false
+            }
+        }
+    }
+
     private func makeDraftSnapshot() -> ScoreboardGameSnapshot {
         let draftClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupClockSeconds
         let draftGuestClockSeconds = setupSport == .debate ? setupDebateOpeningSegmentSeconds : setupGuestClockSeconds
@@ -10630,7 +11071,7 @@ struct ContentView: View {
             (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -12190,7 +12631,7 @@ struct ContentView: View {
             (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
 
         return ScoreboardGameSnapshot(
-            fileVersion: 11,
+            fileVersion: 12,
             sport: setupSport,
             customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
             customDebatePreset: setupSport == .debate
@@ -12442,7 +12883,7 @@ struct ContentView: View {
         do {
             for preset in store.setupPresets {
                 let snapshot = ScoreboardGameSnapshot(
-                    fileVersion: 11,
+                    fileVersion: 12,
                     sport: preset.sport,
                     customSportConfig: preset.customSportConfig,
                     customDebatePreset: preset.sport == .debate ? DebatePreset.customDefault : nil,
@@ -12640,6 +13081,7 @@ struct ContentView: View {
             period: store.period,
             formattedClock: store.formattedClock,
             showsGameClock: store.showsGameClock,
+            activeInjuryTimeMinutes: store.activeInjuryTimeMinutes,
             showsDualClocks: store.usesChessClocks,
             formattedHomeChessClock: store.formattedHomeChessClock,
             formattedGuestChessClock: store.formattedGuestChessClock,
@@ -13057,6 +13499,16 @@ private struct SettingsDetailRow: Identifiable {
     let id: String
     let title: String
     let value: String
+}
+
+private struct SettingsErasedRows: View {
+    let rows: [AnyView]
+
+    var body: some View {
+        ForEach(rows.indices, id: \.self) { index in
+            rows[index]
+        }
+    }
 }
 
 private struct SettingsGameFileDetailPane: View {

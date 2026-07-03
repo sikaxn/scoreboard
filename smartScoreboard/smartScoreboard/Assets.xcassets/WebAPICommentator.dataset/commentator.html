@@ -1,0 +1,1846 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartScoreboard Commentator</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      color: #151821;
+      --bg: #f4f6f9;
+      --panel: #ffffff;
+      --panel-2: #eef2f6;
+      --text: #151821;
+      --muted: #5c6574;
+      --line: #d9e0ea;
+      --accent: #1769d1;
+      --accent-2: #0f8c7c;
+      --danger: #d83a3a;
+      --warn: #a86200;
+      --home: #1476a8;
+      --guest: #d46f19;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+    body {
+      padding: 12px;
+    }
+    main {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 10px;
+    }
+    header, .score-strip, .content-grid, .sub-grid {
+      min-width: 0;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    h1, h2, h3, p {
+      margin: 0;
+    }
+    h1 {
+      font-size: clamp(23px, 2.4vw, 34px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 900;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .header-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .icon-button {
+      width: 36px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 18px;
+      font-weight: 1000;
+      cursor: pointer;
+    }
+    .icon-button:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .settings-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      background: rgba(0, 0, 0, 0.36);
+      padding: 18px;
+    }
+    .settings-overlay.open {
+      display: grid;
+      place-items: start end;
+    }
+    .settings-panel {
+      width: min(360px, 100%);
+      display: grid;
+      gap: 16px;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+    }
+    .settings-row {
+      display: grid;
+      gap: 8px;
+    }
+    .settings-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    select {
+      width: 100%;
+      min-height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 0 11px;
+      font: inherit;
+      font-weight: 900;
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--danger);
+    }
+    .status.connected .dot {
+      background: #16a05d;
+    }
+    .score-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 420px) minmax(0, 1fr);
+      gap: 10px;
+    }
+    .team, .center, .panel {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .team {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 92px;
+      padding: 11px 13px;
+      border-top: 6px solid var(--home);
+    }
+    .team.guest {
+      border-top-color: var(--guest);
+    }
+    .logo {
+      width: 46px;
+      height: 46px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+    }
+    .logo.hidden {
+      display: none;
+    }
+    .team-name {
+      min-width: 0;
+      font-size: clamp(20px, 2.3vw, 34px);
+      line-height: 1.02;
+      font-weight: 1000;
+      overflow-wrap: anywhere;
+    }
+    .team-role {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .score {
+      min-width: 66px;
+      text-align: right;
+      font-size: clamp(44px, 5.4vw, 76px);
+      line-height: 0.9;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+    }
+    .center {
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 5px;
+      min-height: 92px;
+      padding: 10px;
+      text-align: center;
+    }
+    .clock {
+      max-width: 100%;
+      font-size: clamp(27px, 3.6vw, 46px);
+      line-height: 1;
+      font-weight: 1000;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .leader {
+      color: var(--accent);
+      font-size: 15px;
+      font-weight: 1000;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.9fr) minmax(260px, 0.9fr) minmax(360px, 1.2fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .sub-grid {
+      display: contents;
+    }
+    .talking-panel {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .modes-panel {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .watch-panel {
+      grid-column: 1 / span 2;
+      grid-row: 2;
+    }
+    .timeline-panel {
+      grid-column: 3;
+      grid-row: 1 / span 2;
+    }
+    .panel {
+      padding: 12px;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .tags, .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tag, .filter {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    button.filter {
+      appearance: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button.filter.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .insights {
+      display: grid;
+      gap: 0;
+    }
+    .insight {
+      display: grid;
+      gap: 4px;
+      padding: 7px 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+    }
+    .insight.high {
+      padding-left: 8px;
+      border-left: 3px solid var(--danger);
+      background: transparent;
+    }
+    .insight-title {
+      font-size: 15px;
+      font-weight: 1000;
+      line-height: 1.15;
+    }
+    .insight-detail {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .mode-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+      margin-top: 8px;
+    }
+    .metric {
+      min-width: 0;
+      min-height: auto;
+      display: grid;
+      grid-template-columns: minmax(92px, 0.55fr) minmax(0, 1fr);
+      align-items: baseline;
+      gap: 4px 8px;
+      padding: 7px 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+    }
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .metric-value {
+      min-width: 0;
+      font-size: 17px;
+      font-weight: 1000;
+      line-height: 1.12;
+      overflow-wrap: anywhere;
+    }
+    .metric-sub {
+      grid-column: 2;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .timeline {
+      display: grid;
+      gap: 0;
+      max-height: calc(100vh - 184px);
+      overflow: auto;
+      padding-right: 2px;
+      margin-top: 8px;
+    }
+    .entry {
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .entry-time {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .entry-main {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+    .entry-title {
+      font-size: 14px;
+      font-weight: 1000;
+      line-height: 1.2;
+    }
+    .entry-context, .entry-extra {
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .entry-extra {
+      color: var(--accent-2);
+      font-weight: 800;
+    }
+    .watch {
+      display: grid;
+      gap: 0;
+    }
+    .watch-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+    }
+    .side-pill {
+      min-width: 48px;
+      padding: 4px 7px;
+      border-radius: 999px;
+      background: var(--home);
+      color: #fff;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 1000;
+      text-transform: uppercase;
+    }
+    .side-pill.guest {
+      background: var(--guest);
+    }
+    .watch-name {
+      min-width: 0;
+      font-weight: 1000;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .watch-meta {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .empty {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      border: 0;
+      border-bottom: 1px dashed var(--line);
+      border-radius: 0;
+      font-weight: 900;
+      text-align: center;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        background: #10141b;
+        color: #f2f5f8;
+        --bg: #10141b;
+        --panel: #171d26;
+        --panel-2: #202835;
+        --text: #f2f5f8;
+        --muted: #aeb8c7;
+        --line: #323c4c;
+        --accent: #61a4ff;
+        --accent-2: #54d1bf;
+        --danger: #ff6b6b;
+        --warn: #f0a33d;
+        --home: #1b8fc0;
+        --guest: #e18733;
+      }
+    }
+    @media (max-width: 1040px) {
+      .score-strip, .content-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .sub-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .talking-panel, .modes-panel, .watch-panel, .timeline-panel {
+        grid-column: auto;
+        grid-row: auto;
+      }
+      .timeline {
+        max-height: none;
+      }
+    }
+    @media (max-width: 620px) {
+      header {
+        display: grid;
+      }
+      .header-actions {
+        justify-content: space-between;
+      }
+      .team {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+      .score {
+        grid-column: 1 / -1;
+        text-align: left;
+      }
+      .mode-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .sub-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .entry {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .entry-time {
+        white-space: normal;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1 data-i18n="title">Commentator</h1>
+        <div id="subtitle" class="meta">SmartScoreboard</div>
+      </div>
+      <div class="header-actions">
+        <div id="status" class="status"><span class="dot"></span><span id="statusText">Connecting</span></div>
+        <button id="settingsButton" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <section class="score-strip">
+      <article class="team home">
+        <img id="homeLogo" class="logo hidden" alt="">
+        <div>
+          <div id="homeName" class="team-name">HOME</div>
+          <div id="homeRole" class="team-role">Home</div>
+        </div>
+        <div id="homeScore" class="score">0</div>
+      </article>
+
+      <article class="center">
+        <div id="period" class="meta">P 1</div>
+        <div id="clock" class="clock">--:--</div>
+        <div id="leader" class="leader">Tied</div>
+      </article>
+
+      <article class="team guest">
+        <img id="guestLogo" class="logo hidden" alt="">
+        <div>
+          <div id="guestName" class="team-name">GUEST</div>
+          <div id="guestRole" class="team-role">Guest</div>
+        </div>
+        <div id="guestScore" class="score">0</div>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <div class="sub-grid">
+        <article class="panel talking-panel">
+          <div class="panel-header">
+            <h2 data-i18n="talkingPoints">Talking Points</h2>
+          </div>
+          <div id="insights" class="insights"></div>
+        </article>
+
+        <article class="panel modes-panel">
+          <div class="panel-header">
+            <h2 data-i18n="matchModes">Match Modes</h2>
+          </div>
+          <div id="modeTags" class="tags"></div>
+          <div id="modes" class="mode-grid"></div>
+        </article>
+
+        <article class="panel watch-panel">
+          <div class="panel-header">
+            <h2 data-i18n="rosterWatch">Roster Watch</h2>
+          </div>
+          <div id="watch" class="watch"></div>
+        </article>
+      </div>
+
+      <article class="panel timeline-panel">
+        <div class="panel-header">
+          <h2 data-i18n="timeline">Timeline</h2>
+          <div id="entryCount" class="meta"></div>
+        </div>
+        <div id="filters" class="filters"></div>
+        <div id="timeline" class="timeline"></div>
+      </article>
+    </section>
+  </main>
+
+  <aside id="settingsOverlay" class="settings-overlay" aria-hidden="true">
+    <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="panel-header">
+        <h2 id="settingsTitle" data-i18n="settings">Settings</h2>
+        <button id="settingsClose" class="icon-button" type="button" aria-label="Close" title="Close">×</button>
+      </div>
+      <label class="settings-row">
+        <span class="settings-label" data-i18n="language">Language</span>
+        <select id="languageSelect">
+          <option value="auto" data-i18n="languageAuto">Auto</option>
+          <option value="en" data-i18n="languageEnglish">English</option>
+          <option value="zh" data-i18n="languageChinese">Chinese</option>
+        </select>
+      </label>
+    </section>
+  </aside>
+
+  <script>
+    const translations = {
+      en: {
+        title: 'Commentator',
+        connecting: 'Connecting',
+        connected: 'Connected',
+        reconnecting: 'Reconnecting',
+        socketError: 'Socket Error',
+        invalidJSON: 'Invalid JSON',
+        waiting: 'Waiting for data',
+        talkingPoints: 'Talking Points',
+        matchModes: 'Match Modes',
+        rosterWatch: 'Roster Watch',
+        timeline: 'Timeline',
+        all: 'All',
+        score: 'Score',
+        clock: 'Clock',
+        discipline: 'Discipline',
+        player: 'Player',
+        penalty: 'Penalty',
+        debate: 'Debate',
+        possession: 'Possession',
+        match: 'Match',
+        admin: 'Admin',
+        none: 'None',
+        tied: 'Tied',
+        leadsBy: 'leads by',
+        noScore: 'No score',
+        entries: 'entries',
+        noInsights: 'No talking points yet',
+        noEntries: 'No timeline entries',
+        noWatch: 'No roster alerts',
+        active: 'active',
+        running: 'Running',
+        stopped: 'Stopped',
+        bench: 'bench',
+        fouls: 'F',
+        yellow: 'Yellow',
+        red: 'Red',
+        home: 'Home',
+        guest: 'Guest',
+        shotClock: 'Shot Clock',
+        serveTimer: 'Serve Timer',
+        dualClock: 'Dual Clock',
+        prep: 'Prep',
+        segment: 'Segment',
+        possessionLabel: 'Possession',
+        penalties: 'Penalties',
+        settings: 'Settings',
+        language: 'Language',
+        languageAuto: 'Auto',
+        languageEnglish: 'English',
+        languageChinese: 'Chinese',
+        close: 'Close',
+        colon: ': ',
+        customSport: 'Custom Sport',
+        simpleSport: 'Simple',
+        basketball: 'Basketball',
+        volleyball: 'Volleyball',
+        soccer: 'Soccer',
+        hockey: 'Hockey',
+        chess: 'Chess',
+        noGameClock: 'No Game Clock',
+        gameClock: 'Game Clock',
+        players: 'Players',
+        cards: 'Cards',
+        substitutions: 'Substitutions',
+        pauses: 'Pauses',
+        periodWins: 'Period Wins',
+        injuryTime: 'Injury Time',
+        noScoreTracking: 'No score tracking',
+        withoutScoreOutput: 'is running without score output.',
+        leads: 'leads',
+        leadMargin: 'Lead margin',
+        scoreNoun: 'score',
+        playerFoul: 'player foul',
+        teamFouls: 'team fouls',
+        playerCard: 'player card',
+        penaltyTimer: 'penalty timer',
+        prepClock: 'prep clock',
+        debateClock: 'debate clock',
+        chessClock: 'chess clock',
+        swaps: 'swaps',
+        set: 'Set',
+        reset: 'Reset',
+        add: 'Add',
+        remove: 'Remove',
+        edit: 'Edit',
+        assign: 'Assign',
+        create: 'Create',
+        importLabel: 'Import',
+        load: 'Load',
+        rename: 'Rename',
+        exportLabel: 'Export',
+        deleteLabel: 'Delete',
+        show: 'Show',
+        start: 'Start',
+        pause: 'Pause',
+        toggle: 'Toggle',
+        switchLabel: 'Switch',
+        expired: 'expired',
+        disabled: 'Disabled',
+        zeroBothScores: 'Zero both scores',
+        swapSides: 'Swap home and guest sides',
+        setPossession: 'Set possession',
+        clockDisabled: 'Clock disabled',
+        clockNotUsed: 'is not using a game clock.',
+        clockToMove: 'to move',
+        noSpeakingSide: 'No speaking side assigned.',
+        speakingSide: 'Speaking side',
+        gameClockLabel: 'Game clock',
+        shotClockShort: 'Shot',
+        preset: 'preset',
+        periodWord: 'Period',
+        half: 'Half',
+        round: 'Round',
+        setPeriod: 'Set',
+        file: 'File',
+        gameFile: 'game file'
+      },
+      zh: {
+        title: '解说信息',
+        connecting: '正在连接',
+        connected: '已连接',
+        reconnecting: '正在重连',
+        socketError: 'Socket 错误',
+        invalidJSON: 'JSON 无效',
+        waiting: '等待数据',
+        talkingPoints: '解说提示',
+        matchModes: '比赛模式',
+        rosterWatch: '球员关注',
+        timeline: '事件时间线',
+        all: '全部',
+        score: '比分',
+        clock: '计时',
+        discipline: '犯规/牌',
+        player: '球员',
+        penalty: '罚时',
+        debate: '辩论',
+        possession: '球权',
+        match: '比赛',
+        admin: '管理',
+        none: '无',
+        tied: '平局',
+        leadsBy: '领先',
+        noScore: '无比分',
+        entries: '条事件',
+        noInsights: '暂无解说提示',
+        noEntries: '暂无事件',
+        noWatch: '暂无球员提醒',
+        active: '在场',
+        running: '进行中',
+        stopped: '已停止',
+        bench: '替补',
+        fouls: '犯',
+        yellow: '黄牌',
+        red: '红牌',
+        home: '主队',
+        guest: '客队',
+        shotClock: '进攻时间',
+        serveTimer: '发球计时',
+        dualClock: '双计时',
+        prep: '准备时间',
+        segment: '环节',
+        possessionLabel: '球权',
+        penalties: '罚时',
+        settings: '设置',
+        language: '语言',
+        languageAuto: '自动',
+        languageEnglish: '英语',
+        languageChinese: '中文',
+        close: '关闭',
+        colon: '：',
+        customSport: '自定义运动',
+        simpleSport: '简易记分',
+        basketball: '篮球',
+        volleyball: '排球',
+        soccer: '足球',
+        hockey: '冰球',
+        chess: '国际象棋',
+        noGameClock: '无比赛计时',
+        gameClock: '比赛计时',
+        players: '球员',
+        cards: '牌',
+        substitutions: '换人',
+        pauses: '暂停',
+        periodWins: '节胜',
+        injuryTime: '补时',
+        noScoreTracking: '无比分记录',
+        withoutScoreOutput: '当前不输出比分。',
+        leads: '领先',
+        leadMargin: '领先分差',
+        scoreNoun: '得分',
+        playerFoul: '球员犯规',
+        teamFouls: '全队犯规',
+        playerCard: '球员牌',
+        penaltyTimer: '罚时计时',
+        prepClock: '准备计时',
+        debateClock: '辩论计时',
+        chessClock: '棋钟',
+        swaps: '换人',
+        set: '设置',
+        reset: '重置',
+        add: '添加',
+        remove: '移除',
+        edit: '编辑',
+        assign: '分配',
+        create: '创建',
+        importLabel: '导入',
+        load: '载入',
+        rename: '重命名',
+        exportLabel: '导出',
+        deleteLabel: '删除',
+        show: '上场',
+        start: '开始',
+        pause: '暂停',
+        toggle: '切换',
+        switchLabel: '切换',
+        expired: '结束',
+        disabled: '已禁用',
+        zeroBothScores: '双方比分清零',
+        swapSides: '交换主客队',
+        setPossession: '设置球权',
+        clockDisabled: '计时已禁用',
+        clockNotUsed: '当前未使用比赛计时。',
+        clockToMove: '走棋',
+        noSpeakingSide: '未指定发言方。',
+        speakingSide: '发言方',
+        gameClockLabel: '比赛计时',
+        shotClockShort: '进攻',
+        preset: '预设',
+        periodWord: '节',
+        half: '半场',
+        round: '轮',
+        setPeriod: '局',
+        file: '文件',
+        gameFile: '比赛文件'
+      }
+    };
+
+    const operationTitles = {
+      en: {
+        scoreAdjustment: 'Score Change',
+        scoresReset: 'Zero Scores',
+        clockToggle: 'Game Clock Toggle',
+        clockExpired: 'Game Clock Expired',
+        clockAdjustment: 'Game Clock Adjust',
+        clockReset: 'Game Clock Reset',
+        periodAdjustment: 'Period Change',
+        volleyballSetAward: 'Period Win Award',
+        volleyballSetUndo: 'Period Win Undo',
+        shotClockAssignment: 'Shot Clock Preset',
+        shotClockToggle: 'Shot Clock Toggle',
+        shotClockExpired: 'Shot Clock Expired',
+        shotClockAdjustment: 'Shot Clock Adjust',
+        shotClockReset: 'Shot Clock Reset',
+        possessionChange: 'Possession Change',
+        sideSwap: 'Swap Sides',
+        substitutionsAdjustment: 'Substitution Swap',
+        teamPauseAdjustment: 'Team Pause Change',
+        chessClockToggle: 'Chess Clock Toggle',
+        chessClockSwitch: 'Chess Clock Switch',
+        chessClockAdjustment: 'Chess Clock Adjust',
+        chessClockReset: 'Chess Clock Reset',
+        debatePresetChange: 'Debate Preset',
+        debateSegmentChange: 'Debate Segment',
+        debateSegmentReset: 'Debate Segment Reset',
+        debateRoundReset: 'Debate Round Reset',
+        debateTimerToggle: 'Debate Timer Toggle',
+        debateTimerAdjustment: 'Debate Timer Adjust',
+        debateActiveSideSwitch: 'Debate Side Switch',
+        debateActiveSideSet: 'Debate Side Set',
+        debatePrepToggle: 'Debate Prep Toggle',
+        debatePrepAdjustment: 'Debate Prep Adjust',
+        debatePrepReset: 'Debate Prep Reset',
+        hockeyPenaltyAdd: 'Hockey Penalty Add',
+        hockeyPenaltyRemove: 'Hockey Penalty Remove',
+        hockeyPenaltyToggle: 'Hockey Penalty Toggle',
+        hockeyPenaltyAdjustment: 'Hockey Penalty Adjust',
+        hockeyPenaltyPlayerEdit: 'Hockey Penalty Player',
+        customSportConfigChange: 'Custom Sport Config',
+        playerFoulAdjustment: 'Player Foul Change',
+        playerFoulReset: 'Player Foul Reset',
+        playerFoulResetAll: 'Player Fouls Reset',
+        playerCardSet: 'Player Card',
+        playerCardReset: 'Player Cards Reset',
+        playerCardResetAll: 'All Cards Reset',
+        teamFoulAdjustment: 'Team Foul Change',
+        teamFoulReset: 'Team Fouls Reset',
+        teamFoulResetAll: 'All Team Fouls Reset',
+        lineupToggle: 'Lineup Toggle',
+        playerOverlayToggle: 'Overlay Toggle',
+        fileCreate: 'Game File Create',
+        fileImport: 'Game File Import',
+        fileLoad: 'Game File Load',
+        fileRename: 'Game File Rename',
+        fileExport: 'Game File Export',
+        fileDelete: 'Game File Delete'
+      },
+      zh: {
+        scoreAdjustment: '比分变化',
+        scoresReset: '比分清零',
+        clockToggle: '比赛计时切换',
+        clockExpired: '比赛计时结束',
+        clockAdjustment: '比赛计时调整',
+        clockReset: '比赛计时重置',
+        periodAdjustment: '节次变化',
+        volleyballSetAward: '节胜记录',
+        volleyballSetUndo: '撤销节胜',
+        shotClockAssignment: '进攻时间预设',
+        shotClockToggle: '进攻时间切换',
+        shotClockExpired: '进攻时间结束',
+        shotClockAdjustment: '进攻时间调整',
+        shotClockReset: '进攻时间重置',
+        possessionChange: '球权变化',
+        sideSwap: '交换主客队',
+        substitutionsAdjustment: '换人变化',
+        teamPauseAdjustment: '暂停变化',
+        chessClockToggle: '棋钟切换',
+        chessClockSwitch: '棋钟换边',
+        chessClockAdjustment: '棋钟调整',
+        chessClockReset: '棋钟重置',
+        debatePresetChange: '辩论预设',
+        debateSegmentChange: '辩论环节',
+        debateSegmentReset: '辩论环节重置',
+        debateRoundReset: '辩论轮次重置',
+        debateTimerToggle: '辩论计时切换',
+        debateTimerAdjustment: '辩论计时调整',
+        debateActiveSideSwitch: '辩论发言方切换',
+        debateActiveSideSet: '辩论发言方设置',
+        debatePrepToggle: '准备计时切换',
+        debatePrepAdjustment: '准备计时调整',
+        debatePrepReset: '准备计时重置',
+        hockeyPenaltyAdd: '添加冰球罚时',
+        hockeyPenaltyRemove: '移除冰球罚时',
+        hockeyPenaltyToggle: '冰球罚时切换',
+        hockeyPenaltyAdjustment: '冰球罚时调整',
+        hockeyPenaltyPlayerEdit: '冰球罚时球员',
+        customSportConfigChange: '自定义运动配置',
+        playerFoulAdjustment: '球员犯规变化',
+        playerFoulReset: '球员犯规重置',
+        playerFoulResetAll: '球员犯规全部重置',
+        playerCardSet: '球员牌',
+        playerCardReset: '球员牌重置',
+        playerCardResetAll: '全部牌重置',
+        teamFoulAdjustment: '全队犯规变化',
+        teamFoulReset: '全队犯规重置',
+        teamFoulResetAll: '全部全队犯规重置',
+        lineupToggle: '阵容切换',
+        playerOverlayToggle: '球员叠加层切换',
+        fileCreate: '创建比赛文件',
+        fileImport: '导入比赛文件',
+        fileLoad: '载入比赛文件',
+        fileRename: '重命名比赛文件',
+        fileExport: '导出比赛文件',
+        fileDelete: '删除比赛文件'
+      }
+    };
+
+    const modeTagLabels = {
+      score: 'score',
+      noScore: 'noScore',
+      dualClock: 'dualClock',
+      noGameClock: 'noGameClock',
+      gameClock: 'gameClock',
+      shotClock: 'shotClock',
+      serveTimer: 'serveTimer',
+      periodWins: 'periodWins',
+      possession: 'possession',
+      players: 'players',
+      cards: 'cards',
+      substitutions: 'substitutions',
+      pauses: 'pauses',
+      penalties: 'penalties',
+      injuryTime: 'injuryTime',
+      debate: 'debate'
+    };
+
+    const preferredLanguages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    const languageStorageKey = 'smartscoreboard.commentator.language';
+    let languagePreference = localStorage.getItem(languageStorageKey) || 'auto';
+    let language = resolvedLanguage(languagePreference);
+    let strings = translations[language];
+    const host = location.hostname || '127.0.0.1';
+    const wsURL = `ws://${host}:5517/api/v2/ws`;
+    const commentatorURL = `${location.origin}/api/v2/commentator?limit=120`;
+    const v2State = {};
+    let commentator = null;
+    let socket;
+    let reconnectTimer;
+    let pollTimer;
+    let activeFilter = 'all';
+    let currentStatusKey = 'connecting';
+    let currentStatusConnected = false;
+
+    const el = id => document.getElementById(id);
+    const t = key => strings[key] || translations.en[key] || key;
+    const text = (value, fallback) => value === null || value === undefined || value === '' ? fallback : String(value);
+
+    function resolvedLanguage(preference) {
+      if (preference === 'en' || preference === 'zh') return preference;
+      return preferredLanguages.some(value => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+    }
+
+    function setLanguagePreference(preference) {
+      languagePreference = preference === 'en' || preference === 'zh' ? preference : 'auto';
+      localStorage.setItem(languageStorageKey, languagePreference);
+      language = resolvedLanguage(languagePreference);
+      strings = translations[language];
+      localize();
+      renderAll();
+    }
+
+    function localize() {
+      document.documentElement.lang = language === 'zh' ? 'zh-Hans' : 'en';
+      document.title = `SmartScoreboard ${t('title')}`;
+      document.querySelectorAll('[data-i18n]').forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      el('settingsButton').setAttribute('aria-label', t('settings'));
+      el('settingsButton').setAttribute('title', t('settings'));
+      el('settingsClose').setAttribute('aria-label', t('close'));
+      el('settingsClose').setAttribute('title', t('close'));
+      el('languageSelect').value = languagePreference;
+      setStatus(currentStatusKey, currentStatusConnected);
+      renderFilters();
+    }
+
+    function setSettingsOpen(isOpen) {
+      el('settingsOverlay').classList.toggle('open', isOpen);
+      el('settingsOverlay').setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+      if (isOpen) el('languageSelect').focus();
+    }
+
+    function setStatus(key, connected) {
+      currentStatusKey = key;
+      currentStatusConnected = connected;
+      const status = el('status');
+      status.classList.toggle('connected', connected);
+      el('statusText').textContent = t(key);
+    }
+
+    function logoURL(logo) {
+      if (!logo || !logo.path) return '';
+      const version = logo.id || logo.updatedAtUnixTime || '';
+      return version ? `${logo.path}?v=${encodeURIComponent(version)}` : logo.path;
+    }
+
+    function applyLogo(id, logo) {
+      const image = el(id);
+      const url = logoURL(logo);
+      image.classList.toggle('hidden', !url);
+      if (!url) {
+        image.removeAttribute('src');
+        return;
+      }
+      if (image.getAttribute('src') !== url) image.src = url;
+    }
+
+    function teamSummary(side) {
+      const summary = commentator && commentator.summary ? commentator.summary : {};
+      const stateTeams = v2State.teams || {};
+      return (summary[side] || stateTeams[side] || {});
+    }
+
+    function renderScoreStrip() {
+      const summary = commentator && commentator.summary ? commentator.summary : {};
+      const rules = v2State.rules || {};
+      const teams = v2State.teams || {};
+      const clocks = v2State.clocks || {};
+      const home = teamSummary('home');
+      const guest = teamSummary('guest');
+      const supportsScore = rules.supportsScore !== false && summary.leader !== 'none';
+
+      el('subtitle').textContent = [localizedSportTitle(summary.sport, summary.sportTitle || rules.title), text(summary.eventName || (v2State.game || {}).eventName, '')].filter(Boolean).join(' / ');
+      el('homeName').textContent = text(home.name, 'HOME');
+      el('guestName').textContent = text(guest.name, 'GUEST');
+      el('homeRole').textContent = localizedSideLabel(home.roleLabel, 'home');
+      el('guestRole').textContent = localizedSideLabel(guest.roleLabel, 'guest');
+      el('homeScore').textContent = supportsScore ? text(home.score, 0) : '--';
+      el('guestScore').textContent = supportsScore ? text(guest.score, 0) : '--';
+      applyLogo('homeLogo', teams.home && teams.home.logo);
+      applyLogo('guestLogo', teams.guest && teams.guest.logo);
+
+      const clock = summary.clock || {};
+      el('period').textContent = localizedPeriodLabel(text(summary.periodLabel, rules.supportsPeriod === false ? localizedSportTitle(summary.sport, summary.sportTitle || rules.title) : 'P 1'));
+      el('clock').textContent = text(clock.value || clocks.formattedGameClock, '--:--');
+      const leader = summary.leader || 'tied';
+      if (leader === 'home') {
+        el('leader').textContent = `${text(home.name, 'HOME')} ${t('leadsBy')} ${text(summary.leadMargin, 0)}`;
+      } else if (leader === 'guest') {
+        el('leader').textContent = `${text(guest.name, 'GUEST')} ${t('leadsBy')} ${text(summary.leadMargin, 0)}`;
+      } else if (leader === 'none') {
+        el('leader').textContent = t('noScore');
+      } else {
+        el('leader').textContent = t('tied');
+      }
+    }
+
+    function renderInsights() {
+      const container = el('insights');
+      container.replaceChildren();
+      const insights = commentator && Array.isArray(commentator.insights) ? commentator.insights : [];
+      if (!insights.length) {
+        container.appendChild(empty(t('noInsights')));
+        return;
+      }
+      insights.forEach(item => {
+        const row = document.createElement('div');
+        row.className = `insight ${item.priority === 'high' ? 'high' : ''}`;
+        const title = document.createElement('div');
+        title.className = 'insight-title';
+        title.textContent = formatInsightTitle(item);
+        const detail = document.createElement('div');
+        detail.className = 'insight-detail';
+        detail.textContent = formatInsightDetail(item);
+        row.append(title, detail);
+        container.appendChild(row);
+      });
+    }
+
+    function metric(label, value, sub) {
+      const item = document.createElement('div');
+      item.className = 'metric';
+      const labelEl = document.createElement('div');
+      labelEl.className = 'metric-label';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('div');
+      valueEl.className = 'metric-value';
+      valueEl.textContent = value;
+      item.append(labelEl, valueEl);
+      if (sub) {
+        const subEl = document.createElement('div');
+        subEl.className = 'metric-sub';
+        subEl.textContent = sub;
+        item.appendChild(subEl);
+      }
+      return item;
+    }
+
+    function renderModes() {
+      const summary = commentator && commentator.summary ? commentator.summary : {};
+      const container = el('modes');
+      const tags = el('modeTags');
+      container.replaceChildren();
+      tags.replaceChildren();
+
+      (summary.modeTags || []).forEach(value => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = modeTagLabel(value);
+        tags.appendChild(tag);
+      });
+
+      if (summary.clock) {
+        container.appendChild(metric(clockLabel(summary.clock), text(summary.clock.value, '--:--'), clockStateLabel(summary.clock.state)));
+      }
+      if (summary.shotClock) {
+        container.appendChild(metric(summary.shotClock.mode === 'serveTimer' ? t('serveTimer') : t('shotClock'), text(summary.shotClock.value, '0.0'), clockStateLabel(summary.shotClock.state)));
+      }
+      if (summary.chessClock) {
+        const active = summary.chessClock.activeSide ? sideName(summary.chessClock.activeSide) : t('none');
+        container.appendChild(metric(t('dualClock'), `${summary.chessClock.formattedHomeClock} / ${summary.chessClock.formattedGuestClock}`, active));
+      }
+      if (summary.debate) {
+        container.appendChild(metric(t('segment'), text(summary.debate.segmentTitle, t('debate')), sideName(summary.debate.speakingSide)));
+        if (summary.debate.prepTimeEnabled) {
+          container.appendChild(metric(t('prep'), `${summary.debate.formattedPrepHomeClock} / ${summary.debate.formattedPrepGuestClock}`, `${localizedSideLabel(summary.debate.homeSideLabel, 'home')} / ${localizedSideLabel(summary.debate.guestSideLabel, 'guest')}`));
+        }
+      }
+      if (summary.possession) {
+        container.appendChild(metric(t('possessionLabel'), localizedSideText(summary.possession.label) || t('none'), ''));
+      }
+      if (summary.hockeyPenaltySummary) {
+        container.appendChild(metric(t('penalties'), formatPenaltySummary(summary.hockeyPenaltySummary), ''));
+      }
+      if (!container.children.length) {
+        container.appendChild(empty(t('waiting')));
+      }
+    }
+
+    function sideName(side) {
+      if (side === 'home') return text(teamSummary('home').name, t('home'));
+      if (side === 'guest') return text(teamSummary('guest').name, t('guest'));
+      return t('none');
+    }
+
+    function modeTagLabel(value) {
+      const key = modeTagLabels[value] || value;
+      return t(key);
+    }
+
+    function localizedSportTitle(sport, title) {
+      const raw = text(title, '');
+      const normalized = raw.trim().toLowerCase();
+      const sportKey = {
+        simple: 'simpleSport',
+        basketball: 'basketball',
+        volleyball: 'volleyball',
+        soccer: 'soccer',
+        hockey: 'hockey',
+        chess: 'chess',
+        debate: 'debate'
+      }[sport];
+      if (sportKey) return t(sportKey);
+      if (sport === 'custom' && (!normalized || normalized === 'custom sport' || normalized === '自定义运动')) return t('customSport');
+      return translateKnownText(raw);
+    }
+
+    function localizedPeriodLabel(value) {
+      const raw = text(value, '');
+      return translateKnownText(raw)
+        .replace(/^P\s+(\d+)$/i, `${t('periodWord')} $1`)
+        .replace(/^H\s+(\d+)$/i, `${t('half')} $1`)
+        .replace(/^R\s+(\d+)$/i, `${t('round')} $1`)
+        .replace(/^Period\s+(\d+)$/i, `${t('periodWord')} $1`)
+        .replace(/^Half\s+(\d+)$/i, `${t('half')} $1`)
+        .replace(/^Round\s+(\d+)$/i, `${t('round')} $1`)
+        .replace(/^Set\s+(\d+)$/i, `${t('setPeriod')} $1`);
+    }
+
+    function clockLabel(clock) {
+      if (!clock) return t('clock');
+      if (clock.mode === 'dualClock') return t('dualClock');
+      if (clock.mode === 'serveTimer') return t('serveTimer');
+      if (clock.mode === 'shotClock') return t('shotClock');
+      return t('clock');
+    }
+
+    function clockStateLabel(value) {
+      const normalized = text(value, '').trim().toLowerCase();
+      if (['running', 'run', '进行中'].includes(normalized)) return t('running');
+      if (['stopped', 'stop', 'paused', 'pause', '已停止'].includes(normalized)) return t('stopped');
+      if (['disabled', '已禁用'].includes(normalized)) return t('disabled');
+      return translateKnownText(value);
+    }
+
+    function operationTitle(kind, fallback) {
+      return (operationTitles[language] && operationTitles[language][kind]) || translateKnownText(fallback || humanizeIdentifier(kind));
+    }
+
+    function formatInsightTitle(item) {
+      const entry = entryForInsight(item);
+      if (entry && !String(item.id || '').startsWith('lead-')) return operationTitle(entry.kind, item.title);
+      if (item.id === 'score-tied') return language === 'zh' ? '比分持平' : 'Score tied';
+      if (item.id === 'score-leader') return `${leaderTeamName()} ${t('leads')}`;
+      if (String(item.id || '').startsWith('lead-')) return leadInsightTitle(item);
+      if (item.id === 'period-wins') return t('periodWins');
+      if (item.id === 'game-clock') {
+        const clock = commentator && commentator.summary ? commentator.summary.clock : null;
+        return clock && clock.state === 'running' ? (language === 'zh' ? '计时进行中' : 'Clock running') : (language === 'zh' ? '计时已停止' : 'Clock stopped');
+      }
+      if (item.id === 'clock-disabled') return t('clockDisabled');
+      if (item.id === 'shot-clock') {
+        const shot = commentator && commentator.summary ? commentator.summary.shotClock : null;
+        return shot && shot.mode === 'serveTimer' ? t('serveTimer') : t('shotClock');
+      }
+      if (item.id === 'hockey-penalties') return language === 'zh' ? '罚时计时' : 'Penalty timers';
+      if (item.id === 'roster-watch') return t('rosterWatch');
+      if (item.id === 'dual-clock') return t('dualClock');
+      if (item.id === 'debate-prep') return t('prep');
+      if (item.id === 'mode-no-score') return t('noScoreTracking');
+      return translateKnownText(item.title || t('waiting'));
+    }
+
+    function formatInsightDetail(item) {
+      const entry = entryForInsight(item);
+      if (entry && !String(item.id || '').startsWith('lead-')) return formatEntrySummary(entry);
+      if (item.id === 'score-tied' || item.id === 'period-wins') return currentScoreLine();
+      if (item.id === 'score-leader') return `${t('leadMargin')} ${text((commentator && commentator.summary || {}).leadMargin, 0)}.`;
+      if (String(item.id || '').startsWith('lead-')) return leadInsightDetail(item, entry);
+      if (item.id === 'game-clock') {
+        const clock = commentator && commentator.summary ? commentator.summary.clock : null;
+        return `${t('gameClockLabel')} ${text(clock && clock.value, '--:--')}.`;
+      }
+      if (item.id === 'clock-disabled') return `${localizedSportTitle((commentator && commentator.summary || {}).sport, (commentator && commentator.summary || {}).sportTitle)} ${t('clockNotUsed')}`;
+      if (item.id === 'shot-clock') {
+        const shot = commentator && commentator.summary ? commentator.summary.shotClock : null;
+        return `${text(shot && shot.value, '0.0')} ${language === 'zh' ? '秒' : 'seconds'}, ${clockStateLabel(shot && shot.state).toLowerCase()}.`;
+      }
+      if (item.category === 'penalty') return formatPenaltySummary(item.detail);
+      return translateKnownText(formatContextLine(item.detail));
+    }
+
+    function entryForInsight(item) {
+      if (!item || !item.entryID || !commentator || !Array.isArray(commentator.entries)) return null;
+      return commentator.entries.find(entry => entry.id === item.entryID) || null;
+    }
+
+    function formatEntryHeadline(entry) {
+      const summary = formatEntrySummary(entry);
+      return summary ? `${operationTitle(entry.kind, entry.kindTitle)}${t('colon')}${summary}` : operationTitle(entry.kind, entry.kindTitle);
+    }
+
+    function formatEntrySummary(entry) {
+      if (!entry) return '';
+      const side = entrySideLabel(entry);
+      const delta = signedDelta(entry.delta);
+      const secondsDelta = signedDelta(entry.delta, 's');
+      const value = entry.value === null || entry.value === undefined ? '' : String(entry.value);
+
+      switch (entry.kind) {
+      case 'scoreAdjustment':
+        return sideEvent(side, t('scoreNoun'), delta);
+      case 'scoresReset':
+        return t('zeroBothScores');
+      case 'clockToggle':
+        return clockToggleSummary(entry, t('gameClockLabel'));
+      case 'clockExpired':
+        return nounEvent(t('gameClockLabel'), t('expired'));
+      case 'clockAdjustment':
+        return nounEvent(t('gameClockLabel'), secondsDelta);
+      case 'clockReset':
+        return actionNoun(t('reset'), t('gameClockLabel'));
+      case 'periodAdjustment':
+        return nounEvent(t('periodWord'), delta);
+      case 'volleyballSetAward':
+        return sideEvent(side, t('periodWins'), '');
+      case 'volleyballSetUndo':
+        return actionNoun(t('reset'), t('periodWins'));
+      case 'shotClockAssignment':
+        return actionNoun(t('assign'), t('shotClock'), value ? `${value}s` : '');
+      case 'shotClockToggle':
+        return clockToggleSummary(entry, t('shotClock'));
+      case 'shotClockExpired':
+        return nounEvent(t('shotClock'), t('expired'));
+      case 'shotClockAdjustment':
+        return nounEvent(t('shotClock'), secondsDelta);
+      case 'shotClockReset':
+        return actionNoun(t('reset'), t('shotClock'));
+      case 'possessionChange':
+        return `${t('setPossession')} ${possessionFromEntry(entry)}`;
+      case 'sideSwap':
+        return t('swapSides');
+      case 'substitutionsAdjustment':
+        return sideEvent(side, t('swaps'), delta);
+      case 'teamPauseAdjustment':
+        return sideEvent(side, t('pauses'), delta);
+      case 'chessClockToggle':
+        return clockToggleSummary(entry, t('chessClock'));
+      case 'chessClockSwitch':
+        return actionNoun(t('switchLabel'), t('chessClock'));
+      case 'chessClockAdjustment':
+        return sideEvent(side, t('chessClock'), secondsDelta);
+      case 'chessClockReset':
+        return actionNoun(t('reset'), t('chessClock'));
+      case 'debatePresetChange':
+        return actionNoun(t('set'), t('debate'));
+      case 'debateSegmentChange':
+        return actionNoun(t('switchLabel'), t('segment'));
+      case 'debateSegmentReset':
+        return actionNoun(t('reset'), t('segment'));
+      case 'debateRoundReset':
+        return actionNoun(t('reset'), t('round'));
+      case 'debateTimerToggle':
+        return clockToggleSummary(entry, t('debateClock'));
+      case 'debateTimerAdjustment':
+        return sideEvent(side, t('debateClock'), secondsDelta);
+      case 'debateActiveSideSwitch':
+        return actionNoun(t('switchLabel'), t('speakingSide'));
+      case 'debateActiveSideSet':
+        return `${t('set')} ${t('speakingSide')} ${side}`;
+      case 'debatePrepToggle':
+        return clockToggleSummary(entry, t('prepClock'));
+      case 'debatePrepAdjustment':
+        return sideEvent(side, t('prepClock'), secondsDelta);
+      case 'debatePrepReset':
+        return actionNoun(t('reset'), t('prepClock'));
+      case 'hockeyPenaltyAdd':
+        return actionSideNoun(t('add'), side, t('penaltyTimer'), value ? formatSeconds(value) : '');
+      case 'hockeyPenaltyRemove':
+        return actionSideNoun(t('remove'), side, t('penaltyTimer'));
+      case 'hockeyPenaltyToggle':
+        return clockToggleSummary(entry, sideEvent(side, t('penaltyTimer'), ''));
+      case 'hockeyPenaltyAdjustment':
+        return sideEvent(side, t('penaltyTimer'), secondsDelta);
+      case 'hockeyPenaltyPlayerEdit':
+        return actionSideNoun(t('edit'), side, t('penaltyTimer'));
+      case 'customSportConfigChange':
+        return t('customSport');
+      case 'playerFoulAdjustment':
+        return sideEvent(side, t('playerFoul'), delta);
+      case 'playerFoulReset':
+        return actionSideNoun(t('reset'), side, t('playerFoul'));
+      case 'playerFoulResetAll':
+        return actionSideNoun(t('reset'), side, t('playerFoul'));
+      case 'playerCardSet':
+        return actionSideNoun(t('set'), side, t('playerCard'), cardLabel(entry.value));
+      case 'playerCardReset':
+      case 'playerCardResetAll':
+        return actionSideNoun(t('reset'), side, t('playerCard'));
+      case 'teamFoulAdjustment':
+        return sideEvent(side, t('teamFouls'), delta);
+      case 'teamFoulReset':
+      case 'teamFoulResetAll':
+        return actionSideNoun(t('reset'), side, t('teamFouls'));
+      case 'lineupToggle':
+        return actionSideNoun(lineupAction(entry), side, t('player'));
+      case 'playerOverlayToggle':
+        return actionNoun(t('toggle'), t('player'));
+      case 'fileCreate':
+        return actionNoun(t('create'), t('gameFile'));
+      case 'fileImport':
+        return actionNoun(t('importLabel'), t('gameFile'));
+      case 'fileLoad':
+        return actionNoun(t('load'), t('gameFile'));
+      case 'fileRename':
+        return actionNoun(t('rename'), t('gameFile'));
+      case 'fileExport':
+        return actionNoun(t('exportLabel'), t('gameFile'));
+      case 'fileDelete':
+        return actionNoun(t('deleteLabel'), t('gameFile'));
+      default:
+        return translateKnownText(entry.summary);
+      }
+    }
+
+    function entrySideLabel(entry) {
+      if (entry && entry.side === 'home') return t('home');
+      if (entry && entry.side === 'guest') return t('guest');
+      return '';
+    }
+
+    function signedDelta(value, suffix = '') {
+      if (value === null || value === undefined || value === '') return '';
+      const number = Number(value);
+      if (!Number.isFinite(number)) return text(value, '');
+      return `${number > 0 ? '+' : ''}${number}${suffix}`;
+    }
+
+    function sideEvent(side, noun, detail) {
+      const suffix = detail ? ` ${detail}` : '';
+      if (!side) return `${noun}${suffix}`;
+      return language === 'zh' ? `${side}${noun}${suffix}` : `${side} ${noun}${suffix}`;
+    }
+
+    function nounEvent(noun, detail) {
+      if (!detail) return noun;
+      return language === 'zh' ? `${noun}${detail}` : `${noun} ${detail}`;
+    }
+
+    function actionNoun(action, noun, detail = '') {
+      const suffix = detail ? ` ${detail}` : '';
+      return language === 'zh' ? `${action}${noun}${suffix}` : `${action} ${noun}${suffix}`;
+    }
+
+    function actionSideNoun(action, side, noun, detail = '') {
+      const suffix = detail ? ` ${detail}` : '';
+      if (!side) return actionNoun(action, noun, detail);
+      return language === 'zh' ? `${action}${side}${noun}${suffix}` : `${action} ${side} ${noun}${suffix}`;
+    }
+
+    function clockToggleSummary(entry, noun) {
+      const isRunning = /\b(?:Clock|Shot|Dual Clock)\s+Running\b/i.test(text(entry.contextLine, '')) || /进行中/.test(text(entry.contextLine, ''));
+      const isStopped = /\b(?:Clock|Shot|Dual Clock)\s+Stopped\b/i.test(text(entry.contextLine, '')) || /已停止/.test(text(entry.contextLine, ''));
+      if (isRunning) return actionNoun(t('start'), noun);
+      if (isStopped) return actionNoun(t('pause'), noun);
+      return actionNoun(t('toggle'), noun);
+    }
+
+    function cardLabel(value) {
+      if (Number(value) === 1) return t('yellow');
+      if (Number(value) === 2) return t('red');
+      if (Number(value) === 0) return t('none');
+      return translateKnownText(value);
+    }
+
+    function possessionFromEntry(entry) {
+      const raw = text(entry.summary, '');
+      if (/HOME|主队/i.test(raw)) return t('home');
+      if (/GUEST|客队/i.test(raw)) return t('guest');
+      if (/OFF|None|无/i.test(raw)) return t('none');
+      return localizedSideText(raw.replace(/^Set possession\s*/i, '').replace(/^设置球权\s*/i, '')) || t('none');
+    }
+
+    function lineupAction(entry) {
+      const raw = text(entry.summary, '');
+      if (/Show|上场|显示/i.test(raw)) return t('show');
+      if (/Bench|替补/i.test(raw)) return t('bench');
+      return t('toggle');
+    }
+
+    function formatSeconds(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return text(value, '');
+      const minutes = Math.floor(Math.max(0, number) / 60);
+      const seconds = Math.floor(Math.max(0, number) % 60);
+      return `${minutes}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function currentScoreLine() {
+      const summary = commentator && commentator.summary ? commentator.summary : {};
+      const home = teamSummary('home');
+      const guest = teamSummary('guest');
+      return `${text(home.name, 'HOME')} ${text(home.score, 0)}-${text(guest.score, 0)} ${text(guest.name, 'GUEST')}`;
+    }
+
+    function leaderTeamName() {
+      const summary = commentator && commentator.summary ? commentator.summary : {};
+      if (summary.leader === 'home') return text(teamSummary('home').name, t('home'));
+      if (summary.leader === 'guest') return text(teamSummary('guest').name, t('guest'));
+      return t('tied');
+    }
+
+    function leadInsightTitle(item) {
+      if (item.side === 'home') return `${text(teamSummary('home').name, t('home'))} ${t('leads')}`;
+      if (item.side === 'guest') return `${text(teamSummary('guest').name, t('guest'))} ${t('leads')}`;
+      return language === 'zh' ? '比分持平' : 'Game tied';
+    }
+
+    function leadInsightDetail(item, entry) {
+      if (entry && entry.score) {
+        return `${text(teamSummary('home').name, t('home'))} ${entry.score.home}-${entry.score.guest} ${text(teamSummary('guest').name, t('guest'))}`;
+      }
+      return currentScoreLine();
+    }
+
+    function humanizeIdentifier(value) {
+      return text(value, '')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/^./, character => character.toUpperCase());
+    }
+
+    function localizedSideLabel(value, side) {
+      const normalized = text(value, '').trim().toLowerCase();
+      const homeLabels = ['home', 'host', '主队', '主方'];
+      const guestLabels = ['guest', 'away', '客队', '客方'];
+      if (side === 'home' && (!normalized || homeLabels.includes(normalized))) return t('home');
+      if (side === 'guest' && (!normalized || guestLabels.includes(normalized))) return t('guest');
+      return text(value, t(side));
+    }
+
+    function localizedSideText(value) {
+      const raw = text(value, '');
+      const normalized = raw.trim().toLowerCase();
+      if (['home', 'host', '主队', '主方'].includes(normalized)) return t('home');
+      if (['guest', 'away', '客队', '客方'].includes(normalized)) return t('guest');
+      if (['off', 'none', '无', '关闭'].includes(normalized)) return t('none');
+      return raw;
+    }
+
+    function translateKnownText(value) {
+      let result = text(value, '');
+      const replacements = language === 'zh' ? [
+        [/\bCustom Sport\b/g, t('customSport')],
+        [/\bSimple\b/g, t('simpleSport')],
+        [/\bBasketball\b/g, t('basketball')],
+        [/\bVolleyball\b/g, t('volleyball')],
+        [/\bSoccer\b/g, t('soccer')],
+        [/\bHockey\b/g, t('hockey')],
+        [/\bChess\b/g, t('chess')],
+        [/\bDebate\b/g, t('debate')],
+        [/\bPeriod\s+(\d+)\b/g, `${t('periodWord')} $1`],
+        [/\bHalf\s+(\d+)\b/g, `${t('half')} $1`],
+        [/\bRound\s+(\d+)\b/g, `${t('round')} $1`],
+        [/\bSet\s+(\d+)\b/g, `${t('setPeriod')} $1`],
+        [/\bDual Clock\b/g, t('dualClock')],
+        [/\bClock Running\b/g, `${t('gameClockLabel')} ${t('running')}`],
+        [/\bClock Stopped\b/g, `${t('gameClockLabel')} ${t('stopped')}`],
+        [/\bClock Disabled\b/g, t('clockDisabled')],
+        [/\bShot Running\b/g, `${t('shotClockShort')} ${t('running')}`],
+        [/\bShot Stopped\b/g, `${t('shotClockShort')} ${t('stopped')}`],
+        [/\bShot Clock\b/g, t('shotClock')],
+        [/\bServe Timer\b/g, t('serveTimer')],
+        [/\bGame Clock\b/g, t('gameClock')],
+        [/\bLead margin\b/g, t('leadMargin')],
+        [/\bYellow\b/g, t('yellow')],
+        [/\bRed\b/g, t('red')],
+        [/\bNone\b/g, t('none')],
+        [/\bOFF\b/g, t('none')],
+        [/\bHome\b/g, t('home')],
+        [/\bGuest\b/g, t('guest')],
+        [/\bFile:/g, `${t('file')}:`],
+        [/\brunning\b/g, t('running')],
+        [/\bstopped\b/g, t('stopped')]
+      ] : [
+        [/设置主队球员牌为黄牌/g, 'Set Home player card Yellow'],
+        [/设置客队球员牌为黄牌/g, 'Set Guest player card Yellow'],
+        [/设置主队球员牌为红牌/g, 'Set Home player card Red'],
+        [/设置客队球员牌为红牌/g, 'Set Guest player card Red'],
+        [/主队球员犯规/g, 'Home player foul'],
+        [/客队球员犯规/g, 'Guest player foul'],
+        [/主队得分/g, 'Home score'],
+        [/客队得分/g, 'Guest score'],
+        [/自定义运动/g, t('customSport')],
+        [/简易记分/g, t('simpleSport')],
+        [/篮球/g, t('basketball')],
+        [/排球/g, t('volleyball')],
+        [/足球/g, t('soccer')],
+        [/冰球/g, t('hockey')],
+        [/国际象棋/g, t('chess')],
+        [/辩论/g, t('debate')],
+        [/比赛计时\s*进行中/g, 'Game clock running'],
+        [/比赛计时\s*已停止/g, 'Game clock stopped'],
+        [/进攻\s*进行中/g, 'Shot running'],
+        [/进攻\s*已停止/g, 'Shot stopped'],
+        [/黄牌/g, t('yellow')],
+        [/红牌/g, t('red')],
+        [/主队/g, t('home')],
+        [/客队/g, t('guest')],
+        [/无/g, t('none')],
+        [/文件:/g, `${t('file')}:`]
+      ];
+
+      replacements.forEach(([pattern, replacement]) => {
+        result = result.replace(pattern, replacement);
+      });
+      return result;
+    }
+
+    function formatPenaltySummary(raw) {
+      const value = text(raw, '').trim();
+      if (!value) return '';
+      const match = value.match(/^HOME\[(.*?)\]\s+GUEST\[(.*?)\]$/);
+      if (!match) return translateKnownText(value.replace(/\[\]/g, ''));
+      const parts = [];
+      const home = formatPenaltySide(match[1]);
+      const guest = formatPenaltySide(match[2]);
+      if (home) parts.push(`${t('home')}: ${home}`);
+      if (guest) parts.push(`${t('guest')}: ${guest}`);
+      return parts.join(' / ') || t('none');
+    }
+
+    function formatPenaltySide(value) {
+      return text(value, '')
+        .split(/[|,]/)
+        .map(item => item.trim())
+        .filter(Boolean)
+        .map(item => {
+          const match = item.match(/^#?(\S+)\s+(\d{1,2}:\d{2})\s+(\S+)$/);
+          if (!match) return item;
+          return `#${match[1]} ${match[2]} ${formatPenaltyState(match[3])}`;
+        })
+        .join(', ');
+    }
+
+    function formatPenaltyState(value) {
+      const normalized = text(value, '').toLowerCase();
+      if (normalized === 'run' || normalized === 'running') return t('running');
+      if (normalized === 'stop' || normalized === 'stopped' || normalized === 'pause' || normalized === 'paused') return t('stopped');
+      return text(value, '');
+    }
+
+    function formatContextLine(value) {
+      const formatted = text(value, '').replace(/HOME\[(.*?)\]\s+GUEST\[(.*?)\]/g, (_, home, guest) => {
+        return formatPenaltySummary(`HOME[${home}] GUEST[${guest}]`);
+      });
+      return translateKnownText(formatted);
+    }
+
+    function formatSideLine(value) {
+      return translateKnownText(text(value, ''))
+        .replace(/^Home(?=\s*[•:\/-]|$)/i, t('home'))
+        .replace(/^Guest(?=\s*[•:\/-]|$)/i, t('guest'));
+    }
+
+    function renderRosterWatch() {
+      const container = el('watch');
+      container.replaceChildren();
+      const watch = commentator && commentator.summary && Array.isArray(commentator.summary.rosterWatch) ? commentator.summary.rosterWatch : [];
+      if (!watch.length) {
+        container.appendChild(empty(t('noWatch')));
+        return;
+      }
+
+      watch.forEach(player => {
+        const row = document.createElement('div');
+        row.className = 'watch-row';
+        const side = document.createElement('div');
+        side.className = `side-pill ${player.side === 'guest' ? 'guest' : ''}`;
+        side.textContent = player.side === 'guest' ? t('guest') : t('home');
+        const name = document.createElement('div');
+        name.className = 'watch-name';
+        name.textContent = text(player.displayName, 'Player');
+        const meta = document.createElement('div');
+        meta.className = 'watch-meta';
+        const card = player.cardStatus === 'yellow' ? t('yellow') : player.cardStatus === 'red' ? t('red') : '';
+        meta.textContent = [`${t('fouls')} ${text(player.foulCount, 0)}`, card, player.isInActiveLineup ? t('active') : t('bench')].filter(Boolean).join(' / ');
+        row.append(side, name, meta);
+        container.appendChild(row);
+      });
+    }
+
+    function renderFilters() {
+      const container = el('filters');
+      const filters = ['all', 'score', 'clock', 'discipline', 'player', 'penalty', 'debate', 'possession', 'match', 'admin'];
+      container.replaceChildren();
+      filters.forEach(filter => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `filter ${activeFilter === filter ? 'active' : ''}`;
+        button.textContent = t(filter);
+        button.addEventListener('click', () => {
+          activeFilter = filter;
+          renderFilters();
+          renderTimeline();
+        });
+        container.appendChild(button);
+      });
+    }
+
+    function renderTimeline() {
+      const container = el('timeline');
+      container.replaceChildren();
+      const entries = commentator && Array.isArray(commentator.entries) ? commentator.entries : [];
+      const visible = activeFilter === 'all' ? entries : entries.filter(entry => entry.category === activeFilter);
+      el('entryCount').textContent = `${entries.length} ${t('entries')}`;
+      if (!visible.length) {
+        container.appendChild(empty(t('noEntries')));
+        return;
+      }
+
+      visible.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'entry';
+        const time = document.createElement('div');
+        time.className = 'entry-time';
+        time.textContent = formatTime(entry.timestampUnixTime);
+        const main = document.createElement('div');
+        main.className = 'entry-main';
+        const title = document.createElement('div');
+        title.className = 'entry-title';
+        title.textContent = formatEntryHeadline(entry);
+        const context = document.createElement('div');
+        context.className = 'entry-context';
+        context.textContent = formatContextLine(entry.contextLine);
+        main.append(title, context);
+        if (entry.playerLine || entry.fileLine) {
+          const extra = document.createElement('div');
+          extra.className = 'entry-extra';
+          extra.textContent = formatSideLine(entry.playerLine || entry.fileLine);
+          main.appendChild(extra);
+        }
+        row.append(time, main);
+        container.appendChild(row);
+      });
+    }
+
+    function formatTime(unixTime) {
+      if (!unixTime) return '';
+      return new Date(unixTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function empty(label) {
+      const node = document.createElement('div');
+      node.className = 'empty';
+      node.textContent = label;
+      return node;
+    }
+
+    function renderAll() {
+      renderScoreStrip();
+      renderInsights();
+      renderModes();
+      renderRosterWatch();
+      renderTimeline();
+    }
+
+    function handleV2Message(message) {
+      if (!message || message.schemaVersion !== 2 || message.type !== 'scoreboard.v2.resource') return;
+      const envelope = message.payload || {};
+      const resource = message.resource || envelope.resource;
+      if (!resource) return;
+      v2State[resource] = envelope.data;
+      renderAll();
+    }
+
+    async function pollCommentator() {
+      try {
+        const response = await fetch(commentatorURL, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        commentator = await response.json();
+        renderAll();
+      } catch {
+        // Keep the last good payload visible while WebSocket reconnect status handles connection state.
+      }
+    }
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      setStatus('connecting', false);
+      socket = new WebSocket(wsURL);
+      socket.onopen = () => {
+        setStatus('connected', true);
+        Object.keys(v2State).forEach(key => delete v2State[key]);
+        socket.send(JSON.stringify({ type: 'subscribe', apiVersion: 'v2' }));
+        pollCommentator();
+      };
+      socket.onmessage = event => {
+        try {
+          handleV2Message(JSON.parse(event.data));
+        } catch {
+          setStatus('invalidJSON', false);
+        }
+      };
+      socket.onclose = () => {
+        setStatus('reconnecting', false);
+        reconnectTimer = setTimeout(connect, 1200);
+      };
+      socket.onerror = () => setStatus('socketError', false);
+    }
+
+    localize();
+    el('settingsButton').addEventListener('click', () => setSettingsOpen(true));
+    el('settingsClose').addEventListener('click', () => setSettingsOpen(false));
+    el('settingsOverlay').addEventListener('click', event => {
+      if (event.target === el('settingsOverlay')) setSettingsOpen(false);
+    });
+    el('languageSelect').addEventListener('change', event => setLanguagePreference(event.target.value));
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape') setSettingsOpen(false);
+    });
+    renderAll();
+    connect();
+    pollTimer = setInterval(pollCommentator, 1000);
+    window.addEventListener('beforeunload', () => clearInterval(pollTimer));
+  </script>
+</body>
+</html>

@@ -36,6 +36,9 @@ struct ScoreboardGameSnapshot: Sendable {
     var gameClockSeconds: Int
     var defaultClockSeconds: Int
     var isGameClockEnabled: Bool?
+    var pendingInjuryTimeMinutes: Int? = nil
+    var activeInjuryTimeMinutes: Int? = nil
+    var hasAppliedInjuryTimeThisPeriod: Bool? = nil
     var shotClockMilliseconds: Int
     var defaultShotClockSeconds: Int
     var activeShotClockPresetSeconds: Int?
@@ -118,6 +121,9 @@ struct ScoreboardGameSnapshot: Sendable {
         gameClockSeconds: 10 * 60,
         defaultClockSeconds: 10 * 60,
         isGameClockEnabled: true,
+        pendingInjuryTimeMinutes: 0,
+        activeInjuryTimeMinutes: 0,
+        hasAppliedInjuryTimeThisPeriod: false,
         shotClockMilliseconds: 0,
         defaultShotClockSeconds: 0,
         activeShotClockPresetSeconds: 0,
@@ -206,6 +212,9 @@ extension ScoreboardGameSnapshot: Codable {
         case gameClockSeconds
         case defaultClockSeconds
         case isGameClockEnabled
+        case pendingInjuryTimeMinutes
+        case activeInjuryTimeMinutes
+        case hasAppliedInjuryTimeThisPeriod
         case shotClockMilliseconds
         case defaultShotClockSeconds
         case activeShotClockPresetSeconds
@@ -292,6 +301,9 @@ extension ScoreboardGameSnapshot: Codable {
         gameClockSeconds = try container.decode(Int.self, forKey: .gameClockSeconds)
         defaultClockSeconds = try container.decode(Int.self, forKey: .defaultClockSeconds)
         isGameClockEnabled = try container.decodeIfPresent(Bool.self, forKey: .isGameClockEnabled)
+        pendingInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .pendingInjuryTimeMinutes)
+        activeInjuryTimeMinutes = try container.decodeIfPresent(Int.self, forKey: .activeInjuryTimeMinutes)
+        hasAppliedInjuryTimeThisPeriod = try container.decodeIfPresent(Bool.self, forKey: .hasAppliedInjuryTimeThisPeriod)
         shotClockMilliseconds = try container.decode(Int.self, forKey: .shotClockMilliseconds)
         defaultShotClockSeconds = try container.decode(Int.self, forKey: .defaultShotClockSeconds)
         activeShotClockPresetSeconds = try container.decodeIfPresent(Int.self, forKey: .activeShotClockPresetSeconds)
@@ -378,6 +390,9 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encode(gameClockSeconds, forKey: .gameClockSeconds)
         try container.encode(defaultClockSeconds, forKey: .defaultClockSeconds)
         try container.encodeIfPresent(isGameClockEnabled, forKey: .isGameClockEnabled)
+        try container.encodeIfPresent(pendingInjuryTimeMinutes, forKey: .pendingInjuryTimeMinutes)
+        try container.encodeIfPresent(activeInjuryTimeMinutes, forKey: .activeInjuryTimeMinutes)
+        try container.encodeIfPresent(hasAppliedInjuryTimeThisPeriod, forKey: .hasAppliedInjuryTimeThisPeriod)
         try container.encode(shotClockMilliseconds, forKey: .shotClockMilliseconds)
         try container.encode(defaultShotClockSeconds, forKey: .defaultShotClockSeconds)
         try container.encode(activeShotClockPresetSeconds, forKey: .activeShotClockPresetSeconds)

@@ -231,6 +231,17 @@
       text-overflow: clip;
       white-space: nowrap;
     }
+    .injury-time {
+      margin-top: 10px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #f59e0b;
+      color: #111827;
+      font-size: clamp(16px, 2vw, 22px);
+      font-weight: 1000;
+      text-transform: uppercase;
+      line-height: 1;
+    }
     .shot-box {
       min-height: 86px;
       padding: 8px 12px;
@@ -543,6 +554,7 @@
         <div id="period" class="period-box">P 1</div>
         <div class="clock-box">
           <div id="clock" class="clock">00:00</div>
+          <div id="injuryTime" class="injury-time hidden">+0 min</div>
         </div>
         <div id="shot" class="shot-box hidden">24.0</div>
         <div id="possession" class="possession-box">Possession Off</div>
@@ -659,6 +671,7 @@
     const strings = translations[language];
     const host = location.hostname || '127.0.0.1';
     const wsURL = `ws://${host}:5517/api/v2/ws`;
+    const displayID = requestedDisplayID(1);
     const v2State = {};
     let socket;
     let reconnectTimer;
@@ -770,7 +783,22 @@
       }
     }
 
+    function requestedDisplayID(defaultID) {
+      const params = new URLSearchParams(location.search);
+      const raw = params.get('displayId') || params.get('displayID') || params.get('id');
+      const value = Number.parseInt(raw, 10);
+      return Number.isInteger(value) && value >= 0 && value <= 8 ? value : defaultID;
+    }
+
+    function broadcastAssignment(display) {
+      const broadcast = display.broadcastControl || {};
+      const assignments = Array.isArray(broadcast.assignments) ? broadcast.assignments : [];
+      return assignments.find(assignment => Number(assignment.displayID) === displayID);
+    }
+
     function displayMode(display) {
+      const assignment = broadcastAssignment(display);
+      if (assignment && assignment.effectiveRenderMode) return assignment.effectiveRenderMode;
       return (display.controlStatus && display.controlStatus.currentMode) || display.viewMode || 'scoreboard';
     }
 
@@ -916,6 +944,9 @@
       } else {
         el('clock').textContent = clocks.showsGameClock ? valueText(clocks.formattedGameClock, '00:00') : '--:--';
       }
+      const injuryMinutes = Number(clocks.activeInjuryTimeMinutes || 0);
+      el('injuryTime').classList.toggle('hidden', injuryMinutes <= 0);
+      if (injuryMinutes > 0) el('injuryTime').textContent = `+${injuryMinutes} min`;
       fitClockToOneLine();
 
       const showShot = Boolean(rules.supportsShotClock);
@@ -937,11 +968,15 @@
         : '';
       const dateTimeStatus = display.showsDateTime ? ` / ${valueText(display.dateTimeFormat, 'time24Hour')} / seconds ${valueText(display.showsDateTimeSeconds, true)}` : '';
       const eventName = valueText(game.eventName, '');
+      const assignment = broadcastAssignment(display);
+      const displayIDStatus = assignment
+        ? ` / ID ${displayID} / ${assignment.isEnabled ? assignment.assignedMode : 'disabled'}`
+        : ` / ID ${displayID}`;
       el('mode').textContent = viewMode === 'playerView'
-        ? `${t('display')}: ${viewMode} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+        ? `${t('display')}: ${viewMode}${displayIDStatus} / ${rosterScope} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
         : viewMode === 'eventLogo' && eventName
-          ? `${t('display')}: ${viewMode} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
-          : `${t('display')}: ${viewMode} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
+          ? `${t('display')}: ${viewMode}${displayIDStatus} / ${eventName} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`
+          : `${t('display')}: ${viewMode}${displayIDStatus} / ${backgroundMode} / ${direction}${animatedStyle}${dateTimeStatus}`;
     }
 
     function handleV2Message(message) {

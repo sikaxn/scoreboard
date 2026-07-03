@@ -8,8 +8,8 @@ private func localizedRemoteDisplayString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedRemoteDisplayFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
+private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedRemoteDisplayString(key), locale: Locale.current, arguments: arguments)
 }
 
 private enum RemoteDisplayReceiverNetworkModeStore {
@@ -343,6 +343,7 @@ private struct RemoteScoreboardFace: View {
             period: state.game.period,
             formattedClock: projection.formattedGameClock,
             showsGameClock: state.clocks.showsGameClock,
+            activeInjuryTimeMinutes: state.clocks.activeInjuryTimeMinutes ?? 0,
             showsDualClocks: state.rules.usesChessClocks,
             formattedHomeChessClock: projection.formattedHomeChessClock,
             formattedGuestChessClock: projection.formattedGuestChessClock,

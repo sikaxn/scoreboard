@@ -14,7 +14,7 @@ This project use AI generated contents.
 
 Scoreboard turns your iPhone, iPad, or Mac into a flexible, easy-to-control scoreboard for games, practices, tournaments, and debate rounds.
 
-Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
+Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, soccer injury time, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
 
 Built-in presets include Simple, Basketball, Volleyball, Soccer, Hockey, Chess, Debate, and Custom Sport modes. Debate supports Public Forum, Lincoln-Douglas, Policy, and custom round formats.
 
@@ -29,6 +29,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 ## Features
 
 - Real-time score, period, and game clock controls
+- Soccer and Custom countdown injury-time controls with public +N minute display
 - Public scoreboard support for external displays and AirPlay, including Apple TV AirPlay without installing the tvOS app
 - Apple TV, iPhone, iPad, and Mac Remote Display pairing with live scoreboard sync across multiple displays
 - Built-in modes for Simple, Basketball, Volleyball, Soccer, Hockey, Chess, and Debate
@@ -43,6 +44,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Configurable event sounds for clocks, alerts, fouls, cards, substitutions, and score changes
 - Save, import, export, and autosave game files
 - Event logs with export support
+- Local Web API demos, including a commentator dashboard with live match data, current-session timeline, roster alerts, and deterministic talking points
 
 ## Supported Platforms
 
@@ -60,6 +62,13 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 3. Select the `smartScoreboard` scheme.
 4. Choose an iPhone simulator, iPad simulator, connected iPhone or iPad, Mac, or Apple TV simulator as the run destination.
 5. Build and run.
+
+## Localization Notes
+
+- Use the local wrapper functions (`localizedAppText`, `localizedAppFormat`, and the matching store/display wrappers) instead of raw `Text(LocalizedStringKey(...))` or direct localized `String(format:)` calls.
+- Treat runtime strings, user-entered names, generated titles, and already-formatted strings as resolved text. Localize them first, then render with `Text(verbatim:)` so SwiftUI does not reinterpret them as localization keys during view rendering.
+- Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
+- The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
 
 ## Project Structure
 

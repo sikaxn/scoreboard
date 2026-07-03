@@ -9,8 +9,17 @@ private func scoreboardActivityString(_ key: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: key, comment: "")
 }
 
-private func scoreboardActivityFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: scoreboardActivityString(key), locale: Locale.current, arguments: arguments)
+private func scoreboardActivityFormat(_ key: String, _ arguments: Any...) -> String {
+    let normalizedArguments = arguments.map { argument -> CVarArg in
+        if let string = argument as? String {
+            return string as NSString
+        }
+        if let argument = argument as? CVarArg {
+            return argument
+        }
+        return String(describing: argument) as NSString
+    }
+    return String(format: scoreboardActivityString(key), locale: Locale.current, arguments: normalizedArguments)
 }
 
 @main

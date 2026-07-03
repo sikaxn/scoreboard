@@ -1,12 +1,12 @@
 import Foundation
 import Network
 
-private func localizedCompanionString(_ key: String) -> String {
+nonisolated private func localizedCompanionString(_ key: String) -> String {
     NSLocalizedString(key, comment: "")
 }
 
-private func localizedCompanionFormat(_ key: String, _ arguments: CVarArg...) -> String {
-    String(format: localizedCompanionString(key), locale: Locale.current, arguments: arguments)
+nonisolated private func localizedCompanionFormat(_ key: String, _ arguments: Any...) -> String {
+    scoreboardLocalizedFormat(localizedCompanionString(key), locale: Locale.current, arguments: arguments)
 }
 
 nonisolated enum ScoreboardCompanionMode: String, CaseIterable, Codable, Identifiable, Sendable {
