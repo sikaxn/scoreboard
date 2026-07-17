@@ -11,576 +11,6 @@
         }
       }
     },
-    "%@ +1 Min" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ +1 分钟"
-          }
-        }
-      }
-    },
-    "%@ +1 Sec" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ +1 秒"
-          }
-        }
-      }
-    },
-    "%@ -1 Min" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ -1 分钟"
-          }
-        }
-      }
-    },
-    "%@ -1 Sec" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ -1 秒"
-          }
-        }
-      }
-    },
-    "%@ Pause +1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 暂停 +1"
-          }
-        }
-      }
-    },
-    "%@ Pause -1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 暂停 -1"
-          }
-        }
-      }
-    },
-    "%@ Penalty 2 Min" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 罚时 2 分钟"
-          }
-        }
-      }
-    },
-    "%@ Penalty 4 Min" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 罚时 4 分钟"
-          }
-        }
-      }
-    },
-    "%@ Penalty 5 Min" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 罚时 5 分钟"
-          }
-        }
-      }
-    },
-    "%@ Prep +15 Sec" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 准备 +15 秒"
-          }
-        }
-      }
-    },
-    "%@ Prep -15 Sec" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 准备 -15 秒"
-          }
-        }
-      }
-    },
-    "%@ Primary Action" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 主要操作"
-          }
-        }
-      }
-    },
-    "%@ Score +%d" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 得分 +%d"
-          }
-        }
-      }
-    },
-    "%@ Score -1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 得分 -1"
-          }
-        }
-      }
-    },
-    "%@ Score Slot %d" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 得分按钮 %d"
-          }
-        }
-      }
-    },
-    "%@ Serve Here" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 在此发球"
-          }
-        }
-      }
-    },
-    "%@ Shot 14" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 14 秒进攻"
-          }
-        }
-      }
-    },
-    "%@ Shot 24" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 24 秒进攻"
-          }
-        }
-      }
-    },
-    "%@ Substitution +1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 换人 +1"
-          }
-        }
-      }
-    },
-    "%@ Substitution -1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 换人 -1"
-          }
-        }
-      }
-    },
-    "%@ Team Foul +1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 全队犯规 +1"
-          }
-        }
-      }
-    },
-    "%@ Team Foul -1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 全队犯规 -1"
-          }
-        }
-      }
-    },
-    "%@ Turn Here" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 在此行动"
-          }
-        }
-      }
-    },
-    "%@ Wins Period" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 赢得本节"
-          }
-        }
-      }
-    },
-    "Assign hardware keyboard commands to live control board actions." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为实时控制板操作分配硬件键盘命令。"
-          }
-        }
-      }
-    },
-    "Available" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可用"
-          }
-        }
-      }
-    },
-    "Chess and Debate" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "国际象棋和辩论"
-          }
-        }
-      }
-    },
-    "Default Shortcuts" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认快捷键"
-          }
-        }
-      }
-    },
-    "Hockey Penalties" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "冰球罚时"
-          }
-        }
-      }
-    },
-    "Keyboard Shortcuts" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "键盘快捷键"
-          }
-        }
-      }
-    },
-    "Keyboard shortcuts only run from the live control board while settings, alerts, sheets, and text entry are closed." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "键盘快捷键只会在实时控制板中运行，并且设置、提醒、表单和文本输入都必须关闭。"
-          }
-        }
-      }
-    },
-    "Live Board Only" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅实时控制板"
-          }
-        }
-      }
-    },
-    "Period and Sides" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "节次和双方"
-          }
-        }
-      }
-    },
-    "Press a hardware key combination for %@." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按下用于 %@ 的硬件按键组合。"
-          }
-        }
-      }
-    },
-    "Primary Timer" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "主计时器"
-          }
-        }
-      }
-    },
-    "Record" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "录制"
-          }
-        }
-      }
-    },
-    "Recording Shortcut" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在录制快捷键"
-          }
-        }
-      }
-    },
-    "Reset %@ Prep" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置 %@ 准备时间"
-          }
-        }
-      }
-    },
-    "Reset Actions" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置操作"
-          }
-        }
-      }
-    },
-    "Reset Chess Clocks" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置棋钟"
-          }
-        }
-      }
-    },
-    "Reset Debate Round" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置辩论轮次"
-          }
-        }
-      }
-    },
-    "Reset Debate Segment" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置辩论环节"
-          }
-        }
-      }
-    },
-    "Reset Defaults" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "恢复默认"
-          }
-        }
-      }
-    },
-    "Reset Primary Timer" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置主计时器"
-          }
-        }
-      }
-    },
-    "Reset Secondary Timer" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置副计时器"
-          }
-        }
-      }
-    },
-    "Return to Segment" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "返回环节计时"
-          }
-        }
-      }
-    },
-    "Safe default shortcuts cover the primary timer, basic scoring, secondary timer control, home/guest secondary-timer assignment, and player-page navigation. Reset-style actions stay unassigned until you choose them." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安全的默认快捷键涵盖主计时器、基础得分、副计时器控制、主/客队副计时器分配和球员页面导航。重置类操作在你主动分配前保持未分配。"
-          }
-        }
-      }
-    },
-    "Scoring" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "得分"
-          }
-        }
-      }
-    },
-    "Space" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "空格"
-          }
-        }
-      }
-    },
-    "Team Tools" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "团队工具"
-          }
-        }
-      }
-    },
-    "Toggle %@ Prep" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切换 %@ 准备时间"
-          }
-        }
-      }
-    },
-    "Toggle Players Page" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切换球员页面"
-          }
-        }
-      }
-    },
-    "Toggle Primary Timer" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切换主计时器"
-          }
-        }
-      }
-    },
-    "Unassigned" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未分配"
-          }
-        }
-      }
-    },
-    "Unavailable for Current Game" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前比赛不可用"
-          }
-        }
-      }
-    },
-    "Undo Period Win" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销本节胜方"
-          }
-        }
-      }
-    },
-    "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用键盘快捷键为稳定的实时控制板操作分配硬件键盘命令。快捷键适用于 Mac、iPad 和 iPhone，并且仅在实时控制板处于活动状态且设置、文本框、提醒或表单未打开时生效。"
-          }
-        }
-      }
-    },
     "-" : {
       "comment" : "A separator between the left and right team scores.",
       "isCommentAutoGenerated" : true,
@@ -687,6 +117,26 @@
         }
       }
     },
+    "%@ -1 Min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ -1 分钟"
+          }
+        }
+      }
+    },
+    "%@ -1 Sec" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ -1 秒"
+          }
+        }
+      }
+    },
     "%@ %@" : {
       "comment" : "A player's name and jersey number displayed in a penalty timer. The player's name is in bold.",
       "isCommentAutoGenerated" : true,
@@ -769,6 +219,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ 还有 %2$lld 个"
+          }
+        }
+      }
+    },
+    "%@ +1 Min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ +1 分钟"
+          }
+        }
+      }
+    },
+    "%@ +1 Sec" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ +1 秒"
           }
         }
       }
@@ -887,12 +357,62 @@
         }
       }
     },
+    "%@ Pause -1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 暂停 -1"
+          }
+        }
+      }
+    },
+    "%@ Pause +1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 暂停 +1"
+          }
+        }
+      }
+    },
     "%@ pauses %@" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@暂停次数 %2$@"
+          }
+        }
+      }
+    },
+    "%@ Penalty 2 Min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 罚时 2 分钟"
+          }
+        }
+      }
+    },
+    "%@ Penalty 4 Min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 罚时 4 分钟"
+          }
+        }
+      }
+    },
+    "%@ Penalty 5 Min" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 罚时 5 分钟"
           }
         }
       }
@@ -947,12 +467,32 @@
         }
       }
     },
+    "%@ Prep -15 Sec" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 准备 -15 秒"
+          }
+        }
+      }
+    },
     "%@ prep %@" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@准备时间 %2$@"
+          }
+        }
+      }
+    },
+    "%@ Prep +15 Sec" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 准备 +15 秒"
           }
         }
       }
@@ -973,6 +513,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切换%1$@准备计时"
+          }
+        }
+      }
+    },
+    "%@ Primary Action" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 主要操作"
           }
         }
       }
@@ -999,12 +549,72 @@
         }
       }
     },
+    "%@ Score -1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 得分 -1"
+          }
+        }
+      }
+    },
     "%@ score %@" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@得分 %2$@"
+          }
+        }
+      }
+    },
+    "%@ Score +%d" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 得分 +%d"
+          }
+        }
+      }
+    },
+    "%@ Score Slot %d" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 得分按钮 %d"
+          }
+        }
+      }
+    },
+    "%@ Serve Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 在此发球"
+          }
+        }
+      }
+    },
+    "%@ Shot 14" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 14 秒进攻"
+          }
+        }
+      }
+    },
+    "%@ Shot 24" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 24 秒进攻"
           }
         }
       }
@@ -1019,12 +629,52 @@
         }
       }
     },
+    "%@ Substitution -1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 换人 -1"
+          }
+        }
+      }
+    },
+    "%@ Substitution +1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 换人 +1"
+          }
+        }
+      }
+    },
     "%@ swaps %@" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@换人次数 %2$@"
+          }
+        }
+      }
+    },
+    "%@ Team Foul -1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 全队犯规 -1"
+          }
+        }
+      }
+    },
+    "%@ Team Foul +1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 全队犯规 +1"
           }
         }
       }
@@ -1045,6 +695,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ 这不是第 %2$d 节的标准获胜比分；本节打到 %3$d 分且必须赢 2 分。仍要判定吗？"
+          }
+        }
+      }
+    },
+    "%@ Turn Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 在此行动"
           }
         }
       }
@@ -1075,6 +735,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@赢得本节"
+          }
+        }
+      }
+    },
+    "%@ Wins Period" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 赢得本节"
           }
         }
       }
@@ -2141,6 +1811,16 @@
         }
       }
     },
+    "Assign hardware keyboard commands to live control board actions." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为实时控制板操作分配硬件键盘命令。"
+          }
+        }
+      }
+    },
     "Assign one available sound to each supported event for the current sport." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2244,6 +1924,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动创建"
+          }
+        }
+      }
+    },
+    "Available" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可用"
           }
         }
       }
@@ -2679,6 +2369,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "国际象棋"
+          }
+        }
+      }
+    },
+    "Chess and Debate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "国际象棋和辩论"
           }
         }
       }
@@ -4383,6 +4083,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "默认记分牌声音"
+          }
+        }
+      }
+    },
+    "Default Shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认快捷键"
           }
         }
       }
@@ -6252,7 +5962,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "大交锋质询"
+            "value" : "自由辩论"
           }
         }
       }
@@ -6595,6 +6305,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "冰球控制使用节次和计时设置，双方侧栏则处理罚时计时器。实时比赛暂停后，可使用此面板处理主计时、节次更改、交换双方和重置。"
+          }
+        }
+      }
+    },
+    "Hockey Penalties" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冰球罚时"
           }
         }
       }
@@ -7124,6 +6844,26 @@
         }
       }
     },
+    "Keyboard Shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘快捷键"
+          }
+        }
+      }
+    },
+    "Keyboard shortcuts only run from the live control board while settings, alerts, sheets, and text entry are closed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘快捷键只会在实时控制板中运行，并且设置、提醒、表单和文本输入都必须关闭。"
+          }
+        }
+      }
+    },
     "Landscape Required" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7282,6 +7022,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "实时面板"
+          }
+        }
+      }
+    },
+    "Live Board Only" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅实时控制板"
           }
         }
       }
@@ -9008,6 +8758,16 @@
         }
       }
     },
+    "Period and Sides" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节次和双方"
+          }
+        }
+      }
+    },
     "Period Change" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9632,6 +9392,16 @@
         }
       }
     },
+    "Press a hardware key combination for %@." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按下用于 %@ 的硬件按键组合。"
+          }
+        }
+      }
+    },
     "Prev Period" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9741,6 +9511,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "之前已与 %1$@ 配对。替换它需要确认。"
+          }
+        }
+      }
+    },
+    "Primary Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主计时器"
           }
         }
       }
@@ -10007,6 +9787,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新连接"
+          }
+        }
+      }
+    },
+    "Record" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "录制"
+          }
+        }
+      }
+    },
+    "Recording Shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在录制快捷键"
           }
         }
       }
@@ -10328,6 +10128,16 @@
         }
       }
     },
+    "Reset %@ Prep" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置 %@ 准备时间"
+          }
+        }
+      }
+    },
     "Reset %@ prep clock" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10364,6 +10174,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置%@全队犯规"
+          }
+        }
+      }
+    },
+    "Reset Actions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置操作"
           }
         }
       }
@@ -10501,6 +10321,16 @@
         }
       }
     },
+    "Reset Chess Clocks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置棋钟"
+          }
+        }
+      }
+    },
     "Reset Clock" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10531,7 +10361,27 @@
         }
       }
     },
+    "Reset Debate Round" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置辩论轮次"
+          }
+        }
+      }
+    },
     "Reset debate segment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置辩论环节"
+          }
+        }
+      }
+    },
+    "Reset Debate Segment" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10547,6 +10397,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置辩论计时"
+          }
+        }
+      }
+    },
+    "Reset Defaults" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认"
           }
         }
       }
@@ -10591,12 +10451,32 @@
         }
       }
     },
+    "Reset Primary Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置主计时器"
+          }
+        }
+      }
+    },
     "Reset Round" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置回合"
+          }
+        }
+      }
+    },
+    "Reset Secondary Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置副计时器"
           }
         }
       }
@@ -10828,6 +10708,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "返回实时画面"
+          }
+        }
+      }
+    },
+    "Return to Segment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回环节计时"
           }
         }
       }
@@ -11102,6 +10992,16 @@
         }
       }
     },
+    "Safe default shortcuts cover the primary timer, basic scoring, secondary timer control, home/guest secondary-timer assignment, and player-page navigation. Reset-style actions stay unassigned until you choose them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全的默认快捷键涵盖主计时器、基础得分、副计时器控制、主/客队副计时器分配和球员页面导航。重置类操作在你主动分配前保持未分配。"
+          }
+        }
+      }
+    },
     "Save to File" : {
       "localizations" : {
         "zh-Hans" : {
@@ -11283,6 +11183,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记分牌窗口"
+          }
+        }
+      }
+    },
+    "Scoring" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "得分"
           }
         }
       }
@@ -12860,6 +12770,16 @@
         }
       }
     },
+    "Space" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空格"
+          }
+        }
+      }
+    },
     "Speaking Side" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13588,6 +13508,16 @@
         }
       }
     },
+    "Team Tools" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "团队工具"
+          }
+        }
+      }
+    },
     "Team View" : {
       "comment" : "Display name for the Team View scoreboard view mode.",
       "isCommentAutoGenerated" : true,
@@ -14207,6 +14137,16 @@
         }
       }
     },
+    "Toggle %@ Prep" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换 %@ 准备时间"
+          }
+        }
+      }
+    },
     "Toggle chess clock" : {
       "localizations" : {
         "zh-Hans" : {
@@ -14223,6 +14163,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切换辩论计时"
+          }
+        }
+      }
+    },
+    "Toggle Players Page" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换球员页面"
+          }
+        }
+      }
+    },
+    "Toggle Primary Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换主计时器"
           }
         }
       }
@@ -14461,6 +14421,16 @@
         }
       }
     },
+    "Unassigned" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未分配"
+          }
+        }
+      }
+    },
     "Unassigned Segment Expired" : {
       "localizations" : {
         "zh-Hans" : {
@@ -14491,6 +14461,16 @@
         }
       }
     },
+    "Unavailable for Current Game" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前比赛不可用"
+          }
+        }
+      }
+    },
     "Undo & Return" : {
       "localizations" : {
         "zh-Hans" : {
@@ -14517,6 +14497,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "撤销第 %1$d 节"
+          }
+        }
+      }
+    },
+    "Undo Period Win" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销本节胜方"
           }
         }
       }
@@ -14721,6 +14711,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用“集成”将 Scoreboard 连接到本地网络中可信的制作工具。远程显示、Web API 和 Bitfocus Companion 独立配置，因此启用一个集成不会关闭另一个。"
+          }
+        }
+      }
+    },
+    "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用键盘快捷键为稳定的实时控制板操作分配硬件键盘命令。快捷键适用于 Mac、iPad 和 iPhone，并且仅在实时控制板处于活动状态且设置、文本框、提醒或表单未打开时生效。"
           }
         }
       }
