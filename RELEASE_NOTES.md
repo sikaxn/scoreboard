@@ -1,5 +1,9 @@
 # Release Notes
 
+## 1.4
+
+- Added a Keyboard Shortcuts settings page for iPhone, iPad, and Mac operator devices.
+
 ## 1.3
 
 - Added Soccer and Custom countdown injury-time controls with automatic +N minute public display.

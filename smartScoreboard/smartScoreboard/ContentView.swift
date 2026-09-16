@@ -84,6 +84,7 @@ struct ContentView: View {
     @AppStorage(ScoreboardEasterEggIcon.userDefaultsKey) private var isBunnyIconEnabled = false
     @State private var tipHistoryResetGeneration = UserDefaults.standard.integer(forKey: Self.tipHistoryResetGenerationKey)
     @State private var selectedSettingsPane: SettingsPane = .game
+    @State private var recordingKeyboardShortcutAction: ScoreboardKeyboardShortcutAction?
     @State private var isSettingsSidebarCollapsed = false
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
@@ -223,6 +224,40 @@ struct ContentView: View {
     private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
     private var isResetInterlockActive: Bool { store.isResetInterlockActive }
     private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
+    private var areLiveKeyboardShortcutsEnabled: Bool {
+        guard !showsSetup,
+              recordingKeyboardShortcutAction == nil,
+              !store.isRemoteDisplayViewerModeEnabled,
+              dashboardPage == .main || dashboardPage == .players,
+              fileMigrationProgress == nil,
+              exportSharePayload == nil,
+              !showsGettingStarted,
+              !showsBunnyEasterEgg,
+              fileOperationError == nil,
+              pendingRemoteDisplayTakeover == nil,
+              pendingGameConfirmation == nil,
+              pendingBackupRestore == nil,
+              pendingLogDeletion == nil,
+              !isFactoryDefaultConfirmationPresented,
+              pendingPenaltySelection == nil else {
+            return false
+        }
+
+        #if os(iOS)
+        guard !showsLocalScoreboard,
+              !showsGameImporter,
+              !showsBackupImporter,
+              !showsRosterCSVImporter,
+              !showsExternalBackgroundPhotoPicker,
+              !showsHomeLogoPhotoPicker,
+              !showsGuestLogoPhotoPicker,
+              !showsEventLogoPhotoPicker else {
+            return false
+        }
+        #endif
+
+        return true
+    }
     private let logManager = ScoreboardLogManager.shared
     #if os(iOS)
     private var iOSGameImportContentTypes: [UTType] { [.scoreboardGame, .json, .data] }
@@ -654,6 +689,15 @@ struct ContentView: View {
         .sheet(item: $pendingPenaltySelection) { selection in
             penaltyPlayerSelectionSheet(selection)
         }
+        .scoreboardKeyboardShortcuts(
+            isEnabled: areLiveKeyboardShortcutsEnabled,
+            assignments: store.keyboardShortcutsByAction,
+            recordingAction: $recordingKeyboardShortcutAction,
+            recordShortcut: { action, shortcut in
+                store.setKeyboardShortcut(shortcut, for: action)
+            },
+            performAction: performKeyboardShortcutAction
+        )
         #if os(macOS)
         .background(ControlBoardWindowConfigurator())
         #endif
@@ -966,6 +1010,9 @@ struct ContentView: View {
     private func selectSettingsPane(_ pane: SettingsPane) {
         guard isSettingsPaneEnabled(pane) else { return }
         focusedSettingsTextFieldID = nil
+        if pane != .keyboardShortcuts {
+            recordingKeyboardShortcutAction = nil
+        }
         selectedSettingsPane = pane
     }
 
@@ -1072,6 +1119,8 @@ struct ContentView: View {
             #else
             return "Use Logs to review the sequence of actions captured during a scoreboard run. Sessions can be inspected for audit or replay context, exported for review, or removed when they are no longer needed."
             #endif
+        case .keyboardShortcuts:
+            return "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open."
         case .integration:
             return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
         case .about:
@@ -1214,6 +1263,8 @@ struct ContentView: View {
         if lowercasedMessage.hasPrefix("choose the sport whose companion") { return "Sport Assignments" }
         if lowercasedMessage.hasPrefix("use event commands") { return "Event Commands" }
         if lowercasedMessage.hasPrefix("local network permission") { return "Local Network" }
+        if lowercasedMessage.hasPrefix("keyboard shortcuts only run") { return "Live Board Only" }
+        if lowercasedMessage.hasPrefix("safe default shortcuts") { return "Default Shortcuts" }
 
         return "Setup Guidance"
     }
@@ -1262,6 +1313,8 @@ struct ContentView: View {
 
     private func isSettingsPaneEnabled(_ pane: SettingsPane) -> Bool {
         switch pane {
+        case .keyboardShortcuts:
+            return !store.isRemoteDisplayViewerModeEnabled
         case .players:
             return setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
         default:
@@ -1286,6 +1339,8 @@ struct ContentView: View {
             settingsFilesPane(layout: layout)
         case .logs:
             settingsLogsPane(layout: layout)
+        case .keyboardShortcuts:
+            settingsKeyboardShortcutsPane(layout: layout)
         case .integration:
             settingsIntegrationPane(layout: layout)
         case .about:
@@ -3077,6 +3132,33 @@ struct ContentView: View {
             .opacity(canTest ? 1 : 0.42)
         }
         .padding(.vertical, 12)
+    }
+
+    private func settingsKeyboardShortcutsPane(layout: InterfaceLayout) -> some View {
+        KeyboardShortcutSettingsPane(
+            store: store,
+            usesVerticalLayout: layout.settingsTwoColumnUsesVerticalFlow,
+            primaryColumnWidth: layout.settingsPrimaryColumnWidth,
+            sectionSpacing: layout.settingsDetailSpacing,
+            palette: settingsPalette,
+            destructiveTint: themePalette.destructiveTint,
+            destructiveText: destructiveText,
+            recordingAction: recordingKeyboardShortcutAction,
+            beginRecording: { action in
+                focusedSettingsTextFieldID = nil
+                recordingKeyboardShortcutAction = action
+            },
+            cancelRecording: {
+                recordingKeyboardShortcutAction = nil
+            },
+            clearShortcut: { action in
+                store.clearKeyboardShortcut(for: action)
+            },
+            resetDefaults: {
+                store.resetKeyboardShortcutsToDefaults()
+            },
+            isActionAvailable: isKeyboardShortcutActionAvailable
+        )
     }
 
     private func settingsFilesPane(layout: InterfaceLayout, fillsAvailableHeight: Bool = true) -> some View {
@@ -10314,6 +10396,32 @@ struct ContentView: View {
         }
     }
 
+    private func performKeyboardShortcutAction(_ action: ScoreboardKeyboardShortcutAction) {
+        let context = ScoreboardKeyboardShortcutExecutionContext(
+            store: store,
+            isResetInterlockActive: isResetInterlockActive,
+            isGameClockResetInterlockActive: isGameClockResetInterlockActive,
+            requestGameConfirmation: requestGameConfirmation,
+            adjustDebateSegmentTimer: { delta in adjustDebateSegmentTimer(by: delta) },
+            handleDebateTurnHere: { side in handleDebateTurnHere(for: side) },
+            addPenaltyTimer: { side, seconds in addPenaltyTimer(side: side, seconds: seconds) },
+            togglePlayersPage: {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                    dashboardPage = dashboardPage == .players ? .main : .players
+                }
+            }
+        )
+        context.perform(action)
+    }
+
+    private func isKeyboardShortcutActionAvailable(_ action: ScoreboardKeyboardShortcutAction) -> Bool {
+        action.isAvailable(
+            store: store,
+            isResetInterlockActive: isResetInterlockActive,
+            isGameClockResetInterlockActive: isGameClockResetInterlockActive
+        )
+    }
+
     private func penaltyPlayerSelectionSheet(_ selection: PendingPenaltySelection) -> some View {
         NavigationStack {
             List(store.trackedPlayers(for: selection.side)) { player in
@@ -13833,6 +13941,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case theme
     case files
     case logs
+    case keyboardShortcuts
     case integration
     case about
 
@@ -13854,6 +13963,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Library"
         case .logs:
             return "Logs"
+        case .keyboardShortcuts:
+            return "Keyboard Shortcuts"
         case .integration:
             return "Integration"
         case .about:
@@ -13877,6 +13988,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Manage local game files for both reusable setups and live games."
         case .logs:
             return "Review per-run audit sessions with export and delete tools."
+        case .keyboardShortcuts:
+            return "Assign hardware keyboard commands to live control board actions."
         case .integration:
             return "Connect Scoreboard to broadcast tools, overlays, and automation systems."
         case .about:
@@ -13900,6 +14013,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "books.vertical"
         case .logs:
             return "list.bullet.rectangle.portrait"
+        case .keyboardShortcuts:
+            return "keyboard"
         case .integration:
             return "network"
         case .about:
@@ -13996,7 +14111,7 @@ private enum DashboardPage: Hashable {
     case preview
 }
 
-private enum GameConfirmationAction: Identifiable {
+enum GameConfirmationAction: Identifiable {
     case awardVolleyballSet(TeamSide)
     case undoVolleyballSet
     case previousPeriod

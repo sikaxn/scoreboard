@@ -42,6 +42,7 @@ Apple TV 有两种使用方式。你可以从操作设备通过 AirPlay 投放�
 - 在支持的运动中跟踪团队犯规、球员犯规、牌、换人和球权
 - 多种主题选项，适配不同光线和展示场景
 - 可配置比分、计时、提醒、犯规、牌、换人和分数变化等事件声音
+- 可为 iPhone、iPad 和 Mac 的实时控制面板操作配置硬件键盘快捷键
 - 保存、导入、导出和自动保存比赛文件
 - 支持导出的事件日志
 - 本地 Web API 演示页面，包括解说信息面板，可显示实时比赛数据、当前会话事件线、球员提醒和确定性解说提示
@@ -73,6 +74,7 @@ iPhone、iPad 和 Mac 应用包含操作界面，也可以在设置中切换为�
 ## 项目结构
 
 - `smartScoreboard/smartScoreboard/ContentView.swift` - 主操作界面和设置流程
+- `smartScoreboard/smartScoreboard/ScoreboardKeyboardShortcuts.swift` - 键盘快捷键目录、设置界面和平台按键处理
 - `smartScoreboard/smartScoreboard/ExternalScoreboardView.swift` - 公共记分牌显示
 - `smartScoreboard/smartScoreboard/ScoreboardStore.swift` - 应用状态和计分逻辑
 - `smartScoreboard/smartScoreboard/SportType.swift` - 运动预设和规则能力
