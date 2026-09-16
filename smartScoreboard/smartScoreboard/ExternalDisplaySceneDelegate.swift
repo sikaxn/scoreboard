@@ -3,6 +3,39 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 
+struct ExternalScoreboardSceneAccessory: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if !targetEnvironment(macCatalyst)
+        if #available(iOS 27.0, *) {
+            // iOS 27 no longer connects non-interactive external scenes just
+            // because they are declared in Info.plist. Register from the stable
+            // device root so Settings and Remote Display mode keep the output.
+            content.sceneAccessory {
+                ExternalNonInteractiveAccessory {
+                    ExternalDisplayRootView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.black)
+                        .environmentObject(ScoreboardStore.shared)
+                        .environmentObject(PublicBoardState.shared)
+                        .onAppear {
+                            PublicBoardState.shared.isPresented = true
+                        }
+                        .onDisappear {
+                            PublicBoardState.shared.isPresented = false
+                        }
+                }
+            }
+        } else {
+            // Earlier iOS versions use ExternalDisplaySceneDelegate via Info.plist.
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
 @MainActor
 final class ExternalDisplaySceneDelegate: NSObject, UIWindowSceneDelegate {
     var window: UIWindow?

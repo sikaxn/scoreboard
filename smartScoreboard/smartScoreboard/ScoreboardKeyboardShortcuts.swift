@@ -23,7 +23,7 @@ nonisolated private func localizedKeyboardText(_ key: String) -> Text {
     Text(verbatim: localizedKeyboardString(key))
 }
 
-struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendable {
+nonisolated struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendable {
     let rawValue: Int
 
     static let command = ScoreboardKeyboardShortcutModifiers(rawValue: 1 << 0)
@@ -41,7 +41,7 @@ struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendab
     }
 }
 
-struct ScoreboardKeyboardShortcut: Codable, Hashable, Sendable {
+nonisolated struct ScoreboardKeyboardShortcut: Codable, Hashable, Sendable {
     var key: String
     var modifiers: ScoreboardKeyboardShortcutModifiers
 

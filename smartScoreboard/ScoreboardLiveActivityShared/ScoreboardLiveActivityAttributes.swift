@@ -2,8 +2,8 @@
 import ActivityKit
 import Foundation
 
-struct ScoreboardLiveActivityAttributes: ActivityAttributes {
-    struct ContentState: Codable, Hashable, Sendable {
+nonisolated struct ScoreboardLiveActivityAttributes: ActivityAttributes {
+    nonisolated struct ContentState: Codable, Hashable, Sendable {
         var statusText: String
         var sportTitle: String
         var homeTeamName: String
@@ -18,7 +18,7 @@ struct ScoreboardLiveActivityAttributes: ActivityAttributes {
     var activityName: String
 }
 
-struct ScoreboardLiveActivityTimer: Codable, Hashable, Sendable {
+nonisolated struct ScoreboardLiveActivityTimer: Codable, Hashable, Sendable {
     var title: String
     var valueText: String
     var mode: ScoreboardLiveActivityTimerMode
@@ -35,13 +35,13 @@ struct ScoreboardLiveActivityTimer: Codable, Hashable, Sendable {
     }
 }
 
-enum ScoreboardLiveActivityTimerMode: String, Codable, Hashable, Sendable {
+nonisolated enum ScoreboardLiveActivityTimerMode: String, Codable, Hashable, Sendable {
     case staticValue
     case countdown
     case countUp
 }
 
-enum ScoreboardLiveActivitySide: String, Codable, Hashable, Sendable {
+nonisolated enum ScoreboardLiveActivitySide: String, Codable, Hashable, Sendable {
     case home
     case guest
 }

@@ -13,7 +13,7 @@ struct ExternalScoreboardView: View {
             playerViewRosterScope: .fullRoster,
             theme: store.theme,
             backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
-            backgroundImage: store.externalDisplayBackgroundImage.map(PublicScoreboardBackgroundImage.init(image:)),
+            backgroundImage: store.externalDisplayBackgroundImage.map { PublicScoreboardBackgroundImage(image: $0) },
             animatedLogoStyle: store.externalDisplayAnimatedLogoStyle,
             animatedLogoBackgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
             animatedLogoSpeed: store.externalDisplayAnimatedLogoSpeed,

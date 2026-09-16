@@ -1,5 +1,13 @@
 # Release Notes
 
+## 1.5
+
+- Updated compatibility with iOS 27 and iPadOS 27, addressing Xcode 27 concurrency warnings in Live Activities, keyboard shortcuts, Remote Display, and supporting utilities.
+- Added the external-display scene registration required by iOS 27 so connected displays can show the public scoreboard independently of the operator screen, while retaining support for earlier iOS versions.
+- Moved legacy file migration off the main thread to keep the interface responsive during upgrades.
+- Fixed an incomplete launch-background image asset definition and aligned the Live Activity extension version with the app.
+- Added localization regression checks for translated format arguments, debate labels, and custom text containing percent signs, while preserving the existing localization crash safeguards.
+
 ## 1.4
 
 - Added a Keyboard Shortcuts settings page for iPhone, iPad, and Mac operator devices.

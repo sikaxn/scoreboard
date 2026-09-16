@@ -74,6 +74,9 @@ struct SmartScoreboardApp: App {
                         .environmentObject(publicBoardState)
                 }
             }
+            #if os(iOS)
+            .modifier(ExternalScoreboardSceneAccessory())
+            #endif
             .onAppear {
                 ScoreboardEasterEggIcon.applyPersistedSystemIcon()
             }

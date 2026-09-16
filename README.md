@@ -71,6 +71,8 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 - Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
 - The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
 
+Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 scripts/check_localization.py` on macOS to validate translated placeholders and exercise the app's formatter, including debate labels and custom text with percent signs. Also check Debate and Custom Sport settings in English and Simplified Chinese on a simulator when changing settings or localization code.
+
 ## Project Structure
 
 - `smartScoreboard/smartScoreboard/ContentView.swift` - main operator interface and setup flow
