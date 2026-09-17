@@ -105,6 +105,7 @@ struct ContentView: View {
     @State private var dashboardPage: DashboardPage = .main
     @State private var isDashboardHeaderHidden = false
     @State private var showsLocalScoreboard = false
+    @AppStorage("showsMergedView") private var showsScoreboardWithControls = false
     @State private var showsLocalScoreboardReturnHint = false
     @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
     @State private var dashboardTourSignatureSnapshot = ""
@@ -2617,6 +2618,10 @@ struct ContentView: View {
                     ))
                 }
                 #endif
+
+                settingsSection(title: "Local Display") {
+                    settingsToggleRow(title: "Merged View (Beta)", isOn: mergedViewBinding)
+                }
 
                 settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
                     ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
@@ -7433,7 +7438,107 @@ struct ContentView: View {
     }
 
     private func dashboard(layout: InterfaceLayout) -> some View {
-        dashboardContent(layout: layout)
+        Group {
+            if showsScoreboardWithControls {
+                scoreboardWithControls()
+            } else {
+                dashboardContent(layout: layout)
+            }
+        }
+    }
+
+    private func scoreboardWithControls() -> some View {
+        GeometryReader { proxy in
+            let spacing: CGFloat = 8
+            let isLandscape = proxy.size.width > proxy.size.height
+            let boardWidth = proxy.size.width
+            let boardHeight = min(boardWidth * 9 / 16, proxy.size.height * (isLandscape ? 0.55 : 0.38))
+            let controlSize = CGSize(
+                width: proxy.size.width,
+                height: max(0, proxy.size.height - boardHeight - spacing)
+            )
+            let paneLayout = InterfaceLayout(size: controlSize, isCombinedDisplay: true)
+
+            VStack(spacing: spacing) {
+                embeddedLocalScoreboard()
+                    .frame(width: boardWidth, height: boardHeight)
+                    .overlay(alignment: .topTrailing) {
+                        HStack(spacing: 0) {
+                            Button(action: openSettingsFromLiveBoard) {
+                                Image(systemName: "gearshape")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel(localizedAppString("Settings"))
+                            .help(localizedAppString("Settings"))
+
+                            Button {
+                                showsScoreboardWithControls = false
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel(localizedAppString("Close"))
+                            .help(localizedAppString("Close"))
+                        }
+                        .font(.system(size: 16, weight: .bold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(.black.opacity(0.75), in: Capsule())
+                        .padding(6)
+                    }
+                controlPane(layout: paneLayout)
+                    .frame(width: controlSize.width, height: controlSize.height)
+            }
+        }
+        .padding(12)
+        .onAppear {
+            AppSleepPrevention.setReason(.scoreboardWithControlsVisible, active: true)
+        }
+        .onDisappear {
+            AppSleepPrevention.setReason(.scoreboardWithControlsVisible, active: false)
+        }
+    }
+
+    private func embeddedLocalScoreboard() -> some View {
+        GeometryReader { proxy in
+            // Render at presentation size so scoreboard typography and overlays scale together.
+            let canvas = CGSize(width: 1280, height: 720)
+            let scale = min(proxy.size.width / canvas.width, proxy.size.height / canvas.height)
+            ExternalScoreboardView(configuresPublicWindow: false)
+                .frame(width: canvas.width, height: canvas.height)
+                .scaleEffect(scale)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var mergedViewBinding: Binding<Bool> {
+        Binding(
+            get: { showsScoreboardWithControls },
+            set: { isEnabled in
+                if isEnabled {
+                    dashboardPage = .main
+                }
+                showsScoreboardWithControls = isEnabled
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var localDisplayOptions: some View {
+        Button {
+            #if os(macOS)
+            showPublicBoardWindow()
+            #else
+            enterLocalScoreboardMode()
+            #endif
+        } label: {
+            Label(localizedAppString("Full Screen"), systemImage: "arrow.up.left.and.arrow.down.right")
+        }
+        Toggle(isOn: mergedViewBinding) {
+            Label(localizedAppString("Merged View (Beta)"), systemImage: "rectangle.split.2x1")
+        }
     }
 
     private func dashboardContent(layout: InterfaceLayout) -> some View {
@@ -7658,8 +7763,8 @@ struct ContentView: View {
     }
 
     private func localScoreboardHeaderButton(layout: InterfaceLayout) -> some View {
-        Button {
-            enterLocalScoreboardMode()
+        Menu {
+            localDisplayOptions
         } label: {
             localScoreboardHeaderButtonLabel(layout: layout)
         }
@@ -7763,9 +7868,9 @@ struct ContentView: View {
 
     #if os(macOS)
     private func publicBoardHeaderButton(layout: InterfaceLayout) -> some View {
-        let title = publicBoardState.isPresented ? "Reopen Scoreboard" : "Open Scoreboard"
-        return Button {
-            showPublicBoardWindow()
+        let title = "Local Display"
+        return Menu {
+            localDisplayOptions
         } label: {
             Label(localizedAppString(title), systemImage: "display")
                 .font(layout.headerBadgeFont)
@@ -7953,7 +8058,7 @@ struct ContentView: View {
             }
         ]
 
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(store.secondaryTimerTitle)
                     .font(.title3.weight(.bold))
@@ -7969,14 +8074,16 @@ struct ContentView: View {
                     .opacity(store.supportsPossession ? 1 : 0)
             }
 
-            Text(store.formattedShotClock)
-                .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.4)
-                .foregroundStyle(themePalette.dashboardPrimaryText)
+            if !layout.isCombinedDisplay {
+                Text(store.formattedShotClock)
+                    .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .singleLineFitted(minScale: 0.4)
+                    .foregroundStyle(themePalette.dashboardPrimaryText)
+            }
 
             buttonGrid(
-                columns: usesServeTimer ? max(2, layout.shotClockButtonColumns - 1) : max(1, layout.shotClockButtonColumns - 2),
+                columns: layout.isCombinedDisplay ? (usesServeTimer ? 4 : 3) : usesServeTimer ? max(2, layout.shotClockButtonColumns - 1) : max(1, layout.shotClockButtonColumns - 2),
                 buttons: timerButtons,
                 style: .compact,
                 dense: layout.denseControls,
@@ -8025,7 +8132,7 @@ struct ContentView: View {
 
     private func mainControlPane(layout: InterfaceLayout) -> some View {
         Group {
-            if layout.requiresDashboardScroll {
+            if layout.requiresDashboardScroll || layout.isCombinedDisplay {
                 ScrollView(.vertical, showsIndicators: false) {
                     dashboardControlStack(layout: layout)
                         .padding(.bottom, layout.sectionSpacing)
@@ -8499,10 +8606,86 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private func combinedDisplayControlGrid(layout: InterfaceLayout) -> some View {
+        let usesClockColumn = layout.size.width >= 960
+        let teamAreaWidth = usesClockColumn
+            ? (layout.size.width - layout.sectionSpacing) * 2 / 3
+            : layout.size.width
+        let teamAreaLayout = InterfaceLayout(
+            size: CGSize(width: teamAreaWidth, height: layout.size.height),
+            isCombinedDisplay: true
+        )
+        let clockLayout = InterfaceLayout(
+            size: CGSize(
+                width: usesClockColumn ? layout.size.width - teamAreaWidth - layout.sectionSpacing : layout.size.width,
+                height: layout.size.height
+            ),
+            isCombinedDisplay: true
+        )
+        let arrangement = usesClockColumn
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: layout.sectionSpacing))
+            : AnyLayout(VStackLayout(spacing: layout.sectionSpacing))
+
+        return arrangement {
+            VStack(spacing: layout.sectionSpacing) {
+                combinedDisplayTeamControls(layout: teamAreaLayout)
+                if store.supportsShotClock {
+                    shotClockWidget(layout: teamAreaLayout)
+                }
+            }
+            .frame(width: teamAreaWidth)
+
+            gameControls(layout: clockLayout)
+                .frame(width: clockLayout.size.width)
+        }
+    }
+
+    private func combinedDisplayTeamControls(layout: InterfaceLayout) -> some View {
+        let columnCount = layout.size.width >= 560 ? 2 : 1
+        let cardWidth = (layout.size.width - CGFloat(columnCount - 1) * layout.sectionSpacing) / CGFloat(columnCount)
+        let cardLayout = InterfaceLayout(
+            size: CGSize(width: cardWidth, height: layout.size.height),
+            isCombinedDisplay: true
+        )
+        let leftIsHome = store.resolvedControlBoardDisplayDirection.leftSide == .home
+
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: layout.sectionSpacing, alignment: .top), count: columnCount),
+            alignment: .leading,
+            spacing: layout.sectionSpacing
+        ) {
+            teamControls(
+                title: store.sideRoleLabel(for: leftIsHome ? .home : .guest),
+                isHome: leftIsHome,
+                tint: leftIsHome ? homeTint : guestTint,
+                layout: cardLayout
+            )
+            teamControls(
+                title: store.sideRoleLabel(for: leftIsHome ? .guest : .home),
+                isHome: !leftIsHome,
+                tint: leftIsHome ? guestTint : homeTint,
+                layout: cardLayout
+            )
+        }
+    }
+
     private func dashboardControlStack(layout: InterfaceLayout) -> some View {
         VStack(spacing: layout.sectionSpacing) {
-            topControlRow(layout: layout)
-            bottomControlRow(layout: layout)
+            if layout.isCombinedDisplay {
+                combinedDisplayControlGrid(layout: layout)
+            } else {
+                topControlRow(layout: layout)
+                bottomControlRow(layout: layout)
+            }
+            if layout.isCombinedDisplay && store.isPlayerTrackingEnabled {
+                Button {
+                    dashboardPage = .players
+                } label: {
+                    Label(localizedAppString("Open Players"), systemImage: "person.3")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 
@@ -8688,7 +8871,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
 
                 centeredStatusWidget(layout: layout)
-                .frame(maxWidth: layout.centerStatusWidth)
+                    .frame(maxWidth: layout.centerStatusWidth)
 
                 teamControls(
                     title: rightTitle,
@@ -9011,7 +9194,7 @@ struct ContentView: View {
             return AnyView(chessTeamControls(side: side, tint: tint, layout: layout))
         }
 
-        return AnyView(VStack(alignment: .leading, spacing: 12) {
+        return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 12) {
             Text(title)
                 .font(.title3.weight(.bold))
                 .singleLineFitted(minScale: 0.7)
@@ -9046,7 +9229,7 @@ struct ContentView: View {
 
             if store.supportsScore {
                 buttonGrid(
-                    columns: max(1, min(2, scoreButtons(forHomeTeam: isHome, tint: tint).count)),
+                    columns: max(1, min(layout.isCombinedDisplay && layout.size.width >= 280 ? 4 : 2, scoreButtons(forHomeTeam: isHome, tint: tint).count)),
                     buttons: scoreButtons(forHomeTeam: isHome, tint: tint),
                     dense: layout.denseControls
                 )
@@ -9147,10 +9330,12 @@ struct ContentView: View {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            Text(clockText)
-                .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(tint)
+            if !layout.isCombinedDisplay {
+                Text(clockText)
+                    .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tint)
+            }
 
             localizedAppText(store.activeChessClockSide == side ? "Active Clock" : "Waiting")
                 .font(.subheadline.weight(.semibold))
@@ -9443,7 +9628,7 @@ struct ContentView: View {
             return AnyView(chessGameControls(layout: layout))
         }
 
-        return AnyView(VStack(alignment: .leading, spacing: 16) {
+        return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
             if store.showsGameClock {
                 gameSummaryRow(layout: layout)
 
@@ -9454,7 +9639,7 @@ struct ContentView: View {
                     tint: themePalette.dashboardSuccessButton,
                     foreground: themePalette.dashboardSuccessButtonText,
                     titleFont: .title3.weight(.black),
-                    verticalPadding: layout.denseControls ? 16 : 20
+                    verticalPadding: layout.isCombinedDisplay ? 10 : layout.denseControls ? 16 : 20
                 ) {
                     store.toggleClock()
                 }
@@ -10148,9 +10333,11 @@ struct ContentView: View {
         dense: Bool = false,
         compactVerticalPadding: CGFloat? = nil
     ) -> some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: max(1, columns)),
-            spacing: 10
+        let usesCompactControls = showsScoreboardWithControls && !showsSetup
+        let spacing: CGFloat = usesCompactControls ? 6 : 10
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: max(1, columns)),
+            spacing: spacing
         ) {
             ForEach(Array(buttons.enumerated()), id: \.offset) { _, button in
                 if style == .large {
@@ -10167,7 +10354,7 @@ struct ContentView: View {
                         button.title,
                         tint: button.tint,
                         foreground: button.foreground,
-                        verticalPadding: compactVerticalPadding ?? (dense ? 10 : 14),
+                        verticalPadding: compactVerticalPadding ?? (usesCompactControls ? 8 : dense ? 10 : 14),
                         isEnabled: button.isEnabled,
                         action: button.action
                     )
@@ -14179,6 +14366,7 @@ enum GameConfirmationAction: Identifiable {
 
 private struct InterfaceLayout {
     let size: CGSize
+    var isCombinedDisplay = false
 
     private var width: CGFloat { size.width }
     private var height: CGFloat { size.height }
@@ -14196,6 +14384,7 @@ private struct InterfaceLayout {
     }
     var cardPadding: CGFloat { isCompactWidth ? 18 : 28 }
     var sectionSpacing: CGFloat {
+        if isCombinedDisplay { return 8 }
         if isCompactWidth { return 14 }
         if isTabletSized { return 12 }
         return 18
@@ -14225,7 +14414,7 @@ private struct InterfaceLayout {
     var headerToggleButtonSize: CGFloat { denseControls ? 34 : 38 }
     var headerIconButtonSize: CGFloat { headerToggleButtonSize }
     var headerToggleIconFont: Font { denseControls ? .subheadline.weight(.bold) : .headline.weight(.bold) }
-    var controlCardPadding: CGFloat { denseControls ? 14 : isTabletSized ? 12 : 18 }
+    var controlCardPadding: CGFloat { isCombinedDisplay ? 10 : denseControls ? 14 : isTabletSized ? 12 : 18 }
     var controlCardCornerRadius: CGFloat { denseControls ? 24 : 28 }
 
     var setupUsesVerticalFlow: Bool { width < 1260 || height < 860 }

@@ -2766,6 +2766,16 @@
         }
       }
     },
+    "Close" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "Clock" : {
       "localizations" : {
         "zh-Hans" : {
@@ -5623,6 +5633,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "完整名单"
+          }
+        }
+      }
+    },
+    "Full Screen" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全屏显示"
           }
         }
       }
@@ -10029,6 +10049,7 @@
       }
     },
     "Reopen Scoreboard" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -11183,6 +11204,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "记分牌窗口"
+          }
+        }
+      }
+    },
+    "Merged View (Beta)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合并视图（测试版）"
           }
         }
       }
