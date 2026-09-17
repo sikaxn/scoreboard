@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 nonisolated private func localizedCompanionString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedCompanionFormat(_ key: String, _ arguments: Any...) -> String {

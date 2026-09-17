@@ -36,7 +36,7 @@ enum ScoreboardTips {
     ]
 
     fileprivate static func localizedText(_ key: String) -> Text {
-        Text(verbatim: NSLocalizedString(key, comment: ""))
+        Text(verbatim: ScoreboardLocalization.string(key))
     }
 
     @available(macOS 26.0, iOS 26.0, macCatalyst 26.0, *)

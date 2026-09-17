@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 private func localizedBoardString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 private func localizedBoardFormat(_ key: String, _ arguments: Any...) -> String {

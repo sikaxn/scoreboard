@@ -19,7 +19,7 @@ nonisolated private func localizedAppString(_ key: String) -> String {
         return ""
     }
 
-    return NSLocalizedString(key, comment: "")
+    return ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedAppFormat(_ key: String, _ arguments: Any...) -> String {
@@ -1327,25 +1327,25 @@ struct ContentView: View {
     private func settingsPaneContent(layout: InterfaceLayout) -> some View {
         switch selectedSettingsPane {
         case .game:
-            settingsGamePane(layout: layout)
+            ScoreboardViewBoundary { settingsGamePane(layout: layout) }
         case .players:
-            settingsPlayersPane(layout: layout)
+            ScoreboardViewBoundary { settingsPlayersPane(layout: layout) }
         case .display:
-            settingsDisplayPane()
+            ScoreboardViewBoundary { settingsDisplayPane() }
         case .sound:
-            settingsSoundPane(layout: layout)
+            ScoreboardViewBoundary { settingsSoundPane(layout: layout) }
         case .theme:
-            settingsThemePane()
+            ScoreboardViewBoundary { settingsThemePane() }
         case .files:
-            settingsFilesPane(layout: layout)
+            ScoreboardViewBoundary { settingsFilesPane(layout: layout) }
         case .logs:
-            settingsLogsPane(layout: layout)
+            ScoreboardViewBoundary { settingsLogsPane(layout: layout) }
         case .keyboardShortcuts:
-            settingsKeyboardShortcutsPane(layout: layout)
+            ScoreboardViewBoundary { settingsKeyboardShortcutsPane(layout: layout) }
         case .integration:
-            settingsIntegrationPane(layout: layout)
+            ScoreboardViewBoundary { settingsIntegrationPane(layout: layout) }
         case .about:
-            settingsAboutPane()
+            ScoreboardViewBoundary { settingsAboutPane() }
         }
     }
 
@@ -1393,11 +1393,11 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsGameRulesSections(layout: InterfaceLayout) -> some View {
         if setupSport == .custom {
-            customSportSettingsSections()
+            ScoreboardViewBoundary { customSportSettingsSections() }
         } else if setupSport == .debate {
-            debateSettingsSections(layout: layout)
+            ScoreboardViewBoundary { debateSettingsSections(layout: layout) }
         } else {
-            builtInSportGameSettingsSection()
+            ScoreboardViewBoundary { builtInSportGameSettingsSection() }
         }
     }
 
@@ -3698,9 +3698,10 @@ struct ContentView: View {
             get: { store.remoteDisplayNetworkMode },
             set: { store.setRemoteDisplayNetworkMode($0) }
         )) {
-            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
-                localizedAppText(mode.title).tag(mode)
-            }
+            localizedAppText(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly.title)
+                .tag(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly)
+            localizedAppText(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork.title)
+                .tag(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork)
         }
         .pickerStyle(.segmented)
     }
@@ -5923,7 +5924,7 @@ struct ContentView: View {
     private func settingsSection<Content: View>(
         title: String,
         footer: String? = nil,
-        @ViewBuilder content: () -> Content
+        @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             localizedAppText(title)
@@ -5932,7 +5933,7 @@ struct ContentView: View {
                 .textCase(.uppercase)
 
             VStack(spacing: 0) {
-                content()
+                ScoreboardViewBoundary(content: content)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 8)

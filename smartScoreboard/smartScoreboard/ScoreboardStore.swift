@@ -289,7 +289,7 @@ nonisolated func scoreboardLocalizedFormat(_ format: String, locale: Locale = .c
 }
 
 nonisolated private func localizedStoreString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedStoreFormat(_ key: String, _ arguments: Any...) -> String {

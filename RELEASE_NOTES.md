@@ -2,6 +2,8 @@
 
 ## 1.5
 
+- Split settings panes and section content into separate SwiftUI view evaluations to address device stack-overflow crashes, including Remote Display, Debate, and Custom settings.
+- Simplified Remote Display connection pickers to use explicit options with localized labels in operator settings and on receivers.
 - Updated compatibility with iOS 27 and iPadOS 27, addressing Xcode 27 concurrency warnings in Live Activities, keyboard shortcuts, Remote Display, and supporting utilities.
 - Added the external-display scene registration required by iOS 27 so connected displays can show the public scoreboard independently of the operator screen, while retaining support for earlier iOS versions.
 - Moved legacy file migration off the main thread to keep the interface responsive during upgrades.

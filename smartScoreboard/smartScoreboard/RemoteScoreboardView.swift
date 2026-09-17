@@ -5,7 +5,7 @@ import UIKit
 #endif
 
 private func localizedRemoteDisplayString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
@@ -992,8 +992,12 @@ private struct RemoteDisplayConfigurationView: View {
             }
 
             if showsPairingControls {
-                networkModeControl(isCompact: isCompact)
-                actionControls
+                ScoreboardViewBoundary {
+                    networkModeControl(isCompact: isCompact)
+                }
+                ScoreboardViewBoundary {
+                    actionControls
+                }
             }
         }
         .padding(.horizontal, isCompact ? 18 : 34)
@@ -1088,9 +1092,10 @@ private struct RemoteDisplayConfigurationView: View {
             get: { networkMode },
             set: setNetworkMode
         )) {
-            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
-                Text(networkModePickerTitle(for: mode)).tag(mode)
-            }
+            Text(verbatim: localizedRemoteDisplayString("LAN Only"))
+                .tag(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly)
+            Text(verbatim: localizedRemoteDisplayString("Nearby"))
+                .tag(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork)
         }
         .pickerStyle(.segmented)
     }
@@ -1101,15 +1106,6 @@ private struct RemoteDisplayConfigurationView: View {
         #else
         320
         #endif
-    }
-
-    private func networkModePickerTitle(for mode: ScoreboardRemoteDisplayNetworkMode) -> String {
-        switch mode {
-        case .localNetworkOnly:
-            return localizedRemoteDisplayString("LAN Only")
-        case .nearbyAndLocalNetwork:
-            return localizedRemoteDisplayString("Nearby")
-        }
     }
 
     private var forgetButtonMaxWidth: CGFloat {

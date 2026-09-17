@@ -12,7 +12,7 @@ nonisolated private func localizedKeyboardString(_ key: String) -> String {
         return ""
     }
 
-    return NSLocalizedString(key, comment: "")
+    return ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedKeyboardFormat(_ key: String, _ arguments: Any...) -> String {

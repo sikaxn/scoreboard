@@ -68,12 +68,16 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 
 ## Localization Notes
 
+- Dynamic string wrappers use `ScoreboardLocalization` to read an immutable cache of the compiled `Localizable.strings` table, with the app's preferred language, development-language fallback, and the original key for missing entries. Keep runtime names and already-formatted messages as verbatim text.
+- This lookup supports the catalog's current flat `stringUnit` entries. Plural or device variations require extending the resolver before adding them; the catalog check rejects unsupported entries.
 - Use the local wrapper functions (`localizedAppText`, `localizedAppFormat`, and the matching store/display wrappers) instead of raw `Text(LocalizedStringKey(...))` or direct localized `String(format:)` calls.
 - Treat runtime strings, user-entered names, generated titles, and already-formatted strings as resolved text. Localize them first, then render with `Text(verbatim:)` so SwiftUI does not reinterpret them as localization keys during view rendering.
 - Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
 - The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
 
 Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 scripts/check_localization.py` on macOS to validate translated placeholders and exercise the app's formatter, including debate labels and custom text with percent signs. Also check Debate and Custom Sport settings in English and Simplified Chinese on a simulator when changing settings or localization code.
+
+Use `python3 scripts/check_localization.py --catalog-only` to check catalog structure and placeholders without compiling or running Swift.
 
 ## Project Structure
 

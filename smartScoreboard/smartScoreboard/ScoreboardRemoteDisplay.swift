@@ -10,7 +10,7 @@ import SystemConfiguration
 #endif
 
 private func localizedRemoteDisplayString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
