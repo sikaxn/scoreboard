@@ -775,6 +775,11 @@ struct ScoreboardFaceView: View {
         let arrowIndicator = debateSpeakingSideIndicator
         let showsLeftArrow = arrowIndicator?.pointsLeft == true
         let showsRightArrow = arrowIndicator?.pointsLeft == false
+        let arrowInset: CGFloat = ultraCondensed ? 8 : 12
+        let badgeInset: CGFloat = ultraCondensed ? 10 : condensed ? 16 : 18
+        // The overlaid arrow must have space outside the text's fitting width.
+        // Reserve both sides so the segment stays centered when speakers change.
+        let valueInset = arrowIndicator == nil ? 0 : max(0, arrowInset + arrowSlotWidth + 6 - badgeInset)
 
         return ZStack {
             headerBadge(
@@ -782,7 +787,8 @@ struct ScoreboardFaceView: View {
                 value: value,
                 condensed: condensed,
                 ultraCondensed: ultraCondensed,
-                valueMinScale: arrowIndicator == nil ? 0.55 : 0.34
+                valueMinScale: arrowIndicator == nil ? 0.55 : 0.34,
+                valueHorizontalInset: valueInset
             )
             .layoutPriority(2)
 
@@ -806,7 +812,7 @@ struct ScoreboardFaceView: View {
                         slotWidth: arrowSlotWidth
                     )
                 }
-                .padding(.horizontal, ultraCondensed ? 8 : 12)
+                .padding(.horizontal, arrowInset)
                 .frame(maxWidth: .infinity)
                 .allowsHitTesting(false)
             }
@@ -904,6 +910,7 @@ struct ScoreboardFaceView: View {
         ultraCondensed: Bool,
         valueFontSize: CGFloat? = nil,
         valueMinScale: CGFloat = 0.55,
+        valueHorizontalInset: CGFloat = 0,
         valueColor: Color? = nil,
         showsContainer: Bool = true,
         animatesValue: Bool = true
@@ -925,6 +932,7 @@ struct ScoreboardFaceView: View {
                 valueColor: valueColor,
                 animatesValue: animatesValue
             )
+            .padding(.horizontal, valueHorizontalInset)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)

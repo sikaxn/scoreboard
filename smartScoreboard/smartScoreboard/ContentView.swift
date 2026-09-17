@@ -7450,46 +7450,43 @@ struct ContentView: View {
 
     private func scoreboardWithControls() -> some View {
         GeometryReader { proxy in
-            let spacing: CGFloat = 8
-            let isLandscape = proxy.size.width > proxy.size.height
-            let boardWidth = proxy.size.width
-            let boardHeight = min(boardWidth * 9 / 16, proxy.size.height * (isLandscape ? 0.55 : 0.38))
-            let controlSize = CGSize(
-                width: proxy.size.width,
-                height: max(0, proxy.size.height - boardHeight - spacing)
-            )
-            let paneLayout = InterfaceLayout(size: controlSize, isCombinedDisplay: true)
+            let headerLayout = InterfaceLayout(size: proxy.size, isCombinedDisplay: true)
 
-            VStack(spacing: spacing) {
-                embeddedLocalScoreboard()
-                    .frame(width: boardWidth, height: boardHeight)
-                    .overlay(alignment: .topTrailing) {
-                        HStack(spacing: 0) {
-                            Button(action: openSettingsFromLiveBoard) {
-                                Image(systemName: "gearshape")
-                                    .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel(localizedAppString("Settings"))
-                            .help(localizedAppString("Settings"))
-
-                            Button {
-                                showsScoreboardWithControls = false
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel(localizedAppString("Close"))
-                            .help(localizedAppString("Close"))
-                        }
-                        .font(.system(size: 16, weight: .bold))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .background(.black.opacity(0.75), in: Capsule())
-                        .padding(6)
+            VStack(spacing: 8) {
+                if !isDashboardHeaderHidden {
+                    ScoreboardViewBoundary {
+                        mergedViewHeader(layout: headerLayout)
                     }
-                controlPane(layout: paneLayout)
-                    .frame(width: controlSize.width, height: controlSize.height)
+                }
+
+                GeometryReader { contentProxy in
+                    let spacing: CGFloat = 8
+                    let isLandscape = contentProxy.size.width > contentProxy.size.height
+                    let boardWidth = contentProxy.size.width
+                    let boardHeight = min(boardWidth * 9 / 16, contentProxy.size.height * (isLandscape ? 0.55 : 0.38))
+                    let controlSize = CGSize(
+                        width: contentProxy.size.width,
+                        height: max(0, contentProxy.size.height - boardHeight - spacing)
+                    )
+                    let paneLayout = InterfaceLayout(size: controlSize, isCombinedDisplay: true)
+
+                    VStack(spacing: spacing) {
+                        embeddedLocalScoreboard()
+                            .frame(width: boardWidth, height: boardHeight)
+                        ScoreboardViewBoundary {
+                            controlPane(layout: paneLayout)
+                        }
+                        .frame(width: controlSize.width, height: controlSize.height)
+                    }
+                }
             }
+            .overlay(alignment: .topTrailing) {
+                if isDashboardHeaderHidden {
+                    showDashboardHeaderButton(layout: headerLayout)
+                        .padding(6)
+                }
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isDashboardHeaderHidden)
         }
         .padding(12)
         .onAppear {
@@ -7498,6 +7495,73 @@ struct ContentView: View {
         .onDisappear {
             AppSleepPrevention.setReason(.scoreboardWithControlsVisible, active: false)
         }
+    }
+
+    private func mergedViewHeader(layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    mergedViewHeaderButtons(layout: layout)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                externalDisplayHeaderStatusBadge(layout: layout)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: layout.headerIconButtonSize), spacing: 8)],
+                    alignment: .trailing,
+                    spacing: 8
+                ) {
+                    mergedViewHeaderButtons(layout: layout)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mergedViewHeaderButtons(layout: InterfaceLayout) -> some View {
+        Button {
+            #if os(macOS)
+            showPublicBoardWindow()
+            #else
+            enterLocalScoreboardMode()
+            #endif
+        } label: {
+            headerIconButtonLabel(
+                systemImage: "arrow.up.left.and.arrow.down.right",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Full Screen"))
+        .help(localizedAppString("Show Scoreboard on This Device"))
+
+        displayControlHeaderButton(layout: layout)
+        soundHeaderButton(layout: layout)
+        themeHeaderMenu(layout: layout)
+        companionHeaderButton(layout: layout)
+        settingsHeaderButton(layout: layout)
+
+        Button {
+            showsScoreboardWithControls = false
+        } label: {
+            headerIconButtonLabel(
+                systemImage: "xmark",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Close"))
+        .help(localizedAppString("Merged View (Beta)"))
+
+        hideDashboardHeaderButton(layout: layout)
     }
 
     private func embeddedLocalScoreboard() -> some View {
@@ -7947,9 +8011,17 @@ struct ContentView: View {
     }
 
     private func companionHeaderButton(layout: InterfaceLayout) -> some View {
-        let title = store.isCompanionEnabled ? "Companion On" : "Companion Off"
+        let title = store.isCompanionVisible
+            ? (store.isCompanionEnabled ? "Companion On" : "Companion Off")
+            : "Bitfocus Companion"
         return Button {
-            store.toggleCompanionEnabled()
+            if store.isCompanionVisible {
+                store.toggleCompanionEnabled()
+            } else {
+                openSettingsFromLiveBoard()
+                selectedSettingsPane = .integration
+                selectedIntegrationDetail = .bitfocusCompanion
+            }
         } label: {
             headerIconButtonLabel(
                 systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage,
