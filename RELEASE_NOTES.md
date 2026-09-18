@@ -2,9 +2,14 @@
 
 ## 1.5
 
+### Feature Added
+
+- Added a hideable Merged View toolbar with external-display status, full-screen local display, Display Control, sound, theme, Companion, settings, and close controls; buttons wrap on narrow screens.
+
+### Issue Fixed
+
 - Improved small-screen settings across all panes with viewport-constrained scrolling, stacked editors, compact picker menus, wrapping file/log toolbars, and separate Remote Display details and actions.
 - Replaced opaque root-view type chains with deferred, type-erased view boundaries to address archive compilation errors while retaining stack-overflow safeguards.
-- Added a hideable Merged View toolbar with external-display status, full-screen local display, Display Control, sound, theme, Companion, settings, and close controls; buttons wrap on narrow screens.
 - Reserved space for the Debate speaking-side arrow so long segment labels shrink without overlapping it in Merged View and public scoreboards.
 - Split settings panes and section content into separate SwiftUI view evaluations to address device stack-overflow crashes, including Remote Display, Debate, and Custom settings.
 - Simplified Remote Display connection pickers to use explicit options with localized labels in operator settings and on receivers.
