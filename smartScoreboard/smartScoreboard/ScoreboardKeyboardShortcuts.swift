@@ -956,7 +956,11 @@ struct KeyboardShortcutSettingsPane: View {
         shortcut: ScoreboardKeyboardShortcut?,
         isRecording: Bool
     ) -> some View {
-        HStack(spacing: 8) {
+        let arrangement = usesVerticalLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+
+        return arrangement {
             Text(verbatim: shortcut?.displayTitle ?? localizedKeyboardString("Unassigned"))
                 .font(.system(.callout, design: .monospaced).weight(.semibold))
                 .foregroundStyle(shortcut == nil ? palette.secondaryText : palette.primaryText)

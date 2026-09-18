@@ -1,0 +1,9 @@
+{
+  "id" : "1b79fee3-50c3-49c8-a6d0-6c222c25c8d9",
+  "targets" : [
+    {
+      "id" : "d9448fb0-3377-4ff9-b8e5-d02070d24f7a",
+      "name" : "smartScoreboard"
+    }
+  ]
+}

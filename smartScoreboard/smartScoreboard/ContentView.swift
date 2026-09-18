@@ -45,6 +45,9 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
     @Environment(\.openURL) private var openURL
     @FocusState private var focusedSettingsTextFieldID: String?
 
@@ -155,6 +158,20 @@ struct ContentView: View {
         false
         #endif
     }
+    private var usesStackedSettingsRows: Bool {
+        #if os(iOS)
+        isIPhoneInterface || horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    private var settingsRowLayout: AnyLayout {
+        usesStackedSettingsRows
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+    }
+
     private var homeTint: Color { themePalette.homeAccent }
     private var guestTint: Color { themePalette.guestAccent }
     private var homeTintText: Color { themePalette.homeAccentText }
@@ -272,215 +289,229 @@ struct ContentView: View {
     private var macOSImageImportContentTypes: [UTType] { [.image] }
     #endif
 
-    var body: some View {
-        alertConfiguredRootView
-    }
-
-    private var rootView: some View {
-        GeometryReader { proxy in
-            let layout = InterfaceLayout(size: proxy.size)
-            contentRoot(layout: layout)
+    var body: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            alertConfiguredRootView
         }
     }
 
-    private var synchronizedRootView: some View {
-        rootView
-        .onReceive(store.$homeTeamName) { homeTeamDraft = $0 }
-        .onReceive(store.$guestTeamName) { guestTeamDraft = $0 }
-        .onReceive(store.$eventName) { eventNameDraft = $0 }
-        .onReceive(store.$homeScore) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestScore) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$period) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$selectedSport) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$gameClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$shotClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$defaultShotClockSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$customSportConfig) {
-            guard !isSetupDraftUpdateSuppressed else { return }
-            setupCustomSportConfig = $0
-        }
-        .onReceive(store.$customDebatePreset) {
-            autosaveSelectedGameFile()
-            guard !isSetupDraftUpdateSuppressed else { return }
-            setupCustomDebatePreset = $0
-        }
-        .onReceive(store.$activeChessClockSide) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$chessClockPreset) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homePenaltyTimers) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestPenaltyTimers) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$selectedDebatePresetID) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debateHomeSideLabel) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debateGuestSideLabel) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debateCurrentSegmentIndex) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debatePrepHomeSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debatePrepGuestSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$debateActiveTimer) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebatePrepClockRunning) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebateScoreTrackingEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebatePlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebatePlayerFoulsEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebatePlayerCardsEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isPlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$displayLineupSize) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupOverflowMode) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupOverflowLogoOverride) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupOverflowNoLogoOverride) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupFadePageSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupScrollSpeed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerLineupScrollDirection) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerViewRosterScope) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$playerFoulHighlightColor) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isGameClockRedEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isShotClockRedEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$shotClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homeSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homePausesAllowed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestPausesAllowed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homePausesUsed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestPausesUsed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homeTeamFouls) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayAnimatedLogoStyle) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayAnimatedLogoBackgroundColor) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayAnimatedLogoSpeed) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayAnimatedLogoSize) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayAnimatedLogoOpacity) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$showsExternalDisplayDateTime) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$externalDisplayDateTimeFormat) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$showsExternalDisplayDateTimeSeconds) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$showsEventLogo) { _ in autosaveSelectedGameFile() }
-        .onReceive(store.$eventLogoImage) { _ in autosaveSelectedGameFile() }
-    }
-
-    private var basicSetupDraftConfiguredRootView: some View {
-        synchronizedRootView
-        .onChange(of: homeTeamDraft) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: guestTeamDraft) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: eventNameDraft) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupSport) { _, newValue in
-            guard !isSetupDraftUpdateSuppressed else { return }
-            applySetupSportDefaultsAndCommit(newValue)
-        }
-        .onChange(of: setupPeriod) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupClockSeconds) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupUsesGameClock) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupShotClockSeconds) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupVolleyballMatchFormat) { _, _ in
-            setupPeriod = min(setupPeriod, setupPeriodUpperBound)
-            handleSetupDraftChanged()
-        }
-        .onChange(of: setupGuestClockSeconds) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupChessPreset) { _, _ in
-            guard !isSetupDraftUpdateSuppressed else { return }
-            applySetupClockDefaultsAndCommit {
-                setupClockSeconds = setupChessPreset.seconds
-                setupGuestClockSeconds = setupChessPreset.seconds
+    private var rootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            GeometryReader { proxy in
+                let layout = InterfaceLayout(size: proxy.size)
+                contentRoot(layout: layout)
             }
         }
     }
 
-    private var setupDraftConfiguredRootView: some View {
-        basicSetupDraftConfiguredRootView
-        .onChange(of: setupDebatePresetID) { _, _ in
-            guard !isSetupDraftUpdateSuppressed else { return }
-            let preset = setupDebatePresetID == DebatePreset.customID ? setupCustomDebatePreset : DebatePreset.preset(id: setupDebatePresetID)
-            setupDebateHomeSideLabel = preset.homeSideLabel
-            setupDebateGuestSideLabel = preset.guestSideLabel
-            setupDebateScoreTrackingEnabled = preset.defaultScoreTrackingEnabled
-            setupDebatePlayerTrackingEnabled = preset.defaultPlayerTrackingEnabled
-            setupDebatePlayerFoulsEnabled = preset.defaultPlayerFoulsEnabled
-            setupDebatePlayerCardsEnabled = preset.defaultPlayerCardsEnabled
-            setupDebatePrepTimeEnabled = preset.isPrepTimeEnabled
-            if let firstSegment = preset.segments.first {
-                setupClockSeconds = firstSegment.durationSeconds
-                setupGuestClockSeconds = firstSegment.durationSeconds
+    private var synchronizedRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            rootView
+            .onReceive(store.$homeTeamName) { homeTeamDraft = $0 }
+            .onReceive(store.$guestTeamName) { guestTeamDraft = $0 }
+            .onReceive(store.$eventName) { eventNameDraft = $0 }
+            .onReceive(store.$homeScore) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestScore) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$period) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$selectedSport) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$gameClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$defaultClockSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$shotClockAutosaveRevision) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$defaultShotClockSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$customSportConfig) {
+                guard !isSetupDraftUpdateSuppressed else { return }
+                setupCustomSportConfig = $0
             }
-            handleSetupDraftChanged()
-        }
-        .onChange(of: setupDebateHomeSideLabel) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebateGuestSideLabel) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebateScoreTrackingEnabled) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebatePlayerTrackingEnabled) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebatePlayerFoulsEnabled) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebatePlayerCardsEnabled) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupDebatePrepTimeEnabled) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupCustomDebatePreset) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: setupCustomSportConfig) { _, _ in handleSetupDraftChanged() }
-        .onChange(of: selectedStoredGameFileID) { _, _ in
-            syncCurrentLogGameFile()
-            renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
-        }
-        .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
-            handlePlayerTrackingEnabledChange(isEnabled)
-        }
-        .onChange(of: setupSport) { _, _ in
-            let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
-            if setupSport != .debate {
-                isDebateDesignerVisible = false
+            .onReceive(store.$customDebatePreset) {
+                autosaveSelectedGameFile()
+                guard !isSetupDraftUpdateSuppressed else { return }
+                setupCustomDebatePreset = $0
             }
-            guard selectedSettingsPane == .players, !supportsPlayers else {
-                return
-            }
-            selectedSettingsPane = .game
-        }
-        .onChange(of: setupCustomSportConfig) { _, _ in
-            let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
-            guard selectedSettingsPane == .players, !supportsPlayers else {
-                return
-            }
-            selectedSettingsPane = .game
-        }
-        .onChange(of: setupDebatePlayerTrackingEnabled) { _, isEnabled in
-            guard selectedSettingsPane == .players, !isEnabled else {
-                return
-            }
-            selectedSettingsPane = .game
+            .onReceive(store.$activeChessClockSide) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$chessClockPreset) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homePenaltyTimers) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestPenaltyTimers) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$selectedDebatePresetID) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debateHomeSideLabel) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debateGuestSideLabel) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debateCurrentSegmentIndex) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debatePrepHomeSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debatePrepGuestSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$debateActiveTimer) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebatePrepClockRunning) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebateScoreTrackingEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebatePlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebatePlayerFoulsEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebatePlayerCardsEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isPlayerTrackingEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isPlayerOverlayPaused) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$rosterSizePerTeam) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$displayLineupSize) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupOverflowMode) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupOverflowLogoOverride) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupOverflowNoLogoOverride) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupFadePageSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupScrollSpeed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerLineupScrollDirection) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerViewRosterScope) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$playerFoulHighlightColor) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isGameClockRedEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$gameClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isShotClockRedEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$shotClockRedThresholdSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homeSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homePausesAllowed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestPausesAllowed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homePausesUsed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestPausesUsed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homeTeamFouls) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestTeamFouls) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayAnimatedLogoStyle) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayAnimatedLogoBackgroundColor) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayAnimatedLogoSpeed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayAnimatedLogoSize) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayAnimatedLogoOpacity) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$showsExternalDisplayDateTime) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayDateTimeFormat) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$showsExternalDisplayDateTimeSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$showsTeamLogos) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$homeTeamLogoImage) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$guestTeamLogoImage) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$showsEventLogo) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$eventLogoImage) { _ in autosaveSelectedGameFile() }
         }
     }
 
-    private var integrationEditorSportConfiguredRootView: some View {
-        setupDraftConfiguredRootView
-        .onChange(of: selectedSettingsPane) { _, pane in
-            if pane == .sound {
-                selectedSoundSettingsSport = setupSport
-            } else if pane == .integration, selectedIntegrationDetail == .bitfocusCompanion {
+    private var basicSetupDraftConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            synchronizedRootView
+            .onChange(of: homeTeamDraft) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: guestTeamDraft) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: eventNameDraft) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupSport) { _, newValue in
+                guard !isSetupDraftUpdateSuppressed else { return }
+                applySetupSportDefaultsAndCommit(newValue)
+            }
+            .onChange(of: setupPeriod) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupClockSeconds) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupUsesGameClock) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupShotClockSeconds) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupVolleyballMatchFormat) { _, _ in
+                setupPeriod = min(setupPeriod, setupPeriodUpperBound)
+                handleSetupDraftChanged()
+            }
+            .onChange(of: setupGuestClockSeconds) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupChessPreset) { _, _ in
+                guard !isSetupDraftUpdateSuppressed else { return }
+                applySetupClockDefaultsAndCommit {
+                    setupClockSeconds = setupChessPreset.seconds
+                    setupGuestClockSeconds = setupChessPreset.seconds
+                }
+            }
+        }
+    }
+
+    private var setupDraftConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            basicSetupDraftConfiguredRootView
+            .onChange(of: setupDebatePresetID) { _, _ in
+                guard !isSetupDraftUpdateSuppressed else { return }
+                let preset = setupDebatePresetID == DebatePreset.customID ? setupCustomDebatePreset : DebatePreset.preset(id: setupDebatePresetID)
+                setupDebateHomeSideLabel = preset.homeSideLabel
+                setupDebateGuestSideLabel = preset.guestSideLabel
+                setupDebateScoreTrackingEnabled = preset.defaultScoreTrackingEnabled
+                setupDebatePlayerTrackingEnabled = preset.defaultPlayerTrackingEnabled
+                setupDebatePlayerFoulsEnabled = preset.defaultPlayerFoulsEnabled
+                setupDebatePlayerCardsEnabled = preset.defaultPlayerCardsEnabled
+                setupDebatePrepTimeEnabled = preset.isPrepTimeEnabled
+                if let firstSegment = preset.segments.first {
+                    setupClockSeconds = firstSegment.durationSeconds
+                    setupGuestClockSeconds = firstSegment.durationSeconds
+                }
+                handleSetupDraftChanged()
+            }
+            .onChange(of: setupDebateHomeSideLabel) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebateGuestSideLabel) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebateScoreTrackingEnabled) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebatePlayerTrackingEnabled) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebatePlayerFoulsEnabled) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebatePlayerCardsEnabled) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupDebatePrepTimeEnabled) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupCustomDebatePreset) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: setupCustomSportConfig) { _, _ in handleSetupDraftChanged() }
+            .onChange(of: selectedStoredGameFileID) { _, _ in
+                syncCurrentLogGameFile()
+                renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
+            }
+            .onChange(of: store.isPlayerTrackingEnabled) { _, isEnabled in
+                handlePlayerTrackingEnabledChange(isEnabled)
+            }
+            .onChange(of: setupSport) { _, _ in
+                let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+                if setupSport != .debate {
+                    isDebateDesignerVisible = false
+                }
+                guard selectedSettingsPane == .players, !supportsPlayers else {
+                    return
+                }
+                selectedSettingsPane = .game
+            }
+            .onChange(of: setupCustomSportConfig) { _, _ in
+                let supportsPlayers = setupSport == .debate ? setupDebatePlayerTrackingEnabled : setupRules.supportsPlayerTracking
+                guard selectedSettingsPane == .players, !supportsPlayers else {
+                    return
+                }
+                selectedSettingsPane = .game
+            }
+            .onChange(of: setupDebatePlayerTrackingEnabled) { _, isEnabled in
+                guard selectedSettingsPane == .players, !isEnabled else {
+                    return
+                }
+                selectedSettingsPane = .game
+            }
+        }
+    }
+
+    private var integrationEditorSportConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            setupDraftConfiguredRootView
+            .onChange(of: selectedSettingsPane) { _, pane in
+                if pane == .sound {
+                    selectedSoundSettingsSport = setupSport
+                } else if pane == .integration, selectedIntegrationDetail == .bitfocusCompanion {
+                    selectedCompanionSettingsSport = setupSport
+                }
+                if pane != .theme {
+                    isExternalBackgroundImageEditorVisible = false
+                }
+                if pane != .game {
+                    isDebateDesignerVisible = false
+                }
+            }
+            .onChange(of: selectedIntegrationDetail) { _, detail in
+                guard selectedSettingsPane == .integration, detail == .bitfocusCompanion else {
+                    return
+                }
                 selectedCompanionSettingsSport = setupSport
             }
-            if pane != .theme {
-                isExternalBackgroundImageEditorVisible = false
-            }
-            if pane != .game {
-                isDebateDesignerVisible = false
-            }
-        }
-        .onChange(of: selectedIntegrationDetail) { _, detail in
-            guard selectedSettingsPane == .integration, detail == .bitfocusCompanion else {
-                return
-            }
-            selectedCompanionSettingsSport = setupSport
         }
     }
 
-    private var lifecycleConfiguredRootView: some View {
-        integrationEditorSportConfiguredRootView
-        .onAppear(perform: handleRootAppear)
-        .onChange(of: scenePhase) { _, newPhase in
-            handleScenePhaseChange(newPhase)
+    private var lifecycleConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            integrationEditorSportConfiguredRootView
+            .onAppear(perform: handleRootAppear)
+            .onChange(of: scenePhase) { _, newPhase in
+                handleScenePhaseChange(newPhase)
+            }
         }
     }
 
@@ -500,208 +531,214 @@ struct ContentView: View {
     #endif
 
     #if os(iOS)
-    private var filePresentationConfiguredRootView: some View {
-        lifecycleConfiguredRootView
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            updateSettingsKeyboardHeight(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(.easeOut(duration: 0.22)) {
-                settingsKeyboardHeight = 0
+    private var filePresentationConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            lifecycleConfiguredRootView
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                updateSettingsKeyboardHeight(notification)
             }
-        }
-        .sheet(isPresented: $showsGameImporter) {
-            ScoreboardDocumentPicker(
-                isPresented: $showsGameImporter,
-                contentTypes: iOSGameImportContentTypes,
-                allowsMultipleSelection: false,
-                onCompletion: importGameIntoLibrary
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.22)) {
+                    settingsKeyboardHeight = 0
+                }
+            }
+            .sheet(isPresented: $showsGameImporter) {
+                ScoreboardDocumentPicker(
+                    isPresented: $showsGameImporter,
+                    contentTypes: iOSGameImportContentTypes,
+                    allowsMultipleSelection: false,
+                    onCompletion: importGameIntoLibrary
+                )
+            }
+            .sheet(isPresented: $showsBackupImporter) {
+                ScoreboardDocumentPicker(
+                    isPresented: $showsBackupImporter,
+                    contentTypes: iOSBackupImportContentTypes,
+                    allowsMultipleSelection: false,
+                    onCompletion: importBackupForRestore
+                )
+            }
+            .sheet(isPresented: $showsRosterCSVImporter) {
+                ScoreboardDocumentPicker(
+                    isPresented: $showsRosterCSVImporter,
+                    contentTypes: iOSRosterCSVImportContentTypes,
+                    allowsMultipleSelection: false,
+                    onCompletion: importRosterCSV
+                )
+            }
+            .photosPicker(
+                isPresented: $showsExternalBackgroundPhotoPicker,
+                selection: $selectedExternalBackgroundPhotoItem,
+                matching: .images,
+                photoLibrary: .shared()
             )
-        }
-        .sheet(isPresented: $showsBackupImporter) {
-            ScoreboardDocumentPicker(
-                isPresented: $showsBackupImporter,
-                contentTypes: iOSBackupImportContentTypes,
-                allowsMultipleSelection: false,
-                onCompletion: importBackupForRestore
+            .photosPicker(
+                isPresented: $showsHomeLogoPhotoPicker,
+                selection: $selectedHomeLogoPhotoItem,
+                matching: .images,
+                photoLibrary: .shared()
             )
-        }
-        .sheet(isPresented: $showsRosterCSVImporter) {
-            ScoreboardDocumentPicker(
-                isPresented: $showsRosterCSVImporter,
-                contentTypes: iOSRosterCSVImportContentTypes,
-                allowsMultipleSelection: false,
-                onCompletion: importRosterCSV
+            .photosPicker(
+                isPresented: $showsGuestLogoPhotoPicker,
+                selection: $selectedGuestLogoPhotoItem,
+                matching: .images,
+                photoLibrary: .shared()
             )
-        }
-        .photosPicker(
-            isPresented: $showsExternalBackgroundPhotoPicker,
-            selection: $selectedExternalBackgroundPhotoItem,
-            matching: .images,
-            photoLibrary: .shared()
-        )
-        .photosPicker(
-            isPresented: $showsHomeLogoPhotoPicker,
-            selection: $selectedHomeLogoPhotoItem,
-            matching: .images,
-            photoLibrary: .shared()
-        )
-        .photosPicker(
-            isPresented: $showsGuestLogoPhotoPicker,
-            selection: $selectedGuestLogoPhotoItem,
-            matching: .images,
-            photoLibrary: .shared()
-        )
-        .photosPicker(
-            isPresented: $showsEventLogoPhotoPicker,
-            selection: $selectedEventLogoPhotoItem,
-            matching: .images,
-            photoLibrary: .shared()
-        )
-        .onChange(of: selectedExternalBackgroundPhotoItem) { _, item in
-            guard let item else { return }
-            Task {
-                await importExternalBackgroundPhoto(item)
-                await MainActor.run {
-                    selectedExternalBackgroundPhotoItem = nil
+            .photosPicker(
+                isPresented: $showsEventLogoPhotoPicker,
+                selection: $selectedEventLogoPhotoItem,
+                matching: .images,
+                photoLibrary: .shared()
+            )
+            .onChange(of: selectedExternalBackgroundPhotoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    await importExternalBackgroundPhoto(item)
+                    await MainActor.run {
+                        selectedExternalBackgroundPhotoItem = nil
+                    }
                 }
             }
-        }
-        .onChange(of: selectedHomeLogoPhotoItem) { _, item in
-            guard let item else { return }
-            Task {
-                await importTeamLogoPhoto(item, for: .home)
-                await MainActor.run {
-                    selectedHomeLogoPhotoItem = nil
+            .onChange(of: selectedHomeLogoPhotoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    await importTeamLogoPhoto(item, for: .home)
+                    await MainActor.run {
+                        selectedHomeLogoPhotoItem = nil
+                    }
                 }
             }
-        }
-        .onChange(of: selectedGuestLogoPhotoItem) { _, item in
-            guard let item else { return }
-            Task {
-                await importTeamLogoPhoto(item, for: .guest)
-                await MainActor.run {
-                    selectedGuestLogoPhotoItem = nil
+            .onChange(of: selectedGuestLogoPhotoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    await importTeamLogoPhoto(item, for: .guest)
+                    await MainActor.run {
+                        selectedGuestLogoPhotoItem = nil
+                    }
                 }
             }
-        }
-        .onChange(of: selectedEventLogoPhotoItem) { _, item in
-            guard let item else { return }
-            Task {
-                await importEventLogoPhoto(item)
-                await MainActor.run {
-                    selectedEventLogoPhotoItem = nil
+            .onChange(of: selectedEventLogoPhotoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    await importEventLogoPhoto(item)
+                    await MainActor.run {
+                        selectedEventLogoPhotoItem = nil
+                    }
                 }
             }
+            .scoreboardShareExporter(payload: $exportSharePayload)
+            .statusBar(hidden: showsLocalScoreboard)
         }
-        .scoreboardShareExporter(payload: $exportSharePayload)
-        .statusBar(hidden: showsLocalScoreboard)
     }
     #else
-    private var filePresentationConfiguredRootView: some View {
-        lifecycleConfiguredRootView
-            .scoreboardShareExporter(payload: $exportSharePayload)
+    private var filePresentationConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            lifecycleConfiguredRootView
+                .scoreboardShareExporter(payload: $exportSharePayload)
+        }
     }
     #endif
 
-    private var alertConfiguredRootView: some View {
-        filePresentationConfiguredRootView
-        .alert(item: activeAlertBinding) { alert in
-            switch alert {
-            case .fileOperation(let error):
-                return Alert(
-                    title: Text("File Error"),
-                    message: Text(error.message),
-                    dismissButton: .cancel(Text("OK")) {
-                        fileOperationError = nil
-                    }
-                )
-            case .gameConfirmation(let action):
-                return Alert(
-                    title: Text(gameConfirmationTitle(for: action)),
-                    message: Text(gameConfirmationMessage(for: action)),
-                    primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
-                        pendingGameConfirmation = nil
-                        performConfirmedGameAction(action)
-                    },
-                    secondaryButton: .cancel {
-                        pendingGameConfirmation = nil
-                    }
-                )
-            case .backupRestore(let backupRestore):
-                return Alert(
-                    title: Text("Restore Full Backup"),
-                    message: Text(backupRestoreMessage(for: backupRestore)),
-                    primaryButton: .destructive(Text("Restore")) {
-                        pendingBackupRestore = nil
-                        restoreFullBackup(backupRestore.backup)
-                    },
-                    secondaryButton: .cancel {
-                        pendingBackupRestore = nil
-                    }
-                )
-            case .remoteDisplayTakeover(let takeover):
-                return Alert(
-                    title: Text("Replace Remote Display Operator?"),
-                    message: Text(remoteDisplayTakeoverMessage(for: takeover)),
-                    primaryButton: .destructive(Text("Replace")) {
-                        pendingRemoteDisplayTakeover = nil
-                        performRemoteDisplayTakeover(takeover)
-                    },
-                    secondaryButton: .cancel {
-                        pendingRemoteDisplayTakeover = nil
-                    }
-                )
-            case .logDeletion(let session):
-                return Alert(
-                    title: Text("Delete Log Session"),
-                    message: Text(logDeletionMessage(for: session)),
-                    primaryButton: .destructive(Text("Delete")) {
-                        pendingLogDeletion = nil
-                        deleteLogSession(session)
-                    },
-                    secondaryButton: .cancel {
-                        pendingLogDeletion = nil
-                    }
-                )
-            case .factoryDefault:
-                return Alert(
-                    title: Text("Factory Default App"),
-                    message: Text("This will delete all local game files, log sessions, custom webpages, roster edits, settings, integrations, and current game state."),
-                    primaryButton: .destructive(Text("Factory Default")) {
-                        isFactoryDefaultConfirmationPresented = false
-                        performFactoryDefaultReset()
-                    },
-                    secondaryButton: .cancel {
-                        isFactoryDefaultConfirmationPresented = false
-                    }
-                )
+    private var alertConfiguredRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            filePresentationConfiguredRootView
+            .alert(item: activeAlertBinding) { alert in
+                switch alert {
+                case .fileOperation(let error):
+                    return Alert(
+                        title: Text("File Error"),
+                        message: Text(error.message),
+                        dismissButton: .cancel(Text("OK")) {
+                            fileOperationError = nil
+                        }
+                    )
+                case .gameConfirmation(let action):
+                    return Alert(
+                        title: Text(gameConfirmationTitle(for: action)),
+                        message: Text(gameConfirmationMessage(for: action)),
+                        primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
+                            pendingGameConfirmation = nil
+                            performConfirmedGameAction(action)
+                        },
+                        secondaryButton: .cancel {
+                            pendingGameConfirmation = nil
+                        }
+                    )
+                case .backupRestore(let backupRestore):
+                    return Alert(
+                        title: Text("Restore Full Backup"),
+                        message: Text(backupRestoreMessage(for: backupRestore)),
+                        primaryButton: .destructive(Text("Restore")) {
+                            pendingBackupRestore = nil
+                            restoreFullBackup(backupRestore.backup)
+                        },
+                        secondaryButton: .cancel {
+                            pendingBackupRestore = nil
+                        }
+                    )
+                case .remoteDisplayTakeover(let takeover):
+                    return Alert(
+                        title: Text("Replace Remote Display Operator?"),
+                        message: Text(remoteDisplayTakeoverMessage(for: takeover)),
+                        primaryButton: .destructive(Text("Replace")) {
+                            pendingRemoteDisplayTakeover = nil
+                            performRemoteDisplayTakeover(takeover)
+                        },
+                        secondaryButton: .cancel {
+                            pendingRemoteDisplayTakeover = nil
+                        }
+                    )
+                case .logDeletion(let session):
+                    return Alert(
+                        title: Text("Delete Log Session"),
+                        message: Text(logDeletionMessage(for: session)),
+                        primaryButton: .destructive(Text("Delete")) {
+                            pendingLogDeletion = nil
+                            deleteLogSession(session)
+                        },
+                        secondaryButton: .cancel {
+                            pendingLogDeletion = nil
+                        }
+                    )
+                case .factoryDefault:
+                    return Alert(
+                        title: Text("Factory Default App"),
+                        message: Text("This will delete all local game files, log sessions, custom webpages, roster edits, settings, integrations, and current game state."),
+                        primaryButton: .destructive(Text("Factory Default")) {
+                            isFactoryDefaultConfirmationPresented = false
+                            performFactoryDefaultReset()
+                        },
+                        secondaryButton: .cancel {
+                            isFactoryDefaultConfirmationPresented = false
+                        }
+                    )
+                }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
+                refreshStoredLogSessions()
+            }
+            .sheet(isPresented: $showsGettingStarted, onDismiss: handleGettingStartedDismissed) {
+                gettingStartedSheet
+            }
+            .sheet(isPresented: $showsBunnyEasterEgg) {
+                bunnyEasterEggSheet
+            }
+            .sheet(item: $pendingPenaltySelection) { selection in
+                penaltyPlayerSelectionSheet(selection)
+            }
+            .scoreboardKeyboardShortcuts(
+                isEnabled: areLiveKeyboardShortcutsEnabled,
+                assignments: store.keyboardShortcutsByAction,
+                recordingAction: $recordingKeyboardShortcutAction,
+                recordShortcut: { action, shortcut in
+                    store.setKeyboardShortcut(shortcut, for: action)
+                },
+                performAction: performKeyboardShortcutAction
+            )
+            #if os(macOS)
+            .background(ControlBoardWindowConfigurator())
+            #endif
         }
-        .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
-            refreshStoredLogSessions()
-        }
-        .sheet(isPresented: $showsGettingStarted, onDismiss: handleGettingStartedDismissed) {
-            gettingStartedSheet
-        }
-        .sheet(isPresented: $showsBunnyEasterEgg) {
-            bunnyEasterEggSheet
-        }
-        .sheet(item: $pendingPenaltySelection) { selection in
-            penaltyPlayerSelectionSheet(selection)
-        }
-        .scoreboardKeyboardShortcuts(
-            isEnabled: areLiveKeyboardShortcutsEnabled,
-            assignments: store.keyboardShortcutsByAction,
-            recordingAction: $recordingKeyboardShortcutAction,
-            recordShortcut: { action, shortcut in
-                store.setKeyboardShortcut(shortcut, for: action)
-            },
-            performAction: performKeyboardShortcutAction
-        )
-        #if os(macOS)
-        .background(ControlBoardWindowConfigurator())
-        #endif
     }
 
     private func setupScreen(layout: InterfaceLayout) -> some View {
@@ -1018,27 +1055,32 @@ struct ContentView: View {
     }
 
     private func settingsDetailPane(layout: InterfaceLayout) -> some View {
-        Group {
-            if selectedSettingsPane == .files {
-                settingsLibraryDetailPane(layout: layout)
-            } else if selectedSettingsPane == .logs, !layout.settingsUsesCompactNavigation {
-                settingsFixedManagerDetailPane(layout: layout)
-            } else {
-                settingsScrollableDetailPane(layout: layout)
+        GeometryReader { proxy in
+            Group {
+                if selectedSettingsPane == .files {
+                    settingsLibraryDetailPane(layout: layout)
+                } else if selectedSettingsPane == .logs, !layout.settingsUsesCompactNavigation {
+                    settingsFixedManagerDetailPane(layout: layout)
+                } else {
+                    settingsScrollableDetailPane(layout: layout)
+                }
             }
+            .frame(width: max(0, proxy.size.width), height: max(0, proxy.size.height), alignment: .topLeading)
         }
         .background(settingsPalette.detailBackground)
     }
 
     private func settingsLibraryDetailPane(layout: InterfaceLayout) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
-                settingsPaneHeader(layout: layout)
-                settingsPaneIntroTip
-                settingsFilesPane(layout: layout, fillsAvailableHeight: false)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
+                    settingsPaneHeader(layout: layout)
+                    settingsPaneIntroTip
+                    settingsFilesPane(layout: layout, fillsAvailableHeight: false)
+                }
+                .padding(layout.settingsDetailPadding)
+                .frame(width: max(0, proxy.size.width), alignment: .topLeading)
             }
-            .padding(layout.settingsDetailPadding)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
@@ -1056,14 +1098,16 @@ struct ContentView: View {
     }
 
     private func settingsScrollableDetailPane(layout: InterfaceLayout) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
-                settingsPaneHeader(layout: layout)
-                settingsPaneIntroTip
-                settingsPaneContent(layout: layout)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: layout.settingsDetailSpacing) {
+                    settingsPaneHeader(layout: layout)
+                    settingsPaneIntroTip
+                    settingsPaneContent(layout: layout)
+                }
+                .padding(layout.settingsDetailPadding)
+                .frame(width: max(0, proxy.size.width), alignment: .topLeading)
             }
-            .padding(layout.settingsDetailPadding)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
@@ -2001,7 +2045,7 @@ struct ContentView: View {
         let requiresLandscape = debateDesignerRequiresLandscape(layout: layout)
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 14) {
+            settingsRowLayout {
                 Image(systemName: "square.grid.2x2")
                     .font(.title3.weight(.black))
                     .foregroundStyle(settingsPalette.accent)
@@ -2019,7 +2063,7 @@ struct ContentView: View {
                         .lineLimit(2)
                 }
 
-                Spacer(minLength: 0)
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
                 settingsCompactIconButton(
                     "Open Designer",
@@ -2755,11 +2799,11 @@ struct ContentView: View {
 
     private func settingsRosterCSVSection() -> some View {
         settingsSection(title: "Roster CSV", footer: "Import or export both team rosters in one comma-separated file.") {
-            HStack(spacing: 16) {
+            settingsRowLayout {
                 localizedAppText("Roster File")
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Spacer(minLength: 0)
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
                 HStack(spacing: 10) {
                     #if os(macOS)
@@ -3047,51 +3091,58 @@ struct ContentView: View {
         let canTest = store.canTestSoundEffect(selectedEffect)
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Image(systemName: event.systemImage)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(settingsPalette.accent)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    localizedAppText(event.title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(settingsPalette.primaryText)
-
-                    localizedAppText(event.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(settingsPalette.secondaryText)
-                }
-
-                Spacer(minLength: 0)
-
-                Picker("Sound", selection: Binding(
-                    get: { store.selectedSoundEffect(for: event, sport: sport) },
-                    set: { store.setSoundEffect($0, for: event, sport: sport) }
-                )) {
-                    ForEach(ScoreboardSoundEffect.allCases) { effect in
-                        localizedAppText(effect.title).tag(effect)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 210)
-
-                Button {
-                    store.playTestSound(event, sport: sport)
-                } label: {
-                    Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
+            settingsRowLayout {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: event.systemImage)
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(
-                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
-                            in: Capsule()
-                        )
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        localizedAppText(event.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        localizedAppText(event.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+
                 }
-                .buttonStyle(.plain)
-                .disabled(!canTest)
-                .opacity(canTest ? 1 : 0.42)
+
+                HStack(spacing: 10) {
+
+                    Picker(
+                        "Sound",
+                        selection: Binding(
+                            get: { store.selectedSoundEffect(for: event, sport: sport) },
+                            set: { store.setSoundEffect($0, for: event, sport: sport) }
+                        )
+                    ) {
+                        ForEach(ScoreboardSoundEffect.allCases) { effect in
+                            localizedAppText(effect.title).tag(effect)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 210)
+
+                    Button {
+                        store.playTestSound(event, sport: sport)
+                    } label: {
+                        Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(
+                                canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canTest)
+                    .opacity(canTest ? 1 : 0.42)
+                }
             }
 
             localizedAppText(selectedEffect.subtitle)
@@ -3106,7 +3157,7 @@ struct ContentView: View {
         let isTesting = store.isTestingSoundEffect(effect)
         let canTest = store.canTestSoundEffect(effect)
 
-        return HStack(spacing: 14) {
+        return settingsRowLayout {
             VStack(alignment: .leading, spacing: 4) {
                 localizedAppText(effect.title)
                     .font(.body.weight(.semibold))
@@ -3117,7 +3168,7 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
             }
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Button {
                 store.playTestEffect(effect)
@@ -3192,11 +3243,11 @@ struct ContentView: View {
 
     private func settingsBackupSection(layout: InterfaceLayout) -> some View {
         settingsSection(title: "App Backup", footer: "Back up or restore app settings, current game state, stored game files, and log sessions. Remote Display pairings are excluded; pair displays again after restoring on another device.") {
-            HStack(spacing: 16) {
+            settingsRowLayout {
                 localizedAppText("Full App Backup")
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Spacer(minLength: 0)
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
                 settingsBackupActions(layout: layout)
             }
@@ -3703,7 +3754,7 @@ struct ContentView: View {
             localizedAppText(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork.title)
                 .tag(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork)
         }
-        .pickerStyle(.segmented)
+        .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
     }
 
     private func settingsRemoteDisplayDisplaysSection(_ displayRows: [RemoteDisplaySettingsRow]) -> some View {
@@ -3887,12 +3938,14 @@ struct ContentView: View {
         let isInUseByOtherBoard = row.source?.isInUseByOtherOperator(currentOperatorID: store.remoteDisplayHostID) == true
         let enteredCode = row.source.map { remoteDisplayPairingCodes[$0.id] ?? "" } ?? ""
         let allowsSourceAction = row.source?.allowsNewPairing ?? false
-        let canConnect = row.source != nil
+        let canConnect =
+            row.source != nil
             && row.isTrusted
             && !row.isConnected
             && !isInUseByOtherBoard
             && allowsSourceAction
-        let canPair = row.source != nil
+        let canPair =
+            row.source != nil
             && !row.isTrusted
             && !row.isConnected
             && !isInUseByOtherBoard
@@ -3901,132 +3954,138 @@ struct ContentView: View {
         let canTestSound = row.isConnected && !row.isMuted
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 16) {
-                Image(systemName: row.deviceType.systemImage)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(remoteDisplayRowIconColor(row, isInUseByOtherBoard: isInUseByOtherBoard, hasVersionWarning: versionWarning != nil))
-                    .frame(width: 30)
+            settingsRowLayout {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: row.deviceType.systemImage)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(remoteDisplayRowIconColor(row, isInUseByOtherBoard: isInUseByOtherBoard, hasVersionWarning: versionWarning != nil))
+                        .frame(width: 30)
 
-                VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text(row.name)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(settingsPalette.primaryText)
+                                .lineLimit(1)
+
+                            Text(localizedAppString(row.deviceType.title))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(settingsPalette.secondaryText)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(settingsPalette.fieldBackground, in: Capsule())
+                        }
+
+                        Text(remoteDisplayRowStatusText(row, isInUseByOtherBoard: isInUseByOtherBoard))
+                            .font(.subheadline)
+                            .foregroundStyle(isInUseByOtherBoard ? themePalette.destructiveTint : settingsPalette.secondaryText)
+
+                        if let versionWarning {
+                            Text(versionWarning)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color.orange)
+                        }
+                    }
+                    .layoutPriority(1)
+
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+
+                    if let connection = row.connection {
+                        remoteDisplayConnectionQualityBadge(connection.quality)
+                    } else if row.isTrusted {
+                        remoteDisplayStatusBadge(remoteDisplayRowBadgeTitle(row, isInUseByOtherBoard: isInUseByOtherBoard))
+                    }
+
                     HStack(spacing: 8) {
-                        Text(row.name)
-                            .font(.body.weight(.semibold))
+                        if row.isTrusted || row.isConnected {
+                            remoteDisplayIconActionButton(
+                                row.isMuted ? "Unmute" : "Mute",
+                                systemImage: row.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                                tint: row.isMuted ? settingsPalette.accent : settingsPalette.fieldBackground,
+                                foreground: row.isMuted ? settingsPalette.accentText : settingsPalette.primaryText
+                            ) {
+                                store.setRemoteDisplayMuted(displayID: row.id, isMuted: !row.isMuted)
+                            }
+                        }
+
+                        if row.isConnected {
+                            remoteDisplayIconActionButton(
+                                "Test",
+                                systemImage: "play.fill",
+                                tint: canTestSound ? settingsPalette.accent : settingsPalette.fieldBackground,
+                                foreground: canTestSound ? settingsPalette.accentText : settingsPalette.secondaryText,
+                                isEnabled: canTestSound
+                            ) {
+                                store.sendRemoteDisplaySoundTest(displayID: row.id)
+                            }
+
+                            remoteDisplayIconActionButton(
+                                "Disconnect",
+                                systemImage: "xmark.circle",
+                                tint: themePalette.destructiveTint.opacity(0.12),
+                                foreground: themePalette.destructiveTint
+                            ) {
+                                store.disconnectRemoteDisplay(displayID: row.id)
+                            }
+                        } else if row.isTrusted, let source = row.source {
+                            remoteDisplayTextActionButton(
+                                "Connect",
+                                systemImage: "link",
+                                tint: settingsPalette.accent,
+                                foreground: settingsPalette.accentText,
+                                isEnabled: canConnect
+                            ) {
+                                requestConnectTrustedRemoteDisplay(source)
+                            }
+                        } else if let source = row.source {
+                            TextField(
+                                localizedAppString("Code"),
+                                text: remoteDisplayPairingCodeBinding(for: source)
+                            )
+                            .font(.title3.weight(.black).monospacedDigit())
+                            .multilineTextAlignment(.center)
+                            .scoreboardNumberEntry()
                             .foregroundStyle(settingsPalette.primaryText)
-                            .lineLimit(1)
+                            .textFieldStyle(.plain)
+                            .frame(width: 88)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(settingsPalette.cardBorder, lineWidth: 1)
+                            )
+                            .onSubmit {
+                                guard canPair else { return }
+                                requestPairRemoteDisplay(source, pairingCode: enteredCode)
+                            }
+                            .disabled(isInUseByOtherBoard)
 
-                        Text(localizedAppString(row.deviceType.title))
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(settingsPalette.secondaryText)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(settingsPalette.fieldBackground, in: Capsule())
-                    }
+                            remoteDisplayTextActionButton(
+                                "Pair",
+                                systemImage: "key.fill",
+                                tint: settingsPalette.accent,
+                                foreground: settingsPalette.accentText,
+                                isEnabled: canPair
+                            ) {
+                                requestPairRemoteDisplay(source, pairingCode: enteredCode)
+                            }
+                        }
 
-                    Text(remoteDisplayRowStatusText(row, isInUseByOtherBoard: isInUseByOtherBoard))
-                        .font(.subheadline)
-                        .foregroundStyle(isInUseByOtherBoard ? themePalette.destructiveTint : settingsPalette.secondaryText)
-
-                    if let versionWarning {
-                        Text(versionWarning)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.orange)
-                    }
-                }
-                .layoutPriority(1)
-
-                Spacer(minLength: 0)
-
-                if let connection = row.connection {
-                    remoteDisplayConnectionQualityBadge(connection.quality)
-                } else if row.isTrusted {
-                    remoteDisplayStatusBadge(remoteDisplayRowBadgeTitle(row, isInUseByOtherBoard: isInUseByOtherBoard))
-                }
-
-                if row.isTrusted || row.isConnected {
-                    remoteDisplayIconActionButton(
-                        row.isMuted ? "Unmute" : "Mute",
-                        systemImage: row.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                        tint: row.isMuted ? settingsPalette.accent : settingsPalette.fieldBackground,
-                        foreground: row.isMuted ? settingsPalette.accentText : settingsPalette.primaryText
-                    ) {
-                        store.setRemoteDisplayMuted(displayID: row.id, isMuted: !row.isMuted)
-                    }
-                }
-
-                if row.isConnected {
-                    remoteDisplayIconActionButton(
-                        "Test",
-                        systemImage: "play.fill",
-                        tint: canTestSound ? settingsPalette.accent : settingsPalette.fieldBackground,
-                        foreground: canTestSound ? settingsPalette.accentText : settingsPalette.secondaryText,
-                        isEnabled: canTestSound
-                    ) {
-                        store.sendRemoteDisplaySoundTest(displayID: row.id)
-                    }
-
-                    remoteDisplayIconActionButton(
-                        "Disconnect",
-                        systemImage: "xmark.circle",
-                        tint: themePalette.destructiveTint.opacity(0.12),
-                        foreground: themePalette.destructiveTint
-                    ) {
-                        store.disconnectRemoteDisplay(displayID: row.id)
-                    }
-                } else if row.isTrusted, let source = row.source {
-                    remoteDisplayTextActionButton(
-                        "Connect",
-                        systemImage: "link",
-                        tint: settingsPalette.accent,
-                        foreground: settingsPalette.accentText,
-                        isEnabled: canConnect
-                    ) {
-                        requestConnectTrustedRemoteDisplay(source)
-                    }
-                } else if let source = row.source {
-                    TextField(
-                        localizedAppString("Code"),
-                        text: remoteDisplayPairingCodeBinding(for: source)
-                    )
-                    .font(.title3.weight(.black).monospacedDigit())
-                    .multilineTextAlignment(.center)
-                    .scoreboardNumberEntry()
-                    .foregroundStyle(settingsPalette.primaryText)
-                    .textFieldStyle(.plain)
-                    .frame(width: 88)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(settingsPalette.cardBorder, lineWidth: 1)
-                    )
-                    .onSubmit {
-                        guard canPair else { return }
-                        requestPairRemoteDisplay(source, pairingCode: enteredCode)
-                    }
-                    .disabled(isInUseByOtherBoard)
-
-                    remoteDisplayTextActionButton(
-                        "Pair",
-                        systemImage: "key.fill",
-                        tint: settingsPalette.accent,
-                        foreground: settingsPalette.accentText,
-                        isEnabled: canPair
-                    ) {
-                        requestPairRemoteDisplay(source, pairingCode: enteredCode)
-                    }
-                }
-
-                if row.isTrusted {
-                    remoteDisplayIconActionButton(
-                        "Remove",
-                        systemImage: "trash",
-                        tint: themePalette.destructiveTint.opacity(0.12),
-                        foreground: themePalette.destructiveTint
-                    ) {
-                        store.removeRemoteDisplayPairing(displayID: row.id)
+                        if row.isTrusted {
+                            remoteDisplayIconActionButton(
+                                "Remove",
+                                systemImage: "trash",
+                                tint: themePalette.destructiveTint.opacity(0.12),
+                                foreground: themePalette.destructiveTint
+                            ) {
+                                store.removeRemoteDisplayPairing(displayID: row.id)
+                            }
+                        }
                     }
                 }
             }
@@ -4038,14 +4097,14 @@ struct ContentView: View {
                         remoteDisplayCustomDisplayIDPicker(row)
                     }
                 }
-                    .padding(.leading, 46)
+                .padding(.leading, usesStackedSettingsRows ? 0 : 46)
             }
         }
         .padding(.vertical, 12)
     }
 
     private func remoteDisplayDirectionControls(_ row: RemoteDisplaySettingsRow) -> some View {
-        HStack(spacing: 10) {
+        settingsRowLayout {
             remoteDisplayDirectionPicker(
                 title: "Remote Display",
                 selection: Binding(
@@ -4068,7 +4127,7 @@ struct ContentView: View {
     }
 
     private func remoteDisplayCustomDisplayIDPicker(_ row: RemoteDisplaySettingsRow) -> some View {
-        HStack(spacing: 8) {
+        settingsRowLayout {
             Text(localizedAppString("Display ID"))
                 .font(.caption.weight(.bold))
                 .foregroundStyle(settingsPalette.secondaryText)
@@ -4097,7 +4156,7 @@ struct ContentView: View {
         title: String,
         selection: Binding<ScoreboardDisplayDirection>
     ) -> some View {
-        HStack(spacing: 8) {
+        settingsRowLayout {
             Text(localizedAppString(title))
                 .font(.caption.weight(.bold))
                 .foregroundStyle(settingsPalette.secondaryText)
@@ -4539,11 +4598,11 @@ struct ContentView: View {
     }
 
     private func settingsCompanionPortRow() -> some View {
-        return HStack(spacing: 16) {
+        return settingsRowLayout {
             localizedAppText("Port")
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             DeferredSettingsTextField(
                 placeholder: "Port",
@@ -4554,7 +4613,7 @@ struct ContentView: View {
                 focusID: "companion-port",
                 focusedField: $focusedSettingsTextFieldID
             )
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(usesStackedSettingsRows ? .leading : .trailing)
                 .autocorrectionDisabled()
                 .scoreboardNumberEntry()
                 .monospacedDigit()
@@ -4574,68 +4633,71 @@ struct ContentView: View {
         let validationMessage = location == nil ? ScoreboardCompanionLocation.validationMessage(for: locationText) : nil
         let normalizedLocation = location?.rawValue
         let hasAssignment = !trimmedLocationText.isEmpty
-        let canTest = store.isCompanionVisible &&
-            store.isCompanionEnabled &&
-            !store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            location != nil
+        let canTest =
+            store.isCompanionVisible && store.isCompanionEnabled && !store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && location != nil
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Image(systemName: event.systemImage)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(settingsPalette.accent)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    localizedAppText(event.title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(settingsPalette.primaryText)
-
-                    localizedAppText(event.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(settingsPalette.secondaryText)
-                }
-                .layoutPriority(1)
-
-                Spacer(minLength: 0)
-
-                DeferredSettingsTextField(
-                    placeholder: "1:0:2",
-                    text: Binding(
-                        get: { store.companionLocationDisplayText(for: event, sport: sport) },
-                        set: { store.setCompanionLocationDisplayText($0, for: event, sport: sport) }
-                    ),
-                    focusID: "companion-location-\(sport.rawValue)-\(event.rawValue)",
-                    focusedField: $focusedSettingsTextFieldID
-                )
-                .font(.headline.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .autocorrectionDisabled()
-                .scoreboardNumberEntry()
-                .monospacedDigit()
-                .foregroundStyle(settingsPalette.primaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .frame(width: 128)
-
-                Button {
-                    store.testCompanionCommand(for: event, sport: sport)
-                } label: {
-                    Image(systemName: "paperplane.fill")
+            settingsRowLayout {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: event.systemImage)
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
-                            in: Circle()
-                        )
+                        .foregroundStyle(settingsPalette.accent)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        localizedAppText(event.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(settingsPalette.primaryText)
+
+                        localizedAppText(event.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(settingsPalette.secondaryText)
+                    }
+                    .layoutPriority(1)
+
                 }
-                .buttonStyle(.plain)
-                .disabled(!canTest)
-                .opacity(canTest ? 1 : 0.42)
-                .accessibilityLabel(localizedAppString("Test Companion command"))
-                .help(localizedAppString("Test Companion command"))
+
+                HStack(spacing: 10) {
+
+                    DeferredSettingsTextField(
+                        placeholder: "1:0:2",
+                        text: Binding(
+                            get: { store.companionLocationDisplayText(for: event, sport: sport) },
+                            set: { store.setCompanionLocationDisplayText($0, for: event, sport: sport) }
+                        ),
+                        focusID: "companion-location-\(sport.rawValue)-\(event.rawValue)",
+                        focusedField: $focusedSettingsTextFieldID
+                    )
+                    .font(.headline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .autocorrectionDisabled()
+                    .scoreboardNumberEntry()
+                    .monospacedDigit()
+                    .foregroundStyle(settingsPalette.primaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+                    .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(width: 128)
+
+                    Button {
+                        store.testCompanionCommand(for: event, sport: sport)
+                    } label: {
+                        Image(systemName: "paperplane.fill")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
+                            .frame(width: 40, height: 40)
+                            .background(
+                                canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
+                                in: Circle()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canTest)
+                    .opacity(canTest ? 1 : 0.42)
+                    .accessibilityLabel(localizedAppString("Test Companion command"))
+                    .help(localizedAppString("Test Companion command"))
+                }
             }
 
             if let validationMessage {
@@ -4660,11 +4722,11 @@ struct ContentView: View {
 
     private func settingsWebAPIUpdateModeRow() -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 16) {
+            settingsRowLayout {
                 localizedAppText("Update Mode")
                     .foregroundStyle(settingsPalette.primaryText)
 
-                Spacer(minLength: 0)
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
                 Picker("Update Mode", selection: Binding(
                     get: { store.webAPIUpdateMode },
@@ -4674,7 +4736,7 @@ struct ContentView: View {
                         localizedAppText(mode.title).tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
                 .frame(maxWidth: 360)
             }
 
@@ -4702,16 +4764,16 @@ struct ContentView: View {
     }
 
     private func settingsWebAPIIntegrationURLRow() -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        settingsRowLayout {
             localizedAppText("Integration URL")
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Text(webAPIIntegrationURL)
                 .font(.footnote.monospaced())
                 .foregroundStyle(settingsPalette.secondaryText)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(usesStackedSettingsRows ? .leading : .trailing)
                 .textSelection(.enabled)
         }
         .padding(.vertical, 10)
@@ -5357,7 +5419,7 @@ struct ContentView: View {
     }
 
     private var settingsGameFileManagerToolbar: some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
             settingsToolbarIconButton("Duplicate Current Setup", systemImage: "doc.on.doc", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
                 createStoredGameFromDraft()
             }
@@ -5390,7 +5452,7 @@ struct ContentView: View {
     }
 
     private var settingsSelectedGameFileToolbar: some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
             settingsToolbarIconButton("Open", systemImage: "folder", isEnabled: selectedStoredGameFile != nil) {
                 openSelectedStoredGame()
             }
@@ -5614,7 +5676,7 @@ struct ContentView: View {
     }
 
     private var settingsLogSessionManagerToolbar: some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
             settingsToolbarIconButton(isSelectingLogSessions ? "Done" : "Select", systemImage: isSelectingLogSessions ? "checkmark.circle.fill" : "checkmark.circle") {
                 toggleLogSessionSelectionMode()
             }
@@ -5639,7 +5701,7 @@ struct ContentView: View {
     }
 
     private var settingsLogPlaybackToolbar: some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
             settingsToolbarIconMenu("Export", systemImage: "square.and.arrow.up", isEnabled: selectedStoredLogSession != nil) {
                 #if os(macOS)
                 Menu {
@@ -5875,18 +5937,18 @@ struct ContentView: View {
     }
 
     private var settingsLogPlaybackControls: some View {
-        return HStack(spacing: 16) {
+        return settingsRowLayout {
             Text("View")
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Picker("Log View", selection: $logPlaybackOrder) {
                 ForEach(LogPlaybackOrder.allCases) { order in
                     localizedAppText(order.title).tag(order)
                 }
             }
-            .pickerStyle(.segmented)
+            .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
             .frame(maxWidth: 320)
         }
         .padding(.vertical, 10)
@@ -5978,12 +6040,12 @@ struct ContentView: View {
             }
         )
 
-        return HStack(spacing: 16) {
+        return settingsRowLayout {
             localizedAppText(title)
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             DeferredSettingsTextField(
                 placeholder: localizedAppString(placeholder ?? title),
@@ -5992,13 +6054,13 @@ struct ContentView: View {
                 focusedField: $focusedSettingsTextFieldID
             )
                 .scoreboardUppercaseEntry()
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(usesStackedSettingsRows ? .leading : .trailing)
                 .autocorrectionDisabled()
                 .foregroundStyle(settingsPalette.primaryText)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .frame(maxWidth: 280)
+                .frame(maxWidth: usesStackedSettingsRows ? .infinity : 280)
         }
         .padding(.vertical, 10)
     }
@@ -6009,12 +6071,12 @@ struct ContentView: View {
         placeholder: String? = nil,
         focusID: String? = nil
     ) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             DeferredSettingsTextField(
                 placeholder: localizedAppString(placeholder ?? title),
@@ -6022,14 +6084,14 @@ struct ContentView: View {
                 focusID: focusID ?? "settings-plain-text-entry-\(title)-\(placeholder ?? "")",
                 focusedField: $focusedSettingsTextFieldID
             )
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(usesStackedSettingsRows ? .leading : .trailing)
                 .autocorrectionDisabled()
                 .scoreboardPlainTextEntry()
                 .foregroundStyle(settingsPalette.primaryText)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .frame(maxWidth: 280)
+                .frame(maxWidth: usesStackedSettingsRows ? .infinity : 280)
         }
         .padding(.vertical, 10)
     }
@@ -6040,11 +6102,11 @@ struct ContentView: View {
         decrement: @escaping () -> Void,
         increment: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Text(value)
                 .font(.body.weight(.semibold))
@@ -6061,6 +6123,7 @@ struct ContentView: View {
         Toggle(isOn: isOn) {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .toggleStyle(.switch)
         .padding(.vertical, 10)
@@ -6071,19 +6134,19 @@ struct ContentView: View {
         options: [(String, Int)],
         selection: Binding<Int>
     ) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Picker(localizedAppString(title), selection: selection) {
                 ForEach(options, id: \.1) { option in
                     localizedAppText(option.0).tag(option.1)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 280)
+            .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
+            .frame(maxWidth: usesStackedSettingsRows ? .infinity : 280)
         }
         .padding(.vertical, 10)
     }
@@ -6106,7 +6169,7 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
                 ForEach(options, id: \.1) { option in
                     let isSelected = selection.wrappedValue == option.1
                     Button {
@@ -6138,11 +6201,11 @@ struct ContentView: View {
         options: [Option],
         label: @escaping (Option) -> String
     ) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Picker(localizedAppString(title), selection: selection) {
                 ForEach(options, id: \.self) { option in
@@ -6521,7 +6584,7 @@ struct ContentView: View {
                 }
             }
 
-            HStack(spacing: 12) {
+            settingsRowLayout {
                 DeferredSettingsTextField(
                     placeholder: "No.",
                     text: Binding(
@@ -6598,11 +6661,11 @@ struct ContentView: View {
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
 
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Button(action: action) {
                 localizedAppText(buttonTitle)
@@ -6641,13 +6704,13 @@ struct ContentView: View {
     }
 
     private func settingsSummaryValueRow(title: String, value: String) -> some View {
-        HStack(spacing: 16) {
+        settingsRowLayout {
             localizedAppText(title)
                 .foregroundStyle(settingsPalette.primaryText)
-            Spacer(minLength: 0)
+            if !usesStackedSettingsRows { Spacer(minLength: 0) }
             Text(verbatim: localizedAppString(value))
                 .foregroundStyle(settingsPalette.secondaryText)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(usesStackedSettingsRows ? .leading : .trailing)
         }
         .padding(.vertical, 10)
     }
@@ -6935,7 +6998,7 @@ struct ContentView: View {
     }
 
     private func animatedLogoOpacitySlider() -> some View {
-        HStack(spacing: 12) {
+        settingsRowLayout {
             localizedAppText("Logo Opacity")
                 .foregroundStyle(settingsPalette.primaryText)
 
@@ -14579,6 +14642,15 @@ private struct InterfaceLayout {
 }
 
 private extension View {
+    @ViewBuilder
+    func scoreboardSettingsPickerStyle(stacked: Bool) -> some View {
+        if stacked {
+            self.pickerStyle(.menu)
+        } else {
+            self.pickerStyle(.segmented)
+        }
+    }
+
     func singleLineFitted(minScale: CGFloat = 0.55) -> some View {
         lineLimit(1)
             .minimumScaleFactor(minScale)

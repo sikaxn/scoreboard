@@ -4,14 +4,16 @@ import SwiftUI
 /// Calling a view helper (or wrapping its result in AnyView) still constructs
 /// the child on the parent's stack. Deep settings builders exhausted the
 /// device's main-thread stack, so keep large sections behind a body boundary.
-struct ScoreboardViewBoundary<Content: View>: View {
-    private let content: () -> Content
+struct ScoreboardViewBoundary: View {
+    private let content: () -> AnyView
 
-    init(@ViewBuilder content: @escaping () -> Content) {
-        self.content = content
+    init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
+        // Erase the child type without eagerly evaluating its builder. The
+        // boundary's type must not expand into ContentView's opaque root chain.
+        self.content = { AnyView(content()) }
     }
 
-    var body: some View {
+    var body: AnyView {
         content()
     }
 }
