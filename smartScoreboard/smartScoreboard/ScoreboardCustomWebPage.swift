@@ -2,12 +2,12 @@ import Foundation
 import UniformTypeIdentifiers
 
 #if ENABLE_CUSTOM_USER_PAGE
-struct ScoreboardCustomWebPageHTTPResponse: Sendable {
+nonisolated struct ScoreboardCustomWebPageHTTPResponse: Sendable {
     let contentType: String
     let body: Data
 }
 
-enum ScoreboardCustomWebPageError: LocalizedError {
+nonisolated enum ScoreboardCustomWebPageError: LocalizedError {
     case invalidName(String)
     case invalidPath(String)
 
@@ -21,7 +21,7 @@ enum ScoreboardCustomWebPageError: LocalizedError {
     }
 }
 
-enum ScoreboardCustomWebPage {
+nonisolated enum ScoreboardCustomWebPage {
     private static let directoryName = ScoreboardFileStorage.customWebPageDirectoryName
     private static let indexFilename = "index.html"
 

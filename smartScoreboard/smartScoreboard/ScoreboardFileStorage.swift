@@ -12,7 +12,7 @@ struct ScoreboardFileMigrationResult: Sendable, Equatable {
     var totalFiles: Int
 }
 
-enum ScoreboardFileStorage {
+nonisolated enum ScoreboardFileStorage {
     static let filesAppContainerName = "Scoreboard"
     static let gameLibraryDirectoryName = "Library"
     static let logsDirectoryName = "Logs"
@@ -41,9 +41,7 @@ enum ScoreboardFileStorage {
         progress: (@MainActor @Sendable (ScoreboardFileMigrationProgress) -> Void)? = nil
     ) async throws -> ScoreboardFileMigrationResult {
         #if os(iOS)
-        return try await Task.detached(priority: .utility) {
-            try await migrateLegacyFilesToUserVisibleStorageSynchronously(progress: progress)
-        }.value
+        return try await migrateLegacyFilesToUserVisibleStorageInBackground(progress: progress)
         #else
         return ScoreboardFileMigrationResult(migratedFiles: 0, failedFiles: 0, totalFiles: 0)
         #endif
@@ -91,7 +89,8 @@ enum ScoreboardFileStorage {
         var destinationDirectory: URL
     }
 
-    private static func migrateLegacyFilesToUserVisibleStorageSynchronously(
+    // Keep disk migration off the main actor; only progress updates hop to the UI.
+    @concurrent private static func migrateLegacyFilesToUserVisibleStorageInBackground(
         progress: (@MainActor @Sendable (ScoreboardFileMigrationProgress) -> Void)?
     ) async throws -> ScoreboardFileMigrationResult {
         let specs = [

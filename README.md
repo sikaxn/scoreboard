@@ -16,6 +16,8 @@ Scoreboard turns your iPhone, iPad, or Mac into a flexible, easy-to-control scor
 
 Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, soccer injury time, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
 
+Choose **Local Display → Full Screen** for a presentation display, or **Merged View (Beta)** to operate the game and watch the scoreboard in the same window. The combined view keeps the scoreboard above compact, scrollable controls in both orientations, adapting the control columns to iPhone, iPad, and Mac window sizes.
+
 Built-in presets include Simple, Basketball, Volleyball, Soccer, Hockey, Chess, Debate, and Custom Sport modes. Debate supports Public Forum, Lincoln-Douglas, Policy, and custom round formats.
 
 Apple TV can be used in two ways. You can AirPlay from the operator device to Apple TV without installing the Apple TV app, because AirPlay is treated like an external display. Or you can install Scoreboard on Apple TV and use it as a Remote Display. Apple TV Remote Display is display-only: it does not run the operator board, edit game setup, manage files, or control the score. Use an iPhone, iPad, or Mac to run the game, then pair Apple TV to show the live public scoreboard.
@@ -66,10 +68,16 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 
 ## Localization Notes
 
+- Dynamic string wrappers use `ScoreboardLocalization` to read an immutable cache of the compiled `Localizable.strings` table, with the app's preferred language, development-language fallback, and the original key for missing entries. Keep runtime names and already-formatted messages as verbatim text.
+- This lookup supports the catalog's current flat `stringUnit` entries. Plural or device variations require extending the resolver before adding them; the catalog check rejects unsupported entries.
 - Use the local wrapper functions (`localizedAppText`, `localizedAppFormat`, and the matching store/display wrappers) instead of raw `Text(LocalizedStringKey(...))` or direct localized `String(format:)` calls.
 - Treat runtime strings, user-entered names, generated titles, and already-formatted strings as resolved text. Localize them first, then render with `Text(verbatim:)` so SwiftUI does not reinterpret them as localization keys during view rendering.
 - Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
 - The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
+
+Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 scripts/check_localization.py` on macOS to validate translated placeholders and exercise the app's formatter, including debate labels and custom text with percent signs. Also check Debate and Custom Sport settings in English and Simplified Chinese on a simulator when changing settings or localization code.
+
+Use `python3 scripts/check_localization.py --catalog-only` to check catalog structure and placeholders without compiling or running Swift.
 
 ## Project Structure
 

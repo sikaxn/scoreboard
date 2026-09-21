@@ -168,7 +168,7 @@ enum ScoreboardRosterCSV {
         return TeamRoster(players: players)
     }
 
-    private static func escapedField(_ value: String) -> String {
+    nonisolated private static func escapedField(_ value: String) -> String {
         let needsQuotes = value.contains(",") ||
             value.contains("\"") ||
             value.contains("\n") ||

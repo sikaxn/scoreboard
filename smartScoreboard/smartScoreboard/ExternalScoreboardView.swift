@@ -4,6 +4,7 @@ import AppKit
 #endif
 
 struct ExternalScoreboardView: View {
+    var configuresPublicWindow = true
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
 
@@ -13,7 +14,7 @@ struct ExternalScoreboardView: View {
             playerViewRosterScope: .fullRoster,
             theme: store.theme,
             backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
-            backgroundImage: store.externalDisplayBackgroundImage.map(PublicScoreboardBackgroundImage.init(image:)),
+            backgroundImage: store.externalDisplayBackgroundImage.map { PublicScoreboardBackgroundImage(image: $0) },
             animatedLogoStyle: store.externalDisplayAnimatedLogoStyle,
             animatedLogoBackgroundColor: store.externalDisplayAnimatedLogoBackgroundColor,
             animatedLogoSpeed: store.externalDisplayAnimatedLogoSpeed,
@@ -87,11 +88,15 @@ struct ExternalScoreboardView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
-        .background(PublicBoardWindowConfigurator(
-            backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
-            displayViewMode: store.publicDisplayViewMode,
-            fullscreenRequestID: publicBoardState.fullscreenRequestID
-        ))
+        .background {
+            if configuresPublicWindow {
+                PublicBoardWindowConfigurator(
+                    backgroundMode: store.externalDisplayBackgroundMode.resolvedForRendering,
+                    displayViewMode: store.publicDisplayViewMode,
+                    fullscreenRequestID: publicBoardState.fullscreenRequestID
+                )
+            }
+        }
         #endif
     }
 

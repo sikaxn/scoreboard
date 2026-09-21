@@ -12,7 +12,7 @@ nonisolated private func localizedKeyboardString(_ key: String) -> String {
         return ""
     }
 
-    return NSLocalizedString(key, comment: "")
+    return ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedKeyboardFormat(_ key: String, _ arguments: Any...) -> String {
@@ -23,7 +23,7 @@ nonisolated private func localizedKeyboardText(_ key: String) -> Text {
     Text(verbatim: localizedKeyboardString(key))
 }
 
-struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendable {
+nonisolated struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendable {
     let rawValue: Int
 
     static let command = ScoreboardKeyboardShortcutModifiers(rawValue: 1 << 0)
@@ -41,7 +41,7 @@ struct ScoreboardKeyboardShortcutModifiers: OptionSet, Codable, Hashable, Sendab
     }
 }
 
-struct ScoreboardKeyboardShortcut: Codable, Hashable, Sendable {
+nonisolated struct ScoreboardKeyboardShortcut: Codable, Hashable, Sendable {
     var key: String
     var modifiers: ScoreboardKeyboardShortcutModifiers
 
@@ -956,7 +956,11 @@ struct KeyboardShortcutSettingsPane: View {
         shortcut: ScoreboardKeyboardShortcut?,
         isRecording: Bool
     ) -> some View {
-        HStack(spacing: 8) {
+        let arrangement = usesVerticalLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+
+        return arrangement {
             Text(verbatim: shortcut?.displayTitle ?? localizedKeyboardString("Unassigned"))
                 .font(.system(.callout, design: .monospaced).weight(.semibold))
                 .foregroundStyle(shortcut == nil ? palette.secondaryText : palette.primaryText)

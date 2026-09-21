@@ -10,7 +10,7 @@ import SystemConfiguration
 #endif
 
 private func localizedRemoteDisplayString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 private func localizedRemoteDisplayFormat(_ key: String, _ arguments: Any...) -> String {
@@ -1911,7 +1911,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             guard let connection = displayConnectionsByEndpoint[endpoint]?.connection else {
                 continue
             }
-            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { error in
+            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { [weak self] error in
                 if let error {
                     Task { @MainActor [weak self] in
                         self?.handleDroppedConnection(endpoint: endpoint, error: error)

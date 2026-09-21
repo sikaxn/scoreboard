@@ -289,7 +289,7 @@ nonisolated func scoreboardLocalizedFormat(_ format: String, locale: Locale = .c
 }
 
 nonisolated private func localizedStoreString(_ key: String) -> String {
-    NSLocalizedString(key, comment: "")
+    ScoreboardLocalization.string(key)
 }
 
 nonisolated private func localizedStoreFormat(_ key: String, _ arguments: Any...) -> String {
@@ -419,7 +419,7 @@ struct VolleyballSetResult: Codable, Equatable, Identifiable, Sendable {
     var id: Int { setNumber }
 }
 
-enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Sendable {
+nonisolated enum ScoreboardDisplayDirection: String, Codable, CaseIterable, Identifiable, Sendable {
     case homeLeft
     case guestLeft
 
@@ -5106,7 +5106,7 @@ final class ScoreboardStore: ObservableObject {
             mode: companionMode,
             location: location
         ) { [weak self] result in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.handleCompanionSendResult(result)
             }
         }
@@ -5829,7 +5829,7 @@ final class ScoreboardStore: ObservableObject {
             updateMode: webAPIUpdateMode,
             imageResponses: currentWebAPIImageResponses()
         ) { [weak self] status in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.webAPIStatus = status
                 self.webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
