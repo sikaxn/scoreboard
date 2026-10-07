@@ -1581,7 +1581,6 @@ struct ScoreboardFaceView: View {
                     .frame(width: playerLineupFoulWidth(ultraCondensed: ultraCondensed, condensed: condensed, style: style) * scale, alignment: .trailing)
             }
         }
-        .scaleEffect(player.cardStatus != .none || player.foulCount > 0 ? 1.02 : 1)
         .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.cardStatus)
         .animation(.spring(response: 0.24, dampingFraction: 0.72), value: player.foulCount)
         .transition(.asymmetric(

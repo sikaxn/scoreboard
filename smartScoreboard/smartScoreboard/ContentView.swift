@@ -160,7 +160,7 @@ struct ContentView: View {
     }
     private var usesStackedSettingsRows: Bool {
         #if os(iOS)
-        isIPhoneInterface || horizontalSizeClass == .compact
+        horizontalSizeClass == .compact || (horizontalSizeClass == nil && isIPhoneInterface)
         #else
         false
         #endif
@@ -297,10 +297,34 @@ struct ContentView: View {
 
     private var rootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
-            GeometryReader { proxy in
-                let layout = InterfaceLayout(size: proxy.size)
-                contentRoot(layout: layout)
+            #if os(iOS) && compiler(>=6.4)
+            if #available(iOS 27.1, *) {
+                NavigationStack {
+                    ScoreboardAdaptiveToolbar(
+                        isEnabled: !showsLocalScoreboard && !store.isRemoteDisplayViewerModeEnabled
+                    ) { usesVerticalToolbar in
+                        rootContent(usesVerticalToolbar: usesVerticalToolbar)
+                    } actions: {
+                        if showsSetup {
+                            settingsToolbarActions
+                        } else {
+                            dashboardToolbarActions
+                        }
+                    }
+                }
+            } else {
+                rootContent()
             }
+            #else
+            rootContent()
+            #endif
+        }
+    }
+
+    private func rootContent(usesVerticalToolbar: Bool = false) -> some View {
+        GeometryReader { proxy in
+            let layout = InterfaceLayout(size: proxy.size, usesVerticalToolbar: usesVerticalToolbar)
+            contentRoot(layout: layout)
         }
     }
 
@@ -843,7 +867,9 @@ struct ContentView: View {
         if usesCompactNavigation {
             shellContent = AnyView(
                 VStack(spacing: 0) {
-                    settingsCompactNavigationBar(layout: layout, showsSidebarToggle: !layout.settingsUsesCompactNavigation)
+                    if !layout.usesVerticalToolbar || !layout.settingsUsesCompactNavigation {
+                        settingsCompactNavigationBar(layout: layout, showsSidebarToggle: !layout.settingsUsesCompactNavigation)
+                    }
 
                     settingsDetailPane(layout: layout)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -899,17 +925,19 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             VStack(spacing: 10) {
-                Button {
-                    openSetupGame()
-                } label: {
-                    localizedAppText(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(settingsPalette.secondaryButtonText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(settingsPalette.secondaryButtonBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                if !layout.usesVerticalToolbar {
+                    Button {
+                        openSetupGame()
+                    } label: {
+                        localizedAppText(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(settingsPalette.secondaryButtonText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(settingsPalette.secondaryButtonBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -5354,6 +5382,7 @@ struct ContentView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     toolbar()
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .frame(maxWidth: 220, alignment: .trailing)
             }
@@ -5419,7 +5448,7 @@ struct ContentView: View {
     }
 
     private var settingsGameFileManagerToolbar: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             settingsToolbarIconButton("Duplicate Current Setup", systemImage: "doc.on.doc", tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
                 createStoredGameFromDraft()
             }
@@ -5452,7 +5481,7 @@ struct ContentView: View {
     }
 
     private var settingsSelectedGameFileToolbar: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             settingsToolbarIconButton("Open", systemImage: "folder", isEnabled: selectedStoredGameFile != nil) {
                 openSelectedStoredGame()
             }
@@ -5676,7 +5705,7 @@ struct ContentView: View {
     }
 
     private var settingsLogSessionManagerToolbar: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             settingsToolbarIconButton(isSelectingLogSessions ? "Done" : "Select", systemImage: isSelectingLogSessions ? "checkmark.circle.fill" : "checkmark.circle") {
                 toggleLogSessionSelectionMode()
             }
@@ -5701,7 +5730,7 @@ struct ContentView: View {
     }
 
     private var settingsLogPlaybackToolbar: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             settingsToolbarIconMenu("Export", systemImage: "square.and.arrow.up", isEnabled: selectedStoredLogSession != nil) {
                 #if os(macOS)
                 Menu {
@@ -7504,47 +7533,48 @@ struct ContentView: View {
     private func dashboard(layout: InterfaceLayout) -> some View {
         Group {
             if showsScoreboardWithControls {
-                scoreboardWithControls()
+                scoreboardWithControls(usesVerticalToolbar: layout.usesVerticalToolbar)
             } else {
                 dashboardContent(layout: layout)
             }
         }
     }
 
-    private func scoreboardWithControls() -> some View {
+    private func scoreboardWithControls(usesVerticalToolbar: Bool) -> some View {
         GeometryReader { proxy in
-            let headerLayout = InterfaceLayout(size: proxy.size, isCombinedDisplay: true)
+            let headerLayout = InterfaceLayout(size: proxy.size, isCombinedDisplay: true, usesVerticalToolbar: usesVerticalToolbar)
 
             VStack(spacing: 8) {
                 if !isDashboardHeaderHidden {
                     ScoreboardViewBoundary {
-                        mergedViewHeader(layout: headerLayout)
+                        if usesVerticalToolbar {
+                            externalDisplayHeaderStatusBadge(layout: headerLayout)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            mergedViewHeader(layout: headerLayout)
+                        }
                     }
                 }
 
                 GeometryReader { contentProxy in
-                    let spacing: CGFloat = 8
-                    let isLandscape = contentProxy.size.width > contentProxy.size.height
-                    let boardWidth = contentProxy.size.width
-                    let boardHeight = min(boardWidth * 9 / 16, contentProxy.size.height * (isLandscape ? 0.55 : 0.38))
-                    let controlSize = CGSize(
-                        width: contentProxy.size.width,
-                        height: max(0, contentProxy.size.height - boardHeight - spacing)
-                    )
-                    let paneLayout = InterfaceLayout(size: controlSize, isCombinedDisplay: true)
+                    let panes = mergedDisplayPanes(in: contentProxy)
+                    let paneLayout = InterfaceLayout(size: panes.controls.size, isCombinedDisplay: true)
 
-                    VStack(spacing: spacing) {
+                    ZStack(alignment: .topLeading) {
                         embeddedLocalScoreboard()
-                            .frame(width: boardWidth, height: boardHeight)
+                            .frame(width: panes.board.width, height: panes.board.height)
+                            .offset(x: panes.board.minX, y: panes.board.minY)
                         ScoreboardViewBoundary {
                             controlPane(layout: paneLayout)
                         }
-                        .frame(width: controlSize.width, height: controlSize.height)
+                        .frame(width: panes.controls.width, height: panes.controls.height)
+                        .offset(x: panes.controls.minX, y: panes.controls.minY)
                     }
+                    .frame(width: contentProxy.size.width, height: contentProxy.size.height, alignment: .topLeading)
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if isDashboardHeaderHidden {
+                if isDashboardHeaderHidden && !usesVerticalToolbar {
                     showDashboardHeaderButton(layout: headerLayout)
                         .padding(6)
                 }
@@ -7558,6 +7588,36 @@ struct ContentView: View {
         .onDisappear {
             AppSleepPrevention.setReason(.scoreboardWithControlsVisible, active: false)
         }
+    }
+
+    private func mergedDisplayPanes(in proxy: GeometryProxy) -> (board: CGRect, controls: CGRect) {
+        let bounds = CGRect(origin: .zero, size: proxy.size)
+        let spacing: CGFloat = 8
+        #if os(iOS) && compiler(>=6.4)
+        if #available(iOS 27.1, *) {
+            // The system frame already includes the clearance margins around the crease.
+            // Only a horizontal fold needs the scoreboard above and controls below it.
+            for region in proxy.reservedRegions(kind: .division, layoutDirectionBehavior: .fixed) where region.isActive {
+                let fold = region.frame
+                guard fold.width > fold.height,
+                      fold.midY > 0, fold.midY < bounds.height,
+                      fold.maxX > 0, fold.minX < bounds.width else { continue }
+                let topEnd = max(0, fold.minY - spacing / 2)
+                let bottomStart = min(bounds.height, fold.maxY + spacing / 2)
+                return (
+                    CGRect(x: 0, y: 0, width: bounds.width, height: topEnd),
+                    CGRect(x: 0, y: bottomStart, width: bounds.width, height: bounds.height - bottomStart)
+                )
+            }
+        }
+        #endif
+        let isLandscape = bounds.width > bounds.height
+        let boardHeight = min(bounds.width * 9 / 16, bounds.height * (isLandscape ? 0.55 : 0.38))
+        let controlsStart = boardHeight + spacing
+        return (
+            CGRect(x: 0, y: 0, width: bounds.width, height: boardHeight),
+            CGRect(x: 0, y: controlsStart, width: bounds.width, height: max(0, bounds.height - controlsStart))
+        )
     }
 
     private func mergedViewHeader(layout: InterfaceLayout) -> some View {
@@ -7604,12 +7664,6 @@ struct ContentView: View {
         .accessibilityLabel(localizedAppString("Full Screen"))
         .help(localizedAppString("Show Scoreboard on This Device"))
 
-        displayControlHeaderButton(layout: layout)
-        soundHeaderButton(layout: layout)
-        themeHeaderMenu(layout: layout)
-        companionHeaderButton(layout: layout)
-        settingsHeaderButton(layout: layout)
-
         Button {
             showsScoreboardWithControls = false
         } label: {
@@ -7624,6 +7678,14 @@ struct ContentView: View {
         .accessibilityLabel(localizedAppString("Close"))
         .help(localizedAppString("Merged View (Beta)"))
 
+        displayControlHeaderButton(layout: layout)
+        soundHeaderButton(layout: layout)
+        themeHeaderMenu(layout: layout)
+        if store.isCompanionVisible {
+            companionHeaderButton(layout: layout)
+        }
+        settingsHeaderButton(layout: layout)
+
         hideDashboardHeaderButton(layout: layout)
     }
 
@@ -7632,7 +7694,10 @@ struct ContentView: View {
             // Render at presentation size so scoreboard typography and overlays scale together.
             let canvas = CGSize(width: 1280, height: 720)
             let scale = min(proxy.size.width / canvas.width, proxy.size.height / canvas.height)
-            ExternalScoreboardView(configuresPublicWindow: false)
+            ExternalScoreboardView(
+                configuresPublicWindow: false,
+                displayDirectionOverride: store.resolvedControlBoardDisplayDirection
+            )
                 .frame(width: canvas.width, height: canvas.height)
                 .scaleEffect(scale)
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -7669,29 +7734,128 @@ struct ContentView: View {
         }
     }
 
+    #if os(iOS)
+    @ViewBuilder
+    private var settingsToolbarActions: some View {
+        Button {
+            openSetupGame()
+        } label: {
+            Label(localizedAppString(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board"),
+                  systemImage: "chevron.backward")
+        }
+        Menu {
+            ForEach(SettingsPane.allCases) { pane in
+                Button {
+                    selectSettingsPane(pane)
+                } label: {
+                    Label(localizedAppString(pane.title), systemImage: pane.systemImage)
+                }
+                .disabled(!isSettingsPaneEnabled(pane))
+            }
+        } label: {
+            Label(localizedAppString("Settings Section"), systemImage: "list.bullet")
+        }
+    }
+
+    // Standard labels let iOS place these actions on either outer edge in Split View,
+    // and keep their titles available in the system overflow menu and VoiceOver.
+    @ViewBuilder
+    private var dashboardToolbarActions: some View {
+        if !isDashboardHeaderHidden {
+            if showsScoreboardWithControls {
+                Button {
+                    #if os(macOS)
+                    showPublicBoardWindow()
+                    #else
+                    enterLocalScoreboardMode()
+                    #endif
+                } label: {
+                    Label(localizedAppString("Full Screen"), systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+            } else {
+                Menu {
+                    localDisplayOptions
+                } label: {
+                    Label(localizedAppString("Local Display"), systemImage: "platter.2.filled.ipad")
+                }
+            }
+            if showsScoreboardWithControls {
+                Button {
+                    showsScoreboardWithControls = false
+                } label: {
+                    Label(localizedAppString("Close"), systemImage: "xmark")
+                }
+            }
+            Button {
+                dashboardPage = .preview
+            } label: {
+                Label(localizedAppString("Display Control"), systemImage: "appletvremote.gen4")
+            }
+            Button {
+                store.toggleSoundEnabled()
+            } label: {
+                Label(localizedAppString(store.isSoundEnabled ? "Sound On" : "Sound Off"),
+                      systemImage: store.isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+            }
+            Menu {
+                ForEach(ScoreboardTheme.allCases) { theme in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            store.theme = theme
+                        }
+                    } label: {
+                        Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
+                    }
+                }
+            } label: {
+                Label(localizedAppString("Theme"), systemImage: store.theme.systemImage)
+            }
+            if store.isCompanionVisible {
+                Button {
+                    store.toggleCompanionEnabled()
+                } label: {
+                    Label(localizedAppString(store.isCompanionEnabled ? "Companion On" : "Companion Off"),
+                          systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage)
+                }
+            }
+            Button {
+                openSettingsFromLiveBoard()
+            } label: {
+                Label(localizedAppString("Settings"), systemImage: "gearshape")
+            }
+
+        }
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDashboardHeaderHidden.toggle()
+            }
+        } label: {
+            Label(localizedAppString(isDashboardHeaderHidden ? "Show Top Bar" : "Hide Top Bar"),
+                  systemImage: isDashboardHeaderHidden ? "chevron.down" : "chevron.up")
+        }
+    }
+    #endif
+
     private func dashboardContent(layout: InterfaceLayout) -> some View {
-        GeometryReader { proxy in
-            let availableHeight = max(proxy.size.height - (layout.outerPadding * 2), 0)
+        GeometryReader { _ in
             let expandedHeaderHeight = dashboardHeaderReservedHeight(layout: layout)
-            let headerHeight = isDashboardHeaderHidden ? CGFloat(0) : expandedHeaderHeight
             let headerSpacing = isDashboardHeaderHidden ? CGFloat(0) : layout.sectionSpacing
-            let contentHeight = max(availableHeight - headerHeight - headerSpacing, 0)
 
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: headerSpacing) {
                     if !isDashboardHeaderHidden {
                         dashboardHeader(layout: layout)
-                            .frame(height: expandedHeaderHeight)
+                            .frame(minHeight: expandedHeaderHeight)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
                     controlPane(layout: layout)
-                        .frame(height: contentHeight)
+                        .frame(maxHeight: .infinity)
                 }
                 .padding(layout.outerPadding)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-                if isDashboardHeaderHidden {
+                if isDashboardHeaderHidden && !layout.usesVerticalToolbar {
                     showDashboardHeaderButton(layout: layout)
                         .padding(layout.outerPadding)
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
@@ -7708,6 +7872,7 @@ struct ContentView: View {
     }
 
     private func dashboardHeaderReservedHeight(layout: InterfaceLayout) -> CGFloat {
+        if layout.usesVerticalToolbar { return 0 }
         var reservedHeight = layout.dashboardHeaderHeight
 
         #if os(iOS)
@@ -7725,7 +7890,19 @@ struct ContentView: View {
 
     private func dashboardHeader(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
-            if layout.headerUsesVerticalFlow {
+            if layout.usesVerticalToolbar {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        headerTitleBlock(layout: layout)
+                        Spacer(minLength: 0)
+                        externalDisplayHeaderStatusBadge(layout: layout)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        headerTitleBlock(layout: layout)
+                        externalDisplayHeaderStatusBadge(layout: layout)
+                    }
+                }
+            } else if layout.headerUsesVerticalFlow {
                 VStack(alignment: .leading, spacing: layout.headerBlockSpacing) {
                     headerTitleBlock(layout: layout)
                     verticalHeaderControls(layout: layout)
@@ -7740,6 +7917,7 @@ struct ContentView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, layout.headerHorizontalPadding)
         .padding(.vertical, layout.headerVerticalPadding)
         .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -7748,7 +7926,7 @@ struct ContentView: View {
                 .strokeBorder(themePalette.dashboardCardBorder)
         )
         .overlay(alignment: .topTrailing) {
-            if isIPhoneInterface && !layout.headerUsesVerticalFlow {
+            if isIPhoneInterface && !layout.headerUsesVerticalFlow && !layout.usesVerticalToolbar {
                 hideDashboardHeaderButton(layout: layout)
                     .padding(.top, layout.headerVerticalPadding)
                     .padding(.trailing, layout.headerHorizontalPadding)
@@ -7767,7 +7945,7 @@ struct ContentView: View {
     }
 
     private func shouldShowIPhonePortraitLandscapeTip(layout: InterfaceLayout) -> Bool {
-        isIPhoneInterface && layout.size.height > layout.size.width && dashboardPage == .main
+        isIPhoneInterface && !layout.usesVerticalToolbar && layout.size.height > layout.size.width && dashboardPage == .main
     }
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
@@ -7841,19 +8019,14 @@ struct ContentView: View {
     }
 
     #if os(iOS)
-    private func iPhoneHeaderControls(layout: InterfaceLayout) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                externalDisplayHeaderStatusBadge(layout: layout)
-                iPhoneHeaderButtonCluster(layout: layout)
-            }
-
+    private func iPhoneHeaderControls(layout: InterfaceLayout) -> ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
             VStack(alignment: .trailing, spacing: 8) {
                 externalDisplayHeaderStatusBadge(layout: layout)
                 iPhoneHeaderButtonCluster(layout: layout)
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -7861,16 +8034,41 @@ struct ContentView: View {
         iPhoneHeaderIconButtonRow(layout: layout)
     }
 
-    private func iPhoneHeaderIconButtonRow(layout: InterfaceLayout) -> some View {
-        HStack(spacing: 8) {
+    private func iPhoneHeaderIconButtonRow(layout: InterfaceLayout) -> ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: layout.headerIconButtonSize), spacing: 8)],
+                alignment: .trailing,
+                spacing: 8
+            ) {
+                iPhoneHeaderIconButtons(layout: layout)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func iPhoneHeaderIconButtons(layout: InterfaceLayout) -> some View {
+        ScoreboardViewBoundary {
             localScoreboardHeaderButton(layout: layout)
+        }
+        ScoreboardViewBoundary {
             displayControlHeaderButton(layout: layout)
+        }
+        ScoreboardViewBoundary {
             soundHeaderButton(layout: layout)
+        }
+        ScoreboardViewBoundary {
             themeHeaderMenu(layout: layout)
-            if store.isCompanionVisible {
+        }
+        if store.isCompanionVisible {
+            ScoreboardViewBoundary {
                 companionHeaderButton(layout: layout)
             }
+        }
+        ScoreboardViewBoundary {
             settingsHeaderButton(layout: layout)
+        }
+        ScoreboardViewBoundary {
             hideDashboardHeaderButton(layout: layout)
         }
     }
@@ -9544,15 +9742,26 @@ struct ContentView: View {
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
 
+            let leftSide: TeamSide = layout.isCombinedDisplay ? store.resolvedControlBoardDisplayDirection.leftSide : .home
+            let rightSide: TeamSide = layout.isCombinedDisplay ? store.resolvedControlBoardDisplayDirection.rightSide : .guest
+            let rosterWidth = max(0, layout.size.width - layout.controlCardPadding * 2 - 4)
+            let teamLayout = InterfaceLayout(
+                size: CGSize(
+                    width: layout.playerPanelsUseVerticalFlow ? rosterWidth : max(0, (rosterWidth - 16) / 2),
+                    height: layout.size.height
+                ),
+                isCombinedDisplay: layout.isCombinedDisplay
+            )
+
             if layout.playerPanelsUseVerticalFlow {
                 VStack(spacing: layout.sectionSpacing) {
-                    playerTeamPanel(side: .home, layout: layout)
-                    playerTeamPanel(side: .guest, layout: layout)
+                    playerTeamPanel(side: leftSide, layout: teamLayout)
+                    playerTeamPanel(side: rightSide, layout: teamLayout)
                 }
             } else {
                 HStack(alignment: .top, spacing: 16) {
-                    playerTeamPanel(side: .home, layout: layout)
-                    playerTeamPanel(side: .guest, layout: layout)
+                    playerTeamPanel(side: leftSide, layout: teamLayout)
+                    playerTeamPanel(side: rightSide, layout: teamLayout)
                 }
             }
         }
@@ -9684,67 +9893,19 @@ struct ContentView: View {
     }
 
     private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("#\(player.number.isEmpty ? "--" : player.number) \(player.name.isEmpty ? localizedAppString("PLAYER") : player.name)")
-                    .font(.subheadline.weight(.bold))
-                    .singleLineFitted(minScale: 0.65)
-                    .foregroundStyle(themePalette.dashboardPrimaryText)
-
-                localizedAppText(player.isInActiveLineup ? "Active Lineup" : "Bench")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(player.isInActiveLineup ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                playerControlIdentity(player, layout: layout)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                playerRowControls(player, side: side, layout: layout)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-
-            Spacer(minLength: 0)
-
-            if store.supportsCards {
-                Text(localizedAppString(player.cardStatus.title).uppercased())
-                    .font(.subheadline.weight(.black))
-                    .foregroundStyle(cardStatusColor(player.cardStatus))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
-
-                smallActionButton("Y", tint: player.cardStatus == .yellow ? .yellow.opacity(0.88) : .yellow.opacity(0.42), foreground: .black, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.setCardStatus(toggledCardStatus(.yellow, current: player.cardStatus), for: side, playerID: player.id)
-                }
-                .frame(width: 40)
-
-                smallActionButton("R", tint: player.cardStatus == .red ? .red.opacity(0.9) : .red.opacity(0.42), foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.setCardStatus(toggledCardStatus(.red, current: player.cardStatus), for: side, playerID: player.id)
-                }
-                .frame(width: 40)
+            VStack(alignment: .leading, spacing: 10) {
+                playerControlIdentity(player, layout: layout)
+                playerRowControls(player, side: side, layout: layout)
             }
-
-            if store.supportsFouls {
-                Text("F \(player.foulCount)")
-                    .font(.subheadline.weight(.black))
-                    .foregroundStyle(themePalette.dashboardPrimaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
-
-                smallActionButton("-", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.adjustFoulCount(for: side, playerID: player.id, by: -1)
-                }
-                .frame(width: 40)
-
-                smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: teamAccentText(for: side), verticalPadding: layout.advancedButtonVerticalPadding) {
-                    store.adjustFoulCount(for: side, playerID: player.id, by: 1)
-                }
-                .frame(width: 40)
-            }
-
-            smallActionButton(
-                player.isInActiveLineup ? "Bench" : "Show",
-                tint: player.isInActiveLineup ? themePalette.dashboardNeutralButton : (side == .home ? homeTint.opacity(0.86) : guestTint.opacity(0.86)),
-                foreground: player.isInActiveLineup ? themePalette.dashboardNeutralButtonText : teamAccentText(for: side),
-                verticalPadding: layout.advancedButtonVerticalPadding
-            ) {
-                store.setPlayerActiveLineup(!player.isInActiveLineup, for: side, playerID: player.id)
-            }
-            .frame(width: 78)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -9753,6 +9914,98 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder.opacity(0.7))
         )
+    }
+
+    private func playerControlIdentity(_ player: TrackedPlayer, layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("#\(player.number.isEmpty ? "--" : player.number) \(player.name.isEmpty ? localizedAppString("PLAYER") : player.name)")
+                .font(layout.isCombinedDisplay ? .title3.weight(.bold) : .subheadline.weight(.bold))
+                .singleLineFitted(minScale: 0.65)
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+
+            localizedAppText(player.isInActiveLineup ? "Active Lineup" : "Bench")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(player.isInActiveLineup ? themePalette.dashboardStatusLive : themePalette.dashboardMutedText)
+        }
+    }
+
+    private func playerRowControls(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        ViewThatFits(in: .horizontal) {
+            if !layout.isCombinedDisplay {
+                HStack(spacing: 10) {
+                    playerCardControls(player, side: side, layout: layout)
+                    playerFoulControls(player, side: side, layout: layout)
+                    playerLineupButton(player, side: side, layout: layout)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    playerCardControls(player, side: side, layout: layout)
+                }
+                HStack(spacing: 10) {
+                    playerFoulControls(player, side: side, layout: layout)
+                    playerLineupButton(player, side: side, layout: layout)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playerCardControls(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        if store.supportsCards {
+            Text(localizedAppString(player.cardStatus.title).uppercased())
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(cardStatusColor(player.cardStatus))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
+
+            smallActionButton("Y", tint: player.cardStatus == .yellow ? .yellow.opacity(0.88) : .yellow.opacity(0.42), foreground: .black, verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.setCardStatus(toggledCardStatus(.yellow, current: player.cardStatus), for: side, playerID: player.id)
+            }
+            .frame(width: 40)
+
+            smallActionButton("R", tint: player.cardStatus == .red ? .red.opacity(0.9) : .red.opacity(0.42), foreground: .white, verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.setCardStatus(toggledCardStatus(.red, current: player.cardStatus), for: side, playerID: player.id)
+            }
+            .frame(width: 40)
+        }
+    }
+
+    @ViewBuilder
+    private func playerFoulControls(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        if store.supportsFouls {
+            Text("F \(player.foulCount)")
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(themePalette.dashboardPrimaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(themePalette.dashboardCardBackground.opacity(0.72), in: Capsule())
+
+            smallActionButton("-", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText, verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.adjustFoulCount(for: side, playerID: player.id, by: -1)
+            }
+            .frame(width: 40)
+
+            smallActionButton("+", tint: side == .home ? homeTint : guestTint, foreground: teamAccentText(for: side), verticalPadding: layout.advancedButtonVerticalPadding) {
+                store.adjustFoulCount(for: side, playerID: player.id, by: 1)
+            }
+            .frame(width: 40)
+        }
+    }
+
+    private func playerLineupButton(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+        smallActionButton(
+            player.isInActiveLineup ? "Bench" : "Show",
+            tint: player.isInActiveLineup ? themePalette.dashboardNeutralButton : (side == .home ? homeTint.opacity(0.86) : guestTint.opacity(0.86)),
+            foreground: player.isInActiveLineup ? themePalette.dashboardNeutralButtonText : teamAccentText(for: side),
+            verticalPadding: layout.advancedButtonVerticalPadding
+        ) {
+            store.setPlayerActiveLineup(!player.isInActiveLineup, for: side, playerID: player.id)
+        }
+        .frame(width: 78)
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
@@ -14500,9 +14753,36 @@ enum GameConfirmationAction: Identifiable {
 
 }
 
+#if os(iOS) && compiler(>=6.4)
+@available(iOS 27.1, *)
+private struct ScoreboardAdaptiveToolbar<Content: View, Actions: View>: View {
+    @Environment(\.toolbarVerticalEdge) private var toolbarVerticalEdge
+
+    var isEnabled: Bool
+    @ViewBuilder var content: (Bool) -> Content
+    @ViewBuilder var actions: () -> Actions
+
+    private var usesVerticalToolbar: Bool { isEnabled && toolbarVerticalEdge != nil }
+
+    var body: some View {
+        content(usesVerticalToolbar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if usesVerticalToolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        actions()
+                    }
+                }
+            }
+            .toolbar(usesVerticalToolbar ? .visible : .hidden, for: .navigationBar)
+    }
+}
+#endif
+
 private struct InterfaceLayout {
     let size: CGSize
     var isCombinedDisplay = false
+    var usesVerticalToolbar = false
 
     private var width: CGFloat { size.width }
     private var height: CGFloat { size.height }
@@ -14589,7 +14869,7 @@ private struct InterfaceLayout {
     var centerMetricColumns: Int { width < 720 ? 1 : 3 }
     var teamButtonColumns: Int { width < 900 ? 1 : 2 }
     var playerActionButtonColumns: Int { width < 700 ? 2 : 4 }
-    var playerPanelsUseVerticalFlow: Bool { width < 1180 }
+    var playerPanelsUseVerticalFlow: Bool { width < (isCombinedDisplay ? 640 : 1180) }
     func controlTopSectionHeight(in totalHeight: CGFloat) -> CGFloat {
         if topControlUsesVerticalFlow {
             return min(max(totalHeight * 0.58, 360), totalHeight - 140)

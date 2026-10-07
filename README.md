@@ -66,6 +66,8 @@ The iPhone, iPad, and Mac app includes the operator interface and can also be sw
 4. Choose an iPhone simulator, iPad simulator, connected iPhone or iPad, Mac, or Apple TV simulator as the run destination.
 5. Build and run.
 
+For iPhone Duo, build with Xcode 27.1 or later to enable the full display area and native vertical toolbars. The live board and Merged View place their header actions along the system-provided edge, including in Split View, and keep the game controls inside the available safe area. Settings also places its return action and section menu in the side bar, freeing vertical space in narrow windows; settings rows adapt to the horizontal size class. Other layouts retain the existing header, with wrapping buttons for narrow windows. Older SDKs and supported OS versions retain the existing navigation. See Apple's [iPhone Duo design guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
+
 ## Localization Notes
 
 - Dynamic string wrappers use `ScoreboardLocalization` to read an immutable cache of the compiled `Localizable.strings` table, with the app's preferred language, development-language fallback, and the original key for missing entries. Keep runtime names and already-formatted messages as verbatim text.
