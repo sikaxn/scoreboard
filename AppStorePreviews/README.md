@@ -4,7 +4,7 @@ Version 1.6 captures and previews use English and Simplified Chinese:
 
 | Family | Preview size |
 | --- | --- |
-| iPhone | 1284 × 2778, portrait and landscape combined |
+| iPhone | 1206 × 2622, portrait and landscape combined |
 | iPhoneDuo/Folded | 1398 × 2034, native outer display |
 | iPhoneDuo/Unfolded | 2007 × 2853, native inner display |
 | iPhoneDuo/Combined | 2853 × 2007, folded and unfolded views together |

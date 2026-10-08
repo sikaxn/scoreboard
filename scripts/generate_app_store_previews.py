@@ -42,7 +42,7 @@ PLATFORM_SIZES = {
     "iPhoneDuo": (1398, 2034),
     "iPhoneDuoUnfolded": (2007, 2853),
     "iPhoneDuoCombined": (2853, 2007),
-    "iPhone": (1284, 2778),
+    "iPhone": (1206, 2622),
     "iPad": (2752, 2064),
     "Mac": (2880, 1800),
     "AppleTV": (3840, 2160),
@@ -161,7 +161,7 @@ PROFILES = {
         label_size=23,
         margin_x=70,
         margin_y=74,
-        max_text_width=1088,
+        max_text_width=1066,
         image_top=565,
         image_margin_x=120,
         image_margin_bottom=95,
@@ -251,7 +251,7 @@ PREVIEW_SPECS = [
         ORANGE,
         CYAN,
     ),
-    # iPhone portrait, 1284 x 2778. Most combine portrait and landscape.
+    # iPhone portrait, 1206 x 2622. Most combine portrait and landscape.
     PreviewSpec(
         "iPhone",
         "iPhone/IMG_0921.PNG",
@@ -490,7 +490,7 @@ CHINESE_PREVIEW_SPECS = [
         ORANGE,
         CYAN,
     ),
-    # iPhone portrait, 1284 x 2778. Most combine portrait and landscape.
+    # iPhone portrait, 1206 x 2622. Most combine portrait and landscape.
     PreviewSpec(
         "iPhone",
         "iPhone/IMG_0958.PNG",
