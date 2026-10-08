@@ -1,0 +1,158 @@
+{
+  "captures": {
+    "iphone-duo-01-control-board.png": {
+      "screen": "main",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "classic"
+    },
+    "iphone-duo-02-display-modes.png": {
+      "screen": "display",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "classic"
+    },
+    "iphone-duo-03-game-setup.png": {
+      "screen": "game",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "night"
+    },
+    "iphone-duo-04-integrations.png": {
+      "screen": "integration",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "night"
+    },
+    "iphone-duo-05-remote-display.png": {
+      "screen": "remote-display",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:30:19.877526+00:00"
+    },
+    "iphone-duo-06-rosters.png": {
+      "screen": "players",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:34:15.945281+00:00"
+    },
+    "iphone-duo-08-merged-view.png": {
+      "screen": "merged",
+      "orientation": "portrait",
+      "size": [
+        1398,
+        2034
+      ],
+      "theme": "classic",
+      "reused_from": "iphone-duo-01-control-board.png",
+      "reason": "Original cover capture already shows Merged View (Beta)."
+    }
+  },
+  "device": "iPhone Duo",
+  "platform": "iPhoneDuo",
+  "version": "1.6",
+  "language": "Chinese",
+  "displays": {
+    "backlightState": "activeOn",
+    "displays": [
+      {
+        "active": true,
+        "backlightState": "activeOn",
+        "bounds": [
+          [
+            0,
+            0
+          ],
+          [
+            1398,
+            2034
+          ]
+        ],
+        "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone15",
+        "currentOrientation": "rot0",
+        "displayId": 1,
+        "framebufferMaskIdentifier": "1C896A2B-F0D7-405C-8D0F-66E4B80AD044",
+        "name": "LCD",
+        "nativeOrientation": "rot0",
+        "nativeSize": [
+          1398,
+          2034
+        ],
+        "physicalSize": [
+          3.039130449295044,
+          4.421739101409912
+        ],
+        "pointScale": 3,
+        "primary": true,
+        "type": {
+          "integrated": {}
+        },
+        "uniqueId": "3A296C3F-F146-4D6B-A9FE-4C3D6C3358E0"
+      },
+      {
+        "active": false,
+        "backlightState": "off",
+        "bounds": [
+          [
+            0,
+            0
+          ],
+          [
+            2007,
+            2853
+          ]
+        ],
+        "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone14",
+        "currentOrientation": "rot90",
+        "displayId": 3,
+        "framebufferMaskIdentifier": "BF0DC480-5EE2-4EC1-B02B-C75E94759832",
+        "name": "LCD-1",
+        "nativeOrientation": "rot0",
+        "nativeSize": [
+          2007,
+          2853
+        ],
+        "physicalSize": [
+          4.363043308258057,
+          6.202173709869385
+        ],
+        "pointScale": 3,
+        "primary": false,
+        "type": {
+          "integrated": {}
+        },
+        "uniqueId": "E31D9837-4ACA-4789-B113-9A44392C8EE0"
+      }
+    ],
+    "orientation": {
+      "currentDeviceNonFlatOrientation": "portrait",
+      "currentDeviceOrientation": "portrait",
+      "currentDeviceOrientationLocked": false
+    }
+  },
+  "tool": "devicectl",
+  "commit": "f9f89bc70fbae823756da372d459529ed3a6865b",
+  "duo_state": "folded",
+  "working_tree_modified": true,
+  "fixture_sha256": "c6e3feb018a2f998e62cb175c696729c72615897da17cb0aff9681a85c622dd0"
+}

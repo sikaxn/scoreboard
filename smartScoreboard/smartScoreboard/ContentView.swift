@@ -40,6 +40,23 @@ private struct PendingGameFileAutosave {
 struct ContentView: View {
     private static let tipHistoryResetGenerationKey = "scoreboardTipHistoryResetGeneration"
 
+    /* APP_STORE_PREVIEW_CAPTURE_BEGIN
+    init() {
+        #if DEBUG && targetEnvironment(simulator)
+        if let screen = ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] {
+            _isLoadingSetupDrafts = State(initialValue: true)
+            _setupSport = State(initialValue: screen == "players" ? .basketball : .simple)
+            _showsSetup = State(initialValue: ["game", "integration", "remote-display", "players"].contains(screen))
+            _selectedSettingsPane = State(initialValue: screen == "players" ? .players :
+                ["integration", "remote-display"].contains(screen) ? .integration : .game)
+            _selectedIntegrationDetail = State(initialValue: screen == "integration" ? .webAPI : .remoteDisplay)
+            _dashboardPage = State(initialValue: screen == "display" ? .preview : .main)
+            _showsLocalScoreboard = State(initialValue: screen == "public")
+        }
+        #endif
+    }
+    APP_STORE_PREVIEW_CAPTURE_END */
+
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
     @Environment(\.openWindow) private var openWindow
@@ -13199,6 +13216,16 @@ struct ContentView: View {
     }
 
     private func initializeWorkingGameFile() {
+        /* APP_STORE_PREVIEW_CAPTURE_BEGIN
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] != nil {
+            // A previously opened game must not overwrite the capture fixture.
+            loadSetupDraftsFromStore()
+            gameFileNameDraft = "DEMO"
+            return
+        }
+        #endif
+        APP_STORE_PREVIEW_CAPTURE_END */
         migrateLegacyPresetsToStoredGameFilesIfNeeded()
         refreshStoredGameFiles()
 

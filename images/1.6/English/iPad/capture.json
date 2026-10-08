@@ -1,0 +1,126 @@
+{
+  "captures": {
+    "ipad-01-control-board.png": {
+      "screen": "main",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:22:48.788003+00:00"
+    },
+    "ipad-02-display-modes.png": {
+      "screen": "display",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:23:07.435355+00:00"
+    },
+    "ipad-03-game-setup.png": {
+      "screen": "game",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:23:23.321991+00:00"
+    },
+    "ipad-04-integrations.png": {
+      "screen": "integration",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:23:38.841681+00:00"
+    },
+    "ipad-05-remote-display.png": {
+      "screen": "remote-display",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:23:55.299553+00:00"
+    },
+    "ipad-06-rosters.png": {
+      "screen": "players",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:36:13.872244+00:00"
+    },
+    "ipad-08-merged-view.png": {
+      "screen": "merged",
+      "orientation": "landscapeLeft",
+      "size": [
+        2752,
+        2064
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:48:15.317487+00:00"
+    }
+  },
+  "device": "780A833B-0030-4266-B766-10193C412A18",
+  "platform": "iPad",
+  "version": "1.6",
+  "language": "English",
+  "displays": {
+    "backlightState": "activeOn",
+    "displays": [
+      {
+        "backlightState": "activeOn",
+        "bounds": [
+          [
+            0,
+            0
+          ],
+          [
+            2064,
+            2752
+          ]
+        ],
+        "chromeIdentifier": "com.apple.dt.devicekit.chrome.tablet5",
+        "currentOrientation": "rot270",
+        "displayId": 1,
+        "framebufferMaskIdentifier": "75FF89F9-07DA-41E1-B66E-9AC4AF726865",
+        "name": "LCD",
+        "nativeOrientation": "rot0",
+        "nativeSize": [
+          2064,
+          2752
+        ],
+        "physicalSize": [
+          7.818181991577148,
+          10.42424201965332
+        ],
+        "pointScale": 2,
+        "primary": true,
+        "type": {
+          "integrated": {}
+        },
+        "uniqueId": "17484954-6A08-49B3-983A-4CA6333E4328"
+      }
+    ],
+    "orientation": {
+      "currentDeviceNonFlatOrientation": "landscapeLeft",
+      "currentDeviceOrientation": "landscapeLeft",
+      "currentDeviceOrientationLocked": false
+    }
+  },
+  "tool": "devicectl",
+  "commit": "f9f89bc70fbae823756da372d459529ed3a6865b",
+  "working_tree_modified": true,
+  "fixture_sha256": "c6e3feb018a2f998e62cb175c696729c72615897da17cb0aff9681a85c622dd0",
+  "duo_state": null
+}

@@ -1,0 +1,102 @@
+[
+  {
+    "source": "images/1.2/English/Common_ext_screen.PNG",
+    "destination": "images/1.6/English/Common_ext_screen.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.10.53\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-01-control-board.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.00\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-02-display-modes.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.04\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-03-game-setup.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.13\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-04-public-scoreboard.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.30\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-05-integrations.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.36\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-06-remote-display.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/Mac/Screenshot 2026-06-09 at 2.11.55\u202fAM.png",
+    "destination": "images/1.6/English/Mac/mac-07-rosters.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/AppleTV/Simulator Screenshot - Apple TV 4K (3rd generation) (at 1080p) - 2026-06-09 at 02.26.47.png",
+    "destination": "images/1.6/English/AppleTV/appletv-01-pairing.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/English/AppleTV/Simulator Screenshot - Apple TV 4K (3rd generation) (at 1080p) - 2026-06-09 at 02.27.24.png",
+    "destination": "images/1.6/English/AppleTV/appletv-02-live-scoreboard.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Common_ext_screen.png",
+    "destination": "images/1.6/Chinese/Common_ext_screen.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.36.49\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-01-control-board.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.37.06\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-02-display-modes.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.38.21\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-03-game-setup.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.38.39\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-04-public-scoreboard.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.38.57\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-05-integrations.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.39.10\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-06-remote-display.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/Mac/Screenshot 2026-06-10 at 10.39.26\u202fAM.png",
+    "destination": "images/1.6/Chinese/Mac/mac-07-rosters.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/AppleTV/Screenshot 2026-06-10 at 10.47.13\u202fAM.png",
+    "destination": "images/1.6/Chinese/AppleTV/appletv-01-pairing.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  },
+  {
+    "source": "images/1.2/Chinese/AppleTV/Screenshot 2026-06-10 at 10.47.23\u202fAM.png",
+    "destination": "images/1.6/Chinese/AppleTV/appletv-02-live-scoreboard.png",
+    "reason": "Existing display/desktop asset reused with user authorization; not a new 1.6 capture."
+  }
+]

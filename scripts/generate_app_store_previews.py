@@ -7,8 +7,8 @@ Requirements:
 Run from the repository root:
     python3 scripts/generate_app_store_previews.py
 
-The default output is AppStorePreviews/1.1/English and
-AppStorePreviews/1.1/Chinese. Edit PREVIEW_SPECS below for English, or
+The default output is AppStorePreviews/1.6/English and
+AppStorePreviews/1.6/Chinese. Edit PREVIEW_SPECS below for English, or
 CHINESE_PREVIEW_SPECS for Chinese, to make small copy, color, ordering, or
 source screenshot changes.
 """
@@ -16,13 +16,13 @@ source screenshot changes.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 
-DEFAULT_VERSION = "1.1"
+DEFAULT_VERSION = "1.6"
 BRAND_LABEL = "Smart Scoreboard"
 BRAND_LABELS = {
     "English": "Smart Scoreboard",
@@ -39,6 +39,9 @@ OBS_INTEGRATION_OUTPUTS = {
 # Highest accepted screenshot sizes used here:
 # iPhone from the requested App Store size list, iPad 13", Mac, and Apple TV.
 PLATFORM_SIZES = {
+    "iPhoneDuo": (1398, 2034),
+    "iPhoneDuoUnfolded": (2007, 2853),
+    "iPhoneDuoCombined": (2853, 2007),
     "iPhone": (1284, 2778),
     "iPad": (2752, 2064),
     "Mac": (2880, 1800),
@@ -1123,6 +1126,9 @@ def resolve_source(root: Path, version: str, language: str, source: str) -> Path
 
 def platform_output_dir(output_root: Path, platform: str) -> Path:
     names = {
+        "iPhoneDuo": "iPhoneDuo/Folded",
+        "iPhoneDuoUnfolded": "iPhoneDuo/Unfolded",
+        "iPhoneDuoCombined": "iPhoneDuo/Combined",
         "iPhone": "iPhone",
         "iPad": "iPad",
         "Mac": "Mac",
@@ -1311,6 +1317,48 @@ def render_iphone_external(
     return output
 
 
+def render_duo_combined(
+    root: Path,
+    version: str,
+    output_root: Path,
+    spec: PreviewSpec,
+    language: str,
+) -> Path:
+    """Show the same app screen on both complete Duo displays without cropping."""
+    if spec.secondary_source is None:
+        raise ValueError(f"{spec.output} needs both folded and unfolded sources")
+    folded = Image.open(resolve_source(root, version, language, spec.source)).convert("RGB")
+    unfolded = Image.open(resolve_source(root, version, language, spec.secondary_source)).convert("RGB")
+    size = PLATFORM_SIZES[spec.platform]
+    profile = PROFILES[spec.platform]
+    base = make_canvas(unfolded, size, spec.left_accent, spec.right_accent)
+    draw = ImageDraw.Draw(base)
+    text_bottom = draw_text_block(draw, profile, spec.headline, spec.subhead,
+        spec.left_accent, BRAND_LABELS[language], language)
+    top = max(590, text_bottom + 70)
+    available_height = size[1] - top - 150
+    unfolded_frame = fit_resize(unfolded, (1760, available_height))
+    folded_frame = fit_resize(folded, (600, available_height))
+    gap = 90
+    left = (size[0] - unfolded_frame.width - folded_frame.width - gap) // 2
+    font = load_font("bold", 42, language)
+    for frame, x, label in (
+        (unfolded_frame, left, "Unfolded" if language == "English" else "展开内屏"),
+        (folded_frame, left + unfolded_frame.width + gap,
+         "Folded" if language == "English" else "折叠外屏"),
+    ):
+        y = top + (available_height - frame.height) // 2
+        paste_shadowed(base, frame, (x, y), radius=40,
+            shadow_blur=profile.shadow_blur, shadow_alpha=profile.shadow_alpha)
+        label_width = text_size(draw, label, font)[0]
+        draw.text((x + (frame.width - label_width) // 2, y + frame.height + 40),
+            label, font=font, fill=WHITE)
+    output = platform_output_dir(output_root, spec.platform) / spec.output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    base.convert("RGB").save(output, "PNG")
+    return output
+
+
 def render_preview(
     root: Path,
     version: str,
@@ -1318,6 +1366,8 @@ def render_preview(
     spec: PreviewSpec,
     language: str,
 ) -> Path:
+    if spec.platform == "iPhoneDuoCombined":
+        return render_duo_combined(root, version, output_root, spec, language)
     if spec.platform == "iPhone" and spec.mode == "iphone_external":
         return render_iphone_external(root, version, output_root, spec, language)
 
@@ -1406,11 +1456,79 @@ def render_preview(
     return output
 
 
+def current_specs(root: Path, version: str, language: str) -> list[PreviewSpec]:
+    """Prefer semantic capture names while retaining historical source compatibility."""
+    source_root = root / "images" / version / language
+    specs = []
+    for spec in PREVIEW_SPECS_BY_LANGUAGE[language]:
+        if "common-external" in spec.output:
+            source = "Common_ext_screen.png"
+            secondary = "iPhone/iphone-01-control-board-portrait.png" if spec.platform == "iPhone" else None
+        elif spec.platform == "iPhone":
+            source = f"iPhone/{spec.output.removesuffix('.png')}-portrait.png"
+            secondary = f"iPhone/{spec.output.removesuffix('.png')}-landscape.png"
+        else:
+            source = f"{spec.platform}/{spec.output}"
+            secondary = None
+        specs.append(replace(spec,
+            source=source if (source_root / source).exists() else spec.source,
+            secondary_source=secondary if secondary and (source_root / secondary).exists() else spec.secondary_source))
+    # Duo is a distinct screenshot family, using its native cover display size.
+    PROFILES["iPhoneDuo"] = replace(PROFILES["iPhone"], image_top=460,
+        max_text_width=1258, image_margin_x=100, headline_size=64, subhead_size=30)
+    PROFILES["iPhoneDuoUnfolded"] = replace(PROFILES["iPhoneDuo"], image_top=560,
+        max_text_width=1807, margin_x=100, headline_size=90, subhead_size=42)
+    PROFILES["iPhoneDuoCombined"] = replace(PROFILES["iPhoneDuoUnfolded"], max_text_width=2653)
+    for spec in PREVIEW_SPECS_BY_LANGUAGE[language]:
+        if spec.platform != "iPhone" or spec.mode == "iphone_external":
+            continue
+        source = f"iPhoneDuo/{spec.output.replace('iphone-', 'iphone-duo-')}"
+        if (source_root / "iPhoneDuo").exists():
+            specs.append(replace(spec, platform="iPhoneDuo", source=source,
+                output=spec.output.replace("iphone-", "iphone-duo-"), secondary_source=None,
+                headline=("Run the game from iPhone Duo" if language == "English" else "用 iPhone Duo 掌控比赛")
+                    if "01-control-board" in spec.output else spec.headline.replace("iPhone", "iPhone Duo"),
+                subhead=("Scores, clocks, and live controls on the cover display." if language == "English" else "在外屏上查看比分、计时和实时控制。")
+                    if "01-control-board" in spec.output else spec.subhead))
+        if (source_root / "iPhoneDuo/Unfolded").exists():
+            specs.append(replace(spec, platform="iPhoneDuoCombined", source=source,
+                secondary_source=source.replace("iPhoneDuo/", "iPhoneDuo/Unfolded/"),
+                output=spec.output.replace("iphone-", "iphone-duo-"),
+                headline=("One game. Both Duo displays." if language == "English" else "一场比赛，双屏掌控")
+                    if "01-control-board" in spec.output else spec.headline.replace("iPhone", "iPhone Duo"),
+                subhead=("Live controls, folded or unfolded." if language == "English" else "折叠或展开，都能实时掌控比赛。")
+                    if "01-control-board" in spec.output else spec.subhead))
+            specs.append(replace(spec, platform="iPhoneDuoUnfolded",
+                source=source.replace("iPhoneDuo/", "iPhoneDuo/Unfolded/"),
+                output=spec.output.replace("iphone-", "iphone-duo-"), secondary_source=None,
+                headline=("Open up the game on iPhone Duo" if language == "English" else "展开 iPhone Duo，掌控全场")
+                    if "01-control-board" in spec.output else spec.headline.replace("iPhone", "iPhone Duo"),
+                subhead=("A spacious unfolded display for scores, clocks, and live controls." if language == "English" else "在宽大的内屏上查看比分、计时和实时控制。")
+                    if "01-control-board" in spec.output else spec.subhead))
+    for platform, folder, prefix in (
+        ("iPad", "iPad", "ipad"),
+        ("iPhoneDuo", "iPhoneDuo", "iphone-duo"),
+        ("iPhoneDuoUnfolded", "iPhoneDuo/Unfolded", "iphone-duo"),
+        ("iPhoneDuoCombined", "iPhoneDuo", "iphone-duo"),
+    ):
+        source = f"{folder}/{prefix}-08-merged-view.png"
+        secondary = "iPhoneDuo/Unfolded/iphone-duo-08-merged-view.png" if platform == "iPhoneDuoCombined" else None
+        if not (source_root / source).exists() or (secondary and not (source_root / secondary).exists()):
+            continue
+        specs.append(PreviewSpec(platform=platform, source=source,
+            secondary_source=secondary, output=f"{prefix}-08-merged-view.png",
+            headline="Scoreboard and controls, together" if language == "English" else "比分与控制，尽在同一屏",
+            subhead="Merged View keeps the live scoreboard above your game controls." if language == "English" else "合并视图让实时记分牌与比赛控制同屏呈现。",
+            left_accent=ORANGE, right_accent=CYAN))
+    return specs
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Repository root.")
     parser.add_argument("--version", default=DEFAULT_VERSION, help="Image version under images/.")
     parser.add_argument("--out", type=Path, default=Path("AppStorePreviews"), help="Output directory.")
+    parser.add_argument("--platform", choices=("all", *PLATFORM_SIZES), default="all")
     parser.add_argument(
         "--language",
         "--locale",
@@ -1427,7 +1545,19 @@ def main() -> None:
 
     for language in languages:
         output_root = output_base / args.version / language
-        for spec in PREVIEW_SPECS_BY_LANGUAGE[language]:
+        specs = current_specs(root, args.version, language)
+        if args.platform != "all" and not any(spec.platform == args.platform for spec in specs):
+            parser.error(f"No {args.platform} sources for {language} {args.version}; capture this display first.")
+        for spec in specs:
+            if args.platform != "all" and spec.platform != args.platform:
+                continue
+            # Resolve every required input before generating any images.
+            resolve_source(root, args.version, language, spec.source)
+            if spec.secondary_source:
+                resolve_source(root, args.version, language, spec.secondary_source)
+        for spec in specs:
+            if args.platform != "all" and spec.platform != args.platform:
+                continue
             generated.append(render_preview(root, args.version, output_root, spec, language))
 
     for path in generated:

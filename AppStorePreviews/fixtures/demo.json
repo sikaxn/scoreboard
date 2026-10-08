@@ -1,0 +1,296 @@
+{
+  "activeChessClockSide": "home",
+  "activeShotClockPresetSeconds": 0,
+  "areSidesSwapped": false,
+  "areTipsEnabled": false,
+  "chessClockPreset": "rapid",
+  "companionAssignmentsBySport": [],
+  "companionHost": "",
+  "companionMode": "tcp",
+  "companionPort": 16759,
+  "controlBoardDisplayDirection": "homeLeft",
+  "debateActiveTimer": "segment",
+  "debateCurrentSegmentIndex": 0,
+  "debateGuestSideLabel": "Neg",
+  "debateHomeSideLabel": "Aff",
+  "debatePrepGuestSeconds": 120,
+  "debatePrepHomeSeconds": 120,
+  "defaultClockSeconds": 600,
+  "defaultShotClockSeconds": 0,
+  "didAutoShowGettingStarted": true,
+  "didCompleteSetup": true,
+  "displayLineupSize": 5,
+  "eventName": "Super Playoff",
+  "externalDisplayAnimatedLogoBackgroundColor": "themeBackground",
+  "externalDisplayAnimatedLogoOpacity": 0.23,
+  "externalDisplayAnimatedLogoSize": 112,
+  "externalDisplayAnimatedLogoSpeed": 42,
+  "externalDisplayAnimatedLogoStyle": "horizontalMarquee",
+  "externalDisplayBackgroundMode": "blurred",
+  "externalDisplayDateTimeFormat": "time24Hour",
+  "externalDisplayDirection": "homeLeft",
+  "gameClockRedThresholdSeconds": 60,
+  "gameClockSeconds": 600,
+  "guestChessClockSeconds": 600,
+  "guestPausesAllowed": 0,
+  "guestPausesUsed": 0,
+  "guestPenaltyTimers": [],
+  "guestRoster": {
+    "players": [
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "E02A6608-63F7-5906-B73E-537776FCD35C",
+        "isInActiveLineup": true,
+        "name": "AISG 1",
+        "number": "1"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "0066CB54-9036-5142-BC88-44CAC42B9695",
+        "isInActiveLineup": true,
+        "name": "AISG 2",
+        "number": "2"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "452DD134-C2F3-5E70-A157-CC1C550856BD",
+        "isInActiveLineup": true,
+        "name": "AISG 3",
+        "number": "3"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "4FEA5896-3581-516F-9E77-3F21429E6C85",
+        "isInActiveLineup": true,
+        "name": "AISG 4",
+        "number": "4"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "40FF8745-8303-5415-8762-C918604BD99B",
+        "isInActiveLineup": true,
+        "name": "AISG 5",
+        "number": "5"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "C96ED687-7D2B-5CCD-9143-6FA5EA20A154",
+        "isInActiveLineup": false,
+        "name": "AISG 6",
+        "number": "6"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "743E9A67-AC61-5140-BECE-E5B42CEA7BD1",
+        "isInActiveLineup": false,
+        "name": "AISG 7",
+        "number": "7"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "4355BEB9-4C27-5565-AC97-279677EBDEB4",
+        "isInActiveLineup": false,
+        "name": "AISG 8",
+        "number": "8"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "E5F817EC-98D8-54E8-A20E-690FB51E43D7",
+        "isInActiveLineup": false,
+        "name": "AISG 9",
+        "number": "9"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "4385F08E-223E-5F18-B6E8-16D5AC08053E",
+        "isInActiveLineup": false,
+        "name": "AISG 10",
+        "number": "10"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "EC8F299E-7082-5EC4-912A-F7F6EBC3E7DF",
+        "isInActiveLineup": false,
+        "name": "AISG 11",
+        "number": "11"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "FF2711D5-5BFE-5B0F-9824-5B9A842B2431",
+        "isInActiveLineup": false,
+        "name": "AISG 12",
+        "number": "12"
+      }
+    ]
+  },
+  "guestScore": 6,
+  "guestSubstitutionsAllowed": 0,
+  "guestSubstitutionsUsed": 0,
+  "guestTeamFouls": 0,
+  "guestTeamName": "AISG",
+  "homeChessClockSeconds": 600,
+  "homePausesAllowed": 0,
+  "homePausesUsed": 0,
+  "homePenaltyTimers": [],
+  "homeRoster": {
+    "players": [
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "462F0BBC-6D82-53C2-96D6-4F9946DA960A",
+        "isInActiveLineup": true,
+        "name": "ISA 1",
+        "number": "1"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "42D26E45-2FA2-5E57-A51B-E6C775777AF4",
+        "isInActiveLineup": true,
+        "name": "ISA 2",
+        "number": "2"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "4733F71F-2A23-53E7-8B4A-937C2DAFF744",
+        "isInActiveLineup": true,
+        "name": "ISA 3",
+        "number": "3"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "39A0FE61-A0C2-504B-9AE8-5B4E73F1F7E2",
+        "isInActiveLineup": true,
+        "name": "ISA 4",
+        "number": "4"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "19F098E5-DEFD-532B-AD1B-A1FD2DDD8714",
+        "isInActiveLineup": true,
+        "name": "ISA 5",
+        "number": "5"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "9B73A5B4-82DE-50FA-860F-8F2C56205FCA",
+        "isInActiveLineup": false,
+        "name": "ISA 6",
+        "number": "6"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "F43A6D41-7A99-5858-8EB8-2A7AD0811162",
+        "isInActiveLineup": false,
+        "name": "ISA 7",
+        "number": "7"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "997A506A-52AF-598E-AADD-F2E41040E5AF",
+        "isInActiveLineup": false,
+        "name": "ISA 8",
+        "number": "8"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "D0B7A7ED-F245-53DB-A920-BE7CA3EBFC08",
+        "isInActiveLineup": false,
+        "name": "ISA 9",
+        "number": "9"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "EF5FAE1C-C0A2-55EA-8DE1-B93AD88F3062",
+        "isInActiveLineup": false,
+        "name": "ISA 10",
+        "number": "10"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "8A942800-2EA9-5058-9D61-B27DCE389402",
+        "isInActiveLineup": false,
+        "name": "ISA 11",
+        "number": "11"
+      },
+      {
+        "cardStatus": "none",
+        "foulCount": 0,
+        "id": "EFE37969-4705-5E98-8924-4B70DA744617",
+        "isInActiveLineup": false,
+        "name": "ISA 12",
+        "number": "12"
+      }
+    ]
+  },
+  "homeScore": 67,
+  "homeSubstitutionsAllowed": 0,
+  "homeSubstitutionsUsed": 0,
+  "homeTeamFouls": 0,
+  "homeTeamName": "ISA",
+  "isCompanionEnabled": false,
+  "isCompanionVisible": true,
+  "isDebatePlayerCardsEnabled": false,
+  "isDebatePlayerFoulsEnabled": false,
+  "isDebatePlayerTrackingEnabled": false,
+  "isDebatePrepClockRunning": false,
+  "isDebatePrepTimeEnabled": true,
+  "isDebateScoreTrackingEnabled": false,
+  "isGameClockEnabled": true,
+  "isGameClockRedEnabled": false,
+  "isPlayerOverlayPaused": false,
+  "isPlayerTrackingEnabled": false,
+  "isRemoteDisplayHostEnabled": true,
+  "isRemoteDisplayViewerModeEnabled": false,
+  "isShotClockRedEnabled": false,
+  "isSoundEnabled": true,
+  "isWebAPIEnabled": false,
+  "period": 1,
+  "playerFoulHighlightColor": "yellow",
+  "playerLineupFadePageSeconds": 4,
+  "playerLineupOverflowMode": "scroll",
+  "playerLineupScrollDirection": "continuousUp",
+  "playerLineupScrollSpeed": 14,
+  "playerViewRosterScope": "fullRoster",
+  "possessionDirection": "none",
+  "remoteDisplayNetworkMode": "nearbyAndLocalNetwork",
+  "rosterSizePerTeam": 12,
+  "selectedDebatePresetID": "public-forum",
+  "selectedSport": "simple",
+  "setupPresets": [],
+  "shotClockMilliseconds": 0,
+  "shotClockRedThresholdSeconds": 5,
+  "showGettingStartedOnStartup": false,
+  "showsEventLogo": true,
+  "showsExternalDisplayDateTime": false,
+  "showsExternalDisplayDateTimeSeconds": true,
+  "showsLiveActivityWhenTimerRunning": true,
+  "showsTeamLogos": true,
+  "soundAssignmentsBySport": [],
+  "sport": "simple",
+  "theme": "classic",
+  "volleyballMatchFormat": "bestOf5",
+  "volleyballSetResults": [],
+  "webAPIUpdateMode": "fixedInterval"
+}

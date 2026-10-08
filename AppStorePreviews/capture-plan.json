@@ -1,0 +1,32 @@
+{
+  "version": "1.6",
+  "developer_dir": "/Applications/Xcode-beta.app/Contents/Developer",
+  "fixture": "AppStorePreviews/fixtures/demo.json",
+  "settle_seconds": 12,
+  "devices": [
+    {
+      "name": "iPhone 18 Pro Max",
+      "platform": "iPhone"
+    },
+    {
+      "name": "iPad Pro 13-inch (M5)",
+      "platform": "iPad"
+    },
+    {
+      "name": "iPhone Duo",
+      "platform": "iPhoneDuo",
+      "duo_state": "folded"
+    },
+    {
+      "name": "iPhone Duo",
+      "platform": "iPhoneDuo",
+      "duo_state": "unfolded"
+    }
+  ],
+  "reuse_version": "1.2",
+  "reuse_platforms": [
+    "Mac",
+    "AppleTV"
+  ],
+  "reuse_common_external": true
+}

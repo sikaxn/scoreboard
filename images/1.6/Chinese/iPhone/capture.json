@@ -1,0 +1,176 @@
+{
+  "captures": {
+    "iphone-01-control-board-portrait.png": {
+      "screen": "main",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:23:45.581606+00:00"
+    },
+    "iphone-01-control-board-landscape.png": {
+      "screen": "main",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:24:02.716396+00:00"
+    },
+    "iphone-02-display-modes-portrait.png": {
+      "screen": "display",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:24:18.277940+00:00"
+    },
+    "iphone-02-display-modes-landscape.png": {
+      "screen": "display",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "classic",
+      "captured_at": "2026-10-08T18:24:33.889872+00:00"
+    },
+    "iphone-03-game-setup-portrait.png": {
+      "screen": "game",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:24:48.029927+00:00"
+    },
+    "iphone-03-game-setup-landscape.png": {
+      "screen": "game",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:25:02.210764+00:00"
+    },
+    "iphone-04-integrations-portrait.png": {
+      "screen": "integration",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:25:16.414294+00:00"
+    },
+    "iphone-04-integrations-landscape.png": {
+      "screen": "integration",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:25:31.804633+00:00"
+    },
+    "iphone-05-remote-display-portrait.png": {
+      "screen": "remote-display",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:25:46.289871+00:00"
+    },
+    "iphone-05-remote-display-landscape.png": {
+      "screen": "remote-display",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:26:01.323594+00:00"
+    },
+    "iphone-06-rosters-portrait.png": {
+      "screen": "players",
+      "orientation": "portrait",
+      "size": [
+        1320,
+        2868
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:34:30.311507+00:00"
+    },
+    "iphone-06-rosters-landscape.png": {
+      "screen": "players",
+      "orientation": "landscapeLeft",
+      "size": [
+        2868,
+        1320
+      ],
+      "theme": "night",
+      "captured_at": "2026-10-08T18:34:43.780302+00:00"
+    }
+  },
+  "device": "iPhone 18 Pro Max",
+  "platform": "iPhone",
+  "version": "1.6",
+  "language": "Chinese",
+  "displays": {
+    "backlightState": "activeOn",
+    "displays": [
+      {
+        "backlightState": "activeOn",
+        "bounds": [
+          [
+            0,
+            0
+          ],
+          [
+            1320,
+            2868
+          ]
+        ],
+        "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone12",
+        "currentOrientation": "rot270",
+        "displayId": 1,
+        "framebufferMaskIdentifier": "EB31C0E2-52E0-430E-B4DA-4242D2881AFF",
+        "name": "LCD",
+        "nativeOrientation": "rot0",
+        "nativeSize": [
+          1320,
+          2868
+        ],
+        "physicalSize": [
+          2.86956524848938,
+          6.234782695770264
+        ],
+        "pointScale": 3,
+        "primary": true,
+        "type": {
+          "integrated": {}
+        },
+        "uniqueId": "EC187ED7-21A9-48FB-99EB-B38C09DE496A"
+      }
+    ],
+    "orientation": {
+      "currentDeviceNonFlatOrientation": "landscapeLeft",
+      "currentDeviceOrientation": "landscapeLeft",
+      "currentDeviceOrientationLocked": false
+    }
+  },
+  "tool": "devicectl",
+  "commit": "f9f89bc70fbae823756da372d459529ed3a6865b",
+  "working_tree_modified": true,
+  "fixture_sha256": "c6e3feb018a2f998e62cb175c696729c72615897da17cb0aff9681a85c622dd0",
+  "duo_state": null
+}
