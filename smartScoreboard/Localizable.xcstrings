@@ -6239,12 +6239,12 @@
         }
       }
     },
-    "Hey, you found the bunny" : {
+    "Hey, you found Sonia" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "嘿，你找到了兔兔"
+            "value" : "嘿，你找到了Sonia"
           }
         }
       }

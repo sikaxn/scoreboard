@@ -5095,7 +5095,7 @@ struct ContentView: View {
                         )
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Hey, you found the bunny")
+                        Text("Hey, you found Sonia")
                             .font(.system(size: 30, weight: .black, design: .rounded))
                             .foregroundStyle(settingsPalette.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
