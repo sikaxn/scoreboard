@@ -1,6 +1,11 @@
 import Combine
 import Foundation
 
+private enum ExternalAutomationIntegration {
+    case companion
+    case webAPI
+}
+
 private enum ScoreboardLocalizedFormatArgumentType {
     case object
     case signedInteger(length: String?)
@@ -1036,13 +1041,18 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestTeamLogoImage: TeamLogoImage?
     @Published var eventLogoImage: EventLogoImage?
     @Published var isSoundEnabled = true
+    @Published var bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>] = [:]
+    @Published var bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>] = [:]
     @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
     @Published var keyboardShortcutsByAction = ScoreboardStore.defaultKeyboardShortcutsByAction
     @Published var isCompanionVisible = false
+    @Published private(set) var externalAutomationSafetyNoticeID: UUID?
+    private var pendingExternalAutomationIntegration: ExternalAutomationIntegration?
     @Published var isCompanionEnabled = false
     @Published var companionHost = ""
     @Published var companionMode: ScoreboardCompanionMode = .tcp
+    @Published var companionSyncWithSound = false
     @Published var companionPort = ScoreboardCompanionMode.tcp.defaultPort
     @Published var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]] = [:]
     @Published private(set) var companionLastError: String?
@@ -1106,6 +1116,20 @@ final class ScoreboardStore: ObservableObject {
     private let primaryTimerPersistenceKey = "smartScoreboard.primaryTimerPersistence"
     private var lastPrimaryTimerPersistenceSignature: String?
     private let buzzerPlayer = BuzzerPlayer()
+    private struct QueuedEventAction {
+        let effect: ScoreboardSoundEffect
+        let triggerEvent: ScoreboardSoundEvent
+        let soundEvent: ScoreboardSoundEvent?
+        let companionEvent: ScoreboardSoundEvent?
+        let sport: SportType
+        let companionLocation: ScoreboardCompanionLocation?
+        let companionGeneration: UUID
+    }
+    private var queuedEventActions: [QueuedEventAction] = []
+    private var activeEventAction: QueuedEventAction?
+    @Published private var activeEventPlaybackID: UUID?
+    private var activeEventDidStart = false
+    private var companionCommandGeneration = UUID()
     private let logManager = ScoreboardLogManager.shared
     private let webAPIService = ScoreboardWebAPIService()
     private let remoteDisplayHostService = ScoreboardRemoteDisplayHostService()
@@ -1487,7 +1511,7 @@ final class ScoreboardStore: ObservableObject {
 
     func assignableSoundEvents(for sport: SportType) -> [ScoreboardSoundEvent] {
         if sport == .debate {
-            return uniqueSoundEvents([
+            return orderedSoundEvents(timerOutcomeSoundEvents(hasExpiration: true, supportsScore: true) + [
                 .debateSegmentStarted,
                 .debateSegmentStopped,
                 .debateSegmentExpired,
@@ -1588,7 +1612,35 @@ final class ScoreboardStore: ObservableObject {
         }
 
         events.append(.sideSwitched)
-        return uniqueSoundEvents(events)
+        events += timerOutcomeSoundEvents(
+            hasExpiration: rules.usesChessClocks || rules.mainClockMode == .countdown,
+            supportsScore: rules.supportsScore,
+            hasTimer: rules.usesChessClocks || rules.mainClockMode != .disabled
+        )
+        return orderedSoundEvents(events)
+    }
+
+    private func timerOutcomeSoundEvents(
+        hasExpiration: Bool, supportsScore: Bool, hasTimer: Bool = true
+    ) -> [ScoreboardSoundEvent] {
+        guard hasTimer else { return [] }
+        var events: [ScoreboardSoundEvent] = [.timerPaused]
+        if hasExpiration { events.append(.timerExpired) }
+        if supportsScore {
+            events += [.timerPausedHomeAhead, .timerPausedHomeBehind,
+                       .timerPausedGuestAhead, .timerPausedGuestBehind, .timerPausedTie]
+            if hasExpiration {
+                events += [.timerExpiredHomeAhead, .timerExpiredHomeBehind,
+                           .timerExpiredGuestAhead, .timerExpiredGuestBehind, .timerExpiredTie,
+                           .homeWin, .homeLose, .guestWin, .guestLose]
+            }
+        }
+        return events
+    }
+
+    private func orderedSoundEvents(_ events: [ScoreboardSoundEvent]) -> [ScoreboardSoundEvent] {
+        let includedEvents = Set(events)
+        return ScoreboardSoundEvent.executionOrder.filter { includedEvents.contains($0) }
     }
 
     private var sideClockSoundEvents: [ScoreboardSoundEvent] {
@@ -2238,6 +2290,7 @@ final class ScoreboardStore: ObservableObject {
 
         if !isSoundEnabled {
             stopTestSound()
+            interruptEventSoundPlayback()
         }
     }
 
@@ -2253,9 +2306,13 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        isCompanionVisible = isVisible
-        if !isVisible {
+        if isVisible {
+            pendingExternalAutomationIntegration = .companion
+            externalAutomationSafetyNoticeID = UUID()
+        } else {
+            isCompanionVisible = false
             isCompanionEnabled = false
+            invalidateQueuedCompanionCommands()
             dismissCompanionFailureNotice()
         }
     }
@@ -2267,6 +2324,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         isCompanionEnabled = resolvedEnabled
+        if !resolvedEnabled { invalidateQueuedCompanionCommands() }
     }
 
     func toggleCompanionEnabled() {
@@ -2290,6 +2348,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionHost = host
     }
 
@@ -2298,6 +2357,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionMode = mode
         companionPort = mode.defaultPort
     }
@@ -2308,6 +2368,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionPort = boundedPort
     }
 
@@ -2394,12 +2455,43 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func testCompanionCommand(for event: ScoreboardSoundEvent, sport: SportType) {
+        guard !isCompanionEventBypassed(event, sport: sport) else { return }
         guard let location = companionLocation(for: event, sport: sport) else {
             handleCompanionSendResult(.failure(.invalidLocation))
             return
         }
 
         sendCompanionPress(location)
+    }
+
+    func isSoundEventBypassed(_ event: ScoreboardSoundEvent, sport: SportType) -> Bool {
+        bypassedSoundEventsBySport[sport]?.contains(event) == true
+    }
+
+    func setSoundEventBypassed(_ isBypassed: Bool, event: ScoreboardSoundEvent, sport: SportType) {
+        var events = bypassedSoundEventsBySport[sport] ?? []
+        if isBypassed { events.insert(event) } else { events.remove(event) }
+        bypassedSoundEventsBySport[sport] = events
+        if isBypassed, playingTestSoundEffect == selectedSoundEffect(for: event, sport: sport) {
+            stopTestSound()
+        }
+        if isBypassed, let action = activeEventAction, action.sport == sport,
+           action.triggerEvent == event || action.soundEvent == event {
+            interruptEventSoundPlayback()
+        }
+    }
+
+    func isCompanionEventBypassed(_ event: ScoreboardSoundEvent, sport: SportType) -> Bool {
+        bypassedCompanionEventsBySport[sport]?.contains(event) == true
+    }
+
+    func setCompanionEventBypassed(_ isBypassed: Bool, event: ScoreboardSoundEvent, sport: SportType) {
+        var events = bypassedCompanionEventsBySport[sport] ?? []
+        if isBypassed { events.insert(event) } else { events.remove(event) }
+        bypassedCompanionEventsBySport[sport] = events
+        if isBypassed {
+            companionService.cancelPendingPresses(eventKey: "\(sport.rawValue):\(event.rawValue)")
+        }
     }
 
     func selectedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
@@ -2429,6 +2521,7 @@ final class ScoreboardStore: ObservableObject {
     func resetSoundSettingsToDefaults() {
         stopTestSound()
         isSoundEnabled = true
+        bypassedSoundEventsBySport = [:]
         soundAssignmentsBySport = Self.defaultSoundAssignmentsBySport
     }
 
@@ -2472,6 +2565,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func playTestSound(_ event: ScoreboardSoundEvent, sport: SportType) {
+        guard !isSoundEventBypassed(event, sport: sport) else { return }
         toggleTestSound(selectedSoundEffect(for: event, sport: sport))
     }
 
@@ -2484,7 +2578,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleTestSound(_ effect: ScoreboardSoundEffect) {
-        guard isSoundEnabled, effect != .none else {
+        guard isSoundEnabled, effect != .none, activeEventPlaybackID == nil else {
             return
         }
 
@@ -2504,12 +2598,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func stopTestSound() {
+        guard playingTestSoundEffect != nil else { return }
         playingTestSoundEffect = nil
         buzzerPlayer.stop()
     }
 
     func canTestSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
-        isSoundEnabled && effect != .none
+        isSoundEnabled && effect != .none && activeEventPlaybackID == nil
     }
 
     func isTestingSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
@@ -2679,6 +2774,7 @@ final class ScoreboardStore: ObservableObject {
     func newGame() {
         pauseClock()
         pauseShotClock()
+        clearQueuedEventActions()
         isDebatePrepClockRunning = false
         homeScore = 0
         guestScore = 0
@@ -3747,6 +3843,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
+        if sport != selectedSport || applyDefaults { clearQueuedEventActions() }
         selectedSport = sport
         let rules = currentRules
 
@@ -4188,6 +4285,7 @@ final class ScoreboardStore: ObservableObject {
         performWithoutAuditLogging {
             pauseClock()
             pauseShotClock()
+            clearQueuedEventActions()
 
             let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
@@ -4706,15 +4804,11 @@ final class ScoreboardStore: ObservableObject {
 
         updateTimerState()
 
-        if let soundEvent = highestPrioritySoundEvent(from: soundEvents) {
-            let primaryDispatches = clockEventDispatches
-                .filter { $0.fallbackEvent == soundEvent }
-            if primaryDispatches.isEmpty {
-                handleScoreboardEvent(soundEvent)
-            } else {
-                handleScoreboardEventDispatches(primaryDispatches)
-            }
-        }
+        let representedFallbacks = Set(clockEventDispatches.compactMap(\.fallbackEvent))
+        let remainingDispatches = soundEvents
+            .filter { !representedFallbacks.contains($0) }
+            .map { eventDispatch($0) }
+        handleScoreboardEventDispatches(clockEventDispatches + remainingDispatches)
     }
 
     deinit {
@@ -5044,69 +5138,157 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func handleScoreboardEventDispatches(_ dispatches: [ScoreboardEventDispatch]) {
-        let resolvedDispatches = uniqueScoreboardEventDispatches(dispatches)
-        playSound(for: resolvedDispatches)
-        triggerCompanionCommands(for: resolvedDispatches)
-    }
-
-    private func playSound(for event: ScoreboardSoundEvent) {
-        playSound(for: [event], fallbackEvent: nil)
-    }
-
-    private func playSound(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
-        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
-        playSound(for: dispatches)
-    }
-
-    private func playSound(for dispatches: [ScoreboardEventDispatch]) {
-        guard isSoundEnabled else {
-            return
+        guard !dispatches.isEmpty else { return }
+        let expanded = dispatches + timerOutcomeDispatches(for: dispatches)
+        let order = Dictionary(uniqueKeysWithValues: ScoreboardSoundEvent.executionOrder.enumerated().map { ($0.element, $0.offset) })
+        let ordered = uniqueScoreboardEventDispatches(expanded).sorted {
+            order[$0.event, default: 0] < order[$1.event, default: 0]
         }
-
-        guard let event = preferredSoundEvent(from: dispatches) else {
-            return
+        var soundedEvents = Set<ScoreboardSoundEvent>()
+        var commandedEvents = Set<ScoreboardSoundEvent>()
+        for dispatch in ordered {
+            let soundEvent = selectedSoundEffect(for: dispatch.event) != .none
+                ? dispatch.event : dispatch.fallbackEvent
+            let effect: ScoreboardSoundEffect
+            if !isSoundEventBypassed(dispatch.event, sport: selectedSport),
+               let soundEvent, !isSoundEventBypassed(soundEvent, sport: selectedSport),
+               soundedEvents.insert(soundEvent).inserted {
+                effect = isSoundEnabled ? selectedSoundEffect(for: soundEvent) : .none
+            } else {
+                effect = .none
+            }
+            let commandEvent = companionLocation(for: dispatch.event) != nil
+                ? dispatch.event : dispatch.fallbackEvent
+            var location: ScoreboardCompanionLocation?
+            if isCompanionVisible, isCompanionEnabled,
+               !isCompanionEventBypassed(dispatch.event, sport: selectedSport),
+               let commandEvent, !isCompanionEventBypassed(commandEvent, sport: selectedSport),
+               commandedEvents.insert(commandEvent).inserted {
+                location = companionLocation(for: commandEvent)
+            }
+            if !companionSyncWithSound, let immediateLocation = location {
+                sendCompanionPress(immediateLocation,
+                                   events: [dispatch.event] + [commandEvent].compactMap { $0 },
+                                   sport: selectedSport)
+                location = nil
+            }
+            if effect != .none || location != nil {
+                queuedEventActions.append(QueuedEventAction(
+                    effect: effect, triggerEvent: dispatch.event,
+                    soundEvent: soundEvent, companionEvent: commandEvent,
+                    sport: selectedSport, companionLocation: location,
+                    companionGeneration: companionCommandGeneration
+                ))
+            }
         }
-
-        if playingTestSoundEffect != nil {
-            stopTestSound()
-        }
-        let effect = resolvedSoundEffect(for: event)
-        guard effect != .none else {
-            return
-        }
-        buzzerPlayer.play(effect)
-        remoteDisplayHostService.sendSoundEffect(effect)
+        playNextEventAction()
     }
 
-    private func triggerCompanionCommand(for event: ScoreboardSoundEvent) {
-        triggerCompanionCommands(for: [event], fallbackEvent: nil)
-    }
-
-    private func triggerCompanionCommands(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
-        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
-        triggerCompanionCommands(for: dispatches)
-    }
-
-    private func triggerCompanionCommands(for dispatches: [ScoreboardEventDispatch]) {
-        guard isCompanionVisible, isCompanionEnabled else {
-            return
-        }
-
-        var sentLocations = Set<ScoreboardCompanionLocation>()
-        for dispatch in dispatches {
-            if let location = companionLocation(for: dispatch.event) {
-                if sentLocations.insert(location).inserted {
-                    sendCompanionPress(location)
+    private func timerOutcomeDispatches(for dispatches: [ScoreboardEventDispatch]) -> [ScoreboardEventDispatch] {
+        let events = Set(dispatches.flatMap { [$0.event] + [$0.fallbackEvent].compactMap { $0 } })
+        let expired = !events.isDisjoint(with: [
+            .gameClockExpired, .chessClockExpired, .debateSegmentExpired,
+            .homeSideClockExpired, .guestSideClockExpired, .debateUnassignedSegmentExpired
+        ])
+        let hasTimeRemaining = usesChessClocks
+            ? (activeChessClockSide == .home ? homeChessClockSeconds : guestChessClockSeconds) > 0
+            : gameClockMode == .countUp || gameClockSeconds > 0
+        let paused = !expired && hasTimeRemaining && !events.isDisjoint(with: [
+            .gameClockPaused, .debateSegmentStopped, .homeSideClockStopped,
+            .guestSideClockStopped, .debateUnassignedSegmentStopped
+        ])
+        var outcomes: [ScoreboardSoundEvent] = []
+        if expired {
+            outcomes.append(.timerExpired)
+            if supportsScore {
+                if homeScore > guestScore {
+                    outcomes += [.timerExpiredHomeAhead, .timerExpiredGuestBehind, .homeWin, .guestLose]
+                } else if homeScore < guestScore {
+                    outcomes += [.timerExpiredHomeBehind, .timerExpiredGuestAhead, .homeLose, .guestWin]
+                } else {
+                    outcomes.append(.timerExpiredTie)
                 }
+            }
+        }
+        if paused {
+            outcomes.append(.timerPaused)
+            if supportsScore {
+                if homeScore > guestScore {
+                    outcomes += [.timerPausedHomeAhead, .timerPausedGuestBehind]
+                } else if homeScore < guestScore {
+                    outcomes += [.timerPausedHomeBehind, .timerPausedGuestAhead]
+                } else {
+                    outcomes.append(.timerPausedTie)
+                }
+            }
+        }
+        return outcomes.map { eventDispatch($0) }
+    }
+
+    private func playNextEventAction() {
+        guard activeEventPlaybackID == nil else { return }
+        while !queuedEventActions.isEmpty {
+            let action = queuedEventActions.removeFirst()
+            guard isSoundEnabled, action.effect != .none,
+                  !isSoundEventBypassed(action.triggerEvent, sport: action.sport),
+                  !isSoundEventBypassed(action.soundEvent ?? .general, sport: action.sport) else {
+                sendQueuedCompanionCommand(for: action)
                 continue
             }
-
-            if let fallbackEvent = dispatch.fallbackEvent, let location = companionLocation(for: fallbackEvent) {
-                if sentLocations.insert(location).inserted {
-                    sendCompanionPress(location)
-                }
-            }
+            stopTestSound()
+            let playbackID = UUID()
+            activeEventPlaybackID = playbackID
+            activeEventAction = action
+            activeEventDidStart = false
+            buzzerPlayer.play(action.effect, onStarted: { [weak self] in
+                guard let self, self.activeEventPlaybackID == playbackID else { return }
+                self.activeEventDidStart = true
+                self.sendQueuedCompanionCommand(for: action)
+                self.remoteDisplayHostService.sendSoundEffect(action.effect)
+            }, onFinished: { [weak self] _ in
+                guard let self, self.activeEventPlaybackID == playbackID else { return }
+                // A missing/unplayable local sound must not drop its automation command.
+                if !self.activeEventDidStart { self.sendQueuedCompanionCommand(for: action) }
+                self.activeEventPlaybackID = nil
+                self.activeEventAction = nil
+                self.playNextEventAction()
+            })
+            return
         }
+    }
+
+    private func sendQueuedCompanionCommand(for action: QueuedEventAction) {
+        guard isCompanionVisible, isCompanionEnabled,
+              action.companionGeneration == companionCommandGeneration,
+              !isCompanionEventBypassed(action.triggerEvent, sport: action.sport),
+              !isCompanionEventBypassed(action.companionEvent ?? .general, sport: action.sport),
+              let location = action.companionLocation else { return }
+        sendCompanionPress(location,
+                           events: [action.triggerEvent] + [action.companionEvent].compactMap { $0 },
+                           sport: action.sport)
+    }
+
+    private func interruptEventSoundPlayback() {
+        if let action = activeEventAction, !activeEventDidStart {
+            sendQueuedCompanionCommand(for: action)
+        }
+        activeEventPlaybackID = nil
+        activeEventAction = nil
+        buzzerPlayer.stop()
+        playNextEventAction()
+    }
+
+    private func clearQueuedEventActions() {
+        queuedEventActions.removeAll()
+        activeEventPlaybackID = nil
+        activeEventAction = nil
+        buzzerPlayer.stop()
+        invalidateQueuedCompanionCommands()
+    }
+
+    private func invalidateQueuedCompanionCommands() {
+        companionCommandGeneration = UUID()
+        companionService.cancelPendingPresses()
     }
 
     private func companionLocation(for event: ScoreboardSoundEvent) -> ScoreboardCompanionLocation? {
@@ -5117,14 +5299,21 @@ final class ScoreboardStore: ObservableObject {
         ScoreboardCompanionLocation(rawValue: companionLocationText(for: event, sport: sport))
     }
 
-    private func sendCompanionPress(_ location: ScoreboardCompanionLocation) {
+    private func sendCompanionPress(
+        _ location: ScoreboardCompanionLocation,
+        events: [ScoreboardSoundEvent] = [], sport: SportType? = nil
+    ) {
+        let commandGeneration = companionCommandGeneration
+        let eventSport = sport ?? selectedSport
         companionService.sendPress(
             host: companionHost,
             port: companionPort,
             mode: companionMode,
-            location: location
+            location: location,
+            eventKeys: events.map { "\(eventSport.rawValue):\($0.rawValue)" }
         ) { [weak self] result in
             Task { @MainActor [weak self] in
+                guard self?.companionCommandGeneration == commandGeneration else { return }
                 self?.handleCompanionSendResult(result)
             }
         }
@@ -5160,36 +5349,6 @@ final class ScoreboardStore: ObservableObject {
         companionFailureClearTask?.cancel()
         companionFailureClearTask = nil
         companionFailureNotice = nil
-    }
-
-    private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
-        selectedSoundEffect(for: event)
-    }
-
-    private func preferredSoundEvent(from dispatches: [ScoreboardEventDispatch]) -> ScoreboardSoundEvent? {
-        if let assignedDispatch = dispatches.first(where: { selectedSoundEffect(for: $0.event) != .none }) {
-            return assignedDispatch.event
-        }
-        if let fallbackEvent = dispatches
-            .compactMap(\.fallbackEvent)
-            .first(where: { selectedSoundEffect(for: $0) != .none }) {
-            return fallbackEvent
-        }
-        return dispatches.first?.event ?? dispatches.compactMap(\.fallbackEvent).first
-    }
-
-    private func highestPrioritySoundEvent(from events: [ScoreboardSoundEvent]) -> ScoreboardSoundEvent? {
-        let priorities: [ScoreboardSoundEvent] = [
-            .shotClockExpired,
-            .gameClockExpired,
-            .chessClockExpired,
-            .debateSegmentExpired,
-            .hockeyPenaltyExpired,
-            .debatePrepExpired,
-            .general
-        ]
-
-        return priorities.first { events.contains($0) }
     }
 
     private func performWithoutAuditLogging(_ action: () -> Void) {
@@ -5244,7 +5403,33 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setWebAPIEnabled(_ isEnabled: Bool) {
-        isWebAPIEnabled = isEnabled
+        guard isWebAPIEnabled != isEnabled else {
+            return
+        }
+
+        if isEnabled {
+            pendingExternalAutomationIntegration = .webAPI
+            externalAutomationSafetyNoticeID = UUID()
+        } else {
+            isWebAPIEnabled = false
+        }
+    }
+
+    func agreeToExternalAutomationSafetyNotice() {
+        switch pendingExternalAutomationIntegration {
+        case .companion:
+            isCompanionVisible = true
+        case .webAPI:
+            isWebAPIEnabled = true
+        case nil:
+            break
+        }
+        cancelExternalAutomationSafetyNotice()
+    }
+
+    func cancelExternalAutomationSafetyNotice() {
+        pendingExternalAutomationIntegration = nil
+        externalAutomationSafetyNoticeID = nil
     }
 
     func setWebAPIUpdateMode(_ mode: ScoreboardWebAPIUpdateMode) {
@@ -6028,12 +6213,15 @@ final class ScoreboardStore: ObservableObject {
             $guestTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $eventLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $bypassedSoundEventsBySport.map { _ in () }.eraseToAnyPublisher(),
+            $bypassedCompanionEventsBySport.map { _ in () }.eraseToAnyPublisher(),
             $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $keyboardShortcutsByAction.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionEnabled.map { _ in () }.eraseToAnyPublisher(),
             $companionHost.map { _ in () }.eraseToAnyPublisher(),
             $companionMode.map { _ in () }.eraseToAnyPublisher(),
+            $companionSyncWithSound.map { _ in () }.eraseToAnyPublisher(),
             $companionPort.map { _ in () }.eraseToAnyPublisher(),
             $companionAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
@@ -6158,6 +6346,7 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             pauseShotClock()
             stopTestSound()
+            clearQueuedEventActions()
             dismissCompanionFailureNotice()
             resetRemoteDisplayWarningState()
             companionLastError = nil
@@ -6267,10 +6456,13 @@ final class ScoreboardStore: ObservableObject {
             eventLogoImage = nil
             externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image || persistedState.externalDisplayBackgroundMode == .animatedLogo ? .blurred : persistedState.externalDisplayBackgroundMode
             isSoundEnabled = persistedState.isSoundEnabled
+            bypassedSoundEventsBySport = persistedState.bypassedSoundEventsBySport
+            bypassedCompanionEventsBySport = persistedState.bypassedCompanionEventsBySport
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             keyboardShortcutsByAction = Self.normalizedKeyboardShortcuts(persistedState.keyboardShortcutsByAction)
             isCompanionVisible = persistedState.isCompanionVisible
             isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
+            companionSyncWithSound = persistedState.companionSyncWithSound
             companionHost = persistedState.companionHost
             companionMode = persistedState.companionMode
             companionPort = persistedState.companionPort == 0 ? persistedState.companionMode.defaultPort : persistedState.companionPort
@@ -6591,12 +6783,15 @@ final class ScoreboardStore: ObservableObject {
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
+            bypassedSoundEventsBySport: bypassedSoundEventsBySport,
+            bypassedCompanionEventsBySport: bypassedCompanionEventsBySport,
             soundAssignmentsBySport: soundAssignmentsBySport,
             keyboardShortcutsByAction: keyboardShortcutsByAction,
             isCompanionVisible: isCompanionVisible,
             isCompanionEnabled: isCompanionEnabled,
             companionHost: companionHost,
             companionMode: companionMode,
+            companionSyncWithSound: companionSyncWithSound,
             companionPort: companionPort,
             companionAssignmentsBySport: companionAssignmentsBySport,
             didCompleteSetup: didCompleteSetup,
@@ -6883,12 +7078,15 @@ private struct PersistedState: Codable {
     var showsTeamLogos: Bool
     var showsEventLogo: Bool
     var isSoundEnabled: Bool
+    var bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>]
+    var bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>]
     var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
     var keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut]
     var isCompanionVisible: Bool
     var isCompanionEnabled: Bool
     var companionHost: String
     var companionMode: ScoreboardCompanionMode
+    var companionSyncWithSound: Bool
     var companionPort: UInt16
     var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]]
     var didCompleteSetup: Bool
@@ -6996,12 +7194,15 @@ private struct PersistedState: Codable {
         case showsEventLogo
         case isSoundEnabled
         case soundAssignments
+        case bypassedSoundEventsBySport
+        case bypassedCompanionEventsBySport
         case soundAssignmentsBySport
         case keyboardShortcutsByAction
         case isCompanionVisible
         case isCompanionEnabled
         case companionHost
         case companionMode
+        case companionSyncWithSound
         case companionPort
         case companionAssignments
         case companionAssignmentsBySport
@@ -7108,12 +7309,15 @@ private struct PersistedState: Codable {
         showsTeamLogos: Bool,
         showsEventLogo: Bool,
         isSoundEnabled: Bool,
+        bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>],
+        bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>],
         soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
         keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut],
         isCompanionVisible: Bool,
         isCompanionEnabled: Bool,
         companionHost: String,
         companionMode: ScoreboardCompanionMode,
+        companionSyncWithSound: Bool,
         companionPort: UInt16,
         companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]],
         didCompleteSetup: Bool,
@@ -7217,12 +7421,15 @@ private struct PersistedState: Codable {
         self.showsTeamLogos = showsTeamLogos
         self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
+        self.bypassedSoundEventsBySport = bypassedSoundEventsBySport
+        self.bypassedCompanionEventsBySport = bypassedCompanionEventsBySport
         self.soundAssignmentsBySport = soundAssignmentsBySport
         self.keyboardShortcutsByAction = ScoreboardStore.normalizedKeyboardShortcuts(keyboardShortcutsByAction)
         self.isCompanionVisible = isCompanionVisible
         self.isCompanionEnabled = isCompanionEnabled
         self.companionHost = companionHost
         self.companionMode = companionMode
+        self.companionSyncWithSound = companionSyncWithSound
         self.companionPort = companionPort
         self.companionAssignmentsBySport = companionAssignmentsBySport
         self.didCompleteSetup = didCompleteSetup
@@ -7353,6 +7560,8 @@ private struct PersistedState: Codable {
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
+        bypassedSoundEventsBySport = try container.decodeIfPresent([SportType: Set<ScoreboardSoundEvent>].self, forKey: .bypassedSoundEventsBySport) ?? [:]
+        bypassedCompanionEventsBySport = try container.decodeIfPresent([SportType: Set<ScoreboardSoundEvent>].self, forKey: .bypassedCompanionEventsBySport) ?? [:]
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]].self, forKey: .soundAssignmentsBySport) {
             soundAssignmentsBySport = assignmentsBySport
         } else if let legacyAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) {
@@ -7371,6 +7580,7 @@ private struct PersistedState: Codable {
         isCompanionEnabled = isCompanionVisible && decodedCompanionEnabled
         companionHost = try container.decodeIfPresent(String.self, forKey: .companionHost) ?? ""
         companionMode = try container.decodeIfPresent(ScoreboardCompanionMode.self, forKey: .companionMode) ?? .tcp
+        companionSyncWithSound = try container.decodeIfPresent(Bool.self, forKey: .companionSyncWithSound) ?? false
         companionPort = try container.decodeIfPresent(UInt16.self, forKey: .companionPort) ?? companionMode.defaultPort
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: String]].self, forKey: .companionAssignmentsBySport) {
             companionAssignmentsBySport = assignmentsBySport
@@ -7492,12 +7702,15 @@ private struct PersistedState: Codable {
         try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
+        try container.encode(bypassedSoundEventsBySport, forKey: .bypassedSoundEventsBySport)
+        try container.encode(bypassedCompanionEventsBySport, forKey: .bypassedCompanionEventsBySport)
         try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
         try container.encode(keyboardShortcutsByAction, forKey: .keyboardShortcutsByAction)
         try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
         try container.encode(isCompanionEnabled, forKey: .isCompanionEnabled)
         try container.encode(companionHost, forKey: .companionHost)
         try container.encode(companionMode, forKey: .companionMode)
+        try container.encode(companionSyncWithSound, forKey: .companionSyncWithSound)
         try container.encode(companionPort, forKey: .companionPort)
         try container.encode(companionAssignmentsBySport, forKey: .companionAssignmentsBySport)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
@@ -7614,12 +7827,15 @@ private extension PersistedState {
             showsTeamLogos: true,
             showsEventLogo: true,
             isSoundEnabled: true,
+            bypassedSoundEventsBySport: [:],
+            bypassedCompanionEventsBySport: [:],
             soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
             keyboardShortcutsByAction: ScoreboardStore.defaultKeyboardShortcutsByAction,
             isCompanionVisible: false,
             isCompanionEnabled: false,
             companionHost: "",
             companionMode: .tcp,
+            companionSyncWithSound: false,
             companionPort: ScoreboardCompanionMode.tcp.defaultPort,
             companionAssignmentsBySport: [:],
             didCompleteSetup: false,

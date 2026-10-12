@@ -1,8 +1,46 @@
 import AVFoundation
 import Foundation
 
+enum ScoreboardEventGroup: String, CaseIterable, Identifiable, Sendable {
+    case timerExpiry, results, timerPause, timerStart, prepTimers, shotTimer
+    case penaltyTimers, gameActions, players, cardsAndFouls, samples
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .timerExpiry: return "Timer Expiry"
+        case .results: return "Win / Lose at Timer Expiry"
+        case .timerPause: return "Timer Pause"
+        case .timerStart: return "Timer Start"
+        case .prepTimers: return "Prep Timers"
+        case .shotTimer: return "Shot Timer"
+        case .penaltyTimers: return "Penalty Timers"
+        case .gameActions: return "Game Actions"
+        case .players: return "Players"
+        case .cardsAndFouls: return "Cards and Fouls"
+        case .samples: return "Samples"
+        }
+    }
+}
+
 enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case general
+    case timerExpired
+    case timerExpiredHomeAhead
+    case timerExpiredHomeBehind
+    case timerExpiredGuestAhead
+    case timerExpiredGuestBehind
+    case timerExpiredTie
+    case homeWin
+    case homeLose
+    case guestWin
+    case guestLose
+    case timerPaused
+    case timerPausedHomeAhead
+    case timerPausedHomeBehind
+    case timerPausedGuestAhead
+    case timerPausedGuestBehind
+    case timerPausedTie
     case gameClockExpired
     case shotClockExpired
     case chessClockExpired
@@ -51,10 +89,92 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case playerOverlayShown
     case playerOverlayPaused
 
+    var group: ScoreboardEventGroup {
+        switch self {
+        case .timerExpired, .gameClockExpired, .chessClockExpired, .debateSegmentExpired,
+             .homeSideClockExpired, .guestSideClockExpired, .debateUnassignedSegmentExpired,
+             .timerExpiredHomeAhead, .timerExpiredHomeBehind, .timerExpiredGuestAhead,
+             .timerExpiredGuestBehind, .timerExpiredTie:
+            return .timerExpiry
+        case .homeWin, .homeLose, .guestWin, .guestLose:
+            return .results
+        case .timerPaused, .gameClockPaused, .debateSegmentStopped,
+             .homeSideClockStopped, .guestSideClockStopped, .debateUnassignedSegmentStopped,
+             .timerPausedHomeAhead, .timerPausedHomeBehind, .timerPausedGuestAhead,
+             .timerPausedGuestBehind, .timerPausedTie:
+            return .timerPause
+        case .gameClockStarted, .homeSideClockStarted, .guestSideClockStarted,
+             .debateSegmentStarted, .debateUnassignedSegmentStarted:
+            return .timerStart
+        case .debatePrepStarted, .debatePrepStopped, .debatePrepExpired,
+             .homePrepClockStarted, .homePrepClockStopped, .homePrepClockExpired,
+             .guestPrepClockStarted, .guestPrepClockStopped, .guestPrepClockExpired:
+            return .prepTimers
+        case .shotClockExpired, .shotClockStarted, .shotClockPaused, .shotClockReset:
+            return .shotTimer
+        case .hockeyPenaltyExpired, .hockeyPenaltyAdded, .hockeyPenaltyStarted, .hockeyPenaltyPaused:
+            return .penaltyTimers
+        case .playerShown, .playerBenched, .playerOverlayShown, .playerOverlayPaused, .playerFoulApplied:
+            return .players
+        case .yellowCardAssigned, .redCardAssigned, .teamFoulApplied:
+            return .cardsAndFouls
+        case .scoreChanged, .periodChanged, .possessionChanged, .sideSwitched, .substitutionUsed, .teamPauseUsed:
+            return .gameActions
+        case .general:
+            return .samples
+        }
+    }
+
+    // Keep base expiry/pause actions before their score-dependent actions.
+    static var executionOrder: [ScoreboardSoundEvent] {
+        let baseEvents: [ScoreboardSoundEvent] = [
+            .timerExpired, .gameClockExpired, .chessClockExpired, .debateSegmentExpired,
+            .homeSideClockExpired, .guestSideClockExpired, .debateUnassignedSegmentExpired,
+            .timerPaused, .gameClockPaused, .debateSegmentStopped,
+            .homeSideClockStopped, .guestSideClockStopped, .debateUnassignedSegmentStopped
+        ]
+        return ScoreboardEventGroup.allCases.flatMap { group in
+            baseEvents.filter { $0.group == group }
+                + allCases.filter { $0.group == group && !baseEvents.contains($0) }
+        }
+    }
+
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .timerExpired:
+            return "Timer Expired"
+        case .timerExpiredHomeAhead:
+            return "Timer Expired: Home Ahead"
+        case .timerExpiredHomeBehind:
+            return "Timer Expired: Home Behind"
+        case .timerExpiredGuestAhead:
+            return "Timer Expired: Guest Ahead"
+        case .timerExpiredGuestBehind:
+            return "Timer Expired: Guest Behind"
+        case .timerExpiredTie:
+            return "Timer Expired: Game Tie"
+        case .homeWin:
+            return "Home Win"
+        case .homeLose:
+            return "Home Lose"
+        case .guestWin:
+            return "Guest Win"
+        case .guestLose:
+            return "Guest Lose"
+        case .timerPaused:
+            return "Timer Paused"
+        case .timerPausedHomeAhead:
+            return "Timer Paused: Home Ahead"
+        case .timerPausedHomeBehind:
+            return "Timer Paused: Home Behind"
+        case .timerPausedGuestAhead:
+            return "Timer Paused: Guest Ahead"
+        case .timerPausedGuestBehind:
+            return "Timer Paused: Guest Behind"
+        case .timerPausedTie:
+            return "Timer Paused: Game Tie"
         case .general:
             return "General Sample"
         case .gameClockExpired:
@@ -156,6 +276,38 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
 
     var subtitle: String {
         switch self {
+        case .timerExpired:
+            return "Main, chess, or debate timer reaches zero"
+        case .timerExpiredHomeAhead:
+            return "Home has the higher score when the timer expires"
+        case .timerExpiredHomeBehind:
+            return "Home has the lower score when the timer expires"
+        case .timerExpiredGuestAhead:
+            return "Guest has the higher score when the timer expires"
+        case .timerExpiredGuestBehind:
+            return "Guest has the lower score when the timer expires"
+        case .timerExpiredTie:
+            return "Scores are equal when the timer expires"
+        case .homeWin:
+            return "Home has the higher score when the timer expires; this is not a confirmed match result"
+        case .homeLose:
+            return "Home has the lower score when the timer expires; this is not a confirmed match result"
+        case .guestWin:
+            return "Guest has the higher score when the timer expires; this is not a confirmed match result"
+        case .guestLose:
+            return "Guest has the lower score when the timer expires; this is not a confirmed match result"
+        case .timerPaused:
+            return "Main, chess, or debate timer is paused"
+        case .timerPausedHomeAhead:
+            return "Home has the higher score when the timer is paused"
+        case .timerPausedHomeBehind:
+            return "Home has the lower score when the timer is paused"
+        case .timerPausedGuestAhead:
+            return "Guest has the higher score when the timer is paused"
+        case .timerPausedGuestBehind:
+            return "Guest has the lower score when the timer is paused"
+        case .timerPausedTie:
+            return "Scores are equal when the timer is paused"
         case .general:
             return "Default scoreboard sound"
         case .gameClockExpired:
@@ -257,6 +409,38 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
 
     var systemImage: String {
         switch self {
+        case .timerExpired:
+            return "timer"
+        case .timerExpiredHomeAhead:
+            return "arrow.up"
+        case .timerExpiredHomeBehind:
+            return "arrow.down"
+        case .timerExpiredGuestAhead:
+            return "arrow.up"
+        case .timerExpiredGuestBehind:
+            return "arrow.down"
+        case .timerExpiredTie:
+            return "equal"
+        case .homeWin:
+            return "trophy"
+        case .homeLose:
+            return "flag"
+        case .guestWin:
+            return "trophy"
+        case .guestLose:
+            return "flag"
+        case .timerPaused:
+            return "pause.circle"
+        case .timerPausedHomeAhead:
+            return "arrow.up"
+        case .timerPausedHomeBehind:
+            return "arrow.down"
+        case .timerPausedGuestAhead:
+            return "arrow.up"
+        case .timerPausedGuestBehind:
+            return "arrow.down"
+        case .timerPausedTie:
+            return "equal"
         case .general:
             return "speaker.wave.2"
         case .gameClockExpired:
@@ -473,6 +657,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
     private var audioPlayers: [ScoreboardSoundEffect: AVAudioPlayer] = [:]
     private var preloadingEffects = Set<ScoreboardSoundEffect>()
     private var activeEffect: ScoreboardSoundEffect?
+    private var playbackStarted: (@MainActor @Sendable () -> Void)?
     private var playbackFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
     private var playbackRequestID = UUID()
 
@@ -484,6 +669,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
 
     func play(
         _ effect: ScoreboardSoundEffect = .classicBuzzer,
+        onStarted: (@MainActor @Sendable () -> Void)? = nil,
         onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)? = nil
     ) {
         guard effect != .none else {
@@ -491,7 +677,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
         }
 
         audioQueue.async { [weak self] in
-            self?.playOnAudioQueue(effect, onFinished: onFinished)
+            self?.playOnAudioQueue(effect, onStarted: onStarted, onFinished: onFinished)
         }
     }
 
@@ -522,6 +708,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
 
     private func playOnAudioQueue(
         _ effect: ScoreboardSoundEffect,
+        onStarted: (@MainActor @Sendable () -> Void)?,
         onFinished: (@MainActor @Sendable (ScoreboardSoundEffect) -> Void)?
     ) {
         stopOnAudioQueue()
@@ -529,6 +716,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
         playbackRequestID = UUID()
         let requestID = playbackRequestID
         activeEffect = effect
+        playbackStarted = onStarted
         playbackFinished = onFinished
 
         if let audioPlayer = audioPlayers[effect] {
@@ -562,6 +750,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
             audioPlayer.currentTime = 0
         }
         activeEffect = nil
+        playbackStarted = nil
         playbackFinished = nil
         deactivatePlaybackSessionIfNeeded()
     }
@@ -612,6 +801,11 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
             return
         }
 
+        if let callback = playbackStarted {
+            playbackStarted = nil
+            Task { @MainActor in callback() }
+        }
+
         let duration = max(audioPlayer.duration, 0)
         audioQueue.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
             self?.finishActivePlayback(requestID: requestID)
@@ -628,6 +822,7 @@ nonisolated final class BuzzerPlayer: @unchecked Sendable {
 
         let callback = playbackFinished
         self.activeEffect = nil
+        playbackStarted = nil
         playbackFinished = nil
         deactivatePlaybackSessionIfNeeded()
         if let callback {

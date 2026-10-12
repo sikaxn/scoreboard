@@ -93,6 +93,11 @@ struct ContentView: View {
     @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
     @State private var setupCustomDebatePreset = DebatePreset.customDefault
     @State private var selectedSoundSettingsSport: SportType = .simple
+    @AppStorage("showsSoundLibrary") private var showsSoundLibrary = false
+    @State private var soundEventSearch = ""
+    @State private var companionEventSearch = ""
+    @State private var expandedSoundEventGroups: Set<ScoreboardEventGroup> = []
+    @State private var expandedCompanionEventGroups: Set<ScoreboardEventGroup> = []
     @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .remoteDisplay
     @State private var remoteDisplayPairingCodes: [String: String] = [:]
     @State private var selectedCompanionSettingsSport: SportType = .simple
@@ -757,6 +762,16 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
                 refreshStoredLogSessions()
+            }
+            .sheet(isPresented: Binding(
+                get: { store.externalAutomationSafetyNoticeID != nil },
+                set: { if !$0 { store.cancelExternalAutomationSafetyNotice() } }
+            ), onDismiss: { store.cancelExternalAutomationSafetyNotice() }) {
+                ExternalAutomationSafetyNoticeView(
+                    agree: { store.agreeToExternalAutomationSafetyNotice() },
+                    cancel: { store.cancelExternalAutomationSafetyNotice() }
+                )
+                .id(store.externalAutomationSafetyNoticeID)
             }
             .sheet(isPresented: $showsGettingStarted, onDismiss: handleGettingStartedDismissed) {
                 gettingStartedSheet
@@ -3057,16 +3072,28 @@ struct ContentView: View {
     private func settingsSoundPane(layout: InterfaceLayout) -> some View {
         let events = store.assignableSoundEvents(for: selectedSoundSettingsSport)
 
-        return settingsTwoColumnLayout(layout: layout) {
-            VStack(alignment: .leading, spacing: 22) {
-                settingsSoundGlobalSection()
-                settingsSoundSportSection(layout: layout)
-                settingsSoundLibrarySection()
-                settingsSoundResetSection()
+        return Group {
+            if isIPhoneInterface || layout.settingsTwoColumnUsesVerticalFlow {
+                VStack(alignment: .leading, spacing: 22) {
+                    settingsSoundGlobalSection()
+                    settingsSoundSportSection(layout: layout)
+                    settingsSoundEventsSection(events)
+                    settingsSoundLibrarySection()
+                    settingsSoundResetSection()
+                }
+            } else {
+                settingsTwoColumnLayout(layout: layout) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        settingsSoundGlobalSection()
+                        settingsSoundSportSection(layout: layout)
+                        settingsSoundLibrarySection()
+                        settingsSoundResetSection()
+                    }
+                } right: {
+                    settingsSoundEventsSection(events)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
             }
-        } right: {
-            settingsSoundEventsSection(events)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .onAppear {
             store.prepareTestSoundEffects()
@@ -3091,34 +3118,128 @@ struct ContentView: View {
     }
 
     private func settingsSoundEventsSection(_ events: [ScoreboardSoundEvent]) -> some View {
-        settingsSection(title: "Event Sounds", footer: "Assign one available sound to each supported event for the selected sport.") {
-            if events.isEmpty {
-                settingsSummaryValueRow(title: selectedSoundSettingsSport.title, value: localizedAppString("No configurable sound events"))
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
-
-                        if index < events.count - 1 {
-                            settingsDivider()
-                        }
-                    }
-                }
+        settingsSection(title: "Event Sounds", footer: "Matching events run from top to bottom across groups. Sounds play one after another. Bypass skips an event without changing its saved assignment.") {
+            settingsGroupedEvents(events, search: $soundEventSearch, expandedGroups: $expandedSoundEventGroups) { event in
+                settingsSoundAssignmentRow(event, sport: selectedSoundSettingsSport)
             }
         }
     }
 
-    private func settingsSoundLibrarySection() -> some View {
-        settingsSection(title: "Available Sounds", footer: "Preview each sound before assigning it to a timer.") {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(ScoreboardSoundEffect.allCases.enumerated()), id: \.element.id) { index, effect in
-                    settingsSoundLibraryRow(effect)
+    private func settingsGroupedEvents<Row: View>(
+        _ events: [ScoreboardSoundEvent], search: Binding<String>,
+        expandedGroups: Binding<Set<ScoreboardEventGroup>>,
+        @ViewBuilder row: @escaping (ScoreboardSoundEvent) -> Row
+    ) -> ScoreboardViewBoundary {
+        let query = search.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matches = events.filter {
+            query.isEmpty || localizedAppString($0.title).localizedStandardContains(query)
+                || localizedAppString($0.subtitle).localizedStandardContains(query)
+                || localizedAppString($0.group.title).localizedStandardContains(query)
+                || $0.title.localizedStandardContains(query)
+        }
+        let groups = ScoreboardEventGroup.allCases.filter { group in matches.contains { $0.group == group } }
+        return ScoreboardViewBoundary {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(settingsPalette.secondaryText)
+                    TextField("Search events", text: search)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(settingsPalette.primaryText)
+                    if !search.wrappedValue.isEmpty {
+                        Button { search.wrappedValue = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("Clear search"))
+                    }
+                }
+                .padding(12)
+                .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 12))
 
-                    if index < ScoreboardSoundEffect.allCases.count - 1 {
-                        settingsDivider()
+                if matches.isEmpty {
+                    localizedAppText(query.isEmpty ? "No configurable sound events" : "No matching events")
+                        .foregroundStyle(settingsPalette.secondaryText)
+                        .padding(.vertical, 12)
+                }
+                ForEach(groups) { group in
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { !query.isEmpty || expandedGroups.wrappedValue.contains(group) },
+                        set: { isExpanded in
+                            if isExpanded { expandedGroups.wrappedValue.insert(group) }
+                            else { expandedGroups.wrappedValue.remove(group) }
+                        }
+                    )) {
+                        let groupEvents = matches.filter { $0.group == group }
+                        ForEach(Array(groupEvents.enumerated()), id: \.element.id) { index, event in
+                            row(event)
+                            if index < groupEvents.count - 1 { settingsDivider() }
+                        }
+                    } label: {
+                        HStack {
+                            localizedAppText(group.title)
+                                .font(.headline)
+                            Spacer()
+                            Text(verbatim: String(matches.filter { $0.group == group }.count))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(settingsPalette.secondaryText)
+                        }
+                        .foregroundStyle(settingsPalette.primaryText)
+                        .padding(.vertical, 8)
+                    }
+                    .tint(settingsPalette.accent)
+                    settingsDivider()
+                }
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func settingsEventBypassToggle(_ event: ScoreboardSoundEvent, sport: SportType, companion: Bool) -> some View {
+        Toggle("Bypass", isOn: Binding(
+            get: {
+                companion ? store.isCompanionEventBypassed(event, sport: sport)
+                    : store.isSoundEventBypassed(event, sport: sport)
+            },
+            set: { isBypassed in
+                if companion { store.setCompanionEventBypassed(isBypassed, event: event, sport: sport) }
+                else { store.setSoundEventBypassed(isBypassed, event: event, sport: sport) }
+            }
+        ))
+        .toggleStyle(.switch)
+        .tint(.orange)
+        .font(.subheadline)
+        .foregroundStyle(settingsPalette.secondaryText)
+        .accessibilityLabel(Text(verbatim: localizedAppString("Bypass") + ": " + localizedAppString(event.title)))
+    }
+
+    private func settingsSoundLibrarySection() -> some View {
+        let effects = ScoreboardSoundEffect.allCases.filter { $0 != .none }
+        return DisclosureGroup(isExpanded: $showsSoundLibrary) {
+            VStack(alignment: .leading, spacing: 8) {
+                localizedAppText("Preview each sound before assigning it to a timer.")
+                    .font(.footnote)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .padding(.top, 8)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(effects.enumerated()), id: \.element.id) { index, effect in
+                        settingsSoundLibraryRow(effect)
+                        if index < effects.count - 1 { settingsDivider() }
                     }
                 }
             }
+        } label: {
+            Label("Available Sounds", systemImage: "speaker.wave.2")
+                .font(.headline)
+                .foregroundStyle(settingsPalette.primaryText)
+                .padding(.vertical, 6)
+        }
+        .tint(settingsPalette.accent)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(settingsPalette.cardBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .onChange(of: showsSoundLibrary) { _, isExpanded in
+            if !isExpanded { store.stopTestSound() }
         }
     }
 
@@ -3133,7 +3254,7 @@ struct ContentView: View {
     private func settingsSoundAssignmentRow(_ event: ScoreboardSoundEvent, sport: SportType) -> some View {
         let selectedEffect = store.selectedSoundEffect(for: event, sport: sport)
         let isTesting = store.isTestingSoundEffect(selectedEffect)
-        let canTest = store.canTestSoundEffect(selectedEffect)
+        let canTest = store.canTestSoundEffect(selectedEffect) && !store.isSoundEventBypassed(event, sport: sport)
 
         return VStack(alignment: .leading, spacing: 10) {
             settingsRowLayout {
@@ -3194,6 +3315,7 @@ struct ContentView: View {
                 .font(.footnote)
                 .foregroundStyle(settingsPalette.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            settingsEventBypassToggle(event, sport: sport, companion: false)
         }
         .padding(.vertical, 12)
     }
@@ -3202,35 +3324,34 @@ struct ContentView: View {
         let isTesting = store.isTestingSoundEffect(effect)
         let canTest = store.canTestSoundEffect(effect)
 
-        return settingsRowLayout {
+        return HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 localizedAppText(effect.title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(settingsPalette.primaryText)
-
                 localizedAppText(effect.subtitle)
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(settingsPalette.secondaryText)
             }
-
-            if !usesStackedSettingsRows { Spacer(minLength: 0) }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 store.playTestEffect(effect)
             } label: {
-                Label(isTesting ? "Stop" : "Test", systemImage: isTesting ? "stop.fill" : "play.fill")
-                    .font(.headline.weight(.semibold))
+                Image(systemName: isTesting ? "stop.fill" : "play.fill")
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(canTest ? settingsPalette.accentText : settingsPalette.secondaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
+                    .frame(width: 44, height: 44)
                     .background(
                         canTest ? settingsPalette.accent : settingsPalette.fieldBackground,
-                        in: Capsule()
+                        in: Circle()
                     )
             }
             .buttonStyle(.plain)
             .disabled(!canTest)
             .opacity(canTest ? 1 : 0.42)
+            .accessibilityLabel(Text(verbatim: localizedAppString(isTesting ? "Stop" : "Test") + ": " + localizedAppString(effect.title)))
+            .help(localizedAppString(isTesting ? "Stop" : "Test"))
         }
         .padding(.vertical, 12)
     }
@@ -4496,6 +4617,9 @@ struct ContentView: View {
             .disabled(!store.isCompanionVisible)
             .opacity(store.isCompanionVisible ? 1 : 0.42)),
             AnyView(settingsDivider()),
+            AnyView(settingsToggleRow(title: "Sync with Sound", isOn: $store.companionSyncWithSound)),
+            AnyView(settingsOptionTip("When enabled, each Companion command is queued when its matching sound starts. Events without sound still send commands in order. When disabled, commands are queued immediately in event-list order.", systemImage: "link")),
+            AnyView(settingsDivider()),
             AnyView(settingsPlainTextEntryRow(
                 title: "Companion IP",
                 text: Binding(
@@ -4565,31 +4689,11 @@ struct ContentView: View {
     }
 
     private func settingsCompanionEventsSection(_ events: [ScoreboardSoundEvent], sport: SportType) -> some View {
-        settingsSection(
-            title: "Event Commands",
-            footer: "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands.",
-            rows: settingsCompanionEventRows(events, sport: sport)
-        )
-    }
-
-    private func settingsCompanionEventRows(_ events: [ScoreboardSoundEvent], sport: SportType) -> [AnyView] {
-        var rows: [AnyView] = [
-            AnyView(settingsOptionTip("Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport.", systemImage: "square.grid.3x3"))
-        ]
-
-        if events.isEmpty {
-            rows.append(AnyView(settingsSummaryValueRow(title: sport.title, value: localizedAppString("No configurable sound events"))))
-        } else {
-            for (index, event) in events.enumerated() {
-                rows.append(AnyView(settingsCompanionAssignmentRow(event, sport: sport)))
-
-                if index < events.count - 1 {
-                    rows.append(AnyView(settingsDivider()))
-                }
+        settingsSection(title: "Event Commands", footer: "Matching events run from top to bottom across groups. Empty assignments send no commands. Bypass skips an event without changing its saved assignment.") {
+            settingsGroupedEvents(events, search: $companionEventSearch, expandedGroups: $expandedCompanionEventGroups) { event in
+                settingsCompanionAssignmentRow(event, sport: sport)
             }
         }
-
-        return rows
     }
 
     private func settingsLocalNetworkPermissionSection() -> some View {
@@ -4680,7 +4784,7 @@ struct ContentView: View {
         let hasAssignment = !trimmedLocationText.isEmpty
         let canTest =
             store.isCompanionVisible && store.isCompanionEnabled && !store.companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && location != nil
+            && location != nil && !store.isCompanionEventBypassed(event, sport: sport)
 
         return VStack(alignment: .leading, spacing: 10) {
             settingsRowLayout {
@@ -4761,6 +4865,7 @@ struct ContentView: View {
                     .foregroundStyle(settingsPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            settingsEventBypassToggle(event, sport: sport, companion: true)
         }
         .padding(.vertical, 12)
     }
@@ -14507,6 +14612,91 @@ private struct RemoteDisplaySettingsRow: Identifiable {
             return 2
         }
         return 3
+    }
+}
+
+private struct ExternalAutomationSafetyNoticeView: View {
+    let agree: () -> Void
+    let cancel: () -> Void
+    @State private var remainingSeconds = 3
+
+    private var paragraphs: [String] {
+        localizedAppString("Smart Scoreboard is not a safety-rated control system.\nSoftware crashes, unexpected triggers, incorrect scores, communication errors, and service interruptions may occur.\nNever design physical equipment so that a Smart Scoreboard malfunction can, by itself, cause injury or death.\nConnected equipment must have appropriate independent safeguards. The event organizer and equipment operator are responsible for its safe operation.").components(separatedBy: "\n")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Image(systemName: "gearshape.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 30))
+                    .accessibilityHidden(true)
+
+                    Text("External Automation Safety Notice")
+                        .font(.title2.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                        Text(verbatim: paragraph)
+                            .font(index == 0 || index == 2 ? .body.weight(.semibold) : .body)
+                            .foregroundStyle(index == 1 || index == 3 ? .secondary : .primary)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(index == 2 ? 16 : 0)
+                            .background {
+                                if index == 2 {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(.orange.opacity(0.1))
+                                }
+                            }
+                    }
+                }
+                .padding(28)
+            }
+
+            Divider()
+            HStack(spacing: 12) {
+                Button("Cancel", action: cancel)
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button(action: { if remainingSeconds == 0 { agree() } }) {
+                    if remainingSeconds > 0 {
+                        Text("Agree (\(remainingSeconds))")
+                            .monospacedDigit()
+                    } else {
+                        Text("Agree")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(remainingSeconds > 0)
+            }
+            .controlSize(.large)
+            .padding(24)
+        }
+        #if os(macOS)
+        .frame(width: 540, height: 620)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
+        .interactiveDismissDisabled()
+        .task {
+            remainingSeconds = 3
+            while remainingSeconds > 0 {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                remainingSeconds -= 1
+            }
+        }
     }
 }
 
