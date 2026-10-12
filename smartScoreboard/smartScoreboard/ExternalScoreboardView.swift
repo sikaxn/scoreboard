@@ -5,8 +5,13 @@ import AppKit
 
 struct ExternalScoreboardView: View {
     var configuresPublicWindow = true
+    var displayDirectionOverride: ScoreboardDisplayDirection? = nil
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
+
+    private var displayDirection: ScoreboardDisplayDirection {
+        displayDirectionOverride ?? store.resolvedExternalDisplayDirection
+    }
 
     var body: some View {
         PublicScoreboardDisplayView(
@@ -62,7 +67,7 @@ struct ExternalScoreboardView: View {
             formattedDebatePrepGuestClock: store.showsDebatePrepTime ? store.formattedDebatePrepGuestClock : nil,
             formattedShotClock: store.formattedShotClock,
             possessionDirection: store.possessionDirection,
-            displayDirection: store.resolvedExternalDisplayDirection,
+            displayDirection: displayDirection,
             isClockRunning: store.isClockRunning,
             isPlayerTrackingEnabled: store.isPlayerTrackingEnabled,
             isPlayerOverlayPaused: store.isPlayerOverlayPaused,
@@ -111,13 +116,13 @@ struct ExternalScoreboardView: View {
             palette.externalDisplayBackground
         case .clear:
             HStack(spacing: 0) {
-                store.resolvedExternalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
-                store.resolvedExternalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
+                displayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                displayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .clearUnderBoard:
             HStack(spacing: 0) {
-                store.resolvedExternalDisplayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
-                store.resolvedExternalDisplayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
+                displayDirection.leftSide == .home ? palette.homeAccent : palette.guestAccent
+                displayDirection.rightSide == .home ? palette.homeAccent : palette.guestAccent
             }
         case .smartScoreboard:
             SmartScoreboardBackgroundView()

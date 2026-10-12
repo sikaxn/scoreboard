@@ -916,20 +916,23 @@ struct KeyboardShortcutSettingsPane: View {
         let isAvailable = isActionAvailable(action)
         let shortcut = store.keyboardShortcut(for: action)
 
-        if usesVerticalLayout {
+        // Column width can be much smaller than the overall settings page.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 14) {
+                shortcutTitleBlock(action: action, isAvailable: isAvailable)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 12)
+                shortcutControls(action: action, shortcut: shortcut, isRecording: isRecording)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
             VStack(alignment: .leading, spacing: 12) {
                 shortcutTitleBlock(action: action, isAvailable: isAvailable)
                 shortcutControls(action: action, shortcut: shortcut, isRecording: isRecording)
             }
-            .padding(.vertical, 12)
-        } else {
-            HStack(alignment: .center, spacing: 14) {
-                shortcutTitleBlock(action: action, isAvailable: isAvailable)
-                Spacer(minLength: 12)
-                shortcutControls(action: action, shortcut: shortcut, isRecording: isRecording)
-            }
-            .padding(.vertical, 12)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
     }
 
     private func shortcutTitleBlock(action: ScoreboardKeyboardShortcutAction, isAvailable: Bool) -> some View {
@@ -956,62 +959,79 @@ struct KeyboardShortcutSettingsPane: View {
         shortcut: ScoreboardKeyboardShortcut?,
         isRecording: Bool
     ) -> some View {
-        let arrangement = usesVerticalLayout
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(spacing: 8))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                shortcutAssignmentLabel(shortcut)
+                shortcutActionButtons(action: action, shortcut: shortcut, isRecording: isRecording)
+            }
+            .fixedSize(horizontal: true, vertical: false)
 
-        return arrangement {
-            Text(verbatim: shortcut?.displayTitle ?? localizedKeyboardString("Unassigned"))
-                .font(.system(.callout, design: .monospaced).weight(.semibold))
-                .foregroundStyle(shortcut == nil ? palette.secondaryText : palette.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(width: 104, alignment: .center)
-                .padding(.vertical, 9)
-                .background(palette.fieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-            Button {
-                if isRecording {
-                    cancelRecording()
-                } else {
-                    beginRecording(action)
+            VStack(alignment: .leading, spacing: 8) {
+                shortcutAssignmentLabel(shortcut)
+                HStack(spacing: 8) {
+                    shortcutActionButtons(action: action, shortcut: shortcut, isRecording: isRecording)
                 }
-            } label: {
-                Label(
-                    localizedKeyboardString(isRecording ? "Cancel" : "Record"),
-                    systemImage: isRecording ? "xmark.circle.fill" : "keyboard"
-                )
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(isRecording ? destructiveText : palette.accentText)
-                .frame(minWidth: 92)
-                .padding(.vertical, 9)
-                .padding(.horizontal, 12)
+            }
+        }
+    }
+
+    private func shortcutAssignmentLabel(_ shortcut: ScoreboardKeyboardShortcut?) -> some View {
+        Text(verbatim: shortcut?.displayTitle ?? localizedKeyboardString("Unassigned"))
+            .font(.system(.callout, design: .monospaced).weight(.semibold))
+            .foregroundStyle(shortcut == nil ? palette.secondaryText : palette.primaryText)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(width: 104, alignment: .center)
+            .padding(.vertical, 9)
+            .background(palette.fieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func shortcutActionButtons(
+        action: ScoreboardKeyboardShortcutAction,
+        shortcut: ScoreboardKeyboardShortcut?,
+        isRecording: Bool
+    ) -> some View {
+        Button {
+            if isRecording {
+                cancelRecording()
+            } else {
+                beginRecording(action)
+            }
+        } label: {
+            Label(
+                localizedKeyboardString(isRecording ? "Cancel" : "Record"),
+                systemImage: isRecording ? "xmark.circle.fill" : "keyboard"
+            )
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(isRecording ? destructiveText : palette.accentText)
+            .frame(minWidth: 92)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
+            .background(
+                isRecording ? destructiveTint : palette.accent,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(localizedKeyboardString(isRecording ? "Cancel" : "Record"))
+
+        Button {
+            clearShortcut(action)
+        } label: {
+            Image(systemName: "xmark.circle")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(shortcut == nil ? palette.secondaryText : destructiveText)
+                .frame(width: 38, height: 38)
                 .background(
-                    isRecording ? destructiveTint : palette.accent,
+                    shortcut == nil ? palette.fieldBackground : destructiveTint,
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
-            }
-            .buttonStyle(.plain)
-            .help(localizedKeyboardString(isRecording ? "Cancel" : "Record"))
-
-            Button {
-                clearShortcut(action)
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(shortcut == nil ? palette.secondaryText : destructiveText)
-                    .frame(width: 38, height: 38)
-                    .background(
-                        shortcut == nil ? palette.fieldBackground : destructiveTint,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(shortcut == nil)
-            .opacity(shortcut == nil ? 0.46 : 1)
-            .help(localizedKeyboardString("Clear"))
         }
-        .frame(maxWidth: usesVerticalLayout ? .infinity : nil, alignment: .trailing)
+        .buttonStyle(.plain)
+        .disabled(shortcut == nil)
+        .opacity(shortcut == nil ? 0.46 : 1)
+        .help(localizedKeyboardString("Clear"))
     }
 
     private func settingsCard<Content: View, HeaderIcon: View>(

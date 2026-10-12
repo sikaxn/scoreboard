@@ -1197,10 +1197,11 @@ struct ExternalDisplayAnimatedLogoBackgroundView: View {
 struct TeamLogoImageView: View {
     let data: Data
     var cornerRadius: CGFloat = 10
+    @State private var decodedImage: CGImage?
 
     var body: some View {
         ZStack {
-            if let cgImage = Self.cgImage(from: data) {
+            if let cgImage = decodedImage {
                 Image(decorative: cgImage, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFit()
@@ -1210,14 +1211,24 @@ struct TeamLogoImageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.10), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .task(id: data) {
+            decodedImage = nil
+            let imageData = data
+            let image = await Task.detached(priority: .userInitiated) {
+                Self.cgImage(from: imageData)
+            }.value
+            guard !Task.isCancelled else { return }
+            decodedImage = image
+        }
     }
 
-    private static func cgImage(from data: Data) -> CGImage? {
+    nonisolated private static func cgImage(from data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return nil
         }
         return CGImageSourceCreateImageAtIndex(source, 0, [
-            kCGImageSourceShouldCache: false
+            kCGImageSourceShouldCache: true,
+            kCGImageSourceShouldCacheImmediately: true
         ] as CFDictionary)
     }
 }

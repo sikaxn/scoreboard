@@ -1,5 +1,20 @@
 # Release Notes
 
+## 1.6
+
+### Feature Added
+
+- Added iPhone Duo support with layouts that adapt to folded and unfolded displays.
+- Added adaptive system toolbars on iOS 27.1, keeping scoreboard and settings actions accessible when the system places the toolbar along a vertical edge.
+
+### Issue Fixed
+
+- Improved Merged View on iPhone Duo to keep the scoreboard above the controls and clear of an active horizontal fold.
+- Fixed Merged View team ordering so the embedded scoreboard and player panels follow the Control Board display direction independently of external-display settings.
+- Improved settings, player controls, and keyboard shortcut editors on narrow screens, with layouts that wrap or stack to keep controls visible.
+- Improved team-logo loading responsiveness by decoding images in the background.
+- Improved contextual-tip rendering stability and removed player-row scaling that could crowd card and foul indicators.
+
 ## 1.5
 
 ### Feature Added

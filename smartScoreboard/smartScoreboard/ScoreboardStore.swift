@@ -1119,6 +1119,24 @@ final class ScoreboardStore: ObservableObject {
     private var isStateSideEffectRefreshScheduled = false
 
     private init() {
+        /* APP_STORE_PREVIEW_CAPTURE_BEGIN
+        #if DEBUG && targetEnvironment(simulator)
+        // The preview workflow supplies fixture data only to simulator Debug builds.
+        if let encoded = ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_STATE"],
+           let data = Data(base64Encoded: encoded) {
+            do {
+                _ = try JSONDecoder().decode(PersistedState.self, from: data)
+            } catch {
+                fatalError("Invalid App Store preview fixture: \(error)")
+            }
+            UserDefaults.standard.set(data, forKey: persistenceKey)
+            UserDefaults.standard.set(
+                ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] == "merged",
+                forKey: "showsMergedView"
+            )
+        }
+        #endif
+        APP_STORE_PREVIEW_CAPTURE_END */
         loadPersistedState()
         remoteDisplayHostService.migrateDisplayDirectionsIfNeeded(areSidesSwapped: areSidesSwapped)
         configurePersistence()
