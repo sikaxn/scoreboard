@@ -1062,10 +1062,74 @@ final class ScoreboardStore: ObservableObject {
     @Published var isShotClockRunning = false
     @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
+    @Published private(set) var currentGameDisplayName: String?
+
+    func setCurrentGameDisplayName(_ name: String?) {
+        guard !isRemoteControlProxy, currentGameDisplayName != name else { return }
+        currentGameDisplayName = name
+    }
     @Published var areTipsEnabled = true
     @Published var showGettingStartedOnStartup = true
     @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
+    @Published var isWebControlEnabled = UserDefaults.standard.bool(forKey: "scoreboard.webControlEnabled") {
+        didSet { UserDefaults.standard.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled") }
+    }
+    @Published private(set) var remoteControlAllowedDisplayIDs = Set(UserDefaults.standard.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
+
+    func isRemoteControlAllowed(displayID: String) -> Bool {
+        guard remoteControlAllowedDisplayIDs.contains(displayID),
+              let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
+              peer.deviceType != .appleTV else { return false }
+        return true
+    }
+
+    func setRemoteControlAllowed(displayID: String, isAllowed: Bool) {
+        guard !isRemoteControlProxy else { return }
+        if isAllowed {
+            guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
+                  peer.deviceType != .appleTV else { return }
+            remoteControlAllowedDisplayIDs.insert(displayID)
+        } else { remoteControlAllowedDisplayIDs.remove(displayID) }
+        UserDefaults.standard.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        refreshRemoteDisplayState()
+        remoteDisplayHostService.refreshControlPermissions()
+    }
+    @Published private(set) var webControlAPIKey: String = {
+        if let key = UserDefaults.standard.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
+           key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) { return key.uppercased() }
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        let key = String((0..<16).map { _ in alphabet.randomElement()! })
+        UserDefaults.standard.set(key, forKey: "scoreboard.webControlAPIKey")
+        return key
+    }()
+    private var controlCommandResults: [UUID: (Data, ScoreboardControlResult, Date)] = [:]
+
+    func resetWebControlAPIKey() {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        webControlAPIKey = String((0..<16).map { _ in alphabet.randomElement()! })
+        UserDefaults.standard.set(webControlAPIKey, forKey: "scoreboard.webControlAPIKey")
+    }
+
+    func performControlCommand(_ command: ScoreboardControlCommand, remote: Bool) -> ScoreboardControlResult {
+        controlCommandResults = controlCommandResults.filter { Date().timeIntervalSince($0.value.2) < 120 }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(command)) ?? Data()
+        if let cached = controlCommandResults[command.id] {
+            guard cached.0 == data else { return .failure(command.id, "conflict", "Command ID was reused with different parameters.") }
+            return cached.1
+        }
+        let result = executeControlCommand(command, remote: remote)
+        if controlCommandResults.count >= 512, let oldest = controlCommandResults.min(by: { $0.value.2 < $1.value.2 })?.key {
+            controlCommandResults.removeValue(forKey: oldest)
+        }
+        controlCommandResults[command.id] = (data, result, Date())
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+        return result
+    }
+
     @Published var isWebAPIEnabled = false
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     @Published var isWebAPIBroadcastControlEnabled = false
@@ -1142,7 +1206,48 @@ final class ScoreboardStore: ObservableObject {
     private var intentionallyDisconnectedRemoteDisplayIDs = Set<String>()
     private var isStateSideEffectRefreshScheduled = false
 
-    private init() {
+    private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver?
+    private var remoteCommandSender: ((ScoreboardControlCommand) -> Void)?
+    private var isApplyingRemoteControlState = false
+    private var remoteProjectionTimer: Timer?
+    private var remoteControlGameConfiguration: ScoreboardGameSnapshot?
+    private var remoteControlState: ScoreboardWebAPIState?
+
+    var isRemoteControlProxy: Bool { remoteControlReceiver != nil }
+
+    static func makeRemoteControlStore(receiver: ScoreboardRemoteDisplayReceiver,
+                                       sendCommand: ((ScoreboardControlCommand) -> Void)? = nil) -> ScoreboardStore {
+        ScoreboardStore(remoteReceiver: receiver, sendCommand: sendCommand)
+    }
+
+    private init(remoteReceiver: ScoreboardRemoteDisplayReceiver? = nil,
+                 sendCommand: ((ScoreboardControlCommand) -> Void)? = nil) {
+        if let receiver = remoteReceiver {
+            remoteControlReceiver = receiver
+            remoteCommandSender = sendCommand ?? { [weak receiver] in receiver?.sendCommand($0) }
+            didCompleteSetup = true
+            keyboardShortcutsByAction = ScoreboardStore.shared.keyboardShortcutsByAction
+            controlBoardDisplayDirection = ScoreboardStore.shared.controlBoardDisplayDirection
+            areTipsEnabled = false
+            showGettingStartedOnStartup = false
+            receiver.$state.sink { [weak self] state in
+                if let state { self?.applyRemoteControlState(state) }
+            }.store(in: &cancellables)
+            receiver.$pendingControlCommandID.sink { [weak self] _ in
+                guard let self, let state = self.remoteControlState else { return }
+                self.applyRemoteControlState(state)
+            }.store(in: &cancellables)
+            receiver.$imageAssetsByID.sink { [weak self] _ in
+                guard let self, let state = self.remoteControlState else { return }
+                self.applyRemoteControlImages(state)
+            }.store(in: &cancellables)
+            let projectionTimer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.projectRemoteControlClocks() }
+            }
+            RunLoop.main.add(projectionTimer, forMode: .common)
+            remoteProjectionTimer = projectionTimer
+            return
+        }
         /* APP_STORE_PREVIEW_CAPTURE_BEGIN
         #if DEBUG && targetEnvironment(simulator)
         // The preview workflow supplies fixture data only to simulator Debug builds.
@@ -1861,6 +1966,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustScore(isHome: Bool, by delta: Int) {
+        if routeRemoteControlCommand("score.adjust", side: isHome ? .home : .guest, value: delta) { return }
         guard supportsScore else {
             recordLog(
                 kind: .scoreAdjustment,
@@ -1904,6 +2010,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setServeTimerSide(_ side: TeamSide) {
+        if routeRemoteControlCommand("serve.set", side: side) { return }
         guard usesServeTimer, supportsShotClock else {
             recordLog(
                 kind: .possessionChange,
@@ -1940,6 +2047,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func awardPeriod(to side: TeamSide) {
+        if routeRemoteControlCommand("period.award", side: side) { return }
         guard supportsPeriodWinTracking else {
             recordLog(
                 kind: .volleyballSetAward,
@@ -2000,6 +2108,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func undoLastPeriodWin() {
+        if routeRemoteControlCommand("period.undo") { return }
         guard supportsPeriodWinTracking, let result = volleyballSetResults.last else {
             recordLog(
                 kind: .volleyballSetUndo,
@@ -2030,6 +2139,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPeriod(by delta: Int) {
+        if routeRemoteControlCommand("period.adjust", value: delta) { return }
         guard supportsPeriod else {
             recordLog(
                 kind: .periodAdjustment,
@@ -2058,6 +2168,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPeriod(_ value: Int) {
+        if routeRemoteControlCommand("period.set", value: value) { return }
         let previousPeriod = period
         if supportsPeriod {
             period = max(1, min(periodUpperBound, value))
@@ -2070,6 +2181,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustClock(by delta: Int) {
+        if routeRemoteControlCommand("clock.adjust", value: delta) { return }
         reconcileRunningTimersWithWallClock()
 
         if isDebateMode {
@@ -2115,6 +2227,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustShotClock(by delta: Int) {
+        if routeRemoteControlCommand("shot.adjust", value: delta) { return }
         reconcileRunningTimersWithWallClock()
 
         guard supportsShotClock else {
@@ -2146,6 +2259,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetClock(to seconds: Int? = nil) {
+        if routeRemoteControlCommand("clock.reset", value: seconds ?? defaultClockSeconds) { return }
         if isDebateMode {
             resetDebateCurrentSegment()
             return
@@ -2186,6 +2300,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetShotClock(to seconds: Int? = nil) {
+        if routeRemoteControlCommand("shot.reset", value: seconds ?? defaultShotClockSeconds) { return }
         guard supportsShotClock else {
             shotClockMilliseconds = 0
             activeShotClockPresetSeconds = 0
@@ -2220,6 +2335,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
         if isDebateMode {
             toggleDebateSegmentClock()
             return
@@ -2244,6 +2360,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleDebateSegmentClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
         guard isDebateMode else { return }
         guard let segment = currentDebateSegment, segment.timerMode != .none else {
             recordLog(
@@ -2279,6 +2396,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSoundEnabled(_ isEnabled: Bool) {
+        if routeRemoteControlCommand("sound.enabled", enabled: isEnabled) { return }
         guard isSoundEnabled != isEnabled else {
             if !isEnabled, playingTestSoundEffect != nil {
                 stopTestSound()
@@ -2573,6 +2691,18 @@ final class ScoreboardStore: ObservableObject {
         toggleTestSound(effect)
     }
 
+    func playControlSound(_ effect: ScoreboardSoundEffect) {
+        if routeRemoteControlCommand("sound.play", text: effect.rawValue) { return }
+        // Use the normal event queue so the same sound reaches paired displays,
+        // while explicit sound playback never sends a Companion command.
+        guard isSoundEnabled, effect != .none else { return }
+        queuedEventActions.append(QueuedEventAction(
+            effect: effect, triggerEvent: .general, soundEvent: .general, companionEvent: nil,
+            sport: selectedSport, companionLocation: nil, companionGeneration: companionCommandGeneration
+        ))
+        playNextEventAction()
+    }
+
     func prepareTestSoundEffects() {
         buzzerPlayer.prepare(ScoreboardSoundEffect.allCases)
     }
@@ -2612,6 +2742,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleShotClock() {
+        if routeRemoteControlCommand("shot.toggle") { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockToggle,
@@ -2635,6 +2766,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPossessionDirection(_ direction: PossessionDirection, autoStartShotClock: Bool = false) {
+        if routeRemoteControlCommand("possession.set", text: direction.rawValue, enabled: autoStartShotClock) { return }
         guard supportsPossession else {
             possessionDirection = .none
             recordLog(
@@ -2691,6 +2823,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
+        if routeRemoteControlCommand("shot.assign", side: isHome ? .home : .guest, value: seconds) { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAssignment,
@@ -2740,6 +2873,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetActiveShotClock() {
+        if routeRemoteControlCommand("shot.activeReset") { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockReset,
@@ -2772,6 +2906,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func newGame() {
+        if routeRemoteControlCommand("game.new") { return }
         pauseClock()
         pauseShotClock()
         clearQueuedEventActions()
@@ -2805,6 +2940,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetScores() {
+        if routeRemoteControlCommand("score.reset") { return }
         guard supportsScore else {
             recordLog(
                 kind: .scoresReset,
@@ -2833,6 +2969,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
+        if routeRemoteControlCommand("sides.swap") { return }
         areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
@@ -2856,6 +2993,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func togglePlayerOverlayPaused() {
+        if routeRemoteControlCommand("player.overlay") { return }
         isPlayerOverlayPaused.toggle()
         recordLog(
             kind: .playerOverlayToggle,
@@ -2892,6 +3030,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updateTrackedPlayerNumber(_ number: String, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.number", side: side, text: number, playerID: playerID) { return }
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -2902,6 +3041,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updateTrackedPlayerName(_ name: String, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.name", side: side, text: name, playerID: playerID) { return }
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -2912,6 +3052,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustFoulCount(for side: TeamSide, playerID: UUID, by delta: Int) {
+        if routeRemoteControlCommand("player.foul", side: side, value: delta, playerID: playerID) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulAdjustment,
@@ -2947,6 +3088,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.foulsReset", side: side, playerID: playerID) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulReset,
@@ -2976,6 +3118,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide) {
+        if routeRemoteControlCommand("team.playerFoulsReset", side: side) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulResetAll,
@@ -3001,11 +3144,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllPlayerFouls() {
+        if routeRemoteControlCommand("all.playerFoulsReset") { return }
         resetFouls(for: .home)
         resetFouls(for: .guest)
     }
 
     func setCardStatus(_ status: PlayerCardStatus, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.card", side: side, text: status.rawValue, playerID: playerID) { return }
         guard supportsCards else {
             recordLog(
                 kind: .playerCardSet,
@@ -3046,6 +3191,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetCards(for side: TeamSide) {
+        if routeRemoteControlCommand("team.cardsReset", side: side) { return }
         guard supportsCards else {
             recordLog(
                 kind: .playerCardReset,
@@ -3071,11 +3217,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllPlayerCards() {
+        if routeRemoteControlCommand("all.cardsReset") { return }
         resetCards(for: .home)
         resetCards(for: .guest)
     }
 
     func adjustTeamFouls(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("team.foul", side: side, value: delta) { return }
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulAdjustment,
@@ -3108,6 +3256,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetTeamFouls(for side: TeamSide) {
+        if routeRemoteControlCommand("team.foulsReset", side: side) { return }
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulReset,
@@ -3134,6 +3283,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllTeamFouls() {
+        if routeRemoteControlCommand("all.teamFoulsReset") { return }
         resetTeamFouls(for: .home)
         resetTeamFouls(for: .guest)
     }
@@ -3261,6 +3411,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebateRound(logKind: ScoreboardLogOperationKind = .debateRoundReset, notes: String? = nil) {
+        if routeRemoteControlCommand("debate.resetRound") { return }
         guard isDebateMode else { return }
         pauseClock()
         isDebatePrepClockRunning = false
@@ -3286,6 +3437,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebateCurrentSegment() {
+        if routeRemoteControlCommand("debate.resetSegment") { return }
         guard isDebateMode else { return }
         pauseClock()
         configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: false)
@@ -3299,6 +3451,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func advanceDebateSegment(by delta: Int) {
+        if routeRemoteControlCommand("debate.segment", value: delta) { return }
         guard isDebateMode else { return }
         let previousIndex = debateCurrentSegmentIndex
         let boundedIndex = max(0, min(currentDebatePreset.segments.count - 1, debateCurrentSegmentIndex + delta))
@@ -3325,6 +3478,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleDebatePrepClock(for side: TeamSide) {
+        if routeRemoteControlCommand("debate.prepToggle", side: side) { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
@@ -3372,6 +3526,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
+        if routeRemoteControlCommand("debate.return", enabled: resume) { return }
         guard isDebateMode else { return }
         reconcileRunningTimersWithWallClock()
 
@@ -3405,6 +3560,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebatePrepClock(for side: TeamSide) {
+        if routeRemoteControlCommand("debate.prepReset", side: side) { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let value = currentDebatePreset.prepSecondsPerSide
@@ -3433,6 +3589,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("debate.prepAdjust", side: side, value: delta) { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
@@ -3457,6 +3614,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleChessClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
@@ -3497,6 +3655,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func switchChessClock() {
+        if routeRemoteControlCommand("chess.switch") { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
@@ -3541,6 +3700,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setActiveChessClockSide(_ side: TeamSide) {
+        if routeRemoteControlCommand("chess.side", side: side) { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
@@ -3578,6 +3738,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustChessClock(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("chess.adjust", side: side, value: delta) { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
@@ -3620,6 +3781,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetChessClocks() {
+        if routeRemoteControlCommand("chess.reset") { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
@@ -3651,6 +3813,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int, player: TrackedPlayer?, startsRunning: Bool) {
+        if routeRemoteControlCommand("penalty.add", side: side, value: seconds, enabled: startsRunning, playerID: player?.id) { return }
         guard supportsHockeyPenalties else {
             recordLog(
                 kind: .hockeyPenaltyAdd,
@@ -3690,6 +3853,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.remove", side: side, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let removed: HockeyPenaltyTimer?
         switch side {
@@ -3713,6 +3877,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func togglePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.toggle", side: side, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3734,6 +3899,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPenaltyTimer(for side: TeamSide, timerID: UUID, by delta: Int) {
+        if routeRemoteControlCommand("penalty.adjust", side: side, value: delta, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3756,6 +3922,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updatePenaltyTimerPlayerNumber(_ number: String, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.number", side: side, text: number, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3773,6 +3940,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updatePenaltyTimerPlayerName(_ name: String, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.name", side: side, text: name, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3790,6 +3958,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func assignPenaltyTimerPlayer(_ player: TrackedPlayer, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.player", side: side, playerID: player.id, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3822,6 +3991,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPendingInjuryTimeMinutes(_ minutes: Int) {
+        if routeRemoteControlCommand("injury.set", value: minutes) { return }
         normalizeInjuryTimeState()
         guard supportsInjuryTime, !hasAppliedInjuryTimeThisPeriod else {
             return
@@ -3965,6 +4135,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustSubstitutionsUsed(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("substitution.adjust", side: side, value: delta) { return }
         let previousValue = substitutionsUsed(for: side)
         switch side {
         case .home:
@@ -3999,6 +4170,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPausesUsed(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("pause.adjust", side: side, value: delta) { return }
         guard supportsPauseTracking else {
             recordLog(
                 kind: .teamPauseAdjustment,
@@ -4031,6 +4203,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPlayerActiveLineup(_ isActive: Bool, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.lineup", side: side, enabled: isActive, playerID: playerID) { return }
         let previousPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         updateRoster(for: side) { roster in
             guard let targetIndex = roster.players.firstIndex(where: { $0.id == playerID }) else {
@@ -4283,9 +4456,11 @@ final class ScoreboardStore: ObservableObject {
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
         performWithoutAuditLogging {
-            pauseClock()
-            pauseShotClock()
-            clearQueuedEventActions()
+            if !isRemoteControlProxy {
+                pauseClock()
+                pauseShotClock()
+                clearQueuedEventActions()
+            }
 
             let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
@@ -4607,6 +4782,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func updateTimerState() {
+        guard !isRemoteControlProxy else { return }
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
         guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
             timer?.invalidate()
@@ -4642,6 +4818,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func reconcileRunningTimersWithWallClock(now: Date) {
+        guard !isRemoteControlProxy else { return }
         guard !isReconcilingTimersFromWallClock else {
             return
         }
@@ -4812,6 +4989,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     deinit {
+        remoteProjectionTimer?.invalidate()
         timer?.invalidate()
     }
 
@@ -5138,6 +5316,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func handleScoreboardEventDispatches(_ dispatches: [ScoreboardEventDispatch]) {
+        guard !isRemoteControlProxy else { return }
         guard !dispatches.isEmpty else { return }
         let expanded = dispatches + timerOutcomeDispatches(for: dispatches)
         let order = Dictionary(uniqueKeysWithValues: ScoreboardSoundEvent.executionOrder.enumerated().map { ($0.element, $0.offset) })
@@ -5303,6 +5482,7 @@ final class ScoreboardStore: ObservableObject {
         _ location: ScoreboardCompanionLocation,
         events: [ScoreboardSoundEvent] = [], sport: SportType? = nil
     ) {
+        guard !isRemoteDisplayViewerModeEnabled, !isRemoteControlProxy else { return }
         let commandGeneration = companionCommandGeneration
         let eventSport = sport ?? selectedSport
         companionService.sendPress(
@@ -5369,7 +5549,7 @@ final class ScoreboardStore: ObservableObject {
         fileName: String? = nil,
         notes: String? = nil
     ) {
-        guard !isAuditLoggingSuspended else {
+        guard !isRemoteControlProxy, !isAuditLoggingSuspended else {
             return
         }
 
@@ -5480,6 +5660,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setWebAPIBroadcastDisplayMode(_ mode: ScoreboardWebAPIBroadcastDisplayMode, for displayID: Int) {
+        if routeRemoteControlCommand("display.broadcast", value: displayID, text: mode.rawValue) { return }
         guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
             return
         }
@@ -5666,6 +5847,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removeRemoteDisplayPairing(displayID: String) {
+        setRemoteControlAllowed(displayID: displayID, isAllowed: false)
         if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
             intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
         }
@@ -5805,6 +5987,17 @@ final class ScoreboardStore: ObservableObject {
 
     private func configureWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        webAPIService.controlHandler = { [weak self] command, key, completion in
+            Task { @MainActor [weak self] in
+                guard let self, self.isWebAPIEnabled, self.isWebControlEnabled else {
+                    completion(.failure(command.id, "disabled", "Web control is disabled.")); return
+                }
+                guard key.uppercased() == self.webControlAPIKey else {
+                    completion(.failure(command.id, "unauthorized", "Invalid API key.")); return
+                }
+                completion(self.performControlCommand(command, remote: false))
+            }
+        }
 
         $webAPIUpdateMode
             .removeDuplicates()
@@ -5837,6 +6030,15 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func configureRemoteDisplayService() {
+        remoteDisplayHostService.controlPermissionProvider = { [weak self] displayID in
+            self?.isRemoteControlAllowed(displayID: displayID) ?? false
+        }
+        remoteDisplayHostService.controlCommandHandler = { [weak self] command, displayID in
+            guard let self, self.isRemoteDisplayHostEnabled, self.isRemoteControlAllowed(displayID: displayID) else {
+                return .failure(command.id, "disabled", "This device is not allowed to control the main board.")
+            }
+            return self.performControlCommand(command, remote: true)
+        }
         remoteDisplayHostService.$status
             .sink { [weak self] status in
                 self?.remoteDisplayHostStatus = status
@@ -5944,6 +6146,11 @@ final class ScoreboardStore: ObservableObject {
 
     private func handleRemoteDisplayTrustedDisplaysChanged(_ trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer]) {
         remoteDisplayTrustedDisplays = trustedDisplays
+        let permitted = remoteControlAllowedDisplayIDs.intersection(Set(trustedDisplays.filter { $0.deviceType != .appleTV }.map(\.id)))
+        if permitted != remoteControlAllowedDisplayIDs {
+            remoteControlAllowedDisplayIDs = permitted
+            UserDefaults.standard.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        }
 
         let trustedDisplayIDs = Set(trustedDisplays.map(\.id))
         remoteDisplayDisconnectedDisplaysByID = remoteDisplayDisconnectedDisplaysByID.filter { trustedDisplayIDs.contains($0.key) }
@@ -6227,11 +6434,14 @@ final class ScoreboardStore: ObservableObject {
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
+            $currentGameDisplayName.map { _ in () }.eraseToAnyPublisher(),
             $areTipsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $showGettingStartedOnStartup.map { _ in () }.eraseToAnyPublisher(),
             $didAutoShowGettingStarted.map { _ in () }.eraseToAnyPublisher(),
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isWebControlEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $remoteControlAllowedDisplayIDs.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIBroadcastControlEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIBroadcastEnabledDisplayCount.map { _ in () }.eraseToAnyPublisher(),
@@ -6298,6 +6508,11 @@ final class ScoreboardStore: ObservableObject {
     func resetToFactoryDefaults() {
         clearPrimaryTimerPersistence()
         applyPersistedState(.factoryDefault)
+        isWebControlEnabled = false
+        remoteControlAllowedDisplayIDs.removeAll()
+        UserDefaults.standard.removeObject(forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        resetWebControlAPIKey()
+        controlCommandResults.removeAll()
         UserDefaults.standard.removeObject(forKey: persistenceKey)
         persistState()
     }
@@ -6511,6 +6726,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func persistState() {
+        guard !isRemoteControlProxy else { return }
         guard let data = try? encodedPersistedStateData() else {
             return
         }
@@ -6519,6 +6735,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshPrimaryTimerPersistence() {
+        guard !isRemoteControlProxy else { return }
         guard let snapshot = currentPrimaryTimerPersistenceSnapshot(now: Date()) else {
             clearPrimaryTimerPersistence()
             return
@@ -6535,6 +6752,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func clearPrimaryTimerPersistence() {
+        guard !isRemoteControlProxy else { return }
         UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
         lastPrimaryTimerPersistenceSignature = nil
     }
@@ -7868,5 +8086,284 @@ final class PublicBoardState: ObservableObject {
 
     func requestFullscreen() {
         fullscreenRequestID = UUID()
+    }
+}
+
+// Only the clock(s) touched by a remote operation are moved back to the tap time.
+// The existing timer engine then advances them through the command's travel time,
+// preserving its expiration, sound, and Companion behavior on this main device.
+struct ScoreboardRemoteTimerOperation {
+    var primary = false
+    var shot = false
+    var prep = false
+    var penaltyID: UUID?
+}
+
+@MainActor
+extension ScoreboardStore {
+    func beginRemoteTimerOperation(_ command: ScoreboardControlCommand, delay: TimeInterval) -> ScoreboardRemoteTimerOperation {
+        var scope = ScoreboardRemoteTimerOperation()
+        guard delay > 0 else { return scope }
+        scope.primary = command.action.hasPrefix("clock.") || command.action.hasPrefix("chess.") || command.action.hasPrefix("debate.")
+        scope.prep = command.action.hasPrefix("debate.") || (isDebateMode && command.action.hasPrefix("clock."))
+        scope.shot = command.action.hasPrefix("shot.") || command.action == "serve.set" || command.action == "possession.set"
+        scope.penaltyID = command.action.hasPrefix("penalty.") ? command.timerID : nil
+        func rewind(_ seconds: inout Int, fraction: inout TimeInterval, countdown: Bool) {
+            let exact = countdown ? Double(seconds) - fraction + delay : Double(seconds) + fraction - delay
+            if countdown {
+                seconds = max(0, Int(ceil(exact)))
+                fraction = max(0, Double(seconds) - exact)
+            } else {
+                seconds = max(0, Int(floor(exact)))
+                fraction = max(0, exact - Double(seconds))
+            }
+        }
+        if scope.primary && isClockRunning {
+            if usesChessClocks {
+                if activeChessClockSide == .home { rewind(&homeChessClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: true) }
+                else { rewind(&guestChessClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: true) }
+            } else { rewind(&gameClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: gameClockMode == .countdown) }
+        }
+        if scope.shot && isShotClockRunning {
+            shotClockMilliseconds += Int(delay * 1000)
+        }
+        if scope.prep && isDebatePrepClockRunning {
+            if debateActiveTimer == .prepHome { rewind(&debatePrepHomeSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
+            else { rewind(&debatePrepGuestSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
+        }
+        if let id = scope.penaltyID {
+            for side in TeamSide.allCases {
+                updatePenaltyTimers(for: side) { timers in
+                    if let index = timers.firstIndex(where: { $0.id == id && $0.isRunning }) {
+                        timers[index].remainingSeconds += Int(ceil(delay - accumulatedPenaltyElapsed))
+                    }
+                }
+            }
+        }
+        return scope
+    }
+
+    func finishRemoteTimerOperation(_ scope: ScoreboardRemoteTimerOperation, delay: TimeInterval) {
+        guard delay > 0 else { return }
+        let primaryRunning = isClockRunning
+        let shotRunning = isShotClockRunning
+        let prepRunning = isDebatePrepClockRunning
+        let primaryFraction = accumulatedGameClockElapsed
+        let shotFraction = accumulatedShotClockElapsed
+        let prepFraction = accumulatedDebatePrepElapsed
+        let penaltyFraction = accumulatedPenaltyElapsed
+        let unrelatedPenalties = (homePenaltyTimers + guestPenaltyTimers).filter { $0.id != scope.penaltyID && $0.isRunning }.map(\.id)
+        if !scope.primary { isClockRunning = false }
+        if !scope.shot { isShotClockRunning = false }
+        if !scope.prep { isDebatePrepClockRunning = false }
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices where unrelatedPenalties.contains(timers[index].id) { timers[index].isRunning = false }
+            }
+        }
+        tick(elapsed: delay)
+        if !scope.primary { isClockRunning = primaryRunning; accumulatedGameClockElapsed = primaryFraction }
+        if !scope.shot { isShotClockRunning = shotRunning; accumulatedShotClockElapsed = shotFraction }
+        if !scope.prep { isDebatePrepClockRunning = prepRunning; accumulatedDebatePrepElapsed = prepFraction }
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices where unrelatedPenalties.contains(timers[index].id) { timers[index].isRunning = true }
+            }
+        }
+        accumulatedPenaltyElapsed = penaltyFraction
+        updateTimerState()
+        if timer != nil { lastTimerFireDate = Date() }
+        refreshPrimaryTimerPersistence()
+    }
+}
+
+@MainActor
+extension ScoreboardStore {
+    @discardableResult
+    func routeRemoteControlCommand(_ action: String, side: TeamSide? = nil, value: Int? = nil,
+                                   text: String? = nil, enabled: Bool? = nil,
+                                   playerID: UUID? = nil, timerID: UUID? = nil) -> Bool {
+        guard isRemoteControlProxy, !isApplyingRemoteControlState else { return false }
+        var command = ScoreboardControlCommand(action: action, sport: selectedSport, side: side,
+            value: value, text: text, enabled: enabled, playerID: playerID, timerID: timerID)
+        // Running-state commands allow quick start/pause taps without interpreting
+        // a second tap using a scoreboard snapshot still in transit.
+        if action == "clock.toggle" {
+            command.action = "clock.running"
+            command.enabled = !isClockRunning
+            command.expectedRunning = isClockRunning
+        } else if action == "shot.toggle" {
+            command.action = "shot.running"
+            command.enabled = !isShotClockRunning
+            command.expectedRunning = isShotClockRunning
+        }
+        remoteCommandSender?(command)
+        return true
+    }
+
+    func setPublicDisplayViewMode(_ mode: ScoreboardDisplayViewMode) {
+        if routeRemoteControlCommand("display.mode", text: mode.rawValue) { return }
+        publicDisplayViewMode = mode
+    }
+
+    func setTheme(_ theme: ScoreboardTheme) {
+        if routeRemoteControlCommand("display.theme", text: theme.rawValue) { return }
+        self.theme = theme
+    }
+
+    func turnDebateClockHere(_ side: TeamSide) {
+        if routeRemoteControlCommand("debate.turn", side: side) { return }
+        if debateActiveTimer != .segment { returnToDebateSegmentTimer() }
+        if activeChessClockSide == side { toggleChessClock() }
+        else {
+            setActiveChessClockSide(side)
+            if !isClockRunning { toggleChessClock() }
+        }
+    }
+
+    func clearTrackedPlayerState(for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.clear", side: side, playerID: playerID) { return }
+        if supportsCards { setCardStatus(.none, for: side, playerID: playerID) }
+        if supportsFouls { resetFouls(for: side, playerID: playerID) }
+    }
+
+    private func assignRemoteValue<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<ScoreboardStore, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    func applyRemoteControlState(_ state: ScoreboardWebAPIState) {
+        guard isRemoteControlProxy else { return }
+        isApplyingRemoteControlState = true
+        defer { isApplyingRemoteControlState = false }
+        remoteControlState = state
+        assignRemoteValue(\.currentGameDisplayName, state.control?.gameName)
+        var snapshot = state.game
+        snapshot.homeRoster = state.players.homeRoster
+        snapshot.guestRoster = state.players.guestRoster
+        let pendingCommands = remoteControlReceiver?.pendingCommandsForDisplay ?? []
+        // Overlay text in the value snapshot before publishing. Incoming packets
+        // must not briefly replace in-flight edits with older roster text.
+        for command in pendingCommands where command.action == "player.name" || command.action == "player.number" {
+            guard let side = command.side, let id = command.playerID, let text = command.text else { continue }
+            var roster = side == .home ? snapshot.homeRoster! : snapshot.guestRoster!
+            if let index = roster.players.firstIndex(where: { $0.id == id }) {
+                if command.action == "player.name" { roster.players[index].name = text }
+                else { roster.players[index].number = text }
+            }
+            if side == .home { snapshot.homeRoster = roster }
+            else { snapshot.guestRoster = roster }
+        }
+        var configuration = snapshot
+        // Timer values change much more often than game/roster configuration.
+        configuration.gameClockSeconds = 0
+        configuration.shotClockMilliseconds = 0
+        configuration.homeChessClockSeconds = nil
+        configuration.guestChessClockSeconds = nil
+        configuration.debatePrepHomeSeconds = nil
+        configuration.debatePrepGuestSeconds = nil
+        configuration.isDebatePrepClockRunning = nil
+        configuration.homePenaltyTimers = nil
+        configuration.guestPenaltyTimers = nil
+        configuration.homeRoster = nil
+        configuration.guestRoster = nil
+        if remoteControlGameConfiguration != configuration {
+            applyGameSnapshot(snapshot)
+            remoteControlGameConfiguration = configuration
+        } else {
+            assignRemoteValue(\.gameClockSeconds, snapshot.gameClockSeconds)
+            assignRemoteValue(\.shotClockMilliseconds, snapshot.shotClockMilliseconds)
+            assignRemoteValue(\.homeChessClockSeconds, snapshot.homeChessClockSeconds ?? snapshot.defaultClockSeconds)
+            assignRemoteValue(\.guestChessClockSeconds, snapshot.guestChessClockSeconds ?? snapshot.defaultClockSeconds)
+            assignRemoteValue(\.debatePrepHomeSeconds, snapshot.debatePrepHomeSeconds ?? 0)
+            assignRemoteValue(\.debatePrepGuestSeconds, snapshot.debatePrepGuestSeconds ?? 0)
+            assignRemoteValue(\.homePenaltyTimers, snapshot.homePenaltyTimers ?? [])
+            assignRemoteValue(\.guestPenaltyTimers, snapshot.guestPenaltyTimers ?? [])
+        }
+        // The display payload may be assigned to this device's external screen;
+        // operator buttons always show the main board's display control mode.
+        assignRemoteValue(\.publicDisplayViewMode, state.control?.mainDisplayMode ?? state.display?.viewMode ?? .scoreboard)
+        assignRemoteValue(\.theme, state.display?.theme ?? theme)
+        assignRemoteValue(\.isSoundEnabled, state.control?.isSoundEnabled ?? true)
+        assignRemoteValue(\.isClockRunning, state.runtime.isClockRunning)
+        assignRemoteValue(\.isShotClockRunning, state.runtime.isShotClockRunning)
+        assignRemoteValue(\.isDebatePrepClockRunning, state.runtime.isDebatePrepClockRunning)
+        assignRemoteValue(\.areSidesSwapped, state.runtime.areSidesSwapped)
+        assignRemoteValue(\.possessionDirection, state.runtime.possessionDirection)
+        assignRemoteValue(\.homeRoster, normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam))
+        assignRemoteValue(\.guestRoster, normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam))
+        assignRemoteValue(\.isCompanionVisible, false)
+        assignRemoteValue(\.isCompanionEnabled, false)
+        if let display = state.display {
+            assignRemoteValue(\.isWebAPIBroadcastControlEnabled, display.broadcastControl?.isEnabled == true)
+            assignRemoteValue(\.isRemoteDisplayIndividualControlEnabled, state.control?.customDisplayControlVisible == true && !isWebAPIBroadcastControlEnabled)
+            assignRemoteValue(\.webAPIBroadcastEnabledDisplayCount, state.control?.customDisplayEnabledIDs?.last ?? display.broadcastControl?.enabledDisplayIDs.last ?? 0)
+            assignRemoteValue(\.webAPIBroadcastDisplayModesByID, state.control?.customDisplayModes ?? Dictionary(uniqueKeysWithValues:
+                (display.broadcastControl?.assignments ?? []).filter { $0.displayID > 0 }.map { ($0.displayID, $0.assignedMode) }))
+            // The payload direction is resolved with the current side swap.
+            assignRemoteValue(\.externalDisplayDirection, (display.remoteExternalDirection ?? display.direction ?? .homeLeft).applyingSideSwap(areSidesSwapped))
+            assignRemoteValue(\.showsExternalDisplayDateTime, display.showsDateTime ?? false)
+            assignRemoteValue(\.showsExternalDisplayDateTimeSeconds, display.showsDateTimeSeconds ?? true)
+        }
+        // Pending absolute values are safe to display over older snapshots. They
+        // are discarded at acknowledgement/disconnect and never run game logic.
+        for command in pendingCommands {
+            switch command.action {
+            case "clock.running": isClockRunning = command.enabled ?? isClockRunning
+            case "shot.running": isShotClockRunning = command.enabled ?? isShotClockRunning
+            case "penalty.name", "penalty.number":
+                if let side = command.side, let id = command.timerID, let text = command.text {
+                    updatePenaltyTimers(for: side) { timers in
+                        if let index = timers.firstIndex(where: { $0.id == id }) {
+                            if command.action == "penalty.name" { timers[index].playerName = text }
+                            else { timers[index].playerNumber = text }
+                        }
+                    }
+                }
+            default: break
+            }
+        }
+        applyRemoteControlImages(state)
+    }
+
+    private func applyRemoteControlImages(_ state: ScoreboardWebAPIState) {
+        guard let receiver = remoteControlReceiver else { return }
+        if let metadata = state.display?.backgroundImage, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.externalDisplayBackgroundImage, ExternalDisplayBackgroundImage(id: metadata.id, sourceName: nil,
+                mimeType: metadata.mimeType, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight,
+                byteCount: metadata.byteCount, updatedAtUnixTime: metadata.updatedAtUnixTime,
+                scale: metadata.placement.scale, offsetX: metadata.placement.offsetX, offsetY: metadata.placement.offsetY, data: data))
+        } else { assignRemoteValue(\.externalDisplayBackgroundImage, nil) }
+        if let metadata = state.teams.home.logo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.homeTeamLogoImage, TeamLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.homeTeamLogoImage, nil) }
+        if let metadata = state.teams.guest.logo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.guestTeamLogoImage, TeamLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.guestTeamLogoImage, nil) }
+        if let metadata = state.display?.eventLogo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.eventLogoImage, EventLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.eventLogoImage, nil) }
+        assignRemoteValue(\.externalDisplayBackgroundMode, state.display?.backgroundMode ?? .blurred)
+    }
+
+    private func projectRemoteControlClocks() {
+        guard let receiver = remoteControlReceiver, receiver.status.isLive,
+              let state = remoteControlState else { return }
+        let projection = RemoteScoreboardProjection(state: state, lastReceivedAt: receiver.lastReceivedAt,
+            masterClockOffset: receiver.masterClockOffset, now: Date())
+        if gameClockSeconds != projection.gameClockSeconds { gameClockSeconds = projection.gameClockSeconds }
+        if shotClockMilliseconds != projection.shotClockMilliseconds { shotClockMilliseconds = projection.shotClockMilliseconds }
+        if homeChessClockSeconds != projection.homeChessClockSeconds { homeChessClockSeconds = projection.homeChessClockSeconds }
+        if guestChessClockSeconds != projection.guestChessClockSeconds { guestChessClockSeconds = projection.guestChessClockSeconds }
+        if debatePrepHomeSeconds != projection.projectedDebatePrepSeconds(for: .home) { debatePrepHomeSeconds = projection.projectedDebatePrepSeconds(for: .home) }
+        if debatePrepGuestSeconds != projection.projectedDebatePrepSeconds(for: .guest) { debatePrepGuestSeconds = projection.projectedDebatePrepSeconds(for: .guest) }
+        if homePenaltyTimers != projection.homePenaltyTimers { homePenaltyTimers = projection.homePenaltyTimers }
+        if guestPenaltyTimers != projection.guestPenaltyTimers { guestPenaltyTimers = projection.guestPenaltyTimers }
+        // Projection is visual only. Expiry events and automation remain on the main board.
     }
 }

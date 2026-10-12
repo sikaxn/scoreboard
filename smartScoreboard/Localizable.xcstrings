@@ -759,6 +759,16 @@
         }
       }
     },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "en" : {
@@ -1287,11 +1297,23 @@
       }
     },
     "About Remote Display" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于远程显示"
+          }
+        }
+      }
+    },
+    "About Remote Display & Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于远程显示与控制"
           }
         }
       }
@@ -2567,6 +2589,7 @@
       }
     },
     "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2649,6 +2672,7 @@
       }
     },
     "Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display, and Bitfocus Companion each keep their own enabled state, connection details, and assignments." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3331,6 +3355,17 @@
         }
       }
     },
+    "Connected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接"
+          }
+        }
+      }
+    },
     "Connected Displays" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3450,6 +3485,9 @@
           }
         }
       }
+    },
+    "Copy API Key" : {
+
     },
     "Core custom sport identity and scoring behavior." : {
       "localizations" : {
@@ -4843,7 +4881,19 @@
         }
       }
     },
+    "Enable Remote Display / Control Pairing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用远程显示／控制配对"
+          }
+        }
+      }
+    },
     "Enable Remote Display Pairing" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -4974,7 +5024,19 @@
         }
       }
     },
+    "Enter Remote Display / Control Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进入远程显示／控制模式"
+          }
+        }
+      }
+    },
     "Enter Remote Display Mode" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -5023,6 +5085,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请在操作设备上输入此代码。等待配对时，代码会自动刷新。"
+          }
+        }
+      }
+    },
+    "Enter this pairing code from Settings > Integration > Remote Display & Control on the main device. Enable Allow This Device to Control there to use this device as a control board." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在主设备的“设置 > 集成 > 远程显示与控制”中输入此配对码。在那里启用“允许此设备控制”，即可将此设备用作控制台。"
           }
         }
       }
@@ -7054,12 +7127,35 @@
         }
       }
     },
+    "iPhone can display or control a paired scoreboard. The main device grants control with Allow This Device to Control. A connected external display can show the remote scoreboard at the same time." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 可显示或控制已配对的记分牌。主设备通过“允许此设备控制”授予控制权限。连接的外接显示器可同时显示远程记分牌。"
+          }
+        }
+      }
+    },
     "iPhone can enter Remote Display Mode. In portrait, keep this screen available for the pairing code; if an external display is connected, it will show the remote scoreboard output." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "iPhone 可以进入远程显示模式。竖屏时，请保留此屏幕用于显示配对码；如果连接了外接显示器，它会显示远程记分牌输出。"
+          }
+        }
+      }
+    },
+    "iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display only. Scores, timers, players, display settings, and sounds stay synchronized with the main device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone、iPad 和 Mac 可使用完整远程控制台并同时显示记分牌。Apple TV 仅支持远程显示。比分、计时器、球员、显示设置和声音与主设备保持同步。"
           }
         }
       }
@@ -8638,11 +8734,34 @@
       }
     },
     "Pair nearby Apple TV, iPad, or Mac display devices." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "配对附近的 Apple TV、iPad 或 Mac 显示设备。"
+          }
+        }
+      }
+    },
+    "Pair nearby devices to display or control the scoreboard without browser URLs. The main device remains the source of live updates and grants control to each device separately." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近设备即可显示或控制记分牌，无需浏览器网址。主设备提供实时更新，并为每台设备单独授予控制权限。"
+          }
+        }
+      }
+    },
+    "Pair nearby displays and control boards. Apple TV is display-only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近的显示器和控制台。Apple TV 仅支持显示。"
           }
         }
       }
@@ -8653,6 +8772,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配对屏幕已打开。替换 %1$@ 需要确认。"
+          }
+        }
+      }
+    },
+    "Pair this device to a main scoreboard for remote display or control. When the main device enables Allow This Device to Control, the regular control board opens with Merged View and Local Display available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将此设备与主记分牌配对以进行远程显示或控制。主设备启用“允许此设备控制”后，将打开常规控制台，可使用合并视图和本地显示。"
           }
         }
       }
@@ -9246,6 +9376,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ping %1$d 毫秒 · 上次回复于 %2$d 秒前"
+          }
+        }
+      }
+    },
+    "Ping unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "延迟不可用"
           }
         }
       }
@@ -10021,7 +10162,19 @@
         }
       }
     },
+    "Read live state and control the scoreboard with an API key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取实时状态，并使用 API 密钥控制记分牌。"
+          }
+        }
+      }
+    },
     "Read scoreboard state with HTTP and WebSocket." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10153,6 +10306,10 @@
         }
       }
     },
+    "Remote Control Board" : {
+      "comment" : "A button that opens a sheet for controlling a remote display.",
+      "isCommentAutoGenerated" : true
+    },
     "Remote Direction" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10171,6 +10328,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "远程显示"
+          }
+        }
+      }
+    },
+    "Remote Display / Control Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示／控制模式"
+          }
+        }
+      }
+    },
+    "Remote Display & Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示与控制"
           }
         }
       }
@@ -10227,6 +10406,7 @@
       }
     },
     "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10237,6 +10417,7 @@
       }
     },
     "Remote Display Mode replaces the operator interface. On iPhone, portrait can show the pairing code while a connected external display shows the scoreboard." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10287,6 +10468,7 @@
       }
     },
     "Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10532,7 +10714,6 @@
       }
     },
     "Reset active shot clock" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10601,6 +10782,9 @@
           }
         }
       }
+    },
+    "Reset API Key" : {
+
     },
     "Reset App" : {
       "localizations" : {
@@ -11023,6 +11207,17 @@
         }
       }
     },
+    "Return to Control Board" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回控制台"
+          }
+        }
+      }
+    },
     "Return to Live" : {
       "comment" : "A button that returns a live display to the user.",
       "isCommentAutoGenerated" : true,
@@ -11031,6 +11226,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "返回实时画面"
+          }
+        }
+      }
+    },
+    "Return to Remote Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回远程控制"
           }
         }
       }
@@ -11858,6 +12064,7 @@
       }
     },
     "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display, and Bitfocus Companion are separate integrations." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -13518,6 +13725,17 @@
         }
       }
     },
+    "Stream live state to overlays, browser sources, or scripts, and optionally enable authenticated scoreboard control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将实时状态传输到叠加层、浏览器来源或脚本，并可选择启用经过身份验证的记分牌控制。"
+          }
+        }
+      }
+    },
     "Subs %lld/%lld Used • %lld Left" : {
       "comment" : "A label that shows the number of substitutions used and remaining for a given team.",
       "isCommentAutoGenerated" : true,
@@ -13667,6 +13885,10 @@
           }
         }
       }
+    },
+    "Switch chess clock" : {
+      "comment" : "A button that switches between chess clocks.",
+      "isCommentAutoGenerated" : true
     },
     "Switch debate active side" : {
       "localizations" : {
@@ -14179,6 +14401,17 @@
         }
       }
     },
+    "This Apple TV is a remote display only. Enter this pairing code from Settings > Integration > Remote Display & Control on the main device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Apple TV 仅支持远程显示。在主设备的“设置 > 集成 > 远程显示与控制”中输入此配对码。"
+          }
+        }
+      }
+    },
     "This debate format includes Dual Clock segments. Those blocks run separate side clocks, starting from the configured side and optionally allowing operators to switch active sides during the segment." : {
       "localizations" : {
         "zh-Hans" : {
@@ -14231,6 +14464,7 @@
       }
     },
     "This device is a Remote Display. Enter this pairing code from Settings > Integration > Remote Display on the operator device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14242,6 +14476,7 @@
     },
     "This device is a Remote Display. On the tablet or computer running Smart Scoreboard, go to Settings > Integration > Remote Display, then enter the code below." : {
       "comment" : "A description of how to connect a remote display to a tablet or computer.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -14302,6 +14537,7 @@
       }
     },
     "This screen mirrors the Remote Display output. On the main Smart Scoreboard window, go to Settings > Integration > Remote Display to pair." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14903,6 +15139,17 @@
         }
       }
     },
+    "Turn this on from the main device. Nearby devices in Remote Display / Control Mode appear by device name." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在主设备上启用此功能。处于远程显示／控制模式的附近设备将按设备名称显示。"
+          }
+        }
+      }
+    },
     "Turn this on from the operator device. Nearby displays in Remote Display Mode appear below by device name." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14915,6 +15162,7 @@
       }
     },
     "Turn this on from the operator device. Nearby displays in Remote Display Mode appear by device name." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15138,6 +15386,17 @@
         }
       }
     },
+    "Use another iPhone, iPad, or Mac as a remote display or full control board. Grant control separately for each device. Apple TV can show the scoreboard but cannot control it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将另一台 iPhone、iPad 或 Mac 用作远程显示器或完整控制台。为每台设备单独授予控制权限。Apple TV 可显示记分牌，但无法控制。"
+          }
+        }
+      }
+    },
     "Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent." : {
       "localizations" : {
         "zh-Hans" : {
@@ -15250,6 +15509,7 @@
       }
     },
     "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15446,6 +15706,7 @@
       }
     },
     "Use Remote Display for Apple TV, iPad, or Mac displays that should mirror the public scoreboard without browser URLs or a Web API client. Pairing happens nearby and the operator device remains the source of live updates." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15456,6 +15717,7 @@
       }
     },
     "Use Remote Display Mode on iPhone when the phone should show the pairing code or drive a connected external display. For the phone screen itself, landscape still gives the scoreboard more room." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15466,6 +15728,7 @@
       }
     },
     "Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15598,8 +15861,13 @@
         }
       }
     },
+    "Use the primary screen: Settings > Integration > Remote Display & Control." : {
+      "comment" : "A description of how to configure the remote display.",
+      "isCommentAutoGenerated" : true
+    },
     "Use the primary screen: Settings > Integration > Remote Display." : {
       "comment" : "A description of how to use the remote display.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -15666,7 +15934,19 @@
         }
       }
     },
+    "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用此模式显示或控制另一台设备上的比赛。主记分牌为每台配对设备单独授予控制权限。Apple TV 仅支持远程显示。"
+          }
+        }
+      }
+    },
     "Use this when another Apple device should show the public scoreboard while the operator keeps private controls on the main device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15677,6 +15957,7 @@
       }
     },
     "Use this when local overlays, browser sources, or scripts need a read-only stream of live scoreboard state from the operator device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15697,6 +15978,7 @@
       }
     },
     "Use Web API when local overlays, browser sources, custom dashboards, or production scripts need to read live scoreboard state. The API is read-only for game operations and publishes current state over HTTP and WebSocket ports." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15914,6 +16196,10 @@
           }
         }
       }
+    },
+    "Waiting for main device…" : {
+      "comment" : "A placeholder text that appears when the user is waiting for the main device to respond to their command.",
+      "isCommentAutoGenerated" : true
     },
     "Waiting for ping reply · last reply %d s ago" : {
       "localizations" : {

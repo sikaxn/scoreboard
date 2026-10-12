@@ -182,7 +182,7 @@
     <header>
       <div>
         <h1 data-i18n="heading">SmartScoreboard Web API</h1>
-        <p class="note" data-i18n="tagline">Read-only LAN feed for broadcast and production apps.</p>
+        <p class="note" data-i18n="tagline">LAN state feed and optional authenticated board control.</p>
       </div>
     </header>
 
@@ -253,6 +253,87 @@
         <tr><td><code>/demo/scoreboard?displayId=1</code><br><code>/demo/obs?displayId=2</code></td><td data-i18n="broadcastDemoUse">The reference scoreboard defaults to ID 1 and the OBS source defaults to ID 2. Add displayId=0...8 to override either demo.</td></tr>
       </table>
     </section>
+
+    <section class="card" id="remote-control">
+      <h2>Remote Control and Web Control</h2>
+      <p><a class="button" href="/demo/control">Open Control Demo</a></p>
+      <p>On the main board, enable Settings → Integration → Web API → Web Control. Copy the 16-character API key. Keys contain letters and digits, are case-insensitive, and persist on this device. Reset API Key immediately revokes the previous key. State endpoints do not require a key. Keep the main device open and use a trusted LAN; HTTP does not encrypt the key.</p>
+      <p><code>POST /api/v2/control</code> accepts one JSON command with <code>X-API-Key</code> and <code>Content-Type: application/json</code> headers. Setup, sport changes, pairing, and integration configuration are excluded. Web commands apply on receipt and do not use clock synchronization.</p>
+      <pre>curl -X POST http://BOARD:5516/api/v2/control \
+  -H 'X-API-Key: A1B2C3D4E5F6G7H8' \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ab6eab5a-21d1-4ba3-aefc-8d8a65e5b402","action":"score.adjust","sport":"basketball","side":"home","value":1}'</pre>
+      <p>Required fields: <code>id</code> (a new UUID for each action), <code>action</code>, and <code>sport</code> from current state. Additional parameters appear below. <code>side</code> is home or guest; <code>value</code> is an integer (seconds for timers, a signed delta for adjustments); <code>enabled</code> is a boolean. Player and penalty IDs come from the current roster and penalty arrays. Reset commands affect the main game.</p>
+      <p><code>GET /api/v2/control/operations</code> returns the shared operation catalog, parameter names, textChoices, and sport capability flags. Read <code>GET /api/v1/state</code> for the current rules, game, runtime, players, and control.webEnabled/control.remoteEnabled flags. V2 state resources are also available. Do not send operations whose current capability flag is false.</p>
+      <p>Success: <code>{"id":"…","success":true}</code>. Errors return <code>success:false</code>, <code>error</code>, and <code>message</code>: 400 invalidCommand, 401 unauthorized, 403 disabled, 409 unsupported/conflict/stale. Commands are deduplicated by ID for two minutes (up to 512 recent commands). An ID reused with different parameters returns conflict. A timed-out command may have applied; check authoritative state, or retry the exact same ID and payload within this window. Never automatically repeat a toggle using a new ID.</p>
+      <p>Pair an iPhone, iPad, or Mac in Remote Display Mode. On the main board, enable Allow This Device to Control in that specific device’s settings row. The approved device automatically uses the regular app control board, including Merged View and Local Display. Its external screen can continue showing the scoreboard. Each device has independent permission. Apple TV remains display-only. The pairing connection authenticates remote board commands; it does not need the web key. Game events and Companion commands run on the main device; sounds are relayed to paired devices.</p>
+      <p>Paired boards estimate clock offset from each heartbeat round trip. Timer commands carry the tap time in the main clock's time base; the main device offsets only the affected timer for travel time. Synchronization must be less than five seconds old. Commands more than two seconds old or over 100 ms in the future are rejected. Controls disable while disconnected or unsynchronized; requests are bounded while awaiting acknowledgement; commands are not queued for reconnection. Existing state remains visible until updates resume.</p>
+      <div style="overflow-x:auto"><table><thead><tr><th>Action</th><th>Operation</th><th>Parameters</th><th>Capability</th></tr></thead><tbody>
+<tr><td><code>score.adjust</code></td><td>Score</td><td><code>side, value</code></td><td>supportsScore</td></tr>
+<tr><td><code>score.reset</code></td><td>Reset scores</td><td><code>—</code></td><td>supportsScore</td></tr>
+<tr><td><code>period.adjust</code></td><td>Period</td><td><code>value</code></td><td>supportsPeriod</td></tr>
+<tr><td><code>period.set</code></td><td>Set period</td><td><code>value</code></td><td>supportsPeriod</td></tr>
+<tr><td><code>period.award</code></td><td>Award period</td><td><code>side</code></td><td>supportsPeriodWins</td></tr>
+<tr><td><code>period.undo</code></td><td>Undo period win</td><td><code>—</code></td><td>supportsPeriodWins</td></tr>
+<tr><td><code>clock.toggle</code></td><td>Start / pause clock</td><td><code>—</code></td><td>clock</td></tr>
+<tr><td><code>clock.running</code></td><td>Set clock running</td><td><code>enabled</code></td><td>clock</td></tr>
+<tr><td><code>clock.adjust</code></td><td>Adjust clock seconds</td><td><code>value</code></td><td>masterClock</td></tr>
+<tr><td><code>clock.reset</code></td><td>Reset clock</td><td><code>value</code></td><td>gameClock</td></tr>
+<tr><td><code>shot.toggle</code></td><td>Start / pause shot clock</td><td><code>—</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.running</code></td><td>Set shot clock running</td><td><code>enabled</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.adjust</code></td><td>Adjust shot seconds</td><td><code>value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.reset</code></td><td>Reset shot clock</td><td><code>value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.activeReset</code></td><td>Reset active shot clock</td><td><code>—</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.assign</code></td><td>Assign shot clock</td><td><code>side, value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>possession.set</code></td><td>Possession</td><td><code>text</code></td><td>supportsPossession</td></tr>
+<tr><td><code>serve.set</code></td><td>Serving side</td><td><code>side</code></td><td>usesServeTimer</td></tr>
+<tr><td><code>sides.swap</code></td><td>Swap sides</td><td><code>—</code></td><td>All games</td></tr>
+<tr><td><code>player.number</code></td><td>Player number</td><td><code>side, playerID, text</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.name</code></td><td>Player name</td><td><code>side, playerID, text</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.lineup</code></td><td>Active lineup</td><td><code>side, playerID, enabled</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.overlay</code></td><td>Pause player overlay</td><td><code>—</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.foul</code></td><td>Player fouls</td><td><code>side, playerID, value</code></td><td>supportsFouls</td></tr>
+<tr><td><code>player.foulsReset</code></td><td>Reset player fouls</td><td><code>side, playerID</code></td><td>supportsFouls</td></tr>
+<tr><td><code>team.playerFoulsReset</code></td><td>Reset team player fouls</td><td><code>side</code></td><td>supportsFouls</td></tr>
+<tr><td><code>all.playerFoulsReset</code></td><td>Reset all player fouls</td><td><code>—</code></td><td>supportsFouls</td></tr>
+<tr><td><code>player.card</code></td><td>Player card</td><td><code>side, playerID, text</code></td><td>supportsCards</td></tr>
+<tr><td><code>team.cardsReset</code></td><td>Reset team cards</td><td><code>side</code></td><td>supportsCards</td></tr>
+<tr><td><code>all.cardsReset</code></td><td>Reset all cards</td><td><code>—</code></td><td>supportsCards</td></tr>
+<tr><td><code>team.foul</code></td><td>Team fouls</td><td><code>side, value</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>team.foulsReset</code></td><td>Reset team fouls</td><td><code>side</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>all.teamFoulsReset</code></td><td>Reset all team fouls</td><td><code>—</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>substitution.adjust</code></td><td>Substitutions used</td><td><code>side, value</code></td><td>supportsSubstitutions</td></tr>
+<tr><td><code>pause.adjust</code></td><td>Pauses used</td><td><code>side, value</code></td><td>supportsPauses</td></tr>
+<tr><td><code>chess.switch</code></td><td>Switch chess clock</td><td><code>—</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.side</code></td><td>Active chess side</td><td><code>side</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.adjust</code></td><td>Adjust chess seconds</td><td><code>side, value</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.reset</code></td><td>Reset chess clocks</td><td><code>—</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>debate.segment</code></td><td>Change debate segment</td><td><code>value</code></td><td>debate</td></tr>
+<tr><td><code>debate.resetSegment</code></td><td>Reset debate segment</td><td><code>—</code></td><td>debate</td></tr>
+<tr><td><code>debate.resetRound</code></td><td>Reset debate round</td><td><code>—</code></td><td>debate</td></tr>
+<tr><td><code>debate.prepToggle</code></td><td>Start / pause prep</td><td><code>side</code></td><td>prep</td></tr>
+<tr><td><code>debate.prepReset</code></td><td>Reset prep</td><td><code>side</code></td><td>prep</td></tr>
+<tr><td><code>debate.prepAdjust</code></td><td>Adjust prep seconds</td><td><code>side, value</code></td><td>prep</td></tr>
+<tr><td><code>debate.return</code></td><td>Return to segment</td><td><code>enabled</code></td><td>debate</td></tr>
+<tr><td><code>injury.set</code></td><td>Injury time minutes</td><td><code>value</code></td><td>supportsInjuryTime</td></tr>
+<tr><td><code>penalty.add</code></td><td>Add penalty</td><td><code>side, value, enabled</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.remove</code></td><td>Remove penalty</td><td><code>side, timerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.toggle</code></td><td>Start / pause penalty</td><td><code>side, timerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.adjust</code></td><td>Adjust penalty seconds</td><td><code>side, timerID, value</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.number</code></td><td>Penalty player number</td><td><code>side, timerID, text</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.name</code></td><td>Penalty player name</td><td><code>side, timerID, text</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.player</code></td><td>Assign penalty player</td><td><code>side, timerID, playerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>player.clear</code></td><td>Clear player cards and fouls</td><td><code>side, playerID</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>debate.turn</code></td><td>Debate turn here (atomic)</td><td><code>side</code></td><td>debateDualClock</td></tr>
+<tr><td><code>display.theme</code></td><td>Theme</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.mode</code></td><td>Display mode</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.direction</code></td><td>External display direction</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.broadcast</code></td><td>Broadcast display mode</td><td><code>value, text</code></td><td>All games</td></tr>
+<tr><td><code>sound.enabled</code></td><td>Sound enabled</td><td><code>enabled</code></td><td>All games</td></tr>
+<tr><td><code>sound.play</code></td><td>Play sound effect</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>game.new</code></td><td>New game</td><td><code>—</code></td><td>All games</td></tr></tbody></table></div>
+      <p>Text choices: possession.set = none/home/guest; player.card = none/yellow/red; display.direction = homeLeft/guestLeft; display.mode = blackScreen/backgroundOnly/eventLogo/teamView/playerView/scoreboard. display.broadcast also accepts followDisplayControl/custom1/custom2/custom3 with value = an enabled display ID. sound.play and display.theme choices are listed by the operation catalog. penalty.add optionally accepts playerID; possession.set optionally accepts enabled to auto-start the shot clock.</p>
+    </section>
   </main>
 
   <script>
@@ -260,7 +341,7 @@
       en: {
         title: 'SmartScoreboard Web API',
         heading: 'SmartScoreboard Web API',
-        tagline: 'Read-only LAN feed for broadcast and production apps.',
+        tagline: 'LAN state feed and optional authenticated board control.',
         scoreboardTitle: 'Reference Demo Scoreboard',
         scoreboardBody: 'This demo is for API testing and reference only. Build production scoreboard graphics in your broadcast or overlay system.',
         openScoreboard: 'Open Scoreboard',

@@ -48,6 +48,8 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Save, import, export, and autosave game files
 - Event logs with export support
 - Local Web API demos, including a commentator dashboard with live match data, current-session timeline, roster alerts, and deterministic talking points
+- Paired iPhone, iPad, and Mac remote control boards, with timer delay compensation and simultaneous remote display output
+- Optional authenticated Web API control with a resettable 16-character key, control demo, and operation reference
 
 ## Supported Platforms
 
@@ -104,3 +106,11 @@ Scoreboard uses custom JSON-backed document types:
 ## License
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE.md](LICENSE.md) for details.
+
+### Remote control
+
+Pair another iPhone, iPad, or Mac using the existing Remote Display workflow. On the main board, open **Settings → Integration → Remote Display** and enable **Allow This Device to Control** in that specific paired device’s row. Permissions are independent for each device. An approved device automatically opens the regular app control board, including player controls, Display Control, Merged View, and Local Display. Its external screen can continue showing the scoreboard. Apple TV remains display-only. Timer commands use a simple heartbeat round-trip clock estimate and compensate for travel time; stale or conflicting commands are rejected. Sounds are relayed to paired devices, while Companion commands execute only on the main device.
+
+For browser or script control, enable the Web API and **Web Control**, then copy the API key. Use `POST /api/v2/control` with `X-API-Key` and a JSON command containing a unique UUID `id`, an `action`, and the current `sport`. The key has 16 letters/digits, is case-insensitive, and can be reset to revoke access. Setup operations are excluded. Open `/demo/control` for the browser controller or `/` for API documentation; `/api/v2/control/operations` lists every shared command and its parameters. Use a trusted local network because HTTP does not encrypt the key.
+
+Run `python3 scripts/run_remote_control_tests.py` on macOS with Xcode to check all sports, timer compensation, validation, duplicate commands, and HTTP authentication. The runner uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. The optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom`.

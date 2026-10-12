@@ -20,7 +20,7 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
     var data: Data
 }
 
-struct ScoreboardGameSnapshot: Sendable {
+struct ScoreboardGameSnapshot: Equatable, Sendable {
     var fileVersion = 12
     var sport: SportType?
     var customSportConfig: CustomSportConfig?

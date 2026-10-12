@@ -393,6 +393,9 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     enum Kind: String, Codable, Sendable {
         case heartbeat
         case heartbeatAck
+        case clockSync
+        case command
+        case commandResult
         case imageRequest
         case soundTest
         case soundEffect
@@ -417,6 +420,12 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let soundEffect: String?
     let imageID: String?
     let imagePath: String?
+    let receivedAt: TimeInterval?
+    let clockOffset: TimeInterval?
+    let roundTrip: TimeInterval?
+    let remoteControlEnabled: Bool?
+    let command: ScoreboardControlCommand?
+    let commandResult: ScoreboardControlResult?
 
     init(
         kind: Kind,
@@ -434,7 +443,13 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         isMuted: Bool? = nil,
         soundEffect: ScoreboardSoundEffect? = nil,
         imageID: String? = nil,
-        imagePath: String? = nil
+        imagePath: String? = nil,
+        receivedAt: TimeInterval? = nil,
+        clockOffset: TimeInterval? = nil,
+        roundTrip: TimeInterval? = nil,
+        remoteControlEnabled: Bool? = nil,
+        command: ScoreboardControlCommand? = nil,
+        commandResult: ScoreboardControlResult? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -452,6 +467,12 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.soundEffect = soundEffect?.rawValue
         self.imageID = imageID
         self.imagePath = imagePath
+        self.receivedAt = receivedAt
+        self.clockOffset = clockOffset
+        self.roundTrip = roundTrip
+        self.remoteControlEnabled = remoteControlEnabled
+        self.command = command
+        self.commandResult = commandResult
     }
 }
 
@@ -855,6 +876,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     private var heartbeatTimer: Timer?
     private var heartbeatSequence: UInt64 = 0
     private var lastTrustedInviteAttemptByID: [String: Date] = [:]
+    var controlCommandHandler: ((ScoreboardControlCommand, String) -> ScoreboardControlResult)?
+    var controlPermissionProvider: ((String) -> Bool)?
     private var currentStateProvider: ((String?, Int) -> Data)?
     private var currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
     private var lastPeriodicStateSyncAt: Date?
@@ -1395,6 +1418,20 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func handleControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from endpoint: NWEndpoint) {
+        if message.kind == .command {
+            guard let display = displayConnectionsByEndpoint[endpoint], display.isReady,
+                  display.pendingTrustedDisplay == nil, let lastAck = display.lastAckAt,
+                  Date().timeIntervalSince(lastAck) < 5,
+                  display.deviceType != .appleTV,
+                  message.displayID == display.displayID, message.hostID == hostID,
+                  let command = message.command else { return }
+            let result = controlCommandHandler?(command, display.displayID) ?? .failure(command.id, "disabled", "Remote control is disabled.")
+            sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+                kind: .commandResult, sequence: message.sequence, sentAt: Date().timeIntervalSince1970,
+                hostID: hostID, hostName: displayName, displayID: display.displayID, displayName: display.displayName,
+                commandResult: result), to: [endpoint])
+            return
+        }
         if message.kind == .removePairing {
             handleDisplayRemovedPairing(message, from: endpoint)
             return
@@ -1458,6 +1495,15 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 ?? message.deviceType.flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:))
                 ?? trustedDisplays.first { $0.id == displayID }?.deviceType
             trustDisplay(id: displayID, name: displayName, pairingSetID: pairingSetID, deviceType: deviceType, pairingSecret: pairingSecret)
+        }
+        if let receivedAt = message.receivedAt, receivedAt.isFinite, latency < 2 {
+            // The midpoint of the host's round trip estimates when the display received the ping.
+            let offset = message.sentAt + latency / 2 - receivedAt
+            sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+                kind: .clockSync, sequence: message.sequence, sentAt: now.timeIntervalSince1970,
+                hostID: hostID, hostName: self.displayName, displayID: displayID, displayName: displayName,
+                clockOffset: offset, roundTrip: latency,
+                remoteControlEnabled: controlPermissionProvider?(displayID) ?? false), to: [endpoint])
         }
         sendMuteState(to: [endpoint], displayID: displayID)
         updateBrowsingStatus()
@@ -1739,15 +1785,18 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             return
         }
 
-        trustedDisplays.removeAll { $0.id == displayID }
-        trustedDisplays.append(ScoreboardRemoteDisplayTrustedPeer(
+        // Publish a complete replacement: removing a live peer even briefly
+        // makes the store revoke its per-device control permission.
+        var updatedDisplays = trustedDisplays.filter { $0.id != displayID }
+        updatedDisplays.append(ScoreboardRemoteDisplayTrustedPeer(
             id: displayID,
             name: displayName,
             pairingSetID: pairingSetID,
             deviceType: deviceType,
             pairingSecret: pairingSecret
         ))
-        trustedDisplays.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        updatedDisplays.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        trustedDisplays = updatedDisplays
         ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
     }
 
@@ -1866,6 +1915,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             }
         }
     }
+
+    func refreshControlPermissions() { sendHeartbeat() }
 
     private func sendHeartbeat() {
         let targetEndpoints = readyEndpoints
@@ -2024,6 +2075,16 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     @Published private(set) var state: ScoreboardWebAPIState?
     @Published private(set) var lastReceivedAt: Date?
     @Published private(set) var lastHeartbeatAt: Date?
+    @Published private(set) var isRemoteControlAvailable = false
+    @Published private(set) var isControlBoardDevice = false
+    private var pendingControlCommands: [UUID: ScoreboardControlCommand] = [:]
+    var pendingCommandsForDisplay: [ScoreboardControlCommand] {
+        pendingControlCommands.values.sorted { ($0.sentAt ?? 0) < ($1.sentAt ?? 0) }
+    }
+    @Published private(set) var pendingControlCommandID: UUID?
+    @Published private(set) var controlResult: ScoreboardControlResult?
+    @Published private(set) var roundTripSeconds: TimeInterval?
+    private var lastClockSyncAt: Date?
     @Published private(set) var masterClockOffset: TimeInterval?
     @Published private(set) var pairingCode: String = ScoreboardRemoteDisplayReceiver.makePairingCode()
     @Published private(set) var trustedHosts: [ScoreboardRemoteDisplayTrustedPeer] = ScoreboardRemoteDisplayPairingStore.trustedHosts()
@@ -2034,6 +2095,68 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     var canDisconnectFromOperator: Bool {
         pairedHostID != nil || lastActiveOperatorID != nil
+    }
+
+    var isControlConnectionReady: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return status.isLive && isRemoteControlAvailable && state?.control?.remoteEnabled == true
+            && pairedConnection != nil
+            && lastClockSyncAt.map { Date().timeIntervalSince($0) < 5 } == true
+        #endif
+    }
+
+    var canSendControlCommand: Bool {
+        isControlConnectionReady && pendingControlCommands.count < 16
+    }
+
+    func sendCommand(_ input: ScoreboardControlCommand) {
+        markStaleHostIfNeeded()
+        guard canSendControlCommand, let connection = pairedConnection, let offset = masterClockOffset else {
+            controlResult = .failure(input.id, "disabled", "Control unavailable. Check pairing, synchronization, and this device's control permission.")
+            return
+        }
+        var command = input
+        command.sentAt = Date().timeIntervalSince1970 + offset
+        if command.expectedRunning == nil, let state {
+            switch command.action {
+            case "clock.toggle", "clock.running", "chess.switch", "chess.side":
+                command.expectedRunning = state.runtime.isClockRunning
+            case "shot.toggle", "shot.running":
+                command.expectedRunning = state.runtime.isShotClockRunning
+            case "penalty.toggle":
+                command.expectedRunning = ((state.game.homePenaltyTimers ?? []) + (state.game.guestPenaltyTimers ?? []))
+                    .first { $0.id == command.timerID }?.isRunning
+            case "debate.prepToggle":
+                let target: DebateActiveTimer = command.side == .home ? .prepHome : .prepGuest
+                command.expectedRunning = state.debate?.activeTimer == target && state.runtime.isDebatePrepClockRunning
+            default: break
+            }
+        }
+        pendingControlCommands[command.id] = command
+        pendingControlCommandID = command.id
+        controlResult = nil
+        sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+            kind: .command, sequence: 0, sentAt: command.sentAt!, hostID: pairedHostID, hostName: pairedHostName,
+            displayID: displayID, displayName: displayName, command: command), to: [connection])
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.pendingControlCommands[command.id] != nil else { return }
+            self.disconnectUnresponsiveControlHost()
+            self.controlResult = .failure(command.id, "disconnected", "No acknowledgement. Refresh state before trying again; the command may have applied.")
+        }
+    }
+
+    private func clearControlConnection() {
+        isRemoteControlAvailable = false
+        lastClockSyncAt = nil
+        roundTripSeconds = nil
+        if let id = pendingControlCommandID {
+            controlResult = .failure(id, "disconnected", "Connection lost. The command may have applied; check state after reconnecting.")
+        }
+        pendingControlCommands.removeAll()
+        pendingControlCommandID = nil
     }
 
     func imageData(for id: String?) -> Data? {
@@ -2118,6 +2241,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         lastNetworkRecoveryAt = nil
 
         startOrRefreshListener()
@@ -2126,6 +2250,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func stop() {
+        isControlBoardDevice = false
         activeConsumerCount = 0
         stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
     }
@@ -2149,6 +2274,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         imageAssetsByID.removeAll()
         requestedImageAssetIDs.removeAll()
         lastNetworkRecoveryAt = nil
@@ -2186,6 +2312,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = false
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         requestedImageAssetIDs.removeAll()
         status = operatorName.map {
             .disconnected(localizedRemoteDisplayFormat("Waiting for %@ to reconnect.", $0))
@@ -2210,6 +2337,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func disconnectFromOperator() {
+        isControlBoardDevice = false
         let operatorName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
         let message = ScoreboardRemoteDisplayControlMessage(
             kind: .disconnect,
@@ -2234,6 +2362,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = true
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         status = .disconnected(localizedRemoteDisplayFormat("Disconnected from %@.", operatorName))
         startOrRefreshListener()
 
@@ -2243,6 +2372,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func forgetTrustedHosts() {
+        isControlBoardDevice = false
         isForgettingTrustedHosts = true
         pairingSetID = ScoreboardRemoteDisplayIdentity.resetStableID(forKey: "remoteDisplayPairingSetID")
         notifyConnectedHostsBeforeForgetting()
@@ -2258,6 +2388,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         lastHeartbeatAt = nil
         lastReceivedAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         state = nil
         pairingCode = Self.makePairingCode()
         isMuted = false
@@ -2319,30 +2450,40 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private func startHeartbeatMonitorTimer() {
         heartbeatMonitorTimer?.invalidate()
-        heartbeatMonitorTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let monitor = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.markStaleHostIfNeeded()
             }
         }
+        RunLoop.main.add(monitor, forMode: .common)
+        heartbeatMonitorTimer = monitor
     }
 
     private func markStaleHostIfNeeded() {
         guard
             pairedHostID != nil,
-            let lastHeartbeatAt,
-            Date().timeIntervalSince(lastHeartbeatAt) >= 8
+            let lastContact = lastHeartbeatAt ?? lastReceivedAt,
+            Date().timeIntervalSince(lastContact) >= (isControlBoardDevice ? 5 : 8)
         else {
             return
         }
 
+        disconnectUnresponsiveControlHost()
+    }
+
+    private func disconnectUnresponsiveControlHost() {
         let staleHostName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
+        let staleConnection = pairedConnection
+        if let staleConnection { connectionsByID.removeValue(forKey: ObjectIdentifier(staleConnection)) }
         pairedHostID = nil
         pairedHostName = nil
         pairedConnection = nil
         isDisconnectingFromOperator = false
         self.lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         status = .disconnected(localizedRemoteDisplayFormat("%@ stopped responding. Waiting for reconnect.", staleHostName))
+        staleConnection?.cancel()
         startOrRefreshListener()
     }
 
@@ -2406,6 +2547,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func startOrRefreshListener(recreate: Bool = false) {
+        guard activeConsumerCount > 0 else { return }
         let discoveryInfo = currentDiscoveryInfo()
         if let listener, !recreate, listenerNetworkMode == networkMode {
             guard advertisedDiscoveryInfo != discoveryInfo else {
@@ -2484,6 +2626,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func handleConnectionStateChanged(_ state: NWConnection.State, connection: NWConnection) {
+        guard connectionsByID[ObjectIdentifier(connection)] != nil else { return }
         switch state {
         case .ready:
             receiveNextMessage(from: connection)
@@ -2518,6 +2661,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         pairedConnection = nil
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         startOrRefreshListener()
         if isForgettingTrustedHosts {
             isForgettingTrustedHosts = false
@@ -2643,6 +2787,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
 
         clearFailedPairingAttempts(hostID: requesterHostID)
+        if pairedHostID != requesterHostID { isControlBoardDevice = false }
+        if pairedConnection !== connection {
+            masterClockOffset = nil
+            clearControlConnection()
+        }
         if let pairedConnection, pairedConnection !== connection {
             pairedConnection.cancel()
         }
@@ -2717,6 +2866,30 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
 
         switch message.kind {
+        case .command:
+            return
+        case .commandResult:
+            guard acceptsControlMessage(message, from: connection), let result = message.commandResult,
+                  let id = result.id, pendingControlCommands.removeValue(forKey: id) != nil else { return }
+            controlResult = result
+            pendingControlCommandID = pendingControlCommands.keys.first
+            return
+        case .clockSync:
+            guard acceptsControlMessage(message, from: connection),
+                  let offset = message.clockOffset, offset.isFinite,
+                  let trip = message.roundTrip, trip.isFinite, trip >= 0, trip < 2 else { return }
+            masterClockOffset = offset
+            roundTripSeconds = trip
+            lastClockSyncAt = Date()
+            isRemoteControlAvailable = message.remoteControlEnabled == true
+            if !isRemoteControlAvailable {
+                pendingControlCommands.removeAll()
+                pendingControlCommandID = nil
+            }
+            #if !os(tvOS)
+            isControlBoardDevice = isRemoteControlAvailable
+            #endif
+            return
         case .removePairing:
             handleRemovePairing(message, from: connection)
             return
@@ -2746,7 +2919,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
         let receivedAt = Date()
         lastHeartbeatAt = receivedAt
-        updateMasterClockOffset(from: message, receivedAt: receivedAt)
+        if lastClockSyncAt == nil { updateMasterClockOffset(from: message, receivedAt: receivedAt) }
         let previousHostID = pairedHostID
         let previousHostName = pairedHostName
         pairedHostID = message.hostID
@@ -2775,7 +2948,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             appVersion: ScoreboardRemoteDisplayAppVersion.current.version,
             appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
             deviceType: ScoreboardRemoteDisplayDeviceType.current,
-            remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
+            remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue,
+            receivedAt: receivedAt.timeIntervalSince1970
         )
         sendControlMessage(response, to: [connection])
     }
@@ -2792,6 +2966,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         isDisconnectingFromOperator = true
         lastHeartbeatAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         status = .disconnected(localizedRemoteDisplayFormat("%@ disconnected this Remote Display.", hostName))
         connection.cancel()
         startOrRefreshListener()
@@ -2874,6 +3049,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        isControlBoardDevice = false
         if let hostID = message.hostID {
             trustedHosts.removeAll { $0.id == hostID }
             ScoreboardRemoteDisplayPairingStore.saveTrustedHosts(trustedHosts)
@@ -2890,6 +3066,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         lastHeartbeatAt = nil
         lastReceivedAt = nil
         masterClockOffset = nil
+        clearControlConnection()
         state = nil
         isMuted = false
         imageAssetsByID.removeAll()
@@ -2929,6 +3106,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func handleControlMessageSendFailure(_ error: NWError, connection: NWConnection) {
+        guard pairedConnection === connection || connectionsByID[ObjectIdentifier(connection)] != nil else { return }
         if pairedConnection === connection || Self.isDefunctNetworkError(error) {
             recoverReceiverNetworkingAfterFailure(error: error)
         } else {

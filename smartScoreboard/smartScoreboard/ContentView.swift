@@ -57,6 +57,18 @@ struct ContentView: View {
     }
     APP_STORE_PREVIEW_CAPTURE_END */
 
+    init(remoteControlBoard: Bool = false,
+         remoteReceiver: ScoreboardRemoteDisplayReceiver? = nil,
+         returnToRemoteControl: (() -> Void)? = nil) {
+        _showsSetup = State(initialValue: remoteControlBoard ? false : !ScoreboardStore.shared.didCompleteSetup)
+        _remoteControlReceiver = ObservedObject(wrappedValue: remoteReceiver ?? .shared)
+        self.returnToRemoteControl = returnToRemoteControl
+    }
+
+    @ObservedObject private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver
+    private var returnToRemoteControl: (() -> Void)?
+    @State private var showsRemoteConnectionDetails = false
+
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
     @Environment(\.openWindow) private var openWindow
@@ -579,7 +591,7 @@ struct ContentView: View {
     #if os(iOS)
     private var filePresentationConfiguredRootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
-            lifecycleConfiguredRootView
+            presentationRootView
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
                 updateSettingsKeyboardHeight(notification)
             }
@@ -679,11 +691,23 @@ struct ContentView: View {
     #else
     private var filePresentationConfiguredRootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
-            lifecycleConfiguredRootView
+            presentationRootView
                 .scoreboardShareExporter(payload: $exportSharePayload)
         }
     }
     #endif
+
+    private var presentationRootView: ScoreboardViewBoundary {
+        ScoreboardViewBoundary {
+            Group {
+                if store.isRemoteControlProxy { rootView }
+                else { lifecycleConfiguredRootView }
+            }
+            .onChange(of: selectedStoredGameFile?.displayName, initial: true) { _, name in
+                store.setCurrentGameDisplayName(name)
+            }
+        }
+    }
 
     private var alertConfiguredRootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
@@ -761,7 +785,7 @@ struct ContentView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .scoreboardLogSessionsDidChange)) { _ in
-                refreshStoredLogSessions()
+                if !store.isRemoteControlProxy { refreshStoredLogSessions() }
             }
             .sheet(isPresented: Binding(
                 get: { store.externalAutomationSafetyNoticeID != nil },
@@ -1227,7 +1251,7 @@ struct ContentView: View {
         case .keyboardShortcuts:
             return "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open."
         case .integration:
-            return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
+            return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display & Control, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
         case .about:
             return nil
         }
@@ -2737,7 +2761,7 @@ struct ContentView: View {
                     }
                 }
 
-                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display.") {
+                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display & Control.") {
                     settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Integration.", systemImage: "arrow.left.and.right")
                     settingsDivider()
 
@@ -3529,7 +3553,7 @@ struct ContentView: View {
             #endif
 
             settingsSection(title: "Web API", footer: "Publishes live scoreboard state over HTTP 5516 and WebSocket 5517 for trusted local production tools.") {
-                settingsOptionTip("Use Web API when local overlays, browser sources, custom dashboards, or production scripts need to read live scoreboard state. The API is read-only for game operations and publishes current state over HTTP and WebSocket ports.", systemImage: "network")
+                settingsOptionTip("Use Web API when local overlays, browser sources, custom dashboards, or production scripts need to read live scoreboard state. Enable Web Control to allow authenticated game operations. Live state remains available over HTTP and WebSocket ports.", systemImage: "network")
                 settingsToggleRow(title: "Enable HTTP 5516 and WebSocket 5517", isOn: Binding(
                     get: { store.isWebAPIEnabled },
                     set: { store.setWebAPIEnabled($0) }
@@ -3558,6 +3582,22 @@ struct ContentView: View {
                 }
             }
 
+            settingsSection(title: "Web Control", footer: "Control requests require X-API-Key. Resetting the key revokes the previous key immediately.") {
+                settingsToggleRow(title: "Enable Web Control", isOn: $store.isWebControlEnabled)
+                settingsSummaryValueRow(title: "API Key", value: store.webControlAPIKey)
+                HStack {
+                    Button("Copy API Key") {
+                        #if os(macOS)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.webControlAPIKey, forType: .string)
+                        #elseif os(iOS)
+                        UIPasteboard.general.string = store.webControlAPIKey
+                        #endif
+                    }
+                    Button("Reset API Key") { store.resetWebControlAPIKey() }
+                }
+                .padding(.vertical, 10)
+            }
             settingsWebAPIBroadcastControlSection()
 
             #if ENABLE_CUSTOM_USER_PAGE
@@ -3675,9 +3715,9 @@ struct ContentView: View {
     private func settingsIntegrationConfigurationSection() -> some View {
         settingsSection(
             title: "Configure Integration",
-            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display, and Bitfocus Companion are separate integrations."
+            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display & Control, and Bitfocus Companion are separate integrations."
         ) {
-            settingsOptionTip("Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display, and Bitfocus Companion each keep their own enabled state, connection details, and assignments.", systemImage: "arrow.left.arrow.right")
+            settingsOptionTip("Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display & Control, and Bitfocus Companion each keep their own enabled state, connection details, and assignments.", systemImage: "arrow.left.arrow.right")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 ForEach(IntegrationSettingsDetail.allCases) { detail in
                     settingsIntegrationConfigurationButton(detail)
@@ -3766,10 +3806,10 @@ struct ContentView: View {
     @ViewBuilder
     private func settingsRemoteDisplayThisDeviceSection() -> some View {
         #if !os(tvOS)
-        settingsSection(title: "Remote Display Mode", footer: remoteDisplayViewerModeFooter) {
+        settingsSection(title: "Remote Display / Control Mode", footer: remoteDisplayViewerModeFooter) {
             settingsOptionTip(remoteDisplayViewerModeTip, systemImage: "rectangle.on.rectangle")
             settingsButtonRow(
-                title: "Enter Remote Display Mode",
+                title: "Enter Remote Display / Control Mode",
                 buttonTitle: "Enter",
                 tint: settingsPalette.accent,
                 foreground: settingsPalette.accentText
@@ -3779,7 +3819,7 @@ struct ContentView: View {
 
             if isIPhoneInterface {
                 settingsDivider()
-                Text("iPhone can enter Remote Display Mode. In portrait, keep this screen available for the pairing code; if an external display is connected, it will show the remote scoreboard output.")
+                Text("iPhone can display or control a paired scoreboard. The main device grants control with Allow This Device to Control. A connected external display can show the remote scoreboard at the same time.")
                     .font(.subheadline)
                     .foregroundStyle(settingsPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -3811,23 +3851,17 @@ struct ContentView: View {
     }
 
     private var remoteDisplayViewerModeFooter: String {
-        if isIPhoneInterface {
-            return "Remote Display Mode replaces the operator interface. On iPhone, portrait can show the pairing code while a connected external display shows the scoreboard."
-        }
-        return "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen."
+        "Pair this device to a main scoreboard for remote display or control. When the main device enables Allow This Device to Control, the regular control board opens with Merged View and Local Display available."
     }
 
     private var remoteDisplayViewerModeTip: String {
-        if isIPhoneInterface {
-            return "Use Remote Display Mode on iPhone when the phone should show the pairing code or drive a connected external display. For the phone screen itself, landscape still gives the scoreboard more room."
-        }
-        return "Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available."
+        "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display only."
     }
 
     private func settingsRemoteDisplayAboutSection() -> some View {
-        settingsSection(title: "About Remote Display") {
-            settingsOptionTip("Use Remote Display for Apple TV, iPad, or Mac displays that should mirror the public scoreboard without browser URLs or a Web API client. Pairing happens nearby and the operator device remains the source of live updates.", systemImage: "tv.and.mediabox")
-            Text("Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings.")
+        settingsSection(title: "About Remote Display & Control") {
+            settingsOptionTip("Pair nearby devices to display or control the scoreboard without browser URLs. The main device remains the source of live updates and grants control to each device separately.", systemImage: "tv.and.mediabox")
+            Text("iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display only. Scores, timers, players, display settings, and sounds stay synchronized with the main device.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3836,9 +3870,9 @@ struct ContentView: View {
     }
 
     private func settingsRemoteDisplayBroadcastSection() -> some View {
-        settingsSection(title: "Operator Broadcast", footer: "Turn this on from the operator device. Nearby displays in Remote Display Mode appear by device name.") {
+        settingsSection(title: "Operator Broadcast", footer: "Turn this on from the main device. Nearby devices in Remote Display / Control Mode appear by device name.") {
             settingsOptionTip("Turn on Operator Broadcast from the device that will run the game. Nearby Remote Display devices can then pair, reconnect if saved, receive live scoreboard state, and stay in sync with theme and sound settings.", systemImage: "dot.radiowaves.left.and.right")
-            settingsToggleRow(title: "Enable Remote Display Pairing", isOn: Binding(
+            settingsToggleRow(title: "Enable Remote Display / Control Pairing", isOn: Binding(
                 get: { store.isRemoteDisplayHostEnabled },
                 set: { store.setRemoteDisplayHostEnabled($0) }
             ))
@@ -4258,6 +4292,12 @@ struct ContentView: View {
 
             if row.isTrusted || row.isConnected {
                 VStack(alignment: .leading, spacing: 8) {
+                    if row.deviceType != .appleTV {
+                        settingsToggleRow(title: "Allow This Device to Control", isOn: Binding(
+                            get: { store.isRemoteControlAllowed(displayID: row.id) },
+                            set: { store.setRemoteControlAllowed(displayID: row.id, isAllowed: $0) }
+                        ))
+                    }
                     remoteDisplayDirectionControls(row)
                     if store.isRemoteDisplayIndividualControlEnabled {
                         remoteDisplayCustomDisplayIDPicker(row)
@@ -6944,7 +6984,7 @@ struct ContentView: View {
         let isSelected = store.theme == theme
 
         return Button {
-            store.theme = theme
+            store.setTheme(theme)
         } label: {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -7764,6 +7804,9 @@ struct ContentView: View {
                 }
             }
         }
+        .padding(store.isRemoteControlProxy ? 8 : 0)
+        .background(store.isRemoteControlProxy ? Color.teal.opacity(0.24) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     @ViewBuilder
@@ -7923,7 +7966,7 @@ struct ContentView: View {
                 ForEach(ScoreboardTheme.allCases) { theme in
                     Button {
                         withAnimation(.easeInOut(duration: 0.22)) {
-                            store.theme = theme
+                            store.setTheme(theme)
                         }
                     } label: {
                         Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
@@ -7940,10 +7983,14 @@ struct ContentView: View {
                           systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage)
                 }
             }
-            Button {
-                openSettingsFromLiveBoard()
-            } label: {
-                Label(localizedAppString("Settings"), systemImage: "gearshape")
+            if !store.isRemoteControlProxy {
+                Button { openSettingsFromLiveBoard() } label: {
+                    Label(localizedAppString("Settings"), systemImage: "gearshape")
+                }
+            } else if let returnToRemoteControl {
+                Button(action: returnToRemoteControl) {
+                    Label(localizedAppString("Return to Remote Control"), systemImage: "arrow.uturn.backward")
+                }
             }
 
         }
@@ -8042,7 +8089,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, layout.headerHorizontalPadding)
         .padding(.vertical, layout.headerVerticalPadding)
-        .background(themePalette.dashboardCardBackground, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(store.isRemoteControlProxy ? Color.teal.opacity(0.24) : themePalette.dashboardCardBackground,
+                    in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder)
@@ -8072,12 +8120,12 @@ struct ContentView: View {
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(selectedStoredGameFile?.displayName ?? localizedAppString("New Game"))
+            Text((store.isRemoteControlProxy ? store.currentGameDisplayName : selectedStoredGameFile?.displayName) ?? localizedAppString("New Game"))
                 .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            localizedAppText(store.selectedSport.title)
+            localizedAppText(store.currentRules.title)
                 .font(layout.headerSubtitleFont.weight(.semibold))
                 .singleLineFitted(minScale: 0.8)
                 .foregroundStyle(themePalette.dashboardMutedText)
@@ -8113,7 +8161,11 @@ struct ContentView: View {
         #endif
     }
 
+    @ViewBuilder
     private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
+        if store.isRemoteControlProxy {
+            remoteControlHeaderStatusBadge(layout: layout)
+        } else {
         HStack(spacing: 8) {
             Image(systemName: displayStatusSystemImage)
                 .imageScale(.medium)
@@ -8138,6 +8190,74 @@ struct ContentView: View {
         .padding(.vertical, layout.headerBadgeVerticalPadding)
         .background(themePalette.dashboardCardBackground, in: Capsule())
         .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var remoteControlPingTitle: String {
+        guard remoteControlReceiver.status.isLive, let trip = remoteControlReceiver.roundTripSeconds else {
+            return localizedAppString("Ping unavailable")
+        }
+        return localizedAppFormat("Ping %d ms", Int((trip * 1_000).rounded()))
+    }
+
+    private var remoteControlConnectionTitle: String {
+        guard remoteControlReceiver.status.isLive else { return localizedAppString(remoteControlReceiver.status.title) }
+        return localizedAppString(remoteControlReceiver.isControlConnectionReady ? "Connected" : "Waiting for main device…")
+    }
+
+    private func remoteControlHeaderStatusBadge(layout: InterfaceLayout) -> some View {
+        // Refresh clock-sync freshness even when no packets arrive. The board stays
+        // browsable offline; the receiver rejects commands at the transport boundary.
+        TimelineView(.periodic(from: Date(), by: 1)) { _ in
+            Button { showsRemoteConnectionDetails = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: remoteControlReceiver.isControlConnectionReady ? "network" : "wifi.exclamationmark")
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(remoteControlConnectionTitle)
+                            .font(layout.headerBadgeFont)
+                        Text(remoteControlPingTitle)
+                            .font(layout.headerBadgeDetailFont)
+                            .monospacedDigit()
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(themePalette.destructiveTint)
+                        .opacity(remoteControlReceiver.controlResult?.success == false ? 1 : 0)
+                        .frame(width: 16)
+                }
+                .frame(width: 180, alignment: .leading)
+                .foregroundStyle(remoteControlReceiver.isControlConnectionReady ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
+                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                .padding(.vertical, layout.headerBadgeVerticalPadding)
+                .background(Color.teal.opacity(0.18), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(remoteControlConnectionTitle), \(remoteControlPingTitle)")
+            .help(remoteControlReceiver.status.detail)
+        }
+        .popover(isPresented: $showsRemoteConnectionDetails) {
+            VStack(alignment: .leading, spacing: 12) {
+                localizedAppText("Remote Control Board").font(.headline)
+                Text(remoteControlReceiver.status.detail)
+                Text(remoteControlPingTitle).monospacedDigit()
+                if let result = remoteControlReceiver.controlResult, !result.success {
+                    Text(result.message ?? localizedAppString("Command failed"))
+                        .foregroundStyle(themePalette.destructiveTint)
+                }
+                if let returnToRemoteControl {
+                    Button(localizedAppString("Return to Remote Control")) {
+                        showsRemoteConnectionDetails = false
+                        returnToRemoteControl()
+                    }
+                }
+            }
+            .padding()
+            .frame(idealWidth: 300)
+            .foregroundStyle(themePalette.dashboardPrimaryText)
+            .background(themePalette.dashboardCardBackground)
+        }
     }
 
     #if os(iOS)
@@ -8374,7 +8494,7 @@ struct ContentView: View {
             ForEach(ScoreboardTheme.allCases) { theme in
                 Button {
                     withAnimation(.easeInOut(duration: 0.22)) {
-                        store.theme = theme
+                        store.setTheme(theme)
                     }
                 } label: {
                     Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
@@ -8418,8 +8538,23 @@ struct ContentView: View {
         .help(localizedAppString(title))
     }
 
+    @ViewBuilder
     private func settingsHeaderButton(layout: InterfaceLayout) -> some View {
-        Button {
+        if store.isRemoteControlProxy {
+            if let returnToRemoteControl {
+                Button(action: returnToRemoteControl) {
+                    headerIconButtonLabel(
+                        systemImage: "arrow.uturn.backward",
+                        tint: themePalette.dashboardNeutralButton,
+                        foreground: themePalette.dashboardNeutralButtonText,
+                        layout: layout
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(localizedAppString("Return to Remote Control"))
+                .help(localizedAppString("Return to Remote Control"))
+            }
+        } else { Button {
             openSettingsFromLiveBoard()
         } label: {
             headerIconButtonLabel(
@@ -8432,6 +8567,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString("Settings"))
         .help(localizedAppString("Settings"))
+        }
     }
 
     private func headerIconButtonLabel(systemImage: String, tint: Color, foreground: Color, layout: InterfaceLayout) -> some View {
@@ -9044,7 +9180,7 @@ struct ContentView: View {
 
         return Button {
             withAnimation(.easeInOut(duration: 0.28)) {
-                store.publicDisplayViewMode = mode
+                store.setPublicDisplayViewMode(mode)
             }
         } label: {
             Label(localizedAppString(mode.title), systemImage: isSelected ? "checkmark.circle.fill" : mode.systemImage)
@@ -9958,9 +10094,21 @@ struct ContentView: View {
 
             playerTeamToolbar(side: side, layout: layout)
 
-            VStack(spacing: 10) {
+            LazyVStack(spacing: 10) {
                 ForEach(store.trackedPlayers(for: side)) { player in
-                    playerControlRow(player, side: side, layout: layout)
+                    ScoreboardPlayerRowBoundary(inputs: ScoreboardPlayerRowInputs(
+                        player: player, side: side, theme: store.theme,
+                        teamTint: side == .home ? homeTint : guestTint,
+                        teamText: teamAccentText(for: side),
+                        colorScheme: colorScheme,
+                        supportsCards: store.supportsCards, supportsFouls: store.supportsFouls,
+                        isCombinedDisplay: layout.isCombinedDisplay,
+                        verticalPadding: layout.advancedButtonVerticalPadding,
+                        storeID: ObjectIdentifier(store)
+                    )) {
+                        playerControlRow(player, side: side, layout: layout)
+                    }
+                    .equatable()
                 }
             }
         }
@@ -10632,18 +10780,7 @@ struct ContentView: View {
     }
 
     private func handleDebateTurnHere(for side: TeamSide) {
-        if store.debateActiveTimer != .segment {
-            store.returnToDebateSegmentTimer()
-        }
-
-        if store.activeChessClockSide == side {
-            store.toggleChessClock()
-        } else {
-            store.setActiveChessClockSide(side)
-            if !store.isClockRunning {
-                store.toggleChessClock()
-            }
-        }
+        store.turnDebateClockHere(side)
     }
 
     private func debateSegmentJogButtons(tint: Color, foreground: Color) -> [ActionDescriptor] {
@@ -11792,6 +11929,7 @@ struct ContentView: View {
     }
 
     private func openSettingsFromLiveBoard() {
+        guard !store.isRemoteControlProxy else { return }
         isLoadingSetupDrafts = true
         isInitialSetupStateLoaded = false
         loadSetupDraftsFromStore(keepsLoadingFlag: true)
@@ -13541,6 +13679,7 @@ struct ContentView: View {
     }
 
     private func autosaveSelectedGameFile(refreshSelection: Bool = false) {
+        guard !store.isRemoteControlProxy else { return }
         guard let selectedURL = selectedStoredGameFile?.url else {
             return
         }
@@ -13553,6 +13692,7 @@ struct ContentView: View {
     }
 
     private func autosaveSelectedGameFileImmediately(refreshSelection: Bool = false) {
+        guard !store.isRemoteControlProxy else { return }
         guard let selectedURL = selectedStoredGameFile?.url else {
             return
         }
@@ -14285,10 +14425,7 @@ struct ContentView: View {
         case .resetSideCards(let side):
             store.resetCards(for: side)
         case .clearPlayerState(let side, let playerID):
-            store.setCardStatus(.none, for: side, playerID: playerID)
-            if store.supportsFouls {
-                store.resetFouls(for: side, playerID: playerID)
-            }
+            store.clearTrackedPlayerState(for: side, playerID: playerID)
         case .clearPenalty(let side, let timerID):
             store.removePenaltyTimer(for: side, timerID: timerID)
         case .resetSoundSettings:
@@ -14832,7 +14969,11 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         case .webAPI:
             return "Web API"
         case .remoteDisplay:
+            #if os(tvOS)
             return "Remote Display"
+            #else
+            return "Remote Display & Control"
+            #endif
         case .bitfocusCompanion:
             return "Bitfocus Companion"
         }
@@ -14841,9 +14982,9 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .webAPI:
-            return "Read scoreboard state with HTTP and WebSocket."
+            return "Read live state and control the scoreboard with an API key."
         case .remoteDisplay:
-            return "Pair nearby Apple TV, iPad, or Mac display devices."
+            return "Pair nearby displays and control boards. Apple TV is display-only."
         case .bitfocusCompanion:
             return "Trigger Companion commands from scoreboard events."
         }
@@ -14852,9 +14993,9 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
     var introduction: String {
         switch self {
         case .webAPI:
-            return "Use this when local overlays, browser sources, or scripts need a read-only stream of live scoreboard state from the operator device."
+            return "Stream live state to overlays, browser sources, or scripts, and optionally enable authenticated scoreboard control."
         case .remoteDisplay:
-            return "Use this when another Apple device should show the public scoreboard while the operator keeps private controls on the main device."
+            return "Use another iPhone, iPad, or Mac as a remote display or full control board. Grant control separately for each device. Apple TV can show the scoreboard but cannot control it."
         case .bitfocusCompanion:
             return "Use this when scoreboard moments should press Companion buttons for graphics, scene changes, lighting, or other production automation."
         }
@@ -15495,3 +15636,27 @@ private struct ControlBoardWindowConfigurator: NSViewRepresentable {
 #endif
 
 #endif
+
+// Timer and connection publications do not change player rows. Keep the expensive
+// adaptive layout behind a value boundary with all of its visual/action inputs.
+private struct ScoreboardPlayerRowInputs: Equatable {
+    let player: TrackedPlayer
+    let side: TeamSide
+    let theme: ScoreboardTheme
+    let teamTint: Color
+    let teamText: Color
+    let colorScheme: ColorScheme
+    let supportsCards: Bool
+    let supportsFouls: Bool
+    let isCombinedDisplay: Bool
+    let verticalPadding: CGFloat
+    let storeID: ObjectIdentifier
+}
+
+private struct ScoreboardPlayerRowBoundary<Content: View>: View, Equatable {
+    let inputs: ScoreboardPlayerRowInputs
+    @ViewBuilder var content: () -> Content
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.inputs == rhs.inputs }
+    var body: some View { content() }
+}

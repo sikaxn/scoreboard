@@ -83,6 +83,39 @@ struct RemoteScoreboardView: View {
 
     var body: some View {
         ZStack {
+            #if !os(tvOS)
+            if receiver.isControlBoardDevice, showsPairingControls, !showsConfiguration {
+                ScoreboardRemoteControlView(receiver: receiver, showConnection: { showsConfiguration = true })
+            } else {
+                receiverContent
+            }
+            #else
+            receiverContent
+            #endif
+        }
+        .onAppear {
+            acquireReceiverIfNeeded()
+            updatePairingScreenVisibility()
+            updateSleepPolicy()
+        }
+        .onDisappear {
+            receiver.setPairingScreenVisible(false)
+            clearSleepPolicy()
+            releaseReceiverIfNeeded()
+        }
+        .onChange(of: showsConfiguration) { _, _ in updatePairingScreenVisibility(); updateSleepPolicy() }
+        .onChange(of: receiver.state != nil) { _, _ in
+            handleReceiverPresentationStateChange(); updatePairingScreenVisibility(); updateSleepPolicy()
+        }
+        .onChange(of: receiver.status) { _, _ in
+            handleReceiverPresentationStateChange(); updatePairingScreenVisibility(); updateSleepPolicy()
+        }
+        .onChange(of: networkMode) { _, newMode in applyNetworkMode(newMode, propagatesToParent: false) }
+        .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
+    }
+
+    private var receiverContent: some View {
+        ZStack {
             if let state = receiver.state, !showsConfiguration {
                 TimelineView(.periodic(from: Date(), by: 0.25)) { timeline in
                     let health = RemoteDisplayConnectionHealth(
@@ -146,36 +179,6 @@ struct RemoteScoreboardView: View {
                 )
             }
         }
-        .onAppear {
-            acquireReceiverIfNeeded()
-            updatePairingScreenVisibility()
-            updateSleepPolicy()
-        }
-        .onDisappear {
-            receiver.setPairingScreenVisible(false)
-            clearSleepPolicy()
-            releaseReceiverIfNeeded()
-        }
-        .onChange(of: showsConfiguration) { _, _ in
-            updatePairingScreenVisibility()
-            updateSleepPolicy()
-        }
-        .onChange(of: receiver.state != nil) { _, _ in
-            handleReceiverPresentationStateChange()
-            updatePairingScreenVisibility()
-            updateSleepPolicy()
-        }
-        .onChange(of: receiver.status) { _, _ in
-            handleReceiverPresentationStateChange()
-            updatePairingScreenVisibility()
-            updateSleepPolicy()
-        }
-        .onChange(of: networkMode) { _, newMode in
-            applyNetworkMode(newMode, propagatesToParent: false)
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            handleScenePhaseChange(newPhase)
-        }
     }
 
     private func acquireReceiverIfNeeded() {
@@ -217,6 +220,10 @@ struct RemoteScoreboardView: View {
             updateSleepPolicy()
         } else {
             showsConfiguration = true
+        }
+        #elseif os(iOS)
+        if newPhase == .active {
+            receiver.resumeAfterAppLifecycle(networkMode: activeNetworkMode)
         }
         #else
         _ = newPhase
@@ -509,185 +516,6 @@ private struct RemoteScoreboardFace: View {
     }
 }
 
-private struct RemoteScoreboardProjection {
-    let state: ScoreboardWebAPIState
-    let elapsedSeconds: TimeInterval
-
-    init(
-        state: ScoreboardWebAPIState,
-        lastReceivedAt: Date?,
-        masterClockOffset: TimeInterval?,
-        now: Date
-    ) {
-        self.state = state
-        if
-            let generatedAtUnixTime = state.generatedAtUnixTime,
-            let masterClockOffset
-        {
-            let estimatedMasterNow = now.timeIntervalSince1970 + masterClockOffset
-            elapsedSeconds = max(0, estimatedMasterNow - generatedAtUnixTime)
-        } else {
-            elapsedSeconds = max(0, now.timeIntervalSince(lastReceivedAt ?? now))
-        }
-    }
-
-    var gameClockSeconds: Int {
-        guard
-            state.clocks.showsGameClock,
-            state.runtime.isClockRunning,
-            !state.rules.usesChessClocks
-        else {
-            return state.clocks.gameClockSeconds
-        }
-
-        let wholeSeconds = elapsedWholeSeconds
-        switch state.clocks.gameClockMode {
-        case .countdown:
-            return max(0, state.clocks.gameClockSeconds - wholeSeconds)
-        case .countUp:
-            return min(ScoreboardStore.maxGameClockSeconds, state.clocks.gameClockSeconds + wholeSeconds)
-        }
-    }
-
-    var formattedGameClock: String {
-        ScoreboardStore.formatGameClock(gameClockSeconds)
-    }
-
-    var shotClockMilliseconds: Int {
-        guard state.runtime.isShotClockRunning, state.rules.supportsShotClock else {
-            return state.clocks.shotClockMilliseconds
-        }
-
-        return max(0, state.clocks.shotClockMilliseconds - elapsedMilliseconds)
-    }
-
-    var formattedShotClock: String {
-        ScoreboardStore.formatShotClock(milliseconds: shotClockMilliseconds)
-    }
-
-    var homeChessClockSeconds: Int {
-        projectedChessClockSeconds(for: .home)
-    }
-
-    var formattedHomeChessClock: String {
-        ScoreboardStore.formatGameClock(homeChessClockSeconds)
-    }
-
-    var guestChessClockSeconds: Int {
-        projectedChessClockSeconds(for: .guest)
-    }
-
-    var formattedGuestChessClock: String {
-        ScoreboardStore.formatGameClock(guestChessClockSeconds)
-    }
-
-    var formattedDebatePrepHomeClock: String? {
-        guard state.debate != nil else {
-            return nil
-        }
-        return ScoreboardStore.formatGameClock(projectedDebatePrepSeconds(for: .home))
-    }
-
-    var formattedDebatePrepGuestClock: String? {
-        guard state.debate != nil else {
-            return nil
-        }
-        return ScoreboardStore.formatGameClock(projectedDebatePrepSeconds(for: .guest))
-    }
-
-    var homePenaltyTimers: [HockeyPenaltyTimer] {
-        projectedPenaltyTimers(state.game.homePenaltyTimers ?? [])
-    }
-
-    var guestPenaltyTimers: [HockeyPenaltyTimer] {
-        projectedPenaltyTimers(state.game.guestPenaltyTimers ?? [])
-    }
-
-    var isClockRunning: Bool {
-        guard state.runtime.isClockRunning else {
-            return false
-        }
-
-        if state.rules.usesChessClocks {
-            switch state.clocks.activeChessClockSide {
-            case .home:
-                return homeChessClockSeconds > 0
-            case .guest:
-                return guestChessClockSeconds > 0
-            case .none:
-                return false
-            }
-        }
-
-        guard state.clocks.showsGameClock else {
-            return false
-        }
-
-        switch state.clocks.gameClockMode {
-        case .countdown:
-            return gameClockSeconds > 0
-        case .countUp:
-            return gameClockSeconds < ScoreboardStore.maxGameClockSeconds
-        }
-    }
-
-    private var elapsedWholeSeconds: Int {
-        Int(elapsedSeconds)
-    }
-
-    private var elapsedMilliseconds: Int {
-        Int(elapsedSeconds * 1_000)
-    }
-
-    private func projectedChessClockSeconds(for side: TeamSide) -> Int {
-        let sourceSeconds = side == .home ? state.clocks.homeChessClockSeconds : state.clocks.guestChessClockSeconds
-        guard
-            state.rules.usesChessClocks,
-            state.runtime.isClockRunning,
-            state.clocks.activeChessClockSide == side
-        else {
-            return sourceSeconds
-        }
-
-        return max(0, sourceSeconds - elapsedWholeSeconds)
-    }
-
-    private func projectedDebatePrepSeconds(for side: TeamSide) -> Int {
-        guard let debate = state.debate else {
-            return 0
-        }
-
-        let sourceSeconds = side == .home ? debate.prepHomeSeconds : debate.prepGuestSeconds
-        guard
-            debate.prepTimeEnabled,
-            state.runtime.isDebatePrepClockRunning,
-            debate.activeTimer == (side == .home ? .prepHome : .prepGuest)
-        else {
-            return sourceSeconds
-        }
-
-        return max(0, sourceSeconds - elapsedWholeSeconds)
-    }
-
-    private func projectedPenaltyTimers(_ timers: [HockeyPenaltyTimer]) -> [HockeyPenaltyTimer] {
-        guard elapsedWholeSeconds > 0 else {
-            return timers
-        }
-
-        return timers.map { timer in
-            guard timer.isRunning else {
-                return timer
-            }
-
-            var projectedTimer = timer
-            projectedTimer.remainingSeconds = max(0, timer.remainingSeconds - elapsedWholeSeconds)
-            if projectedTimer.remainingSeconds == 0 {
-                projectedTimer.isRunning = false
-            }
-            return projectedTimer
-        }
-    }
-}
 
 private enum RemoteDisplayConnectionHealth: Equatable {
     private static let poorConnectionInterval: TimeInterval = 3
@@ -1149,7 +977,7 @@ private struct RemoteDisplayConfigurationView: View {
         if hasLiveState {
             remoteDisplayActionButton(
                 .returnToLive,
-                title: "Return to Live",
+                title: receiver.isControlBoardDevice ? "Return to Control Board" : "Return to Live",
                 systemImage: "play.rectangle.fill",
                 tone: .primary
             ) {
@@ -1299,7 +1127,7 @@ private struct RemoteDisplayConfigurationView: View {
     #endif
 
     private var passiveDisplayDetail: String {
-        localizedRemoteDisplayString("This screen mirrors the Remote Display output. On the main Smart Scoreboard window, go to Settings > Integration > Remote Display to pair.")
+        localizedRemoteDisplayString("This screen mirrors the Remote Display output. On the main Smart Scoreboard window, go to Settings > Integration > Remote Display & Control to pair.")
     }
 
     private var savedPairingDetail: String {
@@ -1329,7 +1157,7 @@ private struct RemoteDisplayConfigurationView: View {
     private func localizedRemoteDisplayReceiverStatusDetail(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
         switch status {
         case .waiting:
-            return localizedRemoteDisplayString("On the operator device, open Settings > Integration > Remote Display, then enter this display's pairing code.")
+            return localizedRemoteDisplayString("On the operator device, open Settings > Integration > Remote Display & Control, then enter this display's pairing code.")
         case .paired(let name):
             return localizedRemoteDisplayFormat("Receiving live scoreboard updates from %@.", name)
         case .disconnected(let message), .failed(let message):
@@ -1347,7 +1175,7 @@ private struct RemoteDisplayConfigurationView: View {
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.white)
 
-            Text("Use the primary screen: Settings > Integration > Remote Display.")
+            Text("Use the primary screen: Settings > Integration > Remote Display & Control.")
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.58))
@@ -1813,6 +1641,22 @@ private struct RemoteDisplayAboutHeader: View {
         "Smart Scoreboard"
     }
 
+    private var remoteModeTitle: String {
+        #if os(tvOS)
+        localizedRemoteDisplayString("Remote Display")
+        #else
+        localizedRemoteDisplayString("Remote Display & Control")
+        #endif
+    }
+
+    private var pairingInstructions: String {
+        #if os(tvOS)
+        localizedRemoteDisplayString("This Apple TV is a remote display only. Enter this pairing code from Settings > Integration > Remote Display & Control on the main device.")
+        #else
+        localizedRemoteDisplayString("Enter this pairing code from Settings > Integration > Remote Display & Control on the main device. Enable Allow This Device to Control there to use this device as a control board.")
+        #endif
+    }
+
     private var appVersionLine: String {
         localizedRemoteDisplayFormat("Version %@", ScoreboardRemoteDisplayAppVersion.current.displayText)
     }
@@ -1830,7 +1674,7 @@ private struct RemoteDisplayAboutHeader: View {
             appIcon(size: 112, cornerRadius: 24)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Remote Display")
+                Text(remoteModeTitle)
                     .font(.headline.weight(.black))
                     .foregroundStyle(.white.opacity(0.58))
                     .lineLimit(1)
@@ -1852,7 +1696,7 @@ private struct RemoteDisplayAboutHeader: View {
                     .foregroundStyle(.white.opacity(0.84))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("This device is a Remote Display. On the tablet or computer running Smart Scoreboard, go to Settings > Integration > Remote Display, then enter the code below.")
+                Text(pairingInstructions)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1879,7 +1723,7 @@ private struct RemoteDisplayAboutHeader: View {
                 appIcon(size: 76, cornerRadius: 18)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Remote Display")
+                    Text(remoteModeTitle)
                         .font(.subheadline.weight(.black))
                         .foregroundStyle(.white.opacity(0.58))
                         .lineLimit(1)
@@ -1900,7 +1744,7 @@ private struct RemoteDisplayAboutHeader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("This device is a Remote Display. Enter this pairing code from Settings > Integration > Remote Display on the operator device.")
+            Text(pairingInstructions)
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.white.opacity(0.68))
                 .fixedSize(horizontal: false, vertical: true)
