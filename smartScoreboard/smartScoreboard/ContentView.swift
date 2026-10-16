@@ -3927,6 +3927,18 @@ struct ContentView: View {
                     store.assignSessionHost(displayID: store.localSessionDeviceID)
                 }
             }
+            if store.isSessionOwner {
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Host on This Device",
+                    buttonTitle: "Host Here & Disconnect Others",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: store.canHostOnOwnerAndDisconnectOthers
+                ) {
+                    store.hostOnOwnerAndDisconnectOthers()
+                }
+            }
             if store.canRecoverSessionHost {
                 settingsDivider()
                 settingsButtonRow(
@@ -8470,6 +8482,27 @@ struct ContentView: View {
                 Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"),
                       systemImage: "exclamationmark.circle")
                     .font(.callout)
+            }
+            if store.isSessionOwner && !store.isRemoteControlProxy {
+                Divider()
+                Button("Remote Display Settings") {
+                    showsRemoteConnectionDetails = false
+                    openSettingsFromLiveBoard()
+                    selectedSettingsPane = .integration
+                    selectedIntegrationDetail = .remoteDisplay
+                }
+                Button("Host Here & Disconnect Others", role: .destructive) {
+                    store.hostOnOwnerAndDisconnectOthers()
+                }
+                .disabled(!store.canHostOnOwnerAndDisconnectOthers)
+                if store.isAnyTimerRunning {
+                    Text("Stop all timers before moving the session host.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let message = store.sessionStatusMessage {
+                    Text(ScoreboardLocalization.remoteSessionMessage(message))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let returnToRemoteControl {
                 Button(localizedAppString("Return to Remote Control")) {

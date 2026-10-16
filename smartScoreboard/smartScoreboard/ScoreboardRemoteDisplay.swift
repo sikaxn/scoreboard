@@ -1311,7 +1311,12 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         trustedDisplays.contains { $0.id == displayID && $0.pairingSecret?.isEmpty == false }
     }
 
-    func disconnectDisplays() {
+    func disconnectDisplays(includingSavedDisplays: Bool = false) {
+        // A takeover must also suppress clients that have not rediscovered the
+        // new host yet. Explicit Connect still clears this suppression.
+        if includingSavedDisplays {
+            operatorDisconnectedDisplayIDs.formUnion(trustedDisplays.map(\.id))
+        }
         guard !displayConnectionsByEndpoint.isEmpty else {
             connectedDisplays.removeAll()
             status = .off
@@ -2329,6 +2334,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             self.controlResult = .failure(command.id, "disconnected", "No acknowledgement. Refresh state before trying again; the command may have applied.")
         }
     }
+
+    var hasSessionConnection: Bool { pairedConnection != nil }
 
     @discardableResult
     func sendSessionMessage(_ data: Data) -> Bool {

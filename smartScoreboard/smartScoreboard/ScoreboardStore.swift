@@ -1102,6 +1102,8 @@ final class ScoreboardStore: ObservableObject {
     private var pendingSnapshotSyncID: UUID?
     private var pendingSnapshotLogCount = -1
     private var lastSnapshotSyncSentAt: Date?
+    private var disablePairingAfterHostTransfer = false
+    private var disconnectClientsAfterOwnerTakeover = false
     private var exitRemoteModeAfterHostTransfer = false
     private var hostedMatchQuitCompletion: ((Bool) -> Void)?
 
@@ -6042,13 +6044,40 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
-        if isFollowingSessionHost && !isEnabled {
-            sessionStatusMessage = "Move the session host back here before ending remote pairing."
+        if !isEnabled && (isFollowingSessionHost || isDelegatedSessionHost) {
+            guard !isAnyTimerRunning, !sessionTransferInProgress else {
+                sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
+                return
+            }
+            if isSessionOwner {
+                guard canHostOnOwnerAndDisconnectOthers else {
+                    sessionStatusMessage = "Reconnect to the session host before turning pairing off."
+                    return
+                }
+                disablePairingAfterHostTransfer = true
+                hostOnOwnerAndDisconnectOthers()
+                if !sessionTransferInProgress { disablePairingAfterHostTransfer = false }
+            } else {
+                guard isSessionSafeToDisconnect, let ownerID = sessionDescriptor?.ownerDeviceID else {
+                    sessionStatusMessage = "The match has not synced to its owner. Reconnect and wait, or choose Delete Local Match."
+                    return
+                }
+                disablePairingAfterHostTransfer = true
+                exitRemoteModeAfterHostTransfer = true
+                beginSessionTransfer(to: ownerID)
+                if !sessionTransferInProgress {
+                    disablePairingAfterHostTransfer = false
+                    exitRemoteModeAfterHostTransfer = false
+                }
+            }
             return
         }
-        if isDelegatedSessionHost && !isEnabled {
-            sessionStatusMessage = "Move the session host before ending remote pairing."
+        if !isEnabled && sessionTransferInProgress {
+            sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
             return
+        }
+        if !isEnabled && isSessionOwner && isSessionAuthority {
+            disconnectRemoteDisplays()
         }
         isRemoteDisplayHostEnabled = isEnabled
         if isEnabled && sessionDescriptor == nil { ensureOwnedSessionDescriptor() }
@@ -6198,6 +6227,8 @@ final class ScoreboardStore: ObservableObject {
         ownerAcknowledgedLogCount = -1
         observedHostedLogCount = -1
         exitRemoteModeAfterHostTransfer = false
+        disconnectClientsAfterOwnerTakeover = false
+        disablePairingAfterHostTransfer = false
         remoteControlState = nil
         remoteControlGameConfiguration = nil
         controlCommandResults.removeAll()
@@ -8854,6 +8885,8 @@ extension ScoreboardStore {
         sessionTransferTargetID = nil
         sessionTransferStartedAt = nil
         lastSessionPrepareSentAt = nil
+        disconnectClientsAfterOwnerTakeover = false
+        disablePairingAfterHostTransfer = false
         exitRemoteModeAfterHostTransfer = false
         let completion = hostedMatchQuitCompletion
         hostedMatchQuitCompletion = nil
@@ -8925,6 +8958,36 @@ extension ScoreboardStore {
         let url = directory.appendingPathComponent(filename)
         try JSONEncoder().encode(checkpoint.game).write(to: url, options: .atomic)
         UserDefaults.standard.set(filename, forKey: "scoreboard.workingGameFilename")
+    }
+
+    var canHostOnOwnerAndDisconnectOthers: Bool {
+        isSessionOwner && !isRemoteControlProxy && !isAnyTimerRunning && !sessionTransferInProgress &&
+            (isSessionAuthority || canChangeSessionHost)
+    }
+
+    func hostOnOwnerAndDisconnectOthers() {
+        guard canHostOnOwnerAndDisconnectOthers else { return }
+        if isSessionAuthority {
+            if !isRemoteDisplayHostEnabled { setRemoteDisplayHostEnabled(true) }
+            disconnectClientsAfterOwnerTakeover = true
+            finishOwnerTakeoverDisconnect()
+        } else {
+            // Keep the current host and clients connected until the final match
+            // and logs have been persisted and authority has transferred here.
+            disconnectClientsAfterOwnerTakeover = true
+            assignSessionHost(displayID: localSessionDeviceID)
+            if !sessionTransferInProgress { disconnectClientsAfterOwnerTakeover = false }
+        }
+    }
+
+    private func finishOwnerTakeoverDisconnect() {
+        guard disconnectClientsAfterOwnerTakeover, isSessionOwner, isSessionAuthority else { return }
+        disconnectClientsAfterOwnerTakeover = false
+        intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        remoteDisplayWarningNotice = nil
+        remoteDisplayHostService.disconnectDisplays(includingSavedDisplays: true)
+        sessionStatusMessage = "Hosting on this device. Other devices disconnected."
     }
 
     func assignSessionHost(displayID: String) {
@@ -9047,6 +9110,8 @@ extension ScoreboardStore {
                     detail = "The proposed host session does not match this device's authenticated pairing or session version. Reconnect it to the current owner and retry."
                 }
                 sessionStatusMessage = detail
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
                 Self.sessionLogger.error("Rejected host preparation: local session \(self.sessionDescriptor?.sessionID.uuidString ?? "none", privacy: .public), epoch \(self.sessionDescriptor?.epoch ?? 0); proposed session \(message.descriptor.sessionID.uuidString, privacy: .public), epoch \(message.descriptor.epoch)")
                 _ = sendSession(.init(kind: .error, id: message.id,
                                       descriptor: message.descriptor, detail: detail))
@@ -9069,6 +9134,8 @@ extension ScoreboardStore {
                 _ = sendSession(.init(kind: .prepared, id: message.id, descriptor: message.descriptor))
             } catch {
                 let detail = "Cannot save incoming host handoff: \(error.localizedDescription)"
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
                 sessionStatusMessage = detail
                 Self.sessionLogger.error("\(detail, privacy: .public)")
                 _ = sendSession(.init(kind: .error, id: message.id,
@@ -9143,6 +9210,8 @@ extension ScoreboardStore {
                     _ = sendSession(.init(kind: .committed, id: message.id,
                                           descriptor: sessionDescriptor ?? message.descriptor))
                 } else {
+                    disconnectClientsAfterOwnerTakeover = false
+                    disablePairingAfterHostTransfer = false
                     try? ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
                                                    checkpoint: checkpoint, transferID: message.id).save()
                     _ = sendSession(.init(kind: .error, id: message.id,
@@ -9151,6 +9220,8 @@ extension ScoreboardStore {
                 }
             } catch {
                 let detail = "Cannot activate host: \(error.localizedDescription)"
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
                 sessionStatusMessage = detail
                 sessionRecoveryRole = .fenced
                 sessionAuthorityFenced = true
@@ -9160,13 +9231,26 @@ extension ScoreboardStore {
                                       descriptor: message.descriptor, detail: detail))
             }
         case .committed:
+            if fromHost, disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority,
+               message.id == sessionTransferID,
+               message.descriptor.sessionID == sessionDescriptor?.sessionID,
+               message.descriptor.epoch == sessionDescriptor?.epoch {
+                finishDisablingOwnerPairing()
+                return
+            }
             guard !fromHost, senderID == sessionTransferTargetID,
                   message.id == sessionTransferID, sessionRecoveryRole == .fenced,
                   message.descriptor.sessionID == sessionDescriptor?.sessionID,
                   message.descriptor.epoch == sessionDescriptor?.epoch else { return }
+            // Confirm receipt before dropping the old host transport. An owner
+            // ending pairing waits for this before closing its receiver.
+            _ = sendSession(.init(kind: .committed, id: message.id, descriptor: message.descriptor),
+                            to: senderID)
             completeSessionTransfer(message.descriptor)
         case .abort:
             guard fromHost, sessionRecoveryRole == .prepared, message.id == sessionTransferID else { return }
+            disconnectClientsAfterOwnerTakeover = false
+            disablePairingAfterHostTransfer = false
             sessionTransferCheckpoint = nil
             sessionTransferID = nil
             sessionRecoveryRole = nil
@@ -9371,6 +9455,7 @@ extension ScoreboardStore {
         sessionConnectionStatus = "Hosting"
         sessionIsConnected = true
         refreshRemoteDisplayState()
+        finishOwnerTakeoverDisconnect()
     }
 
     private func completeSessionTransfer(_ descriptor: ScoreboardSessionDescriptor) {
@@ -9380,6 +9465,7 @@ extension ScoreboardStore {
         let hostedSessionID = wasOwner ? nil : sessionDescriptor?.sessionID
         let followerPairing = sessionTransferCheckpoint?.pairings.peers.first { $0.id == localSessionDeviceID }
         let shouldExitRemoteMode = exitRemoteModeAfterHostTransfer
+        let shouldDisablePairing = disablePairingAfterHostTransfer
         Self.sessionLogger.notice("Host handoff completed at epoch \(descriptor.epoch); restoring client pairing")
         sessionTransferInProgress = false
         sessionTransferTargetID = nil
@@ -9436,15 +9522,32 @@ extension ScoreboardStore {
             }
             persistState()
         }
+        if shouldDisablePairing && !wasOwner {
+            disablePairingAfterHostTransfer = false
+            setRemoteDisplayHostEnabled(false)
+        }
         quitCompletion?(true)
     }
 
+    private func finishDisablingOwnerPairing() {
+        guard disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority else { return }
+        disablePairingAfterHostTransfer = false
+        setRemoteDisplayHostEnabled(false)
+        sessionStatusMessage = "Remote Display / Control Pairing is off."
+    }
+
     private func maintainSession() {
+        if disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority,
+           !ScoreboardRemoteDisplayReceiver.shared.hasSessionConnection {
+            finishDisablingOwnerPairing()
+        }
         guard let descriptor = sessionDescriptor else { return }
         if isFollowingSessionHost, sessionTransferInProgress,
            let started = sessionTransferStartedAt, Date().timeIntervalSince(started) > 12 {
             sessionTransferInProgress = false
             sessionTransferStartedAt = nil
+            disconnectClientsAfterOwnerTakeover = false
+            disablePairingAfterHostTransfer = false
             sessionStatusMessage = "Host transfer did not complete. Reconnect to the host or recover from the owner's last saved copy."
         }
         if sessionTransferInProgress, sessionRecoveryRole == .host,
@@ -9482,6 +9585,7 @@ extension ScoreboardStore {
             sessionTransferStartedAt = nil
             lastSessionPrepareSentAt = nil
             exitRemoteModeAfterHostTransfer = false
+            disablePairingAfterHostTransfer = false
             sessionStatusMessage = "Host preparation timed out; the current host is still active. Keep Scoreboard open on the selected display and retry."
             Self.sessionLogger.error("Host preparation timed out; local authority remains active")
             let completion = hostedMatchQuitCompletion

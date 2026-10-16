@@ -18129,6 +18129,72 @@
           }
         }
       }
+    },
+    "Remote Display Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示设置"
+          }
+        }
+      }
+    },
+    "Host Here & Disconnect Others" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在本机担任主机并断开其他设备"
+          }
+        }
+      }
+    },
+    "Hosting on this device. Other devices disconnected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在本机运行会话。其他设备已断开连接。"
+          }
+        }
+      }
+    },
+    "Stop all timers and finish the host handoff before turning pairing off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭配对前，请停止所有计时器并完成主机切换。"
+          }
+        }
+      }
+    },
+    "Reconnect to the session host before turning pairing off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭配对前，请重新连接会话主机。"
+          }
+        }
+      }
+    },
+    "Remote Display / Control Pairing is off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示／控制配对已关闭。"
+          }
+        }
+      }
     }
   },
   "version" : "1.2"

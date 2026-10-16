@@ -1,5 +1,28 @@
 # Release Notes
 
+## 1.7
+
+### Feature Added
+
+- Added Remote Control Board support for iPhone, iPad, and Mac, reusing the existing Control Board for scores, timers, players, sounds, and display controls across supported sports and modes, with separate control permission for each paired device.
+- Added simultaneous remote control and scoreboard display, including Merged View, local display, and external display support.
+- Added session host assignment to a paired Mac, iPad, or Apple TV. The owner sets up the game and keeps the match file, while the host runs game logic, timers, logs, Web API, and Bitfocus Companion.
+- Added continued play on the host and authorized control boards while the owner is offline, with match and log synchronization when the owner reconnects.
+- Added coordinated host handoff, safe-to-disconnect indicators, isolated hosted match storage, local discard controls, and owner recovery options when the host is unavailable. Host switching is blocked while any timer is running.
+- Added Web API control with an enable switch and a copyable, resettable, case-insensitive 16-character API key, plus a control demo page and API documentation.
+- Added an illustrated Remote Display & Control guide explaining device roles, networking, example court layouts, and where Web API and Companion services run.
+
+### Issue Fixed
+
+- Improved remote timer operation timing with network-delay compensation.
+- Improved pairing, discovery, reconnection, host switching, and cleanup of former hosted sessions; excluded the local device and unavailable owner/host pairing endpoints from client discovery.
+- Improved remote disconnect handling so the interface stays responsive and connection status updates when commands cannot be delivered.
+- Improved player-page responsiveness and reduced connection-badge flicker during timer operations.
+- Fixed game-name synchronization between the owner and remote devices.
+- Improved connection badges with compact layouts, theme-adaptive colors, device counts, detailed device status and latency, and separate owner connection status. Hosts show Hosting without a ping indicator.
+- Fixed blurred backgrounds in Background Only, Event Logo, Team View, and Player View on local and remote displays.
+- Improved Apple TV help layout and role wording, and expanded Simplified Chinese translations throughout remote display, control, hosting, and help screens.
+
 ## 1.6
 
 ### Feature Added
