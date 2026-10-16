@@ -1134,14 +1134,50 @@ final class ScoreboardStore: ObservableObject {
             return (connected, disconnected)
         }
         let ownerID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
-        let known = Set(remoteDisplayTrustedDisplays.map(\.id))
+        var known = Set(remoteDisplayTrustedDisplays.map(\.id))
             .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([ownerID])
+        if isDelegatedSessionHost { known.insert(localSessionDeviceID) }
         var connected = Set(remoteDisplayConnectedDisplays.filter {
             $0.quality == .live || $0.quality == .poor
         }.map(\.id))
         if isDelegatedSessionHost { connected.insert(localSessionDeviceID) }
         let connectedCount = known.intersection(connected).count
         return (connectedCount, known.count - connectedCount)
+    }
+    var remoteSessionOwnerConnected: Bool? {
+        if routesControlToSessionHost {
+            if isSessionOwner { return sessionIsConnected }
+            return remoteControlState?.control?.ownerConnected
+        }
+        guard let descriptor = sessionDescriptor else { return nil }
+        if descriptor.ownerDeviceID == localSessionDeviceID { return true }
+        guard isSessionAuthority else { return nil }
+        return remoteDisplayConnectedDisplays.contains {
+            $0.id == descriptor.ownerDeviceID && ($0.quality == .live || $0.quality == .poor)
+        }
+    }
+    var remoteSessionDevices: [ScoreboardSessionPeer]? {
+        if routesControlToSessionHost { return remoteControlState?.control?.devices }
+        let ownerID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
+        var ids = Set(remoteDisplayTrustedDisplays.map(\.id))
+            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([ownerID])
+        if isDelegatedSessionHost { ids.insert(localSessionDeviceID) }
+        return ids.map { id in
+            let connection = remoteDisplayConnectedDisplays.first { $0.id == id }
+            let saved = remoteDisplayTrustedDisplays.first { $0.id == id }
+            let isLocalHost = isDelegatedSessionHost && id == localSessionDeviceID
+            return ScoreboardSessionPeer(
+                id: id,
+                name: isLocalHost ? remoteDisplayHostName : (connection?.name ?? saved?.name ?? id),
+                deviceType: isLocalHost ? .current : (connection?.deviceType ?? saved?.deviceType ?? .unknown),
+                connected: isLocalHost || connection?.quality == .live || connection?.quality == .poor,
+                supportsHosting: isLocalHost || connection?.supportsSessionHosting == true,
+                controlEnabled: remoteControlAllowedDisplayIDs.contains(id),
+                latencyMilliseconds: isLocalHost ? nil : connection?.latencyMilliseconds,
+                lastHandshakeAgeSeconds: isLocalHost ? nil : connection?.lastHandshakeAgeSeconds,
+                appVersion: isLocalHost ? .current : connection?.appVersion,
+                quality: isLocalHost ? .live : connection?.quality)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     var canRecoverSessionHost: Bool {
         guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
@@ -8796,7 +8832,7 @@ extension ScoreboardStore {
             sessionOwnerReceiverAcquired = true
         }
         receiver.trustSessionHost(ownerHostID: descriptor.ownerHostID,
-                                  ownerName: descriptor.ownerName, pairingSecret: secret)
+                                  ownerName: descriptor.ownerName, pairingSecret: secret, isOwner: true)
         sessionOwnerPairingSecret = secret
         lastOwnerSettingsData = nil
         lastOwnerVisualData = nil
@@ -9901,7 +9937,8 @@ extension ScoreboardStore {
         isApplyingRemoteControlState = true
         defer { isApplyingRemoteControlState = false }
         if remoteControlState?.control?.connectedDeviceCount != state.control?.connectedDeviceCount ||
-            remoteControlState?.control?.disconnectedDeviceCount != state.control?.disconnectedDeviceCount {
+            remoteControlState?.control?.disconnectedDeviceCount != state.control?.disconnectedDeviceCount ||
+            remoteControlState?.control?.ownerConnected != state.control?.ownerConnected {
             objectWillChange.send()
         }
         remoteControlState = state

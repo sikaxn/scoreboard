@@ -253,6 +253,9 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
     var supportsSessionHosting: Bool {
         Int(discoveryInfo?["sessionProtocolVersion"] ?? "0") == ScoreboardSessionTransport.protocolVersion
     }
+    var isSessionInfrastructure: Bool {
+        discoveryInfo?["isSessionHost"] == "true" || discoveryInfo?["isSessionOwner"] == "true"
+    }
     var remoteStateVersions: Set<Int> {
         ScoreboardRemoteDisplayStateVersions.parse(discoveryInfo?["remoteStateVersions"])
     }
@@ -2343,8 +2346,9 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     /// The owner becomes a client without asking the user to pair with their own session.
-    func trustSessionHost(ownerHostID: String, ownerName: String, pairingSecret: String) {
+    func trustSessionHost(ownerHostID: String, ownerName: String, pairingSecret: String, isOwner: Bool = false) {
         guard !ownerHostID.isEmpty, !pairingSecret.isEmpty else { return }
+        isSessionOwnerDevice = isOwner
         trustHost(id: ownerHostID, name: ownerName, pairingSecret: pairingSecret)
         setLastActiveOperator(id: ownerHostID, name: ownerName, pairingSecret: pairingSecret)
         clearFailedPairingAttempts(hostID: ownerHostID)
@@ -2357,6 +2361,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     func updateHostedState(state: ScoreboardWebAPIState, images: [String: ScoreboardWebAPIImageResponse]) {
         let wasHosting = isHostingSession
         isHostingSession = true
+        isSessionOwnerDevice = state.control?.session?.ownerDeviceID == displayID
         if !wasHosting {
             pendingControlCommands.removeAll()
             pendingControlCommandID = nil
@@ -2391,6 +2396,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     func stopHostingSession() {
         guard isHostingSession else { return }
         isHostingSession = false
+        isSessionOwnerDevice = false
         hostedControlCommandHandler = nil
         isControlBoardDevice = false
         cancelActiveConnections()
@@ -2441,6 +2447,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var connectionsByID: [ObjectIdentifier: NWConnection] = [:]
     private var pairedConnection: NWConnection?
     private var activeConsumerCount = 0
+    private var isSessionOwnerDevice = false
     private var pairingCodeTimer: Timer?
     private var heartbeatMonitorTimer: Timer?
     private var pairingSetID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayPairingSetID")
@@ -2530,6 +2537,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private func stopAdvertising(statusMessage: String) {
         guard !isHostingSession else { return }
+        isSessionOwnerDevice = false
         pairingCodeTimer?.invalidate()
         pairingCodeTimer = nil
         heartbeatMonitorTimer?.invalidate()
@@ -2654,6 +2662,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func forgetTrustedHosts() {
         guard !isHostingSession else { return }
+        isSessionOwnerDevice = false
         isControlBoardDevice = false
         isForgettingTrustedHosts = true
         pairingSetID = ScoreboardRemoteDisplayIdentity.resetStableID(forKey: "remoteDisplayPairingSetID")
@@ -2803,12 +2812,14 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             "deviceType": ScoreboardRemoteDisplayDeviceType.current.rawValue,
             "remoteStateVersions": ScoreboardRemoteDisplayStateVersions.advertisedValue,
             "sessionProtocolVersion": String(ScoreboardSessionTransport.protocolVersion),
-            "isSessionHost": isHostingSession ? "true" : "false"
+            "isSessionHost": isHostingSession ? "true" : "false",
+            "isSessionOwner": isSessionOwnerDevice ? "true" : "false"
         ]
         let currentAdvertisedState = advertisedState
+        let isInfrastructure = isHostingSession || isSessionOwnerDevice
         discoveryInfo["receiverState"] = currentAdvertisedState.rawValue
-        discoveryInfo["allowsNewPairing"] = currentAdvertisedState.allowsNewPairing ? "true" : "false"
-        discoveryInfo["requiresTakeoverWarning"] = currentAdvertisedState.requiresTakeoverWarning ? "true" : "false"
+        discoveryInfo["allowsNewPairing"] = !isInfrastructure && currentAdvertisedState.allowsNewPairing ? "true" : "false"
+        discoveryInfo["requiresTakeoverWarning"] = !isInfrastructure && currentAdvertisedState.requiresTakeoverWarning ? "true" : "false"
         if let pairedHostID, let pairedHostName {
             discoveryInfo["activeOperatorID"] = pairedHostID
             discoveryInfo["activeOperatorName"] = pairedHostName
@@ -3036,6 +3047,10 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        let wasSessionOwner = isSessionOwnerDevice
+        isSessionOwnerDevice = decodedState.control?.session?.ownerDeviceID == displayID
+        if wasSessionOwner != isSessionOwnerDevice { startOrRefreshListener() }
+
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             state = decodedState
             lastReceivedAt = Date()
@@ -3061,6 +3076,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         guard !isHostingSession else {
             // Promotion has committed: an old host cannot replace local authority.
             if pairedConnection !== connection { connection.cancel() }
+            return
+        }
+        // The owner's receiver is a session transport endpoint, not a display
+        // that another scoreboard may take over with a new pairing code.
+        if isSessionOwnerDevice && !request.trustedReconnect {
+            connection.cancel()
             return
         }
         let requesterHostID = request.hostID

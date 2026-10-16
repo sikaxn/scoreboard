@@ -12,6 +12,8 @@ nonisolated struct ScoreboardControlStatus: Codable, Sendable {
     var session: ScoreboardSessionDescriptor? = nil
     var connectedDeviceCount: Int? = nil
     var disconnectedDeviceCount: Int? = nil
+    var ownerConnected: Bool? = nil
+    var devices: [ScoreboardSessionPeer]? = nil
 }
 
 // Both transports use this contract. Setup and integration configuration are deliberately absent.

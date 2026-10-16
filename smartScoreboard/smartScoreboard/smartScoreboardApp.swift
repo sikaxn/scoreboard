@@ -152,21 +152,39 @@ private struct MacControlBoardRootView: View {
 private struct MacPublicScoreboardRootView: View {
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
+    @ObservedObject private var receiver = ScoreboardRemoteDisplayReceiver.shared
+
+    private var followsRemoteScoreboard: Bool {
+        store.isRemoteDisplayViewerModeEnabled || store.isFollowingSessionHost
+    }
 
     var body: some View {
-        if store.isRemoteDisplayViewerModeEnabled {
-            RemoteScoreboardView(
-                networkMode: store.remoteDisplayNetworkMode,
-                setNetworkMode: {
-                    store.setRemoteDisplayNetworkMode($0)
-                },
-                showsPairingControls: false,
-                usesExternalDisplayDirection: true
+        Group {
+            if followsRemoteScoreboard {
+                RemoteScoreboardView(
+                    networkMode: store.remoteDisplayNetworkMode,
+                    setNetworkMode: {
+                        store.setRemoteDisplayNetworkMode($0)
+                    },
+                    showsPairingControls: false,
+                    usesExternalDisplayDirection: true
+                )
+            } else {
+                ExternalScoreboardView(configuresPublicWindow: false)
+                    .environmentObject(store)
+                    .environmentObject(publicBoardState)
+            }
+        }
+        .background {
+            PublicBoardWindowConfigurator(
+                backgroundMode: followsRemoteScoreboard
+                    ? (receiver.state?.display?.backgroundMode ?? .blurred).resolvedForRendering
+                    : store.externalDisplayBackgroundMode.resolvedForRendering,
+                displayViewMode: followsRemoteScoreboard
+                    ? (receiver.state?.display?.viewMode ?? .scoreboard)
+                    : store.publicDisplayViewMode,
+                fullscreenRequestID: publicBoardState.fullscreenRequestID
             )
-        } else {
-            ExternalScoreboardView()
-                .environmentObject(store)
-                .environmentObject(publicBoardState)
         }
     }
 }

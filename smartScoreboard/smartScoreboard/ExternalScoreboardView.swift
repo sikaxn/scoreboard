@@ -586,7 +586,11 @@ struct PublicScoreboardDisplayView: View {
     private func stableBackgroundView() -> some View {
         switch backgroundMode.resolvedForRendering {
         case .blurred:
-            palette.externalDisplayBackground
+            ScoreboardBlurredBackgroundView(
+                palette: palette,
+                leftAccent: accentColor(for: displayDirection.leftSide),
+                rightAccent: accentColor(for: displayDirection.rightSide)
+            )
         case .clear, .clearUnderBoard:
             HStack(spacing: 0) {
                 accentColor(for: displayDirection.leftSide)
@@ -1156,7 +1160,7 @@ private struct PublicScoreboardTeamDisplayData {
 }
 
 #if os(macOS)
-private struct PublicBoardWindowConfigurator: NSViewRepresentable {
+struct PublicBoardWindowConfigurator: NSViewRepresentable {
     let backgroundMode: ExternalDisplayBackgroundMode
     let displayViewMode: ScoreboardDisplayViewMode
     let fullscreenRequestID: UUID

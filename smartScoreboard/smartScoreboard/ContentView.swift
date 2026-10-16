@@ -4171,7 +4171,15 @@ struct ContentView: View {
             )
         }
 
-        return rowsByID.values.filter { $0.id != store.localSessionDeviceID }.sorted { lhs, rhs in
+        return rowsByID.values.filter { row in
+            guard row.id != store.localSessionDeviceID else { return false }
+            if let session = store.sessionDescriptor {
+                if row.id == session.ownerDeviceID { return false }
+                // The owner keeps its current host row for host management.
+                if row.id == session.hostDeviceID && store.isSessionOwner { return true }
+            }
+            return row.source?.isSessionInfrastructure != true
+        }.sorted { lhs, rhs in
             if lhs.sortRank != rhs.sortRank {
                 return lhs.sortRank < rhs.sortRank
             }
@@ -8286,9 +8294,6 @@ struct ContentView: View {
 
     @ViewBuilder
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
-        if store.isFollowingSessionHost {
-            remoteControlHeaderStatusBadge(layout: layout)
-        } else {
         #if os(iOS)
         if layout.headerUsesVerticalFlow {
             localDisplayStatusGroup(layout: layout)
@@ -8299,12 +8304,11 @@ struct ContentView: View {
         #else
         publicBoardStatusGroup(layout: layout)
         #endif
-        }
     }
 
     @ViewBuilder
     private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
-        if store.isRemoteControlProxy || store.isFollowingSessionHost {
+        if store.isRemoteControlProxy || store.isFollowingSessionHost || store.isRemoteDisplayHostEnabled {
             remoteControlHeaderStatusBadge(layout: layout)
         } else {
         HStack(spacing: 8) {
@@ -8341,8 +8345,12 @@ struct ContentView: View {
         return localizedAppFormat("Ping %d ms", Int((trip * 1_000).rounded()))
     }
 
+    private var remoteConnectionIsHosting: Bool {
+        remoteControlReceiver.isHostingSession || (store.isSessionAuthority && store.isRemoteDisplayHostEnabled)
+    }
+
     private var remoteControlConnectionTitle: String {
-        if remoteControlReceiver.isHostingSession { return localizedAppString("Hosting") }
+        if remoteConnectionIsHosting { return localizedAppString("Hosting") }
         guard remoteControlReceiver.status.isLive else { return localizedAppString(remoteControlReceiver.status.title) }
         return localizedAppString(remoteControlReceiver.isControlConnectionReady ? "Connected" :
             (store.isFollowingSessionHost ? "Waiting for session host…" : "Waiting for main device…"))
@@ -8353,84 +8361,156 @@ struct ContentView: View {
         return localizedAppFormat("%d connected · %d disconnected", counts.connected, counts.disconnected)
     }
 
+    private var remoteConnectionSession: ScoreboardSessionDescriptor? {
+        store.isSessionAuthority ? store.sessionDescriptor : (remoteControlReceiver.state?.control?.session ?? store.sessionDescriptor)
+    }
+
+    private var remoteOwnerIsDisconnected: Bool {
+        store.remoteSessionOwnerConnected == false
+    }
+
     private func remoteControlHeaderStatusBadge(layout: InterfaceLayout) -> some View {
-        // Refresh clock-sync freshness even when no packets arrive. The board stays
-        // browsable offline; the receiver rejects commands at the transport boundary.
         TimelineView(.periodic(from: Date(), by: 1)) { _ in
-            Button { showsRemoteConnectionDetails = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: remoteControlReceiver.isHostingSession ? "server.rack" :
-                        (remoteControlReceiver.isControlConnectionReady ? "network" : "wifi.exclamationmark"))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Button { showsRemoteConnectionDetails = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: remoteConnectionIsHosting ? "server.rack" : "network")
+                            .foregroundStyle(remoteConnectionIsHosting ? Color.indigo : Color.primary)
+                        Circle()
+                            .fill(remoteConnectionIsHosting || remoteControlReceiver.isControlConnectionReady ? Color.green : Color.orange)
+                            .frame(width: 7, height: 7)
                         Text(remoteControlConnectionTitle)
-                            .font(layout.headerBadgeFont)
-                        if !remoteControlReceiver.isHostingSession {
-                            Text(remoteControlPingTitle)
-                                .font(layout.headerBadgeDetailFont)
+                        if let counts = store.remoteSessionDeviceCounts {
+                            Text("\(counts.connected)/\(counts.connected + counts.disconnected)")
                                 .monospacedDigit()
                         }
-                        if let remoteControlDeviceCountsTitle {
-                            Text(remoteControlDeviceCountsTitle)
-                                .font(layout.headerBadgeDetailFont)
-                                .monospacedDigit()
+                        if remoteControlReceiver.controlResult?.success == false {
+                            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                         }
-                        if store.isFollowingSessionHost {
-                            Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
-                                .font(layout.headerBadgeDetailFont)
-                        }
+                        Image(systemName: "chevron.down").font(.caption2)
                     }
+                    .font(layout.headerBadgeFont)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(themePalette.destructiveTint)
-                        .opacity(remoteControlReceiver.controlResult?.success == false ? 1 : 0)
-                        .frame(width: 16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, layout.headerBadgeHorizontalPadding)
+                    .frame(height: layout.headerIconButtonSize)
+                    .foregroundStyle(.primary)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.18), lineWidth: 1))
                 }
-                .frame(width: 180, alignment: .leading)
-                .foregroundStyle(remoteControlReceiver.isHostingSession || remoteControlReceiver.isControlConnectionReady ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
-                .padding(.horizontal, layout.headerBadgeHorizontalPadding)
-                .padding(.vertical, layout.headerBadgeVerticalPadding)
-                .background(remoteControlReceiver.isHostingSession ? Color.indigo.opacity(0.2) : Color.teal.opacity(0.18), in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityLabel([remoteControlConnectionTitle, remoteControlDeviceCountsTitle].compactMap { $0 }.joined(separator: ", "))
+                if remoteOwnerIsDisconnected {
+                    Label("Owner disconnected", systemImage: "person.crop.circle.badge.exclamationmark")
+                        .font(layout.headerBadgeDetailFont)
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: layout.headerIconButtonSize)
+                        .foregroundStyle(.primary)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.orange, lineWidth: 1))
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(remoteControlReceiver.isHostingSession ? remoteControlConnectionTitle :
-                "\(remoteControlConnectionTitle), \(remoteControlPingTitle)")
-            .help(remoteControlReceiver.isHostingSession ? localizedAppString("Running this session on this device.") : remoteControlReceiver.status.detail)
         }
         .popover(isPresented: $showsRemoteConnectionDetails) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(store.isFollowingSessionHost ? localizedAppFormat("Session Host: %@", store.sessionHostDisplayName) :
-                     (remoteControlReceiver.isHostingSession ? localizedAppString("Hosting Session") : localizedAppString("Remote Control Board")))
-                    .font(.headline)
-                Text(remoteControlReceiver.isHostingSession ? localizedAppString("Running this session on this device.") : remoteControlReceiver.status.detail)
-                if !remoteControlReceiver.isHostingSession {
-                    Text(remoteControlPingTitle).monospacedDigit()
-                }
-                if let remoteControlDeviceCountsTitle {
-                    Text(remoteControlDeviceCountsTitle).monospacedDigit()
-                    if !remoteControlReceiver.isHostingSession && !remoteControlReceiver.status.isLive {
-                        Text("Last reported by the session host.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if let result = remoteControlReceiver.controlResult, !result.success {
-                    Text(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"))
-                        .foregroundStyle(themePalette.destructiveTint)
-                }
-                if let returnToRemoteControl {
-                    Button(localizedAppString("Return to Remote Control")) {
-                        showsRemoteConnectionDetails = false
-                        returnToRemoteControl()
+            TimelineView(.periodic(from: Date(), by: 1)) { _ in
+                remoteConnectionDetails
+            }
+        }
+    }
+
+    private func remoteConnectionDetailRow(_ title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(localizedAppString(title)).foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Text(value).multilineTextAlignment(.trailing)
+        }
+        .font(.callout)
+    }
+
+    private var remoteConnectionDetails: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connection Status").font(.headline)
+            remoteConnectionDetailRow("Connection", value: remoteControlConnectionTitle)
+            if let session = remoteConnectionSession {
+                remoteConnectionDetailRow("Session Host", value: session.hostName)
+                VStack(alignment: .leading, spacing: 4) {
+                    remoteConnectionDetailRow("Owner", value: session.ownerName)
+                    Label(localizedAppString(store.remoteSessionOwnerConnected.map { $0 ? "Connected" : "Disconnected" } ?? "Unknown"),
+                          systemImage: remoteOwnerIsDisconnected ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle")
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                    if store.isFollowingSessionHost {
+                        Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding()
-            .frame(idealWidth: 300)
-            .foregroundStyle(themePalette.dashboardPrimaryText)
-            .background(themePalette.dashboardCardBackground)
+            if !remoteConnectionIsHosting {
+                remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
+            }
+            Divider()
+            Text("Remote Devices").font(.subheadline.weight(.semibold))
+            if let remoteControlDeviceCountsTitle {
+                Text(remoteControlDeviceCountsTitle).font(.caption).monospacedDigit()
+            }
+            if !remoteConnectionIsHosting && !remoteControlReceiver.status.isLive {
+                Text("Last reported by the session host.").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(store.remoteSessionDevices ?? [], id: \.id) { device in
+                        remoteConnectionDeviceRow(device)
+                    }
+                }
+            }
+            .frame(maxHeight: 260)
+            if let result = remoteControlReceiver.controlResult, !result.success {
+                Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"),
+                      systemImage: "exclamationmark.circle")
+                    .font(.callout)
+            }
+            if let returnToRemoteControl {
+                Button(localizedAppString("Return to Remote Control")) {
+                    showsRemoteConnectionDetails = false
+                    returnToRemoteControl()
+                }
+            }
         }
+        .padding()
+        .frame(idealWidth: 340, maxWidth: 380)
+        .foregroundStyle(.primary)
+    }
+
+    private func remoteConnectionDeviceRow(_ device: ScoreboardSessionPeer) -> some View {
+        let isHost = device.id == remoteConnectionSession?.hostDeviceID
+        let status = isHost && device.connected ? "Hosting" : (device.connected ? (device.quality == .poor ? "Poor" : "Connected") :
+            (device.quality == .connecting ? "Connecting" : "Disconnected"))
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: device.deviceType.systemImage)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device.name).font(.callout.weight(.medium))
+                Text(localizedAppString(device.deviceType.title)).font(.caption).foregroundStyle(.secondary)
+                if let canControl = device.controlEnabled, !isHost {
+                    Text(canControl ? "Control enabled" : "Remote Display").font(.caption).foregroundStyle(.secondary)
+                }
+                if !isHost && device.connected, let latency = device.latencyMilliseconds {
+                    Text(localizedAppFormat("Ping %d ms", latency)).font(.caption).monospacedDigit()
+                }
+                if !isHost, !device.connected, let age = device.lastHandshakeAgeSeconds {
+                    Text(localizedAppFormat("Last response %d s ago", age))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            HStack(spacing: 5) {
+                Circle().fill(device.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
+                Text(localizedAppString(status)).font(.caption)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     #if os(iOS)

@@ -107,7 +107,7 @@ private struct ExternalDisplayRootView: View {
     @EnvironmentObject private var publicBoardState: PublicBoardState
 
     var body: some View {
-        if store.isRemoteDisplayViewerModeEnabled {
+        if store.isRemoteDisplayViewerModeEnabled || store.isFollowingSessionHost {
             RemoteScoreboardView(
                 networkMode: store.remoteDisplayNetworkMode,
                 setNetworkMode: {

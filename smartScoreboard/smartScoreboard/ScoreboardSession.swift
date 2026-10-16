@@ -59,12 +59,13 @@ nonisolated struct ScoreboardSessionCleanState: Equatable, Sendable {
     }
 }
 
-nonisolated struct ScoreboardSessionPeer: Codable, Sendable {
+nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var id: String
     var name: String
     var deviceType: ScoreboardRemoteDisplayDeviceType
     var connected: Bool
     var supportsHosting: Bool
+    var controlEnabled: Bool? = nil
     var latencyMilliseconds: Int? = nil
     var lastHandshakeAgeSeconds: Int? = nil
     var appVersion: ScoreboardRemoteDisplayAppVersion? = nil

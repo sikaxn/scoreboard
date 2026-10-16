@@ -3208,7 +3208,9 @@ extension ScoreboardStore {
             ) : nil,
             control: ScoreboardControlStatus(webEnabled: isWebControlEnabled, remoteEnabled: remoteControlEnabled, gameName: currentGameDisplayName, isSoundEnabled: isSoundEnabled, mainDisplayMode: publicDisplayViewMode, customDisplayControlVisible: isCustomDisplayControlVisible, customDisplayEnabledIDs: customDisplayEnabledDisplayIDs, customDisplayModes: webAPIBroadcastDisplayModesByID, session: sessionDescriptor,
                 connectedDeviceCount: remoteSessionDeviceCounts?.connected,
-                disconnectedDeviceCount: remoteSessionDeviceCounts?.disconnected)
+                disconnectedDeviceCount: remoteSessionDeviceCounts?.disconnected,
+                ownerConnected: remoteSessionOwnerConnected,
+                devices: remoteSessionDevices)
         )
     }
 
