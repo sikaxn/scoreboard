@@ -36,7 +36,9 @@ struct RemoteScoreboardView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var receiver: ScoreboardRemoteDisplayReceiver
+    @ObservedObject private var sessionStore = ScoreboardStore.shared
     @State private var showsConfiguration = false
+    @State private var showsHostedExitConfirmation = false
     @State private var hasAcquiredReceiver = false
     @State private var activeNetworkMode: ScoreboardRemoteDisplayNetworkMode
     @State private var sleepPolicyViewID = UUID()
@@ -112,6 +114,15 @@ struct RemoteScoreboardView: View {
         }
         .onChange(of: networkMode) { _, newMode in applyNetworkMode(newMode, propagatesToParent: false) }
         .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
+        .confirmationDialog("Leave Hosted Match?", isPresented: $showsHostedExitConfirmation,
+                            titleVisibility: .visible) {
+            Button("Delete Local Match and Leave", role: .destructive) {
+                if sessionStore.deleteHostedMatchAndExitRemoteMode() { exitRemoteDisplayMode?() }
+            }
+            Button("Continue Hosting", role: .cancel) {}
+        } message: {
+            Text("The owner has not confirmed a saved copy, or a timer is still running. Reconnect to the owner and wait for Safe to Disconnect before leaving without deleting this match.")
+        }
     }
 
     private var receiverContent: some View {
@@ -121,7 +132,8 @@ struct RemoteScoreboardView: View {
                     let health = RemoteDisplayConnectionHealth(
                         status: receiver.status,
                         lastHandshakeAt: receiver.lastHeartbeatAt ?? receiver.lastReceivedAt,
-                        now: timeline.date
+                        now: timeline.date,
+                        isHosting: receiver.isHostingSession
                     )
 
                     GeometryReader { proxy in
@@ -155,7 +167,8 @@ struct RemoteScoreboardView: View {
                                     }
                                 }
 
-                                RemoteDisplayLiveBadge(health: health) {
+                                RemoteDisplayLiveBadge(health: health,
+                                    safeToDisconnect: state.control?.session?.safeToDisconnect) {
                                     if showsPairingControls {
                                         showsConfiguration = true
                                     }
@@ -171,7 +184,9 @@ struct RemoteScoreboardView: View {
                     receiver: receiver,
                     hasLiveState: receiver.state != nil,
                     returnToLive: { showsConfiguration = false },
-                    exitRemoteDisplayMode: exitRemoteDisplayMode,
+                    exitRemoteDisplayMode: exitRemoteDisplayMode.map { exit in
+                        { requestExitRemoteMode(exit) }
+                    },
                     openScoreboardWindow: openScoreboardWindow,
                     networkMode: activeNetworkMode,
                     setNetworkMode: { applyNetworkMode($0, propagatesToParent: true) },
@@ -212,7 +227,17 @@ struct RemoteScoreboardView: View {
         receiver.release()
     }
 
+    private func requestExitRemoteMode(_ exit: () -> Void) {
+        guard sessionStore.hasHostedMatchToDiscard else { exit(); return }
+        guard sessionStore.isDelegatedSessionHost && sessionStore.isSessionSafeToDisconnect else {
+            showsHostedExitConfirmation = true
+            return
+        }
+        exit()
+    }
+
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        if newPhase == .background { sessionStore.prepareHostedMatchForBackground() }
         #if os(tvOS)
         if newPhase == .active {
             receiver.resumeAfterAppLifecycle(networkMode: activeNetworkMode)
@@ -522,10 +547,12 @@ private enum RemoteDisplayConnectionHealth: Equatable {
     private static let disconnectedInterval: TimeInterval = 8
 
     case live
+    case hosting
     case poor(TimeInterval)
     case disconnected(String)
 
-    init(status: ScoreboardRemoteDisplayReceiverStatus, lastHandshakeAt: Date?, now: Date) {
+    init(status: ScoreboardRemoteDisplayReceiverStatus, lastHandshakeAt: Date?, now: Date, isHosting: Bool = false) {
+        if isHosting { self = .hosting; return }
         let age = lastHandshakeAt.map { max(0, now.timeIntervalSince($0)) }
 
         if status.isLive, let age {
@@ -551,6 +578,8 @@ private enum RemoteDisplayConnectionHealth: Equatable {
 
     var title: String {
         switch self {
+        case .hosting:
+            return localizedRemoteDisplayString("Hosting")
         case .live:
             return localizedRemoteDisplayString("Live")
         case .poor:
@@ -562,7 +591,7 @@ private enum RemoteDisplayConnectionHealth: Equatable {
 
     var detail: String? {
         switch self {
-        case .live:
+        case .live, .hosting:
             return nil
         case .poor(let age):
             return localizedRemoteDisplayFormat("Handshake %d s", Int(age))
@@ -573,7 +602,7 @@ private enum RemoteDisplayConnectionHealth: Equatable {
 
     var color: Color {
         switch self {
-        case .live:
+        case .live, .hosting:
             return .green
         case .poor:
             return .orange
@@ -589,12 +618,14 @@ private enum RemoteDisplayControlID: Hashable {
     case disconnect
     case openScoreboard
     case exitDisplayMode
+    case discardHostedMatch
     case about
     case forgetPairedDevices
 }
 
 private struct RemoteDisplayConfigurationView: View {
     @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
+    @ObservedObject private var sessionStore = ScoreboardStore.shared
     let hasLiveState: Bool
     let returnToLive: () -> Void
     let exitRemoteDisplayMode: (() -> Void)?
@@ -603,12 +634,14 @@ private struct RemoteDisplayConfigurationView: View {
     let setNetworkMode: (ScoreboardRemoteDisplayNetworkMode) -> Void
     let showsPairingControls: Bool
     @State private var isForgetPairingConfirmationPresented = false
+    @State private var isDiscardHostedMatchConfirmationPresented = false
     #if os(tvOS)
     @State private var isAboutPresented = false
     @FocusState private var focusedControl: RemoteDisplayControlID?
     #endif
 
     var body: some View {
+        Group {
         #if os(tvOS)
         if isAboutPresented {
             RemoteDisplayAppleTVAboutView(
@@ -628,6 +661,16 @@ private struct RemoteDisplayConfigurationView: View {
         #else
         configurationBody
         #endif
+        }
+        .confirmationDialog("Discard Hosted Match?", isPresented: $isDiscardHostedMatchConfirmationPresented,
+                            titleVisibility: .visible) {
+            Button("Discard Match and Stop Hosting", role: .destructive) {
+                _ = sessionStore.discardHostedMatchAndReturnToPairing()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes the match and log stored only on this device. Any changes the owner has not saved will be lost. This device will return to pairing mode.")
+        }
     }
 
     private var configurationBody: some View {
@@ -781,7 +824,22 @@ private struct RemoteDisplayConfigurationView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if showsPairingControls {
+            if sessionStore.hasHostedMatchToDiscard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(receiver.isHostingSession
+                        ? "Pairing is managed by the session owner."
+                        : "This device still holds a hosted match. Discard it before pairing again.")
+                        .font(.headline)
+                    if receiver.isHostingSession {
+                        Text(receiver.state?.control?.session?.safeToDisconnect == true
+                            ? "Safe to Disconnect — the owner has saved this match and all timers are stopped."
+                            : "Match active or sync pending — keep this host running until the owner reconnects and saves the match.")
+                            .font(.subheadline)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if showsPairingControls {
                 VStack(spacing: isCompact ? 8 : 10) {
                     HStack(spacing: 8) {
                         scanningIndicator
@@ -818,11 +876,19 @@ private struct RemoteDisplayConfigurationView: View {
                 passiveDisplayPanel
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
+            if sessionStore.hasHostedMatchToDiscard, let message = sessionStore.sessionStatusMessage {
+                Text(ScoreboardLocalization.remoteSessionMessage(message))
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+            }
 
-            if showsPairingControls {
+            if showsPairingControls && !sessionStore.hasHostedMatchToDiscard {
                 ScoreboardViewBoundary {
                     networkModeControl(isCompact: isCompact)
                 }
+            }
+            if showsPairingControls {
                 ScoreboardViewBoundary {
                     actionControls
                 }
@@ -956,7 +1022,7 @@ private struct RemoteDisplayConfigurationView: View {
                 .frame(height: 1)
                 .padding(.vertical, 4)
 
-            forgetPairedDevicesButton
+            if !sessionStore.hasHostedMatchToDiscard { forgetPairedDevicesButton }
             #else
             LazyVGrid(
                 columns: actionButtonColumns,
@@ -965,8 +1031,10 @@ private struct RemoteDisplayConfigurationView: View {
                 orderedActionButtons
             }
 
-            forgetPairedDevicesButton
-                .frame(maxWidth: forgetButtonMaxWidth)
+            if !sessionStore.hasHostedMatchToDiscard {
+                forgetPairedDevicesButton
+                    .frame(maxWidth: forgetButtonMaxWidth)
+            }
             #endif
         }
         .frame(maxWidth: .infinity)
@@ -985,13 +1053,15 @@ private struct RemoteDisplayConfigurationView: View {
             }
         }
 
-        remoteDisplayActionButton(
-            .newCode,
-            title: "New Code",
-            systemImage: "arrow.clockwise",
-            tone: .neutral
-        ) {
-            receiver.resetPairingCode()
+        if !sessionStore.hasHostedMatchToDiscard {
+            remoteDisplayActionButton(
+                .newCode,
+                title: "New Code",
+                systemImage: "arrow.clockwise",
+                tone: .neutral
+            ) {
+                receiver.resetPairingCode()
+            }
         }
 
         if receiver.canDisconnectFromOperator {
@@ -1002,6 +1072,17 @@ private struct RemoteDisplayConfigurationView: View {
                 tone: .destructive
             ) {
                 receiver.disconnectFromOperator()
+            }
+        }
+
+        if sessionStore.hasHostedMatchToDiscard {
+            remoteDisplayActionButton(
+                .discardHostedMatch,
+                title: "Discard Match & Stop Hosting",
+                systemImage: "trash",
+                tone: .destructive
+            ) {
+                isDiscardHostedMatchConfirmationPresented = true
             }
         }
 
@@ -1088,7 +1169,8 @@ private struct RemoteDisplayConfigurationView: View {
         if hasLiveState {
             controls.append(.returnToLive)
         }
-        controls.append(.newCode)
+        if sessionStore.hasHostedMatchToDiscard { controls.append(.discardHostedMatch) }
+        if !sessionStore.hasHostedMatchToDiscard { controls.append(.newCode) }
         if receiver.canDisconnectFromOperator {
             controls.append(.disconnect)
         }
@@ -1099,7 +1181,7 @@ private struct RemoteDisplayConfigurationView: View {
             controls.append(.exitDisplayMode)
         }
         controls.append(.about)
-        if !receiver.trustedHosts.isEmpty {
+        if !sessionStore.hasHostedMatchToDiscard && !receiver.trustedHosts.isEmpty {
             controls.append(.forgetPairedDevices)
         }
 
@@ -1110,7 +1192,7 @@ private struct RemoteDisplayConfigurationView: View {
         if hasLiveState {
             return .returnToLive
         }
-        return .newCode
+        return sessionStore.hasHostedMatchToDiscard ? .discardHostedMatch : .newCode
     }
 
     private func updateFocusedControl(force: Bool = false) {
@@ -1142,6 +1224,7 @@ private struct RemoteDisplayConfigurationView: View {
     }
 
     private func localizedRemoteDisplayReceiverStatusTitle(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
+        if receiver.isHostingSession { return localizedRemoteDisplayString("Hosting") }
         switch status {
         case .waiting:
             return localizedRemoteDisplayString("Ready to Pair")
@@ -1155,6 +1238,9 @@ private struct RemoteDisplayConfigurationView: View {
     }
 
     private func localizedRemoteDisplayReceiverStatusDetail(_ status: ScoreboardRemoteDisplayReceiverStatus) -> String {
+        if receiver.isHostingSession {
+            return localizedRemoteDisplayString("Running this session on this device.")
+        }
         switch status {
         case .waiting:
             return localizedRemoteDisplayString("On the operator device, open Settings > Integration > Remote Display & Control, then enter this display's pairing code.")
@@ -1643,7 +1729,7 @@ private struct RemoteDisplayAboutHeader: View {
 
     private var remoteModeTitle: String {
         #if os(tvOS)
-        localizedRemoteDisplayString("Remote Display")
+        localizedRemoteDisplayString("Remote Display & Session Host")
         #else
         localizedRemoteDisplayString("Remote Display & Control")
         #endif
@@ -1651,7 +1737,7 @@ private struct RemoteDisplayAboutHeader: View {
 
     private var pairingInstructions: String {
         #if os(tvOS)
-        localizedRemoteDisplayString("This Apple TV is a remote display only. Enter this pairing code from Settings > Integration > Remote Display & Control on the main device.")
+        localizedRemoteDisplayString("This Apple TV can display and host a session. Enter this pairing code from Settings > Integration > Remote Display & Control on the owner device, then choose Make Session Host there if needed.")
         #else
         localizedRemoteDisplayString("Enter this pairing code from Settings > Integration > Remote Display & Control on the main device. Enable Allow This Device to Control there to use this device as a control board.")
         #endif
@@ -1706,7 +1792,7 @@ private struct RemoteDisplayAboutHeader: View {
                 }
 
                 #if os(tvOS)
-                Text("Apple TV can only act as a Remote Display. It requires the full Smart Scoreboard app on macOS or iPad to pair, control, and run the scoreboard.")
+                Text("Apple TV can display the scoreboard and run game logic as the session host. Use iPhone, iPad, or Mac for the control board, game files, and setup.")
                     .font(.body.weight(.medium))
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1816,9 +1902,10 @@ private struct RemoteDisplayAppleTVAboutView: View {
             .ignoresSafeArea()
 
             GeometryReader { proxy in
-                HStack(alignment: .top, spacing: 58) {
+                HStack(alignment: .top, spacing: 48) {
                     aboutSidebar
                         .frame(width: min(max(proxy.size.width * 0.28, 380), 500), alignment: .topLeading)
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
@@ -1835,6 +1922,7 @@ private struct RemoteDisplayAppleTVAboutView: View {
                         .padding(.bottom, 70)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .focusSection()
                 }
                 .padding(.horizontal, 72)
                 .padding(.vertical, 62)
@@ -1858,11 +1946,11 @@ private struct RemoteDisplayAppleTVAboutView: View {
     }
 
     private var aboutSidebar: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 16) {
             Image("ScoreboardIcon")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 146, height: 146)
+                .frame(width: 96, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -1876,7 +1964,7 @@ private struct RemoteDisplayAppleTVAboutView: View {
                     .foregroundStyle(.white.opacity(0.58))
 
                 Text("Smart Scoreboard")
-                    .font(.system(size: 54, weight: .black, design: .rounded))
+                    .font(.system(size: 40, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)
@@ -1885,11 +1973,9 @@ private struct RemoteDisplayAppleTVAboutView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.66))
 
-                Text("Apple TV can only act as a Remote Display. Use the full Smart Scoreboard app on macOS or iPad to pair this Apple TV, control the scoreboard, and send live updates.")
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer(minLength: 20)
 
             RemoteDisplayControlButton(
                 title: "Back",
@@ -1910,7 +1996,6 @@ private struct RemoteDisplayAppleTVAboutView: View {
             }
             .focused($focusedControl, equals: .factoryDefault)
 
-            Spacer(minLength: 0)
         }
     }
 
@@ -1921,6 +2006,8 @@ private struct RemoteDisplayAppleTVAboutView: View {
             aboutValueRow(title: "Version", value: ScoreboardRemoteDisplayAppVersion.current.displayText)
             aboutDivider
             aboutParagraph("A live scoreboard app for sports, debate, chess, and custom game displays.")
+            aboutDivider
+            aboutParagraph("Apple TV can display the scoreboard and host the session, including timers, Web API, and Companion. Pair it from the owner device and choose Make Session Host. The control board, game files, and setup remain on iPhone, iPad, or Mac.")
         }
     }
 
@@ -2013,6 +2100,7 @@ private struct RemoteDisplayAppleTVAboutView: View {
                     .stroke(.white.opacity(0.14), lineWidth: 1)
             )
         }
+        .focusable()
     }
 
     private func aboutValueRow(title: String, value: String, localizesValue: Bool = false) -> some View {
@@ -2081,6 +2169,7 @@ private struct RemoteDisplayAppleTVAboutView: View {
 
 private struct RemoteDisplayLiveBadge: View {
     let health: RemoteDisplayConnectionHealth
+    var safeToDisconnect: Bool? = nil
     let action: () -> Void
 
     var body: some View {
@@ -2102,11 +2191,17 @@ private struct RemoteDisplayLiveBadge: View {
                             .foregroundStyle(.white.opacity(0.68))
                             .lineLimit(1)
                     }
+                    if let safeToDisconnect {
+                        Text(safeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(safeToDisconnect ? .green : .white.opacity(0.68))
+                            .lineLimit(1)
+                    }
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, health.detail == nil ? 5 : 6)
-            .frame(maxWidth: health.detail == nil ? 82 : 190, alignment: .leading)
+            .frame(maxWidth: safeToDisconnect == nil && health.detail == nil ? 82 : 190, alignment: .leading)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)

@@ -1,12 +1,19 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 #if os(iOS) || os(macOS)
 import TipKit
 #endif
 
 @main
 struct SmartScoreboardApp: App {
-    #if !os(tvOS)
+    // Apple TV also owns a runtime when selected as the session host.
     @StateObject private var store = ScoreboardStore.shared
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(ScoreboardAppTerminationDelegate.self) private var terminationDelegate
+    #endif
+    #if !os(tvOS)
     @StateObject private var publicBoardState = PublicBoardState.shared
     #endif
 
@@ -28,6 +35,7 @@ struct SmartScoreboardApp: App {
         #if os(tvOS)
         WindowGroup {
             RemoteScoreboardView()
+                .environmentObject(store)
                 .reportsSceneActivityForSleepPolicy()
                 .reportsExternalDisplaysForSleepPolicy()
         }
@@ -87,6 +95,30 @@ struct SmartScoreboardApp: App {
         #endif
     }
 }
+
+#if os(macOS)
+@MainActor
+private final class ScoreboardAppTerminationDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let store = ScoreboardStore.shared
+        guard store.isDelegatedSessionHost else { return .terminateNow }
+        if store.isSessionSafeToDisconnect {
+            store.handoffHostedMatchForQuit { success in
+                Task { @MainActor in sender.reply(toApplicationShouldTerminate: success) }
+            }
+            return .terminateLater
+        }
+
+        let alert = NSAlert()
+        alert.messageText = ScoreboardLocalization.string("This hosted match has not synced to its owner")
+        alert.informativeText = ScoreboardLocalization.string("Keep Scoreboard open, reconnect the owner, and wait for Safe to Disconnect. Deleting the local match now can lose unsynced scores and logs.")
+        alert.addButton(withTitle: ScoreboardLocalization.string("Keep Hosting and Sync"))
+        alert.addButton(withTitle: ScoreboardLocalization.string("Delete Local Match and Quit"))
+        return alert.runModal() == .alertSecondButtonReturn && store.deleteHostedMatchAndExitRemoteMode()
+            ? .terminateNow : .terminateCancel
+    }
+}
+#endif
 
 #if os(macOS)
 private struct MacControlBoardRootView: View {

@@ -18,6 +18,7 @@ CORE_FILES = [
     "SportType", "DebateModels", "ScoreboardTheme", "BuzzerPlayer", "ScoreboardKeyboardShortcuts",
     "ScoreboardCompanion", "ScoreboardLogging", "ScoreboardGameDocument", "ScoreboardLocalization",
     "ScoreboardRosterCSV", "ScoreboardAppBackup", "ScoreboardRemoteClockProjection",
+    "ScoreboardSession", "ScoreboardSessionTransport",
 ]
 
 
@@ -45,6 +46,15 @@ def main():
             f'URL(fileURLWithPath: "{temp}/storage").appendingPathComponent(fallbackDirectoryName, isDirectory: true)',
         )
         (temp / "storage.swift").write_text(storage)
+        session = (SOURCE / "ScoreboardSession.swift").read_text()
+        recovery_path = '''let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("smartScoreboard/Session/authority.json")'''
+        assert recovery_path in session, "Session recovery storage changed; update test isolation."
+        session = session.replace(
+            recovery_path,
+            f'return URL(fileURLWithPath: "{temp}/session/authority.json")',
+        )
+        (temp / "session.swift").write_text(session)
         view = (SOURCE / "ContentView.swift").read_text()
         start = view.index("enum GameConfirmationAction:")
         end = view.index("\n}", start) + 2
@@ -73,17 +83,22 @@ extension ScoreboardStore {
             "xcrun", "swiftc", "-sdk", sdk, "-parse-as-library", "-swift-version", "5",
             "-default-isolation", "MainActor", "-o", str(binary),
         ]
-        command.extend(str(SOURCE / (name + ".swift")) for name in CORE_FILES if name != "ScoreboardStore")
+        command.extend(str(SOURCE / (name + ".swift")) for name in CORE_FILES
+                       if name not in {"ScoreboardStore", "ScoreboardSession"})
         command.extend([
-            str(temp / "storage.swift"), str(temp / "confirmations.swift"), str(temp / "remote.swift"), str(temp / "store.swift"),
+            str(temp / "storage.swift"), str(temp / "session.swift"), str(temp / "confirmations.swift"),
+            str(temp / "remote.swift"), str(temp / "store.swift"),
             str(ROOT / "scripts" / "remote_control_tests.swift"),
+            str(ROOT / "scripts" / "session_log_tests.swift"),
+            str(ROOT / "scripts" / "session_authority_tests.swift"),
         ])
         subprocess.run(command, env=env, check=True)
         free = port_is_free(5516) and port_is_free(5517)
         if not free:
             print("Skipping live HTTP checks: an API port is already occupied.", flush=True)
         subprocess.run(
-            [str(binary)], env=dict(env, SCOREBOARD_TEST_HTTP="1" if free else "0"), check=True
+            [str(binary)], env=dict(env, SCOREBOARD_TEST_HTTP="1" if free else "0",
+                                   SCOREBOARD_TEST_STORAGE_ROOT=str(temp)), check=True
         )
 
 

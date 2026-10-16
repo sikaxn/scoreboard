@@ -117,7 +117,7 @@ nonisolated enum ScoreboardRemoteDisplayReceiverAdvertisedState: String, Equatab
     }
 }
 
-nonisolated enum ScoreboardRemoteDisplayConnectionQuality: String, Equatable, Sendable {
+nonisolated enum ScoreboardRemoteDisplayConnectionQuality: String, Codable, Equatable, Sendable {
     case connecting
     case live
     case poor
@@ -250,6 +250,9 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
             build: discoveryInfo?["appBuild"]
         )
     }
+    var supportsSessionHosting: Bool {
+        Int(discoveryInfo?["sessionProtocolVersion"] ?? "0") == ScoreboardSessionTransport.protocolVersion
+    }
     var remoteStateVersions: Set<Int> {
         ScoreboardRemoteDisplayStateVersions.parse(discoveryInfo?["remoteStateVersions"])
     }
@@ -330,6 +333,7 @@ nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, S
     let appVersion: ScoreboardRemoteDisplayAppVersion?
     let deviceType: ScoreboardRemoteDisplayDeviceType
     let isMuted: Bool
+    var supportsSessionHosting: Bool = false
 }
 
 nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equatable, Sendable {
@@ -396,6 +400,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         case clockSync
         case command
         case commandResult
+        case session
         case imageRequest
         case soundTest
         case soundEffect
@@ -426,6 +431,10 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let remoteControlEnabled: Bool?
     let command: ScoreboardControlCommand?
     let commandResult: ScoreboardControlResult?
+    let sessionMessage: Data?
+    let sessionProtocolVersion: Int?
+    let sessionID: UUID?
+    let sessionEpoch: UInt64?
 
     init(
         kind: Kind,
@@ -449,7 +458,11 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         roundTrip: TimeInterval? = nil,
         remoteControlEnabled: Bool? = nil,
         command: ScoreboardControlCommand? = nil,
-        commandResult: ScoreboardControlResult? = nil
+        commandResult: ScoreboardControlResult? = nil,
+        sessionMessage: Data? = nil,
+        sessionProtocolVersion: Int? = nil,
+        sessionID: UUID? = nil,
+        sessionEpoch: UInt64? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -473,6 +486,10 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.remoteControlEnabled = remoteControlEnabled
         self.command = command
         self.commandResult = commandResult
+        self.sessionMessage = sessionMessage
+        self.sessionProtocolVersion = sessionProtocolVersion
+        self.sessionID = sessionID
+        self.sessionEpoch = sessionEpoch
     }
 }
 
@@ -675,7 +692,7 @@ enum ScoreboardRemoteDisplayDeviceName {
     }
 }
 
-private enum ScoreboardRemoteDisplayPairingStore {
+enum ScoreboardRemoteDisplayPairingStore {
     private static let trustedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedDisplays"
     private static let trustedHostsKey = "com.ironmaple.smartscoreboard.remoteDisplayTrustedHosts"
     private static let mutedDisplaysKey = "com.ironmaple.smartscoreboard.remoteDisplayMutedDisplays"
@@ -864,7 +881,11 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     @Published private(set) var customDisplayIDsByID: [String: Int] = ScoreboardRemoteDisplayPairingStore.customDisplayIDsByID()
     @Published private(set) var displayInitiatedDisconnectNotice: ScoreboardRemoteDisplayDisconnectNotice?
 
-    let hostID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayHostID")
+    private let personalHostID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayHostID")
+    private var sessionOwnerHostID: String?
+    var hostID: String { sessionOwnerHostID ?? personalHostID }
+    private var isDiscoveryOnly = false
+    private var commitRecoveryTargetID: String?
 
     private let localDisplayID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayID")
     private var displayName = ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Operator"
@@ -878,6 +899,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     private var lastTrustedInviteAttemptByID: [String: Date] = [:]
     var controlCommandHandler: ((ScoreboardControlCommand, String) -> ScoreboardControlResult)?
     var controlPermissionProvider: ((String) -> Bool)?
+    var sessionMessageHandler: ((Data, String) -> Void)?
+    var commandSessionValidator: ((UUID?, UInt64?) -> Bool)?
+    var maintenanceHandler: (() -> Void)?
     private var currentStateProvider: ((String?, Int) -> Data)?
     private var currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
     private var lastPeriodicStateSyncAt: Date?
@@ -894,7 +918,85 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         displayDirectionsByID = displayDirectionsByID.mapValues { settings in
             settings.applyingSideSwap(areSidesSwapped)
         }
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
+    }
+
+    func exportSessionPairings() -> ScoreboardSessionPairingConfiguration {
+        ScoreboardSessionPairingConfiguration(
+            ownerHostID: hostID, peers: trustedDisplays, mutedDisplayIDs: mutedDisplayIDs,
+            displayDirectionsByID: displayDirectionsByID, customDisplayIDsByID: customDisplayIDsByID
+        )
+    }
+
+    func installSessionPairings(_ configuration: ScoreboardSessionPairingConfiguration) {
+        stop()
+        sessionOwnerHostID = configuration.ownerHostID
+        trustedDisplays = configuration.peers
+        mutedDisplayIDs = configuration.mutedDisplayIDs
+        displayDirectionsByID = configuration.displayDirectionsByID
+        customDisplayIDsByID = configuration.customDisplayIDsByID
+    }
+
+    func clearSessionPairings() {
+        stop()
+        sessionOwnerHostID = nil
+        trustedDisplays = ScoreboardRemoteDisplayPairingStore.trustedDisplays()
+        mutedDisplayIDs = ScoreboardRemoteDisplayPairingStore.mutedDisplayIDs()
+        displayDirectionsByID = ScoreboardRemoteDisplayPairingStore.displayDirectionsByID()
+        customDisplayIDsByID = ScoreboardRemoteDisplayPairingStore.customDisplayIDsByID()
+    }
+
+    /// The owner can discover pairing targets while another device runs the host.
+    /// Discovery alone must never reconnect to clients or publish game state.
+    func startDiscoveryOnly(networkMode: ScoreboardRemoteDisplayNetworkMode) {
+        stop()
+        isDiscoveryOnly = true
+        self.networkMode = networkMode
+        startBrowser()
+        updateBrowsingStatus()
+    }
+
+    /// Reconnects only to the prepared destination after a fenced source restarts.
+    /// Heartbeats keep the authenticated session channel open; no old state is sent.
+    func startCommitRecovery(targetID: String, pairings: ScoreboardSessionPairingConfiguration,
+                             networkMode: ScoreboardRemoteDisplayNetworkMode) {
+        installSessionPairings(pairings)
+        commitRecoveryTargetID = targetID
+        self.networkMode = networkMode
+        startBrowser()
+        startHeartbeatTimer()
+        updateBrowsingStatus()
+    }
+
+    /// Keep only the prepared destination alive while awaiting the commit ACK.
+    /// Other receivers should time out and reconnect to the new authoritative host.
+    func fenceSessionTraffic(to targetID: String) {
+        commitRecoveryTargetID = targetID
+        let staleEndpoints = displayConnectionsByEndpoint.compactMap { endpoint, display in
+            display.displayID == targetID ? nil : endpoint
+        }
+        for endpoint in staleEndpoints {
+            displayConnectionsByEndpoint.removeValue(forKey: endpoint)?.connection.cancel()
+        }
+        updateBrowsingStatus()
+    }
+
+    @discardableResult
+    func sendSessionMessage(_ data: Data, toDisplayID displayID: String, lowPriority: Bool = false) -> Bool {
+        guard !isDiscoveryOnly, !data.isEmpty, data.count <= ScoreboardSessionTransport.maximumMessageBytes,
+              let endpoint = connectedEndpoint(forDisplayID: displayID),
+              let display = displayConnectionsByEndpoint[endpoint], display.isReady,
+              display.pendingTrustedDisplay == nil,
+              display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+              let ack = display.lastAckAt, Date().timeIntervalSince(ack) < 5,
+              !lowPriority || (!display.isSendingState && display.pendingStateData == nil)
+        else { return false }
+        sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+            kind: .session, sequence: heartbeatSequence, sentAt: Date().timeIntervalSince1970,
+            hostID: hostID, hostName: displayName, displayID: displayID, displayName: display.displayName,
+            sessionMessage: data, sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion
+        ), to: [endpoint])
+        return true
     }
 
     func start(
@@ -920,6 +1022,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     func stop() {
+        isDiscoveryOnly = false
+        commitRecoveryTargetID = nil
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
         browser?.cancel()
@@ -948,7 +1052,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         pairingCode: String,
         takeoverConfirmed: Bool = false
     ) {
-        guard browser != nil else {
+        guard browser != nil, !isDiscoveryOnly else {
             status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
@@ -1038,13 +1142,13 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
     func removeTrustedDisplay(id displayID: String) {
         trustedDisplays.removeAll { $0.id == displayID }
-        ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays) }
         mutedDisplayIDs.remove(displayID)
-        ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs) }
         displayDirectionsByID.removeValue(forKey: displayID)
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
         customDisplayIDsByID.removeValue(forKey: displayID)
-        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID) }
         operatorDisconnectedDisplayIDs.remove(displayID)
 
         if let endpoint = connectedEndpoint(forDisplayID: displayID) {
@@ -1134,7 +1238,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         } else {
             mutedDisplayIDs.remove(displayID)
         }
-        ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs) }
         if let endpoint = connectedEndpoint(forDisplayID: displayID) {
             sendMuteState(to: [endpoint], displayID: displayID)
         }
@@ -1153,14 +1257,14 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var settings = displayDirectionsByID[displayID] ?? .default
         settings.displayDirection = direction
         displayDirectionsByID[displayID] = settings
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
     }
 
     func setExternalDisplayDirection(id displayID: String, direction: ScoreboardDisplayDirection) {
         var settings = displayDirectionsByID[displayID] ?? .default
         settings.externalDisplayDirection = direction
         displayDirectionsByID[displayID] = settings
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
     }
 
     func customDisplayID(id displayID: String) -> Int {
@@ -1182,7 +1286,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         } else {
             customDisplayIDsByID[displayID] = normalizedDisplayID
         }
-        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID) }
         sendCurrentState()
     }
 
@@ -1225,6 +1329,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
     func updateState(_ states: ScoreboardRemoteDisplayEncodedStates) {
         latestStates = states
+        guard !isDiscoveryOnly, commitRecoveryTargetID == nil else { return }
         sendCurrentState()
     }
 
@@ -1294,7 +1399,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
-        for source in sources {
+        for source in sources where !isDiscoveryOnly {
             removeResetTrustedDisplayIfNeeded(source)
             autoReconnectTrustedDisplayIfNeeded(source)
         }
@@ -1306,6 +1411,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         request: ScoreboardRemoteDisplayPairingRequest,
         pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
     ) {
+        guard source.id != localDisplayID else { return }
         if let existingEndpoint = existingConnectionEndpoint(for: source),
            var existing = displayConnectionsByEndpoint[existingEndpoint] {
             existing.pendingPairingRequest = request
@@ -1332,11 +1438,14 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             appVersion: source.appVersion,
             deviceType: source.deviceType,
             remoteStateVersions: source.remoteStateVersions,
+            sessionProtocolVersion: source.supportsSessionHosting ? ScoreboardSessionTransport.protocolVersion : nil,
             pendingPairingRequest: request,
             pendingTrustedDisplay: pendingTrustedDisplay
         )
-        connection.stateUpdateHandler = { [weak self] state in
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
             Task { @MainActor [weak self] in
+                guard let connection,
+                      self?.displayConnectionsByEndpoint[source.endpoint]?.connection === connection else { return }
                 self?.handleConnectionStateChanged(state, endpoint: source.endpoint)
             }
         }
@@ -1395,9 +1504,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         guard let connection = displayConnectionsByEndpoint[endpoint]?.connection else {
             return
         }
-        connection.receiveMessage { [weak self] data, _, _, error in
+        connection.receiveMessage { [weak self, weak connection] data, _, _, error in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, let connection,
+                      self.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
                 if error != nil {
                     self.handleDroppedConnection(endpoint: endpoint, error: error)
                     return
@@ -1418,6 +1528,17 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func handleControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from endpoint: NWEndpoint) {
+        if message.kind == .session {
+            guard let display = displayConnectionsByEndpoint[endpoint], display.isReady,
+                  display.pendingTrustedDisplay == nil, let ack = display.lastAckAt,
+                  Date().timeIntervalSince(ack) < 5,
+                  message.displayID == display.displayID, message.hostID == hostID,
+                  message.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+                  let data = message.sessionMessage, !data.isEmpty,
+                  data.count <= ScoreboardSessionTransport.maximumMessageBytes else { return }
+            sessionMessageHandler?(data, display.displayID)
+            return
+        }
         if message.kind == .command {
             guard let display = displayConnectionsByEndpoint[endpoint], display.isReady,
                   display.pendingTrustedDisplay == nil, let lastAck = display.lastAckAt,
@@ -1425,7 +1546,12 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                   display.deviceType != .appleTV,
                   message.displayID == display.displayID, message.hostID == hostID,
                   let command = message.command else { return }
-            let result = controlCommandHandler?(command, display.displayID) ?? .failure(command.id, "disabled", "Remote control is disabled.")
+            let result: ScoreboardControlResult
+            if commandSessionValidator?(message.sessionID, message.sessionEpoch) == false {
+                result = .failure(command.id, "staleSession", "The session host changed. Wait for synchronization before retrying.")
+            } else {
+                result = controlCommandHandler?(command, display.displayID) ?? .failure(command.id, "disabled", "Remote control is disabled.")
+            }
             sendControlMessage(ScoreboardRemoteDisplayControlMessage(
                 kind: .commandResult, sequence: message.sequence, sentAt: Date().timeIntervalSince1970,
                 hostID: hostID, hostName: displayName, displayID: display.displayID, displayName: display.displayName,
@@ -1445,7 +1571,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             return
         }
 
-        guard message.kind == .heartbeatAck else {
+        guard message.kind == .heartbeatAck, message.hostID == hostID,
+              let expectedDisplay = displayConnectionsByEndpoint[endpoint],
+              message.displayID == expectedDisplay.displayID else {
             return
         }
 
@@ -1463,6 +1591,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         display?.displayName = displayName
         display?.lastAckAt = now
         display?.lastAckSequence = message.sequence
+        display?.sessionProtocolVersion = message.sessionProtocolVersion
         display?.latency = latency
         display?.appVersion = ScoreboardRemoteDisplayAppVersion(
             version: message.appVersion,
@@ -1558,13 +1687,13 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             ?? localizedRemoteDisplayString("Remote Display")
 
         trustedDisplays.removeAll { $0.id == displayID }
-        ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays) }
         mutedDisplayIDs.remove(displayID)
-        ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs) }
         displayDirectionsByID.removeValue(forKey: displayID)
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
         customDisplayIDsByID.removeValue(forKey: displayID)
-        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID) }
         endpointsResettingPairing.insert(endpoint)
         displayConnectionsByEndpoint.removeValue(forKey: endpoint)
         invitedPeerIDs.remove(displayID)
@@ -1625,15 +1754,19 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
     private func isConnected(to source: ScoreboardRemoteDisplaySource) -> Bool {
         if let endpoint = existingConnectionEndpoint(for: source),
-           displayConnectionsByEndpoint[endpoint]?.isReady == true,
+           let display = displayConnectionsByEndpoint[endpoint], display.isReady,
+           display.pendingTrustedDisplay == nil,
+           let lastAck = display.lastAckAt, Date().timeIntervalSince(lastAck) < 10,
            !endpointsResettingPairing.contains(endpoint) {
             return true
         }
-        return connectedDisplays.contains { $0.id == source.id }
+        return false
     }
 
     private func autoReconnectTrustedDisplayIfNeeded(_ source: ScoreboardRemoteDisplaySource) {
         guard
+            !isDiscoveryOnly,
+            commitRecoveryTargetID.map({ $0 == source.id }) ?? true,
             isTrustedDisplay(source),
             source.lastActiveOperatorID == hostID,
             !source.isInUseByOtherOperator(currentOperatorID: hostID),
@@ -1651,7 +1784,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         force: Bool = false,
         takeoverConfirmed: Bool = false
     ) {
-        guard browser != nil else {
+        guard browser != nil, !isDiscoveryOnly else {
             status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
             return
         }
@@ -1765,13 +1898,13 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         }
 
         trustedDisplays.removeAll { $0.id == source.id }
-        ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays) }
         mutedDisplayIDs.remove(source.id)
-        ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(mutedDisplayIDs) }
         displayDirectionsByID.removeValue(forKey: source.id)
-        ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(displayDirectionsByID) }
         customDisplayIDsByID.removeValue(forKey: source.id)
-        ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID) }
     }
 
     private func trustDisplay(
@@ -1797,13 +1930,14 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         ))
         updatedDisplays.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         trustedDisplays = updatedDisplays
-        ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays)
+        if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays) }
     }
 
     private func updateBrowsingStatus() {
         let now = Date()
         connectedDisplays = displayConnectionsByEndpoint.values
-            .filter { $0.isReady && !endpointsResettingPairing.contains($0.endpoint) }
+            .filter { $0.isReady && $0.lastAckAt != nil && $0.pendingTrustedDisplay == nil
+                && $0.displayID != localDisplayID && !endpointsResettingPairing.contains($0.endpoint) }
             .map { display in
                 let ackAge = display.lastAckAt.map { now.timeIntervalSince($0) }
                 return ScoreboardRemoteDisplayConnection(
@@ -1814,7 +1948,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                     lastHandshakeAgeSeconds: ackAge.map(Int.init),
                     appVersion: display.appVersion,
                     deviceType: display.deviceType,
-                    isMuted: mutedDisplayIDs.contains(display.displayID)
+                    isMuted: mutedDisplayIDs.contains(display.displayID),
+                    supportsSessionHosting: display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -1846,6 +1981,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func sendCurrentState(to endpoints: [NWEndpoint]? = nil) {
+        guard !isDiscoveryOnly, commitRecoveryTargetID == nil else { return }
         let targetEndpoints = endpoints ?? readyEndpoints
         guard !targetEndpoints.isEmpty else {
             return
@@ -1870,8 +2006,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
         display.isSendingState = true
         displayConnectionsByEndpoint[endpoint] = display
+        let connection = display.connection
         sendData(data, to: [endpoint]) { [weak self] _ in
             Task { @MainActor [weak self] in
+                guard self?.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
                 self?.handleStateSendCompleted(to: endpoint)
             }
         }
@@ -1919,7 +2057,18 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     func refreshControlPermissions() { sendHeartbeat() }
 
     private func sendHeartbeat() {
-        let targetEndpoints = readyEndpoints
+        guard !isDiscoveryOnly else { return }
+        // A TCP connection can remain ready while the app at the other end is
+        // suspended. Bound both initial pairing and established handshakes so
+        // retries can create a fresh connection instead of reusing a dead one.
+        let deadline = Date()
+        let expired = displayConnectionsByEndpoint.compactMap { endpoint, display in
+            deadline.timeIntervalSince(display.lastAckAt ?? display.createdAt) > 10 ? endpoint : nil
+        }
+        for endpoint in expired { handleDroppedConnection(endpoint: endpoint) }
+        let targetEndpoints = readyEndpoints.filter { endpoint in
+            commitRecoveryTargetID.map { sourceID(for: endpoint) == $0 } ?? true
+        }
         guard !targetEndpoints.isEmpty else {
             updateBrowsingStatus()
             retryTrustedReconnectsForAvailableSources()
@@ -1937,7 +2086,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 hostName: displayName,
                 displayID: sourceID(for: endpoint),
                 displayName: nil,
-                remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue
+                remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue,
+                sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion
             )
             sendControlMessage(message, to: [endpoint])
         }
@@ -1949,6 +2099,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         }
         updateBrowsingStatus()
         retryTrustedReconnectsForAvailableSources()
+        maintenanceHandler?()
     }
 
     private func sendData(_ data: Data, to endpoints: [NWEndpoint]? = nil, completion: ((NWError?) -> Void)? = nil) {
@@ -1962,13 +2113,13 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             guard let connection = displayConnectionsByEndpoint[endpoint]?.connection else {
                 continue
             }
-            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { [weak self] error in
-                if let error {
-                    Task { @MainActor [weak self] in
-                        self?.handleDroppedConnection(endpoint: endpoint, error: error)
-                    }
+            ScoreboardRemoteDisplayNetworkTransport.send(data, on: connection) { [weak self, weak connection] error in
+                Task { @MainActor [weak self] in
+                    guard let self, let connection,
+                          self.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
+                    if let error { self.handleDroppedConnection(endpoint: endpoint, error: error) }
+                    completion?(error)
                 }
-                completion?(error)
             }
         }
     }
@@ -2045,6 +2196,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     private struct NetworkDisplayConnection {
         let endpoint: NWEndpoint
         let connection: NWConnection
+        let createdAt = Date()
         var displayID: String
         var displayName: String
         var isReady = false
@@ -2055,6 +2207,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var appVersion: ScoreboardRemoteDisplayAppVersion?
         var deviceType: ScoreboardRemoteDisplayDeviceType
         var remoteStateVersions: Set<Int>
+        var sessionProtocolVersion: Int? = nil
         var pendingPairingRequest: ScoreboardRemoteDisplayPairingRequest?
         var pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
         var isSendingState = false
@@ -2077,6 +2230,19 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     @Published private(set) var lastHeartbeatAt: Date?
     @Published private(set) var isRemoteControlAvailable = false
     @Published private(set) var isControlBoardDevice = false
+    @Published private(set) var isHostingSession = false
+    var sessionMessageHandler: ((Data) -> Void)?
+    var authenticatedSessionOwnerHostID: String? {
+        guard !isHostingSession, pairedConnection != nil,
+              pairedSessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+              let pairedHostID,
+              trustedHosts.contains(where: { $0.id == pairedHostID && $0.pairingSecret?.isEmpty == false })
+        else { return nil }
+        return pairedHostID
+    }
+    var hostedControlCommandHandler: ((ScoreboardControlCommand) -> ScoreboardControlResult)?
+    var commandSessionProvider: (() -> (UUID, UInt64)?)?
+    private var pairedSessionProtocolVersion: Int?
     private var pendingControlCommands: [UUID: ScoreboardControlCommand] = [:]
     var pendingCommandsForDisplay: [ScoreboardControlCommand] {
         pendingControlCommands.values.sorted { ($0.sentAt ?? 0) < ($1.sentAt ?? 0) }
@@ -2094,13 +2260,16 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     let displayID = ScoreboardRemoteDisplayIdentity.stableID(forKey: "remoteDisplayID")
 
     var canDisconnectFromOperator: Bool {
-        pairedHostID != nil || lastActiveOperatorID != nil
+        !isHostingSession && (pairedHostID != nil || lastActiveOperatorID != nil)
     }
 
     var isControlConnectionReady: Bool {
         #if os(tvOS)
         return false
         #else
+        if isHostingSession {
+            return isRemoteControlAvailable && state?.control?.remoteEnabled == true && hostedControlCommandHandler != nil
+        }
         return status.isLive && isRemoteControlAvailable && state?.control?.remoteEnabled == true
             && pairedConnection != nil
             && lastClockSyncAt.map { Date().timeIntervalSince($0) < 5 } == true
@@ -2112,6 +2281,14 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func sendCommand(_ input: ScoreboardControlCommand) {
+        if isHostingSession {
+            guard canSendControlCommand, let handler = hostedControlCommandHandler else {
+                controlResult = .failure(input.id, "disabled", "This device is not allowed to control the session.")
+                return
+            }
+            controlResult = handler(input)
+            return
+        }
         markStaleHostIfNeeded()
         guard canSendControlCommand, let connection = pairedConnection, let offset = masterClockOffset else {
             controlResult = .failure(input.id, "disabled", "Control unavailable. Check pairing, synchronization, and this device's control permission.")
@@ -2137,14 +2314,104 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         pendingControlCommands[command.id] = command
         pendingControlCommandID = command.id
         controlResult = nil
+        let sessionFence = commandSessionProvider?()
         sendControlMessage(ScoreboardRemoteDisplayControlMessage(
             kind: .command, sequence: 0, sentAt: command.sentAt!, hostID: pairedHostID, hostName: pairedHostName,
-            displayID: displayID, displayName: displayName, command: command), to: [connection])
+            displayID: displayID, displayName: displayName, command: command,
+            sessionID: sessionFence?.0, sessionEpoch: sessionFence?.1), to: [connection])
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard let self, self.pendingControlCommands[command.id] != nil else { return }
             self.disconnectUnresponsiveControlHost()
             self.controlResult = .failure(command.id, "disconnected", "No acknowledgement. Refresh state before trying again; the command may have applied.")
+        }
+    }
+
+    @discardableResult
+    func sendSessionMessage(_ data: Data) -> Bool {
+        guard !data.isEmpty, data.count <= ScoreboardSessionTransport.maximumMessageBytes,
+              let connection = pairedConnection, let hostID = pairedHostID,
+              pairedSessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+              trustedHosts.contains(where: { $0.id == hostID && $0.pairingSecret?.isEmpty == false })
+        else { return false }
+        sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+            kind: .session, sequence: 0, sentAt: Date().timeIntervalSince1970,
+            hostID: hostID, hostName: pairedHostName, displayID: displayID, displayName: displayName,
+            sessionMessage: data, sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion
+        ), to: [connection])
+        return true
+    }
+
+    /// The owner becomes a client without asking the user to pair with their own session.
+    func trustSessionHost(ownerHostID: String, ownerName: String, pairingSecret: String) {
+        guard !ownerHostID.isEmpty, !pairingSecret.isEmpty else { return }
+        trustHost(id: ownerHostID, name: ownerName, pairingSecret: pairingSecret)
+        setLastActiveOperator(id: ownerHostID, name: ownerName, pairingSecret: pairingSecret)
+        clearFailedPairingAttempts(hostID: ownerHostID)
+        startOrRefreshListener()
+    }
+
+    /// A host keeps the same display/control presentation, fed directly by its
+    /// authoritative store. Its old upstream connection remains available only
+    /// for completing the handoff handshake.
+    func updateHostedState(state: ScoreboardWebAPIState, images: [String: ScoreboardWebAPIImageResponse]) {
+        let wasHosting = isHostingSession
+        isHostingSession = true
+        if !wasHosting {
+            pendingControlCommands.removeAll()
+            pendingControlCommandID = nil
+            controlResult = nil
+            startHeartbeatMonitorTimer()
+        }
+        self.state = state
+        let now = Date()
+        lastReceivedAt = now
+        lastHeartbeatAt = now
+        masterClockOffset = 0
+        roundTripSeconds = 0
+        lastClockSyncAt = now
+        isRemoteControlAvailable = state.control?.remoteEnabled == true
+        #if !os(tvOS)
+        isControlBoardDevice = isRemoteControlAvailable
+        #endif
+        status = .paired(ScoreboardRemoteDisplayDeviceName.current ?? localizedRemoteDisplayString("This Device"))
+        var assets: [String: ScoreboardRemoteDisplayImageAsset] = [:]
+        func addImage(id: String?, path: String?) {
+            guard let id, let path, let image = images[path] else { return }
+            assets[id] = ScoreboardRemoteDisplayImageAsset(id: id, path: path, mimeType: image.contentType, data: image.body)
+        }
+        addImage(id: state.display?.backgroundImage?.id, path: state.display?.backgroundImage?.path)
+        addImage(id: state.display?.eventLogo?.id, path: state.display?.eventLogo?.path)
+        addImage(id: state.teams.home.logo?.id, path: state.teams.home.logo?.path)
+        addImage(id: state.teams.guest.logo?.id, path: state.teams.guest.logo?.path)
+        if imageAssetsByID != assets { imageAssetsByID = assets }
+        if !wasHosting || listener == nil { startOrRefreshListener() }
+    }
+
+    func stopHostingSession() {
+        guard isHostingSession else { return }
+        isHostingSession = false
+        hostedControlCommandHandler = nil
+        isControlBoardDevice = false
+        cancelActiveConnections()
+        pairedHostID = nil
+        pairedHostName = nil
+        pairedSessionProtocolVersion = nil
+        lastHeartbeatAt = nil
+        lastReceivedAt = nil
+        masterClockOffset = nil
+        clearControlConnection()
+        state = nil
+        imageAssetsByID.removeAll()
+        requestedImageAssetIDs.removeAll()
+        soundTestPlayer.stop()
+        if activeConsumerCount == 0 {
+            stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
+        } else {
+            status = .disconnected(localizedRemoteDisplayString("Waiting for the session host to reconnect."))
+            startPairingCodeTimer()
+            startHeartbeatMonitorTimer()
+            startOrRefreshListener()
         }
     }
 
@@ -2196,7 +2463,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func release() {
         activeConsumerCount = max(0, activeConsumerCount - 1)
-        if activeConsumerCount == 0 {
+        if activeConsumerCount == 0, !isHostingSession {
             stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
         }
     }
@@ -2213,7 +2480,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func resumeAfterAppLifecycle(networkMode: ScoreboardRemoteDisplayNetworkMode) {
         self.networkMode = networkMode
-        guard activeConsumerCount > 0 else {
+        guard activeConsumerCount > 0 || isHostingSession else {
             return
         }
 
@@ -2221,6 +2488,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func start(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
+        if isHostingSession {
+            updateNetworkMode(networkMode)
+            startOrRefreshListener()
+            return
+        }
         if listener != nil {
             updateNetworkMode(networkMode)
             return
@@ -2250,12 +2522,14 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func stop() {
+        guard !isHostingSession else { activeConsumerCount = 0; return }
         isControlBoardDevice = false
         activeConsumerCount = 0
         stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
     }
 
     private func stopAdvertising(statusMessage: String) {
+        guard !isHostingSession else { return }
         pairingCodeTimer?.invalidate()
         pairingCodeTimer = nil
         heartbeatMonitorTimer?.invalidate()
@@ -2290,7 +2564,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func recoverReceiverNetworkingAfterFailure(error: NWError? = nil, force: Bool = false) {
-        guard activeConsumerCount > 0 else {
+        if isHostingSession {
+            cancelActiveConnections()
+            startOrRefreshListener(recreate: true)
+            return
+        }
+        guard activeConsumerCount > 0 || isHostingSession else {
             return
         }
 
@@ -2332,11 +2611,13 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func resetPairingCode() {
+        guard !isHostingSession else { return }
         pairingCode = Self.makePairingCode()
         startPairingCodeTimer()
     }
 
     func disconnectFromOperator() {
+        guard !isHostingSession else { return }
         isControlBoardDevice = false
         let operatorName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
         let message = ScoreboardRemoteDisplayControlMessage(
@@ -2372,6 +2653,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func forgetTrustedHosts() {
+        guard !isHostingSession else { return }
         isControlBoardDevice = false
         isForgettingTrustedHosts = true
         pairingSetID = ScoreboardRemoteDisplayIdentity.resetStableID(forKey: "remoteDisplayPairingSetID")
@@ -2460,6 +2742,10 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func markStaleHostIfNeeded() {
+        if isHostingSession {
+            lastHeartbeatAt = Date()
+            return
+        }
         guard
             pairedHostID != nil,
             let lastContact = lastHeartbeatAt ?? lastReceivedAt,
@@ -2472,6 +2758,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func disconnectUnresponsiveControlHost() {
+        guard !isHostingSession else { return }
         let staleHostName = pairedHostName ?? lastActiveOperatorName ?? localizedRemoteDisplayString("operator device")
         let staleConnection = pairedConnection
         if let staleConnection { connectionsByID.removeValue(forKey: ObjectIdentifier(staleConnection)) }
@@ -2488,6 +2775,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private var advertisedState: ScoreboardRemoteDisplayReceiverAdvertisedState {
+        if isHostingSession { return .running }
         if pairedHostID != nil {
             return isPairingScreenVisible ? .runningPairing : .running
         }
@@ -2513,7 +2801,9 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             "appVersion": ScoreboardRemoteDisplayAppVersion.current.version,
             "appBuild": ScoreboardRemoteDisplayAppVersion.current.build,
             "deviceType": ScoreboardRemoteDisplayDeviceType.current.rawValue,
-            "remoteStateVersions": ScoreboardRemoteDisplayStateVersions.advertisedValue
+            "remoteStateVersions": ScoreboardRemoteDisplayStateVersions.advertisedValue,
+            "sessionProtocolVersion": String(ScoreboardSessionTransport.protocolVersion),
+            "isSessionHost": isHostingSession ? "true" : "false"
         ]
         let currentAdvertisedState = advertisedState
         discoveryInfo["receiverState"] = currentAdvertisedState.rawValue
@@ -2547,7 +2837,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func startOrRefreshListener(recreate: Bool = false) {
-        guard activeConsumerCount > 0 else { return }
+        guard activeConsumerCount > 0 || isHostingSession else { return }
         let discoveryInfo = currentDiscoveryInfo()
         if let listener, !recreate, listenerNetworkMode == networkMode {
             guard advertisedDiscoveryInfo != discoveryInfo else {
@@ -2595,15 +2885,23 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             advertisedDiscoveryInfo = discoveryInfo
             listener.start(queue: .main)
         } catch {
-            status = .failed(String(describing: error))
+            if !isHostingSession { status = .failed(String(describing: error)) }
         }
     }
 
     private func handleListenerStateChanged(_ state: NWListener.State) {
         switch state {
         case .failed(let error):
+            if Self.isLocalNetworkPermissionError(error) {
+                status = .failed("Allow Scoreboard Local Network access in device Settings, then reopen Remote Display.")
+                return
+            }
             recoverReceiverNetworkingAfterFailure(error: error)
         case .waiting(let error):
+            if Self.isLocalNetworkPermissionError(error) {
+                status = .failed("Allow Scoreboard Local Network access in device Settings, then reopen Remote Display.")
+                return
+            }
             if Self.isDefunctNetworkError(error) {
                 recoverReceiverNetworkingAfterFailure(error: error)
             }
@@ -2612,6 +2910,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         @unknown default:
             break
         }
+    }
+
+    private static func isLocalNetworkPermissionError(_ error: NWError) -> Bool {
+        if case .posix(let code) = error { return code == .EACCES || code == .EPERM }
+        return false
     }
 
     private func handleNewConnection(_ connection: NWConnection) {
@@ -2650,6 +2953,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func removeConnection(_ connection: NWConnection) {
+        if isHostingSession {
+            connectionsByID.removeValue(forKey: ObjectIdentifier(connection))
+            if pairedConnection === connection { pairedConnection = nil }
+            return
+        }
         connectionsByID.removeValue(forKey: ObjectIdentifier(connection))
         guard pairedConnection === connection else {
             return
@@ -2682,7 +2990,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         connection.receiveMessage { [weak self, weak connection] data, _, _, error in
             guard let connection else { return }
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.connectionsByID[ObjectIdentifier(connection)] === connection else { return }
                 if error != nil {
                     self.removeConnection(connection)
                     return
@@ -2708,6 +3016,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
 
         if let imageAsset = ScoreboardRemoteDisplayImageAssetCodec.decode(data) {
+            guard !isHostingSession, acceptsStateUpdate(from: connection) else { return }
             handleImageAsset(imageAsset)
             return
         }
@@ -2717,6 +3026,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        guard !isHostingSession else { return }
         guard let decodedState = Self.decodeRemoteDisplayState(from: data) else {
             status = .failed(localizedRemoteDisplayString("Received an unreadable Remote Display update."))
             return
@@ -2748,6 +3058,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func handlePairingRequest(_ request: ScoreboardRemoteDisplayPairingRequest, from connection: NWConnection) {
+        guard !isHostingSession else {
+            // Promotion has committed: an old host cannot replace local authority.
+            if pairedConnection !== connection { connection.cancel() }
+            return
+        }
         let requesterHostID = request.hostID
         let hostName = request.hostName
         let isDisplayMatch = request.displayID == nil || request.displayID == displayID
@@ -2789,6 +3104,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         clearFailedPairingAttempts(hostID: requesterHostID)
         if pairedHostID != requesterHostID { isControlBoardDevice = false }
         if pairedConnection !== connection {
+            pairedSessionProtocolVersion = nil
             masterClockOffset = nil
             clearControlConnection()
         }
@@ -2865,7 +3181,21 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        if message.kind == .session {
+            guard pairedConnection === connection, let hostID = pairedHostID,
+                  message.hostID == hostID, message.displayID == displayID,
+                  trustedHosts.contains(where: { $0.id == hostID && $0.pairingSecret?.isEmpty == false }),
+                  message.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+                  let data = message.sessionMessage, !data.isEmpty,
+                  data.count <= ScoreboardSessionTransport.maximumMessageBytes else { return }
+            sessionMessageHandler?(data)
+            return
+        }
+        guard !isHostingSession else { return }
+
         switch message.kind {
+        case .session:
+            return
         case .command:
             return
         case .commandResult:
@@ -2919,6 +3249,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
         let receivedAt = Date()
         lastHeartbeatAt = receivedAt
+        pairedSessionProtocolVersion = message.sessionProtocolVersion
         if lastClockSyncAt == nil { updateMasterClockOffset(from: message, receivedAt: receivedAt) }
         let previousHostID = pairedHostID
         let previousHostName = pairedHostName
@@ -2949,7 +3280,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             appBuild: ScoreboardRemoteDisplayAppVersion.current.build,
             deviceType: ScoreboardRemoteDisplayDeviceType.current,
             remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue,
-            receivedAt: receivedAt.timeIntervalSince1970
+            receivedAt: receivedAt.timeIntervalSince1970,
+            sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion
         )
         sendControlMessage(response, to: [connection])
     }
@@ -3030,7 +3362,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func acceptsStateUpdate(from connection: NWConnection) -> Bool {
-        guard pairedHostID != nil else {
+        guard !isHostingSession, pairedHostID != nil else {
             return false
         }
         return pairedConnection === connection

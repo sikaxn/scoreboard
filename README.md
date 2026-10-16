@@ -4,7 +4,7 @@
   <img src="icon.png" alt="Scoreboard app icon" width="160">
 </p>
 
-Scoreboard is a SwiftUI scoreboard app for iPhone, iPad, Mac, and Apple TV. iPhone, iPad, and Mac include the operator controls; Apple TV is a display-only Remote Display for showing a live scoreboard from a paired Scoreboard device.
+Scoreboard is a SwiftUI scoreboard app for iPhone, iPad, Mac, and Apple TV. iPhone, iPad, and Mac include the operator controls; Apple TV can display a paired scoreboard and run the game as the session host.
 
 This project use AI generated contents.
 
@@ -20,13 +20,13 @@ Choose **Local Display → Full Screen** for a presentation display, or **Merged
 
 Built-in presets include Simple, Basketball, Volleyball, Soccer, Hockey, Chess, Debate, and Custom Sport modes. Debate supports Public Forum, Lincoln-Douglas, Policy, and custom round formats.
 
-Apple TV can be used in two ways. You can AirPlay from the operator device to Apple TV without installing the Apple TV app, because AirPlay is treated like an external display. Or you can install Scoreboard on Apple TV and use it as a Remote Display. Apple TV Remote Display is display-only: it does not run the operator board, edit game setup, manage files, or control the score. Use an iPhone, iPad, or Mac to run the game, then pair Apple TV to show the live public scoreboard.
+Apple TV can be used in two ways. You can AirPlay from the operator device to Apple TV without installing the Apple TV app, because AirPlay is treated like an external display. Or you can install Scoreboard on Apple TV and use it as a Remote Display. Apple TV can also be assigned as the session host to run game logic, timers, Web API, and Companion. The operator board, game setup, and files stay on iPhone, iPad, or Mac.
 
 Whether you are running a gym scoreboard, timing a debate round, managing a scrimmage, or keeping a clean public display for spectators, Scoreboard keeps the game organized and visible.
 
 ## Full Experience
 
-For the full Scoreboard experience, connect an external display, use AirPlay, or pair Remote Display devices. AirPlay works with Apple TV without installing the app on Apple TV. Remote Display is useful when you want nearby Apple devices, including multiple displays, to receive synced scoreboard updates from the same operator device.
+For the full Scoreboard experience, connect an external display, use AirPlay, or pair Remote Display devices. AirPlay works with Apple TV without installing the app on Apple TV. Remote Display is useful when you want nearby Apple devices, including multiple displays, to receive synced scoreboard updates from the same session host.
 
 ## Features
 
@@ -49,6 +49,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Event logs with export support
 - Local Web API demos, including a commentator dashboard with live match data, current-session timeline, roster alerts, and deterministic talking points
 - Paired iPhone, iPad, and Mac remote control boards, with timer delay compensation and simultaneous remote display output
+- Assign a paired device, including Apple TV, to host the game while the owner keeps game files and settings
 - Optional authenticated Web API control with a resettable 16-character key, control demo, and operation reference
 
 ## Supported Platforms
@@ -56,9 +57,9 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - iPhone
 - iPad
 - Mac
-- Apple TV (Remote Display only)
+- Apple TV (Remote Display and session host)
 
-The iPhone, iPad, and Mac app includes the operator interface and can also be switched into Remote Display mode from Settings. Apple TV AirPlay does not require the Scoreboard Apple TV app. If the Apple TV app is installed, it always runs as a Remote Display only; it is for showing the scoreboard, not controlling it. Remote Display uses Network Framework Bonjour pairing, not the Web API, and can sync more than one display device from the same operator device. The operator can choose same Wi-Fi/LAN only or allow Apple peer-to-peer Wi-Fi for nearby devices.
+The iPhone, iPad, and Mac app includes the operator interface and can also be switched into Remote Display mode from Settings. Apple TV AirPlay does not require the Scoreboard Apple TV app. If the Apple TV app is installed, it shows the scoreboard and can be selected as the session host. It has no operator control board. Remote Display uses Network Framework Bonjour pairing, not the Web API, and can sync more than one display device from the same session host. The owner can choose same Wi-Fi/LAN only or allow Apple peer-to-peer Wi-Fi for nearby devices.
 
 ## Build From Source
 
@@ -109,8 +110,30 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
 
 ### Remote control
 
-Pair another iPhone, iPad, or Mac using the existing Remote Display workflow. On the main board, open **Settings → Integration → Remote Display** and enable **Allow This Device to Control** in that specific paired device’s row. Permissions are independent for each device. An approved device automatically opens the regular app control board, including player controls, Display Control, Merged View, and Local Display. Its external screen can continue showing the scoreboard. Apple TV remains display-only. Timer commands use a simple heartbeat round-trip clock estimate and compensate for travel time; stale or conflicting commands are rejected. Sounds are relayed to paired devices, while Companion commands execute only on the main device.
+Pair another iPhone, iPad, or Mac using the existing Remote Display workflow. On the main board, open **Settings → Integration → Remote Display** and enable **Allow This Device to Control** in that specific paired device’s row. Permissions are independent for each device. An approved device automatically opens the regular app control board, including player controls, Display Control, Merged View, and Local Display. Its external screen can continue showing the scoreboard. Apple TV supports display and hosting, with controls on iPhone, iPad, or Mac. Timer commands use a simple heartbeat round-trip clock estimate and compensate for travel time; stale or conflicting commands are rejected. Sounds are relayed to paired devices, while Companion commands execute only on the session host.
+
+The device that starts pairing remains the **owner**. To move game logic to another device, open **Settings → Integration → Remote Display & Control** and choose **Make Session Host** for a connected device. There is one host at a time; connected devices move to the selected host after the transfer handshake. An Ethernet-connected Apple TV or Mac can keep timers and other controllers operating while the owner is disconnected. Use **Host on This Device** to move hosting back. Host changes require the current host to be reachable.
+
+Stop every game, shot, debate prep, and penalty timer before moving the host. Control boards show the host's connected and disconnected device counts, using the same session totals as the owner. The owner's local entry is excluded; an offline control board labels these counts as the last report from the host.
+
+A delegated host keeps an isolated match file and log while the owner is offline. When the owner reconnects, the host sends the latest match and log back to the owner's saved game file. **Safe to Disconnect** appears on the owner's control board and connected remote display only after all timers stop and the owner confirms a durable save. Leaving hosted Remote Display mode in that state moves hosting back to the owner and removes the host's isolated copy. If the match is not synced, the exit prompt offers a deliberate choice to keep hosting and reconnect or delete the local match. Use **Open Guide** in Remote Display & Control settings for a court diagram and LAN/nearby pairing explanation.
+
+After a successful handoff, the former delegated host deletes its isolated match, log, recovery record, and retained host checkpoint, using the same data cleanup as discarding a hosted match. It keeps its pairing so it can reconnect as an ordinary remote display or control board. Ordinary remote clients keep active session identity in memory; the owner retains the saved game and recovery copy.
+
+If the host is permanently unavailable, the owner can use **Recover Here** after its connection drops. Recovery uses the owner's last saved host checkpoint, stops all timers, and may lose changes made on the host since that checkpoint. If the old host returns, discard its local hosted match before reconnecting it. A delegated host can choose **Discard Match & Stop Hosting** locally to delete its isolated match and log and return to pairing mode. The remote device's pairing screen does not show the owner setup guide.
+
+On Apple TV, the host's working copy uses tvOS cache storage, which the system can remove after Scoreboard closes. Keep Scoreboard running while the owner is offline, then reconnect the owner and wait for **Safe to Disconnect** before leaving the Apple TV app.
+
+Game files, setup, and integration settings remain on the owner. The host records game events and sends log updates to clients when available, with control and timer traffic taking priority. Web API and Companion run on the host; their settings pages show the host name and IP. Use the host's URL for web integrations. API responses expose session identity through `control.session` in v1, `/api/v2/state/session`, and status endpoints.
 
 For browser or script control, enable the Web API and **Web Control**, then copy the API key. Use `POST /api/v2/control` with `X-API-Key` and a JSON command containing a unique UUID `id`, an `action`, and the current `sport`. The key has 16 letters/digits, is case-insensitive, and can be reset to revoke access. Setup operations are excluded. Open `/demo/control` for the browser controller or `/` for API documentation; `/api/v2/control/operations` lists every shared command and its parameters. Use a trusted local network because HTTP does not encrypt the key.
 
-Run `python3 scripts/run_remote_control_tests.py` on macOS with Xcode to check all sports, timer compensation, validation, duplicate commands, and HTTP authentication. The runner uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. The optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom`.
+### Build and test with Xcode
+
+Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode, select the **smartScoreboard** scheme and a destination, then choose **Product → Build** (⌘B) to build the app. The project currently has no XCTest target, so **Product → Test** (⌘U) does not run the remote-control suite. Run it from Terminal at the repository root instead:
+
+```sh
+python3 scripts/run_remote_control_tests.py
+```
+
+The runner uses Xcode's Swift compiler to check all sports, timer compensation, validation, duplicate commands, and HTTP authentication. It uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. Optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom`.

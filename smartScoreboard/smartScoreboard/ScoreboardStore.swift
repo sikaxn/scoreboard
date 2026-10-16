@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 
 private enum ExternalAutomationIntegration {
     case companion
@@ -1064,20 +1065,149 @@ final class ScoreboardStore: ObservableObject {
     @Published var didCompleteSetup = false
     @Published private(set) var currentGameDisplayName: String?
 
+    @Published private(set) var sessionDescriptor: ScoreboardSessionDescriptor?
+    @Published private(set) var sessionTransferInProgress = false
+    @Published private(set) var sessionStatusMessage: String?
+    @Published private(set) var sessionConnectionStatus = "Local"
+    @Published private(set) var sessionRoundTripSeconds: TimeInterval?
+    @Published private(set) var sessionIsConnected = true
+    @Published private(set) var sessionHostPeers: [ScoreboardSessionPeer] = []
+    private var sessionRecoveryRole: ScoreboardSessionRecovery.Role?
+    private var sessionAuthorityFenced = false
+    private var isApplyingSessionUpdate = false
+    private var sessionTransferID: UUID?
+    private var sessionTransferTargetID: String?
+    private var sessionTransferCheckpoint: ScoreboardSessionCheckpoint?
+    private var sessionTransferStartedAt: Date?
+    private var lastSessionPrepareSentAt: Date?
+    private var lastSessionCommitSentAt: Date?
+    private var sessionOwnerPairingSecret: String?
+    private var sessionOwnerReceiverAcquired = false
+    private var lastLogPageAtByPeer: [String: Date] = [:]
+    private var lastSessionPeerReportAt: Date?
+    private var lastSessionLogRequestAt: Date?
+    private var pendingLogBatchByPeer: [String: ScoreboardSessionLogBatch] = [:]
+    private var logCursorByPeer: [String: ScoreboardSessionLogCursor] = [:]
+    private var lastOwnerSettingsData: Data?
+    private var pendingOwnerSettingsSync = false
+    private var lastOwnerVisualData: Data?
+    private var pendingOwnerVisualSync = false
+    private var pendingOwnerVisualFields = Set<String>()
+    private var pendingOwnerVisualSnapshot: ScoreboardGameSnapshot?
+    private var sessionSyncRevision: UInt64 = 1
+    private var hostedCheckpointPersistedRevision: UInt64 = 0
+    private var ownerAcknowledgedRevision: UInt64 = 0
+    private var ownerAcknowledgedLogCount = -1
+    private var observedHostedLogCount = -1
+    private var pendingSnapshotSyncID: UUID?
+    private var pendingSnapshotLogCount = -1
+    private var lastSnapshotSyncSentAt: Date?
+    private var exitRemoteModeAfterHostTransfer = false
+    private var hostedMatchQuitCompletion: ((Bool) -> Void)?
+
+    var localSessionDeviceID: String { ScoreboardRemoteDisplayReceiver.shared.displayID }
+    var isSessionOwner: Bool { sessionDescriptor.map { $0.ownerDeviceID == localSessionDeviceID } ?? true }
+    var isDelegatedSessionHost: Bool {
+        guard let sessionDescriptor else { return false }
+        return sessionDescriptor.hostDeviceID == localSessionDeviceID && !isSessionOwner
+            && sessionRecoveryRole == .host && !sessionAuthorityFenced
+    }
+    var isFollowingSessionHost: Bool {
+        guard let sessionDescriptor else { return false }
+        return isSessionOwner && sessionDescriptor.hostDeviceID != localSessionDeviceID
+    }
+    var isSessionAuthority: Bool {
+        guard !isRemoteControlProxy, !sessionAuthorityFenced else { return false }
+        guard let sessionDescriptor else { return !isRemoteDisplayViewerModeEnabled }
+        return sessionRecoveryRole == .host && sessionDescriptor.hostDeviceID == localSessionDeviceID
+    }
+    var routesControlToSessionHost: Bool { isRemoteControlProxy || isFollowingSessionHost }
+    var canChangeSessionHost: Bool {
+        isSessionOwner && !isAnyTimerRunning && !sessionTransferInProgress && (sessionDescriptor == nil ||
+            (isSessionAuthority || sessionIsConnected))
+    }
+    var remoteSessionDeviceCounts: (connected: Int, disconnected: Int)? {
+        if routesControlToSessionHost {
+            guard let control = remoteControlState?.control,
+                  let connected = control.connectedDeviceCount,
+                  let disconnected = control.disconnectedDeviceCount else { return nil }
+            return (connected, disconnected)
+        }
+        let ownerID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
+        let known = Set(remoteDisplayTrustedDisplays.map(\.id))
+            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([ownerID])
+        var connected = Set(remoteDisplayConnectedDisplays.filter {
+            $0.quality == .live || $0.quality == .poor
+        }.map(\.id))
+        if isDelegatedSessionHost { connected.insert(localSessionDeviceID) }
+        let connectedCount = known.intersection(connected).count
+        return (connectedCount, known.count - connectedCount)
+    }
+    var canRecoverSessionHost: Bool {
+        guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
+              !sessionTransferInProgress, let descriptor = sessionDescriptor,
+              let checkpoint = sessionTransferCheckpoint else { return false }
+        return checkpoint.descriptor.sessionID == descriptor.sessionID && descriptor.epoch < UInt64.max
+    }
+    var hasHostedMatchToDiscard: Bool {
+        guard let descriptor = sessionDescriptor else { return false }
+        return descriptor.hostDeviceID == localSessionDeviceID && !isSessionOwner
+            && (sessionRecoveryRole == .host || sessionRecoveryRole == .fenced || sessionRecoveryRole == .prepared)
+    }
+    var sessionHostDisplayName: String { sessionDescriptor?.hostName ?? remoteDisplayHostName }
+    var sessionHostAddresses: [String] {
+        sessionDescriptor?.hostAddresses ?? ScoreboardWebAPIService.localIPv4Addresses()
+    }
+    var sessionHostWebAPIStatus: ScoreboardWebAPIStatus? {
+        guard isFollowingSessionHost, let value = sessionDescriptor?.hostWebAPIStatus else { return nil }
+        switch value {
+        case "running": return .running(httpPort: ScoreboardWebAPIService.httpPort,
+                                         webSocketPort: ScoreboardWebAPIService.webSocketPort, clientCount: 0)
+        case "starting": return .starting
+        case "suspended": return .suspended
+        default: return .off
+        }
+    }
+
+    var isSessionSafeToDisconnect: Bool {
+        if isDelegatedSessionHost, let descriptor = sessionDescriptor {
+            return ScoreboardSessionCleanState(
+                ownerConnected: remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID },
+                anyTimerRunning: isAnyTimerRunning, transferring: sessionTransferInProgress,
+                revision: sessionSyncRevision, persistedRevision: hostedCheckpointPersistedRevision,
+                acknowledgedRevision: ownerAcknowledgedRevision,
+                logCount: logManager.currentSessionSnapshot()?.entries.count ?? 0,
+                acknowledgedLogCount: ownerAcknowledgedLogCount).isSafeToDisconnect
+        }
+        return sessionDescriptor?.safeToDisconnect == true &&
+            (!isFollowingSessionHost || (sessionIsConnected && !pendingOwnerSettingsSync && pendingOwnerVisualFields.isEmpty))
+    }
+
     func setCurrentGameDisplayName(_ name: String?) {
         guard !isRemoteControlProxy, currentGameDisplayName != name else { return }
         currentGameDisplayName = name
+        if isFollowingSessionHost && !isApplyingSessionUpdate { sendOwnerGameName(name) }
     }
     @Published var areTipsEnabled = true
     @Published var showGettingStartedOnStartup = true
     @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
     @Published var isWebControlEnabled = UserDefaults.standard.bool(forKey: "scoreboard.webControlEnabled") {
-        didSet { UserDefaults.standard.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled") }
+        didSet {
+            if !isDelegatedSessionHost && !isApplyingSessionUpdate {
+                UserDefaults.standard.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled")
+            }
+            scheduleOwnerSettingsSync()
+        }
     }
     @Published private(set) var remoteControlAllowedDisplayIDs = Set(UserDefaults.standard.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
 
     func isRemoteControlAllowed(displayID: String) -> Bool {
+        if isSessionAuthority && sessionDescriptor?.ownerDeviceID == displayID { return true }
+        if isDelegatedSessionHost && displayID == localSessionDeviceID {
+            return ScoreboardRemoteDisplayDeviceType.current != .appleTV
+                && remoteControlAllowedDisplayIDs.contains(displayID)
+        }
         guard remoteControlAllowedDisplayIDs.contains(displayID),
               let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
               peer.deviceType != .appleTV else { return false }
@@ -1086,12 +1216,18 @@ final class ScoreboardStore: ObservableObject {
 
     func setRemoteControlAllowed(displayID: String, isAllowed: Bool) {
         guard !isRemoteControlProxy else { return }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "controlPermission", displayID: displayID, enabled: isAllowed))
+            return
+        }
         if isAllowed {
             guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
                   peer.deviceType != .appleTV else { return }
             remoteControlAllowedDisplayIDs.insert(displayID)
         } else { remoteControlAllowedDisplayIDs.remove(displayID) }
-        UserDefaults.standard.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        if !isDelegatedSessionHost {
+            UserDefaults.standard.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        }
         refreshRemoteDisplayState()
         remoteDisplayHostService.refreshControlPermissions()
     }
@@ -1109,6 +1245,7 @@ final class ScoreboardStore: ObservableObject {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         webControlAPIKey = String((0..<16).map { _ in alphabet.randomElement()! })
         UserDefaults.standard.set(webControlAPIKey, forKey: "scoreboard.webControlAPIKey")
+        scheduleOwnerSettingsSync()
     }
 
     func performControlCommand(_ command: ScoreboardControlCommand, remote: Bool) -> ScoreboardControlResult {
@@ -1152,7 +1289,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
 
     var remoteDisplayHostID: String {
-        remoteDisplayHostService.hostID
+        sessionDescriptor?.ownerHostID ?? remoteDisplayHostService.hostID
     }
 
     var resolvedControlBoardDisplayDirection: ScoreboardDisplayDirection {
@@ -1266,11 +1403,71 @@ final class ScoreboardStore: ObservableObject {
         }
         #endif
         APP_STORE_PREVIEW_CAPTURE_END */
+        do {
+            let savedRecovery = try ScoreboardSessionRecovery.load()
+            if let staleClient = savedRecovery, staleClient.role == .follower,
+               staleClient.descriptor.ownerDeviceID != localSessionDeviceID {
+                // Older versions retained a dehosted remote's session record.
+                // Client pairing is stored separately; no authority copy is needed.
+                try? removeHostedSessionData(sessionID: staleClient.descriptor.sessionID)
+            }
+            if let recovery = savedRecovery,
+               recovery.role != .follower || recovery.descriptor.ownerDeviceID == localSessionDeviceID {
+                sessionDescriptor = recovery.descriptor
+                sessionRecoveryRole = recovery.role
+                sessionAuthorityFenced = recovery.role == .fenced || recovery.role == .prepared
+                sessionTransferID = recovery.transferID
+                sessionTransferCheckpoint = recovery.checkpoint
+                if recovery.role == .host,
+                   recovery.descriptor.ownerDeviceID != localSessionDeviceID,
+                   let isolated = try? ScoreboardHostedMatchStorage.load(sessionID: recovery.descriptor.sessionID),
+                   isolated.descriptor.epoch == recovery.descriptor.epoch {
+                    if let authority = sessionTransferCheckpoint, authority.capturedAt > isolated.capturedAt {
+                        if isolated.log.entries.count > authority.log.entries.count,
+                           zip(authority.log.entries, isolated.log.entries).allSatisfy({ $0.id == $1.id }) {
+                            var restored = authority
+                            restored.log = isolated.log
+                            sessionTransferCheckpoint = restored
+                        }
+                    } else {
+                        sessionTransferCheckpoint = isolated
+                    }
+                }
+                if recovery.role == .host,
+                   recovery.descriptor.ownerDeviceID != localSessionDeviceID,
+                   var restored = sessionTransferCheckpoint,
+                   let log = try? ScoreboardHostedMatchStorage.loadLog(sessionID: recovery.descriptor.sessionID),
+                   log.sessionID == restored.log.sessionID,
+                   log.entries.count > restored.log.entries.count,
+                   zip(restored.log.entries, log.entries).allSatisfy({ $0.id == $1.id }) {
+                    restored.log = log
+                    sessionTransferCheckpoint = restored
+                }
+            }
+        } catch {
+            // A damaged authority record must never restart an old clock.
+            sessionAuthorityFenced = true
+            sessionStatusMessage = "Session authority could not be restored: \(error.localizedDescription)"
+        }
         loadPersistedState()
+        if sessionRecoveryRole == .host, let checkpoint = sessionTransferCheckpoint,
+           checkpoint.descriptor.hostDeviceID == localSessionDeviceID {
+            activateSessionCheckpoint(checkpoint, fromRecovery: true)
+        }
         remoteDisplayHostService.migrateDisplayDirectionsIfNeeded(areSidesSwapped: areSidesSwapped)
         configurePersistence()
         configureWebAPIService()
         configureRemoteDisplayService()
+        configureSessionService()
+        if sessionRecoveryRole == .fenced, let descriptor = sessionDescriptor,
+           descriptor.hostDeviceID != localSessionDeviceID,
+           let checkpoint = sessionTransferCheckpoint, sessionTransferID != nil {
+            sessionTransferTargetID = descriptor.hostDeviceID
+            sessionTransferInProgress = true
+            remoteDisplayHostService.startCommitRecovery(targetID: descriptor.hostDeviceID,
+                pairings: checkpoint.pairings, networkMode: remoteDisplayNetworkMode)
+            sessionStatusMessage = "Resuming host handoff to \(descriptor.hostName)…"
+        }
         refreshWebAPIState()
         refreshRemoteDisplayState()
     }
@@ -2573,6 +2770,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func testCompanionCommand(for event: ScoreboardSoundEvent, sport: SportType) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "companionTest", displayID: "",
+                                            sport: sport, soundEvent: event))
+            return
+        }
         guard !isCompanionEventBypassed(event, sport: sport) else { return }
         guard let location = companionLocation(for: event, sport: sport) else {
             handleCompanionSendResult(.failure(.invalidLocation))
@@ -4455,6 +4657,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
+        if isFollowingSessionHost && !isApplyingSessionUpdate && !isApplyingRemoteControlState {
+            sendOwnerGameSnapshot(snapshot)
+            return
+        }
         performWithoutAuditLogging {
             if !isRemoteControlProxy {
                 pauseClock()
@@ -4782,7 +4988,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func updateTimerState() {
-        guard !isRemoteControlProxy else { return }
+        guard isSessionAuthority else {
+            timer?.invalidate(); timer = nil; lastTimerFireDate = nil
+            return
+        }
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
         guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
             timer?.invalidate()
@@ -4818,7 +5027,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func reconcileRunningTimersWithWallClock(now: Date) {
-        guard !isRemoteControlProxy else { return }
+        guard isSessionAuthority else { return }
         guard !isReconcilingTimersFromWallClock else {
             return
         }
@@ -5405,6 +5614,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func playNextEventAction() {
+        guard isSessionAuthority else { clearQueuedEventActions(); return }
         guard activeEventPlaybackID == nil else { return }
         while !queuedEventActions.isEmpty {
             let action = queuedEventActions.removeFirst()
@@ -5482,7 +5692,7 @@ final class ScoreboardStore: ObservableObject {
         _ location: ScoreboardCompanionLocation,
         events: [ScoreboardSoundEvent] = [], sport: SportType? = nil
     ) {
-        guard !isRemoteDisplayViewerModeEnabled, !isRemoteControlProxy else { return }
+        guard isSessionAuthority else { return }
         let commandGeneration = companionCommandGeneration
         let eventSport = sport ?? selectedSport
         companionService.sendPress(
@@ -5549,7 +5759,7 @@ final class ScoreboardStore: ObservableObject {
         fileName: String? = nil,
         notes: String? = nil
     ) {
-        guard !isRemoteControlProxy, !isAuditLoggingSuspended else {
+        guard isSessionAuthority, !isAuditLoggingSuspended else {
             return
         }
 
@@ -5724,6 +5934,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayCustomDisplayID(displayID: String, customDisplayID: Int) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "customDisplay", displayID: displayID, number: customDisplayID))
+            return
+        }
         let normalizedDisplayID = Self.normalizedWebAPIBroadcastDisplayID(customDisplayID)
         let resolvedDisplayID = normalizedDisplayID == Self.minWebAPIBroadcastDisplayID || customDisplayEnabledDisplayIDs.contains(normalizedDisplayID)
             ? normalizedDisplayID
@@ -5792,13 +6006,67 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
+        if isFollowingSessionHost && !isEnabled {
+            sessionStatusMessage = "Move the session host back here before ending remote pairing."
+            return
+        }
+        if isDelegatedSessionHost && !isEnabled {
+            sessionStatusMessage = "Move the session host before ending remote pairing."
+            return
+        }
         isRemoteDisplayHostEnabled = isEnabled
+        if isEnabled && sessionDescriptor == nil { ensureOwnedSessionDescriptor() }
+        if !isEnabled && isSessionOwner && isSessionAuthority && sessionDescriptor != nil {
+            ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionTransferCheckpoint = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
         if !isEnabled {
             resetRemoteDisplayWarningState()
         }
     }
 
     func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
+        if isFollowingSessionHost && isEnabled {
+            sessionStatusMessage = "This device owns the session. Keep its control board and game files open here."
+            return
+        }
+        if isDelegatedSessionHost && !isEnabled {
+            guard isSessionSafeToDisconnect, let ownerID = sessionDescriptor?.ownerDeviceID else {
+                sessionStatusMessage = "The match has not synced to its owner. Reconnect and wait, or choose Delete Local Match."
+                return
+            }
+            exitRemoteModeAfterHostTransfer = true
+            beginSessionTransfer(to: ownerID)
+            return
+        }
+        if isEnabled, isSessionOwner, isSessionAuthority, sessionDescriptor != nil {
+            guard !isAnyTimerRunning, !sessionTransferInProgress else {
+                sessionStatusMessage = "Stop all timers and finish the host handoff before entering remote mode."
+                return
+            }
+            // Entering remote mode leaves this local session's authority behind.
+            // Keep the owner's game and settings, but do not carry that session
+            // identity into the next device's authenticated pairing.
+            ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionAuthorityFenced = false
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
         #if !os(tvOS)
         if isEnabled {
             stopRemoteDisplayHostService()
@@ -5808,9 +6076,168 @@ final class ScoreboardStore: ObservableObject {
         #endif
 
         isRemoteDisplayViewerModeEnabled = isEnabled
+        if !isEnabled && !isSessionOwner {
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionAuthorityFenced = false
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+            loadPersistedState()
+            // The personal snapshot may remember that this device was a viewer.
+            // Leaving remote mode must also update that saved preference.
+            isRemoteDisplayViewerModeEnabled = false
+            persistState()
+        }
         if isEnabled {
             resetRemoteDisplayWarningState()
         }
+    }
+
+    /// Explicit data-loss choice from the hosted display's exit confirmation.
+    @discardableResult
+    func deleteHostedMatchAndExitRemoteMode() -> Bool {
+        discardHostedMatch(leaveRemoteMode: true)
+    }
+
+    @discardableResult
+    func discardHostedMatchAndReturnToPairing() -> Bool {
+        discardHostedMatch(leaveRemoteMode: false)
+    }
+
+    private func discardHostedMatch(leaveRemoteMode: Bool) -> Bool {
+        guard hasHostedMatchToDiscard, let sessionID = sessionDescriptor?.sessionID else { return false }
+        do {
+            try removeHostedSessionData(sessionID: sessionID)
+        } catch {
+            sessionStatusMessage = "Could not delete the hosted match: \(error.localizedDescription)"
+            return false
+        }
+        sessionAuthorityFenced = true
+        stopWebAPIService()
+        stopRemoteDisplayHostService()
+        ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+        clearHostedSessionBookkeeping()
+        remoteDisplayHostService.clearSessionPairings()
+        ScoreboardRemoteDisplayReceiver.shared.forgetTrustedHosts()
+        sessionAuthorityFenced = false
+        loadPersistedState()
+        isRemoteDisplayViewerModeEnabled = !leaveRemoteMode
+        sessionStatusMessage = nil
+        persistState()
+        return true
+    }
+
+    private func removeHostedSessionData(sessionID: UUID) throws {
+        logManager.releaseHostedSession(sessionID: sessionID)
+        try ScoreboardHostedMatchStorage.remove(sessionID: sessionID)
+        if FileManager.default.fileExists(atPath: ScoreboardSessionRecovery.url.path) {
+            try FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
+    }
+
+    private func clearHostedSessionBookkeeping() {
+        sessionDescriptor = nil
+        sessionRecoveryRole = nil
+        sessionTransferCheckpoint = nil
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        sessionTransferInProgress = false
+        lastSessionPrepareSentAt = nil
+        lastSessionCommitSentAt = nil
+        sessionHostPeers = []
+        pendingLogBatchByPeer.removeAll()
+        logCursorByPeer.removeAll()
+        lastLogPageAtByPeer.removeAll()
+        lastSessionPeerReportAt = nil
+        lastSessionLogRequestAt = nil
+        pendingSnapshotSyncID = nil
+        pendingSnapshotLogCount = -1
+        lastSnapshotSyncSentAt = nil
+        sessionSyncRevision = 1
+        hostedCheckpointPersistedRevision = 0
+        ownerAcknowledgedRevision = 0
+        ownerAcknowledgedLogCount = -1
+        observedHostedLogCount = -1
+        exitRemoteModeAfterHostTransfer = false
+        remoteControlState = nil
+        remoteControlGameConfiguration = nil
+        controlCommandResults.removeAll()
+        sessionOwnerPairingSecret = nil
+        lastOwnerSettingsData = nil
+        lastOwnerVisualData = nil
+        pendingOwnerSettingsSync = false
+        pendingOwnerVisualSync = false
+        pendingOwnerVisualFields.removeAll()
+        pendingOwnerVisualSnapshot = nil
+    }
+
+    /// Take over from the last checkpoint acknowledged by this owner when its
+    /// delegated host is permanently unavailable. No unsynced host changes can
+    /// be recovered, and clocks deliberately remain stopped.
+    func recoverSessionHostOnOwner() {
+        guard canRecoverSessionHost, let descriptor = sessionDescriptor,
+              var checkpoint = sessionTransferCheckpoint else { return }
+        var recoveredDescriptor = descriptor
+        recoveredDescriptor.epoch += 1
+        recoveredDescriptor.hostDeviceID = localSessionDeviceID
+        recoveredDescriptor.hostName = remoteDisplayHostName
+        recoveredDescriptor.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        recoveredDescriptor.safeToDisconnect = nil
+        checkpoint.descriptor = recoveredDescriptor
+        checkpoint.runtime = ScoreboardWebAPIRuntime(
+            isGameRunning: checkpoint.runtime.isGameRunning,
+            isClockRunning: false, isShotClockRunning: false,
+            isDebatePrepClockRunning: false,
+            areSidesSwapped: checkpoint.runtime.areSidesSwapped,
+            possessionDirection: checkpoint.runtime.possessionDirection)
+        do {
+            // The owner owns setup and integrations; the delegated host never
+            // replaces these settings when control returns here.
+            checkpoint.settings = try exportPersistedStateData()
+            if let localLog = logManager.currentSessionSnapshot(),
+               localLog.sessionID == checkpoint.log.sessionID,
+               localLog.startedAt.ISO8601Format() == checkpoint.log.startedAt.ISO8601Format(),
+               localLog.entries.count >= checkpoint.log.entries.count,
+               zip(checkpoint.log.entries, localLog.entries).allSatisfy({ $0.id == $1.id }) {
+                checkpoint.log = localLog
+            } else {
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+            }
+            try persistOwnerSessionFile(checkpoint)
+            try ScoreboardSessionRecovery(role: .host, descriptor: recoveredDescriptor,
+                                          checkpoint: checkpoint, transferID: nil).save()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferCheckpoint = checkpoint
+            activateSessionCheckpoint(checkpoint, fromRecovery: false)
+        } catch {
+            sessionStatusMessage = "Could not recover this session: \(error.localizedDescription)"
+        }
+    }
+
+    func handoffHostedMatchForQuit(completion: @escaping (Bool) -> Void) {
+        guard isDelegatedSessionHost, isSessionSafeToDisconnect,
+              let ownerID = sessionDescriptor?.ownerDeviceID else { completion(false); return }
+        hostedMatchQuitCompletion = completion
+        beginSessionTransfer(to: ownerID)
+        if !sessionTransferInProgress, hostedMatchQuitCompletion != nil {
+            hostedMatchQuitCompletion = nil
+            completion(false)
+        }
+    }
+
+    func prepareHostedMatchForBackground() {
+        guard isDelegatedSessionHost, isSessionSafeToDisconnect, !sessionTransferInProgress,
+              let ownerID = sessionDescriptor?.ownerDeviceID else { return }
+        beginSessionTransfer(to: ownerID)
     }
 
     func setRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
@@ -5829,6 +6256,11 @@ final class ScoreboardStore: ObservableObject {
         pairingCode: String,
         takeoverConfirmed: Bool = false
     ) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "pair", displayID: source.id,
+                                            enabled: takeoverConfirmed, text: pairingCode))
+            return
+        }
         remoteDisplayHostService.pair(
             with: source,
             pairingCode: pairingCode,
@@ -5840,6 +6272,11 @@ final class ScoreboardStore: ObservableObject {
         _ source: ScoreboardRemoteDisplaySource,
         takeoverConfirmed: Bool = false
     ) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "connect", displayID: source.id,
+                                            enabled: takeoverConfirmed))
+            return
+        }
         remoteDisplayHostService.connectTrustedDisplay(
             source,
             takeoverConfirmed: takeoverConfirmed
@@ -5847,6 +6284,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removeRemoteDisplayPairing(displayID: String) {
+        guard sessionDescriptor?.hostDeviceID != displayID else {
+            sessionStatusMessage = "Move hosting to another device before removing the session host."
+            return
+        }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "remove", displayID: displayID))
+            return
+        }
         setRemoteControlAllowed(displayID: displayID, isAllowed: false)
         if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
             intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
@@ -5860,10 +6305,17 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func isTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
-        remoteDisplayHostService.isTrustedDisplay(source)
+        if isFollowingSessionHost {
+            return remoteDisplayTrustedDisplays.contains { $0.id == source.id && $0.pairingSecret?.isEmpty == false }
+        }
+        return remoteDisplayHostService.isTrustedDisplay(source)
     }
 
     func disconnectRemoteDisplays() {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "disconnectAll", displayID: ""))
+            return
+        }
         intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
         remoteDisplayDisconnectedDisplaysByID.removeAll()
         remoteDisplayWarningNotice = nil
@@ -5871,6 +6323,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func disconnectRemoteDisplay(displayID: String) {
+        guard sessionDescriptor?.hostDeviceID != displayID else {
+            sessionStatusMessage = "Move hosting to another device before disconnecting the session host."
+            return
+        }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "disconnect", displayID: displayID))
+            return
+        }
         if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
             intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
         }
@@ -5882,10 +6342,18 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func sendRemoteDisplaySoundTest(displayID: String) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "soundTest", displayID: displayID))
+            return
+        }
         remoteDisplayHostService.sendSoundTest(toDisplayID: displayID)
     }
 
     func setRemoteDisplayMuted(displayID: String, isMuted: Bool) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "mute", displayID: displayID, enabled: isMuted))
+            return
+        }
         remoteDisplayHostService.setDisplayMuted(id: displayID, isMuted: isMuted)
     }
 
@@ -5910,17 +6378,31 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "direction", displayID: displayID, text: direction.rawValue))
+            return
+        }
         remoteDisplayHostService.setDisplayDirection(id: displayID, direction: direction)
         refreshRemoteDisplayState()
     }
 
     func setRemoteDisplayExternalDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "externalDirection", displayID: displayID, text: direction.rawValue))
+            return
+        }
         remoteDisplayHostService.setExternalDisplayDirection(id: displayID, direction: direction)
         refreshRemoteDisplayState()
     }
 
     func refreshWebAPILocalAddresses() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        if isSessionAuthority, var descriptor = sessionDescriptor,
+           descriptor.hostAddresses != webAPILocalAddresses {
+            descriptor.hostAddresses = webAPILocalAddresses
+            sessionDescriptor = descriptor
+            refreshRemoteDisplayState()
+        }
     }
 
     func resumeWebAPIForAppLifecycle() {
@@ -5989,7 +6471,7 @@ final class ScoreboardStore: ObservableObject {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIService.controlHandler = { [weak self] command, key, completion in
             Task { @MainActor [weak self] in
-                guard let self, self.isWebAPIEnabled, self.isWebControlEnabled else {
+                guard let self, self.isSessionAuthority, self.isWebAPIEnabled, self.isWebControlEnabled else {
                     completion(.failure(command.id, "disabled", "Web control is disabled.")); return
                 }
                 guard key.uppercased() == self.webControlAPIKey else {
@@ -6010,7 +6492,7 @@ final class ScoreboardStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] isEnabled in
                 guard let self else { return }
-                if isEnabled {
+                if isEnabled && self.isSessionAuthority {
                     if self.isWebAPIAppLifecycleActive {
                         self.startWebAPIService()
                     } else {
@@ -6034,7 +6516,8 @@ final class ScoreboardStore: ObservableObject {
             self?.isRemoteControlAllowed(displayID: displayID) ?? false
         }
         remoteDisplayHostService.controlCommandHandler = { [weak self] command, displayID in
-            guard let self, self.isRemoteDisplayHostEnabled, self.isRemoteControlAllowed(displayID: displayID) else {
+            guard let self, self.isSessionAuthority, self.isRemoteDisplayHostEnabled,
+                  self.isRemoteControlAllowed(displayID: displayID) else {
                 return .failure(command.id, "disabled", "This device is not allowed to control the main board.")
             }
             return self.performControlCommand(command, remote: true)
@@ -6053,31 +6536,36 @@ final class ScoreboardStore: ObservableObject {
 
         remoteDisplayHostService.$connectedDisplays
             .sink { [weak self] connectedDisplays in
-                self?.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$trustedDisplays
             .sink { [weak self] trustedDisplays in
-                self?.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$mutedDisplayIDs
             .sink { [weak self] mutedDisplayIDs in
-                self?.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$displayDirectionsByID
             .sink { [weak self] displayDirectionsByID in
-                self?.remoteDisplayDirectionsByID = displayDirectionsByID
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayDirectionsByID = displayDirectionsByID
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$customDisplayIDsByID
             .sink { [weak self] customDisplayIDsByID in
-                self?.remoteDisplayCustomDisplayIDsByDisplayID = customDisplayIDsByID
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayCustomDisplayIDsByDisplayID = customDisplayIDsByID
             }
             .store(in: &cancellables)
 
@@ -6095,7 +6583,9 @@ final class ScoreboardStore: ObservableObject {
         )
         .sink { [weak self] isHostEnabled, isViewerModeEnabled, _ in
             guard let self else { return }
-            if isHostEnabled && !isViewerModeEnabled {
+            if self.isFollowingSessionHost {
+                self.remoteDisplayHostService.startDiscoveryOnly(networkMode: self.remoteDisplayNetworkMode)
+            } else if self.isSessionAuthority && isHostEnabled && (!isViewerModeEnabled || self.isDelegatedSessionHost) {
                 self.startRemoteDisplayHostService()
             } else {
                 self.stopRemoteDisplayHostService()
@@ -6117,7 +6607,7 @@ final class ScoreboardStore: ObservableObject {
         let uniqueConnectedDisplays = uniqueRemoteDisplayConnections(connectedDisplays)
         remoteDisplayConnectedDisplays = uniqueConnectedDisplays
 
-        guard isRemoteDisplayHostEnabled, !isRemoteDisplayViewerModeEnabled else {
+        guard isRemoteDisplayHostEnabled, (!isRemoteDisplayViewerModeEnabled || isDelegatedSessionHost) else {
             resetRemoteDisplayWarningState(connectedDisplays: uniqueConnectedDisplays)
             return
         }
@@ -6149,7 +6639,9 @@ final class ScoreboardStore: ObservableObject {
         let permitted = remoteControlAllowedDisplayIDs.intersection(Set(trustedDisplays.filter { $0.deviceType != .appleTV }.map(\.id)))
         if permitted != remoteControlAllowedDisplayIDs {
             remoteControlAllowedDisplayIDs = permitted
-            UserDefaults.standard.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            if !isDelegatedSessionHost {
+                UserDefaults.standard.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            }
         }
 
         let trustedDisplayIDs = Set(trustedDisplays.map(\.id))
@@ -6230,6 +6722,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startWebAPIService() {
+        guard isSessionAuthority else { return }
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
         let payloads = encodedWebAPIOutputPayloads()
@@ -6262,6 +6755,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startRemoteDisplayHostService() {
+        guard isSessionAuthority else { return }
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayStates(),
             displayName: remoteDisplayHostName,
@@ -6282,7 +6776,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayState() {
+        guard isSessionAuthority else { return }
         remoteDisplayHostService.updateState(encodedRemoteDisplayStates())
+        if isDelegatedSessionHost {
+            ScoreboardRemoteDisplayReceiver.shared.updateHostedState(state: currentRemoteDisplayState(forDisplayID: localSessionDeviceID),
+                images: currentWebAPIImageResponses())
+        }
     }
 
     private func encodedWebAPIPayload() -> ScoreboardWebAPIPayload {
@@ -6458,6 +6957,9 @@ final class ScoreboardStore: ObservableObject {
 
         stateChanges
             .sink { [weak self] _ in
+                if self?.isDelegatedSessionHost == true, self?.isApplyingSessionUpdate == false {
+                    self?.sessionSyncRevision &+= 1
+                }
                 self?.scheduleStateSideEffectRefresh()
             }
             .store(in: &cancellables)
@@ -6506,6 +7008,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetToFactoryDefaults() {
+        sessionDescriptor = nil
+        sessionRecoveryRole = nil
+        sessionAuthorityFenced = false
+        sessionTransferCheckpoint = nil
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
         clearPrimaryTimerPersistence()
         applyPersistedState(.factoryDefault)
         isWebControlEnabled = false
@@ -6727,6 +7236,21 @@ final class ScoreboardStore: ObservableObject {
 
     private func persistState() {
         guard !isRemoteControlProxy else { return }
+        if isSessionAuthority, !isApplyingSessionUpdate, let descriptor = sessionDescriptor {
+            do {
+                let checkpoint = try makeSessionCheckpoint(descriptor: descriptor)
+                if isDelegatedSessionHost {
+                    try ScoreboardHostedMatchStorage.save(checkpoint)
+                    hostedCheckpointPersistedRevision = sessionSyncRevision
+                }
+                try ScoreboardSessionRecovery(role: .host, descriptor: descriptor,
+                                              checkpoint: checkpoint, transferID: nil).save()
+                sessionTransferCheckpoint = checkpoint
+            } catch {
+                sessionStatusMessage = "Session recovery could not be saved: \(error.localizedDescription)"
+            }
+        }
+        guard !isDelegatedSessionHost else { return }
         guard let data = try? encodedPersistedStateData() else {
             return
         }
@@ -6735,7 +7259,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshPrimaryTimerPersistence() {
-        guard !isRemoteControlProxy else { return }
+        guard isSessionAuthority, !isDelegatedSessionHost else { return }
         guard let snapshot = currentPrimaryTimerPersistenceSnapshot(now: Date()) else {
             clearPrimaryTimerPersistence()
             return
@@ -6752,12 +7276,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func clearPrimaryTimerPersistence() {
-        guard !isRemoteControlProxy else { return }
+        guard !isRemoteControlProxy, !isDelegatedSessionHost else { return }
         UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
         lastPrimaryTimerPersistenceSignature = nil
     }
 
     private func restorePrimaryTimerPersistenceIfNeeded() {
+        guard sessionDescriptor == nil else { return }
         guard
             let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
             let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
@@ -8092,6 +8617,1141 @@ final class PublicBoardState: ObservableObject {
 // Only the clock(s) touched by a remote operation are moved back to the tap time.
 // The existing timer engine then advances them through the command's travel time,
 // preserving its expiration, sound, and Companion behavior on this main device.
+
+@MainActor
+extension ScoreboardStore {
+    private static let sessionLogger = Logger(subsystem: "IronMaple.smartScoreboard", category: "SessionHandoff")
+
+    private func canAcceptIncomingSession(_ incoming: ScoreboardSessionDescriptor) -> Bool {
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        guard receiver.authenticatedSessionOwnerHostID == incoming.ownerHostID else { return false }
+        guard let current = sessionDescriptor else { return true }
+        if current.accepts(incoming) { return true }
+        // Pairing authorizes an idle display/controller to join a new match.
+        // Epoch checks still apply within the same match; a live or unresolved
+        // host must finish its handoff or explicitly discard its working copy.
+        return current.sessionID != incoming.sessionID && !hasHostedMatchToDiscard
+            && sessionRecoveryRole != .prepared && !sessionTransferInProgress
+            && (isRemoteDisplayViewerModeEnabled || !isSessionOwner ||
+                ScoreboardRemoteDisplayDeviceType.current == .appleTV)
+    }
+
+    private func configureSessionService() {
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        remoteDisplayHostService.sessionMessageHandler = { [weak self] data, senderID in
+            self?.receiveSessionMessage(data, senderID: senderID, fromHost: false)
+        }
+        remoteDisplayHostService.commandSessionValidator = { [weak self] id, epoch in
+            guard let self, self.isSessionAuthority else { return false }
+            guard let descriptor = self.sessionDescriptor else { return id == nil && epoch == nil }
+            if descriptor.epoch == 0 && id == nil && epoch == nil { return true }
+            return descriptor.sessionID == id && descriptor.epoch == epoch
+        }
+        remoteDisplayHostService.maintenanceHandler = { [weak self] in self?.maintainSession() }
+        receiver.sessionMessageHandler = { [weak self] data in
+            self?.receiveSessionMessage(data, senderID: nil, fromHost: true)
+        }
+        receiver.commandSessionProvider = { [weak receiver] in
+            guard let descriptor = receiver?.state?.control?.session else { return nil }
+            return (descriptor.sessionID, descriptor.epoch)
+        }
+        receiver.$state.sink { [weak self] state in
+            guard let self, let state else { return }
+            if let incoming = state.control?.session {
+                // Locally published hosted state is already authoritative.
+                if !receiver.isHostingSession && !self.canAcceptIncomingSession(incoming) { return }
+                if !receiver.isHostingSession, self.sessionDescriptor?.sessionID != incoming.sessionID {
+                    self.sessionRecoveryRole = .follower
+                    self.sessionAuthorityFenced = true
+                    self.sessionTransferCheckpoint = nil
+                    self.sessionTransferID = nil
+                    self.sessionTransferTargetID = nil
+                    // Ordinary remote clients keep their active session only
+                    // in memory. Only the owner needs a durable recovery copy.
+                    if incoming.ownerDeviceID == self.localSessionDeviceID {
+                        try? ScoreboardSessionRecovery(role: .follower, descriptor: incoming,
+                                                       checkpoint: nil, transferID: nil).save()
+                    }
+                    Self.sessionLogger.notice("Adopted the authenticated paired session")
+                }
+                if self.sessionRecoveryRole == .fenced,
+                   incoming.hostDeviceID == self.sessionTransferTargetID,
+                   incoming.epoch == self.sessionDescriptor?.epoch {
+                    self.completeSessionTransfer(incoming)
+                }
+                if self.sessionDescriptor == nil || self.sessionDescriptor != incoming {
+                    self.sessionDescriptor = incoming
+                    if incoming.ownerDeviceID == self.localSessionDeviceID && incoming.hostDeviceID != self.localSessionDeviceID {
+                        self.sessionRecoveryRole = .follower
+                        try? ScoreboardSessionRecovery(role: .follower, descriptor: incoming,
+                                                       checkpoint: self.sessionTransferCheckpoint, transferID: nil).save()
+                    }
+                }
+                self.requestSessionLogsIfNeeded()
+            }
+            if self.isFollowingSessionHost { self.applyRemoteControlState(state) }
+        }.store(in: &cancellables)
+        receiver.$status.sink { [weak self] status in
+            guard let self, self.isFollowingSessionHost else { return }
+            self.sessionConnectionStatus = status.isLive ? "Connected" : "Disconnected"
+            self.sessionIsConnected = status.isLive
+            self.sessionRoundTripSeconds = status.isLive ? receiver.roundTripSeconds : nil
+            let message = self.sessionStatusMessage
+            if !self.sessionTransferInProgress,
+               message == nil || message?.hasPrefix("Waiting for ") == true || message?.hasPrefix("Connected to ") == true {
+                self.sessionStatusMessage = status.isLive
+                    ? "Connected to \(self.sessionHostDisplayName)."
+                    : "Waiting for \(self.sessionHostDisplayName) to connect…"
+            }
+            if status.isLive {
+                self.scheduleOwnerSettingsSync()
+                if !self.pendingOwnerVisualFields.isEmpty { self.scheduleOwnerVisualSync() }
+            }
+        }.store(in: &cancellables)
+        receiver.$roundTripSeconds.sink { [weak self] latency in
+            guard let self, self.isFollowingSessionHost else { return }
+            self.sessionRoundTripSeconds = latency
+        }.store(in: &cancellables)
+        receiver.$imageAssetsByID.sink { [weak self] _ in
+            guard let self, self.isFollowingSessionHost,
+                  let state = self.remoteControlState else { return }
+            self.isApplyingSessionUpdate = true
+            self.applyRemoteControlImages(state)
+            self.isApplyingSessionUpdate = false
+        }.store(in: &cancellables)
+        $webAPIStatus.sink { [weak self] status in
+            guard let self, self.isSessionAuthority, var descriptor = self.sessionDescriptor else { return }
+            let value = status.healthValue
+            if descriptor.hostWebAPIStatus != value {
+                descriptor.hostWebAPIStatus = value
+                self.sessionDescriptor = descriptor
+                self.refreshRemoteDisplayState()
+            }
+        }.store(in: &cancellables)
+        objectWillChange.sink { [weak self] _ in
+            self?.scheduleOwnerSettingsSync()
+        }.store(in: &cancellables)
+        let visualChanges: [AnyPublisher<String, Never>] = [
+            $externalDisplayBackgroundMode.dropFirst().map { _ in "backgroundMode" }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundImage.dropFirst().map { _ in "backgroundImage" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoStyle.dropFirst().map { _ in "logoStyle" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoBackgroundColor.dropFirst().map { _ in "logoColor" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSpeed.dropFirst().map { _ in "logoSpeed" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSize.dropFirst().map { _ in "logoSize" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoOpacity.dropFirst().map { _ in "logoOpacity" }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTime.dropFirst().map { _ in "dateTime" }.eraseToAnyPublisher(),
+            $externalDisplayDateTimeFormat.dropFirst().map { _ in "dateTimeFormat" }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTimeSeconds.dropFirst().map { _ in "dateTimeSeconds" }.eraseToAnyPublisher(),
+            $showsTeamLogos.dropFirst().map { _ in "teamLogosVisible" }.eraseToAnyPublisher(),
+            $showsEventLogo.dropFirst().map { _ in "eventLogoVisible" }.eraseToAnyPublisher(),
+            $homeTeamLogoImage.dropFirst().map { _ in "homeLogo" }.eraseToAnyPublisher(),
+            $guestTeamLogoImage.dropFirst().map { _ in "guestLogo" }.eraseToAnyPublisher(),
+            $eventLogoImage.dropFirst().map { _ in "eventLogo" }.eraseToAnyPublisher()
+        ]
+        Publishers.MergeMany(visualChanges).sink { [weak self] field in
+            guard let self, !self.isApplyingRemoteControlState, !self.isApplyingSessionUpdate else { return }
+            self.scheduleOwnerVisualSync(field: field)
+        }.store(in: &cancellables)
+        let sessionTimer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.isFollowingSessionHost { self.projectRemoteControlClocks() }
+                self.maintainSession()
+            }
+        }
+        RunLoop.main.add(sessionTimer, forMode: .common)
+        if isFollowingSessionHost { attachOwnerReceiver() }
+        else if isRemoteDisplayHostEnabled && sessionDescriptor == nil { ensureOwnedSessionDescriptor() }
+    }
+
+    private func ensureOwnedSessionDescriptor() {
+        guard sessionDescriptor == nil, isSessionAuthority, !isRemoteControlProxy else { return }
+        let descriptor = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 0,
+            ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,
+            ownerName: remoteDisplayHostName, hostDeviceID: localSessionDeviceID,
+            hostName: remoteDisplayHostName,
+            hostAddresses: ScoreboardWebAPIService.localIPv4Addresses(),
+            hostWebAPIStatus: webAPIStatus.healthValue, hostCompanionEnabled: isCompanionEnabled,
+            logSessionID: logManager.currentSessionSnapshot()?.sessionID)
+        sessionDescriptor = descriptor
+        sessionRecoveryRole = .host
+        do {
+            let checkpoint = try makeSessionCheckpoint(descriptor: descriptor)
+            try ScoreboardSessionRecovery(role: .host, descriptor: descriptor,
+                                          checkpoint: checkpoint, transferID: nil).save()
+            sessionTransferCheckpoint = checkpoint
+        } catch {
+            sessionStatusMessage = "Session recovery could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    private func attachOwnerReceiver() {
+        guard isSessionOwner, let descriptor = sessionDescriptor,
+              let checkpoint = sessionTransferCheckpoint,
+              let peer = checkpoint.pairings.peers.first(where: { $0.id == localSessionDeviceID }),
+              let secret = peer.pairingSecret else { return }
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        if !sessionOwnerReceiverAcquired {
+            receiver.acquire(networkMode: remoteDisplayNetworkMode)
+            sessionOwnerReceiverAcquired = true
+        }
+        receiver.trustSessionHost(ownerHostID: descriptor.ownerHostID,
+                                  ownerName: descriptor.ownerName, pairingSecret: secret)
+        sessionOwnerPairingSecret = secret
+        lastOwnerSettingsData = nil
+        lastOwnerVisualData = nil
+    }
+
+    private func sendSession(_ message: ScoreboardSessionMessage, to displayID: String? = nil,
+                             lowPriority: Bool = false) -> Bool {
+        guard let data = try? JSONEncoder().encode(message) else { return false }
+        if let displayID { return remoteDisplayHostService.sendSessionMessage(data, toDisplayID: displayID,
+                                                                               lowPriority: lowPriority) }
+        return ScoreboardRemoteDisplayReceiver.shared.sendSessionMessage(data)
+    }
+
+    private func recordSessionFailure(_ message: String) {
+        Self.sessionLogger.error("Host handoff failed: \(message, privacy: .public)")
+        sessionStatusMessage = message
+        sessionTransferInProgress = false
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        lastSessionPrepareSentAt = nil
+        exitRemoteModeAfterHostTransfer = false
+        let completion = hostedMatchQuitCompletion
+        hostedMatchQuitCompletion = nil
+        completion?(false)
+    }
+
+    private func resumeAfterRejectedHostCommit(_ detail: String) {
+        guard sessionRecoveryRole == .fenced, let checkpoint = sessionTransferCheckpoint,
+              checkpoint.descriptor.epoch < UInt64.max else {
+            sessionStatusMessage = detail
+            return
+        }
+        var restored = checkpoint
+        restored.descriptor.epoch += 1
+        restored.descriptor.hostDeviceID = localSessionDeviceID
+        restored.descriptor.hostName = remoteDisplayHostName
+        restored.descriptor.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        restored.descriptor.safeToDisconnect = nil
+        do {
+            try ScoreboardSessionRecovery(role: .host, descriptor: restored.descriptor,
+                                          checkpoint: restored, transferID: nil).save()
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferStartedAt = nil
+            lastSessionCommitSentAt = nil
+            sessionTransferCheckpoint = restored
+            activateSessionCheckpoint(restored, fromRecovery: false)
+            if isSessionAuthority {
+                sessionStatusMessage = "Host transfer failed; this device is still hosting. \(detail)"
+            }
+        } catch {
+            sessionStatusMessage = "Could not resume the previous host: \(error.localizedDescription)"
+        }
+    }
+
+    private func makeSessionCheckpoint(descriptor: ScoreboardSessionDescriptor) throws -> ScoreboardSessionCheckpoint {
+        var pairings = remoteDisplayHostService.exportSessionPairings()
+        if descriptor.ownerDeviceID == localSessionDeviceID,
+           !pairings.peers.contains(where: { $0.id == localSessionDeviceID }) {
+            let secret = sessionOwnerPairingSecret ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            sessionOwnerPairingSecret = secret
+            pairings.peers.append(.init(id: localSessionDeviceID, name: descriptor.ownerName,
+                                        deviceType: ScoreboardRemoteDisplayDeviceType.current,
+                                        pairingSecret: secret))
+        }
+        return ScoreboardSessionCheckpoint(
+            descriptor: descriptor, settings: try exportPersistedStateData(), game: currentGameSnapshot(),
+            runtime: currentWebAPIState().runtime, gameName: currentGameDisplayName,
+            ownerGameFilename: isSessionOwner
+                ? UserDefaults.standard.string(forKey: "scoreboard.workingGameFilename")
+                : sessionTransferCheckpoint?.ownerGameFilename,
+            mainDisplayMode: publicDisplayViewMode, pairings: pairings,
+            allowedControllers: remoteControlAllowedDisplayIDs,
+            webControlEnabled: isWebControlEnabled, webControlKey: webControlAPIKey,
+            log: logManager.currentSessionSnapshot() ?? ScoreboardLogSession(),
+            capturedAt: Date().timeIntervalSince1970,
+            gameElapsed: accumulatedGameClockElapsed, shotElapsed: accumulatedShotClockElapsed,
+            penaltyElapsed: accumulatedPenaltyElapsed, prepElapsed: accumulatedDebatePrepElapsed)
+    }
+
+    private func persistOwnerSessionFile(_ checkpoint: ScoreboardSessionCheckpoint) throws {
+        guard checkpoint.descriptor.ownerDeviceID == localSessionDeviceID else { return }
+        let directory = try ScoreboardFileStorage.storedGamesDirectory()
+        let proposed = checkpoint.ownerGameFilename ?? ""
+        let isSafeFilename = !proposed.isEmpty && proposed == URL(fileURLWithPath: proposed).lastPathComponent
+            && URL(fileURLWithPath: proposed).pathExtension.lowercased() == "scoreboardgame"
+        let filename = isSafeFilename ? proposed : "Recovered-\(checkpoint.descriptor.sessionID.uuidString).scoreboardgame"
+        let url = directory.appendingPathComponent(filename)
+        try JSONEncoder().encode(checkpoint.game).write(to: url, options: .atomic)
+        UserDefaults.standard.set(filename, forKey: "scoreboard.workingGameFilename")
+    }
+
+    func assignSessionHost(displayID: String) {
+        guard !isAnyTimerRunning else {
+            sessionStatusMessage = "Stop all timers before moving the session host."
+            return
+        }
+        guard canChangeSessionHost else {
+            recordSessionFailure("Connect to the current host before moving the session.")
+            return
+        }
+        if isFollowingSessionHost {
+            guard let descriptor = sessionDescriptor else { return }
+            let request = ScoreboardSessionMessage(kind: .requestHost, descriptor: descriptor, targetID: displayID)
+            if sendSession(request) {
+                sessionTransferInProgress = true
+                sessionTransferStartedAt = Date()
+                sessionStatusMessage = "Preparing host transfer…"
+            }
+            else { recordSessionFailure("The current host is disconnected. Reconnect before moving the session.") }
+            return
+        }
+        beginSessionTransfer(to: displayID)
+    }
+
+    private func rejectHostTransferForRunningTimers() {
+        let detail = "Stop all timers before moving the session host."
+        recordSessionFailure(detail)
+        if isDelegatedSessionHost, let descriptor = sessionDescriptor {
+            _ = sendSession(.init(kind: .error, descriptor: descriptor, detail: detail),
+                            to: descriptor.ownerDeviceID)
+        }
+    }
+
+    private func beginSessionTransfer(to targetID: String) {
+        guard isSessionAuthority, !sessionTransferInProgress else { return }
+        guard !isAnyTimerRunning else {
+            rejectHostTransferForRunningTimers()
+            return
+        }
+        guard targetID != localSessionDeviceID,
+              let target = remoteDisplayConnectedDisplays.first(where: { $0.id == targetID && $0.supportsSessionHosting }) else {
+            recordSessionFailure("The selected device must be connected and support session hosting.")
+            return
+        }
+        let old: ScoreboardSessionDescriptor
+        if let sessionDescriptor { old = sessionDescriptor }
+        else {
+            old = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 0,
+                ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,
+                ownerName: remoteDisplayHostName, hostDeviceID: localSessionDeviceID,
+                hostName: remoteDisplayHostName,
+                hostAddresses: ScoreboardWebAPIService.localIPv4Addresses(),
+                hostWebAPIStatus: webAPIStatus.healthValue, hostCompanionEnabled: isCompanionEnabled,
+                logSessionID: logManager.currentSessionSnapshot()?.sessionID)
+            sessionDescriptor = old
+            sessionRecoveryRole = .host
+            if let checkpoint = try? makeSessionCheckpoint(descriptor: old) {
+                sessionTransferCheckpoint = checkpoint
+                try? ScoreboardSessionRecovery(role: .host, descriptor: old,
+                                               checkpoint: checkpoint, transferID: nil).save()
+            }
+        }
+        guard old.epoch < UInt64.max else { recordSessionFailure("Session version limit reached."); return }
+        var next = old
+        next.epoch += 1
+        next.hostDeviceID = targetID
+        next.hostName = target.name
+        next.hostAddresses = []
+        next.hostWebAPIStatus = "starting"
+        let transferID = UUID()
+        do {
+            let checkpoint = try makeSessionCheckpoint(descriptor: next)
+            let prepare = ScoreboardSessionMessage(kind: .prepare, id: transferID,
+                                                   descriptor: next, targetID: targetID, checkpoint: checkpoint)
+            guard sendSession(prepare, to: targetID) else {
+                recordSessionFailure("The selected host stopped responding before transfer.")
+                return
+            }
+            sessionTransferID = transferID
+            sessionTransferTargetID = targetID
+            sessionTransferCheckpoint = checkpoint
+            sessionTransferStartedAt = Date()
+            lastSessionPrepareSentAt = Date()
+            sessionTransferInProgress = true
+            sessionStatusMessage = "Preparing \(target.name)…"
+            Self.sessionLogger.notice("Sent host preparation; waiting for acknowledgement")
+        } catch { recordSessionFailure("Could not prepare the session: \(error.localizedDescription)") }
+    }
+
+    private func receiveSessionMessage(_ data: Data, senderID: String?, fromHost: Bool) {
+        guard data.count <= ScoreboardSessionTransport.maximumMessageBytes,
+              let message = try? JSONDecoder().decode(ScoreboardSessionMessage.self, from: data) else {
+            Self.sessionLogger.error("Rejected an unreadable session message")
+            return
+        }
+        if let current = sessionDescriptor,
+           current.sessionID != message.descriptor.sessionID && message.kind != .prepare { return }
+        switch message.kind {
+        case .requestHost:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID,
+                  let current = sessionDescriptor, current.accepts(message.descriptor),
+                  message.descriptor.epoch == current.epoch, let target = message.targetID else { return }
+            if target == localSessionDeviceID {
+                let error = ScoreboardSessionMessage(kind: .error, id: message.id,
+                    descriptor: message.descriptor, detail: "This device is already the host.")
+                _ = sendSession(error, to: senderID)
+            } else { beginSessionTransfer(to: target) }
+        case .prepare:
+            guard fromHost, message.targetID == localSessionDeviceID else { return }
+            Self.sessionLogger.notice("Received host preparation")
+            guard let checkpoint = message.checkpoint,
+                  checkpoint.descriptor == message.descriptor,
+                  message.descriptor.epoch > 0,
+                  canAcceptIncomingSession(message.descriptor) else {
+                let detail: String
+                if hasHostedMatchToDiscard || sessionRecoveryRole == .prepared {
+                    detail = "This device still holds a hosted match or unfinished handoff. Finish that handoff, or discard its local match from the device's pairing screen before trying again."
+                } else {
+                    detail = "The proposed host session does not match this device's authenticated pairing or session version. Reconnect it to the current owner and retry."
+                }
+                sessionStatusMessage = detail
+                Self.sessionLogger.error("Rejected host preparation: local session \(self.sessionDescriptor?.sessionID.uuidString ?? "none", privacy: .public), epoch \(self.sessionDescriptor?.epoch ?? 0); proposed session \(message.descriptor.sessionID.uuidString, privacy: .public), epoch \(message.descriptor.epoch)")
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+                return
+            }
+            if sessionRecoveryRole == .host && sessionDescriptor?.epoch == message.descriptor.epoch { return }
+            do {
+                if message.descriptor.ownerDeviceID != localSessionDeviceID {
+                    try validatePersistedStateData(checkpoint.settings)
+                }
+                try ScoreboardSessionRecovery(role: .prepared, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: message.id).save()
+                sessionDescriptor = message.descriptor
+                sessionRecoveryRole = .prepared
+                sessionAuthorityFenced = true
+                sessionTransferID = message.id
+                sessionTransferCheckpoint = checkpoint
+                sessionStatusMessage = "Waiting for host handoff…"
+                Self.sessionLogger.notice("Saved incoming host preparation; sending acknowledgement")
+                _ = sendSession(.init(kind: .prepared, id: message.id, descriptor: message.descriptor))
+            } catch {
+                let detail = "Cannot save incoming host handoff: \(error.localizedDescription)"
+                sessionStatusMessage = detail
+                Self.sessionLogger.error("\(detail, privacy: .public)")
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+            }
+        case .prepared:
+            guard !fromHost, senderID == sessionTransferTargetID,
+                  message.id == sessionTransferID, sessionTransferInProgress,
+                  isSessionAuthority, let targetID = sessionTransferTargetID else { return }
+            guard !isAnyTimerRunning else {
+                _ = sendSession(.init(kind: .abort, id: message.id, descriptor: message.descriptor), to: targetID)
+                rejectHostTransferForRunningTimers()
+                return
+            }
+            lastSessionPrepareSentAt = nil
+            Self.sessionLogger.notice("Received host preparation acknowledgement; fencing local authority")
+            do {
+                reconcileRunningTimersWithWallClock()
+                let final = try makeSessionCheckpoint(descriptor: message.descriptor)
+                // The durable fence precedes the commit packet. A lost ACK must
+                // never restart this clock or trigger duplicate Companion actions.
+                try ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                              checkpoint: final, transferID: message.id).save()
+                sessionAuthorityFenced = true
+                sessionRecoveryRole = .fenced
+                sessionDescriptor = message.descriptor
+                sessionTransferCheckpoint = final
+                timer?.invalidate(); timer = nil; lastTimerFireDate = nil
+                clearQueuedEventActions()
+                stopWebAPIService()
+                remoteDisplayHostService.fenceSessionTraffic(to: targetID)
+                let commit = ScoreboardSessionMessage(kind: .commit, id: message.id,
+                    descriptor: message.descriptor, targetID: targetID, checkpoint: final)
+                guard sendSession(commit, to: targetID) else {
+                    sessionStatusMessage = "Handoff is fenced; waiting to retry delivery to \(message.descriptor.hostName)."
+                    return
+                }
+                lastSessionCommitSentAt = Date()
+                sessionStatusMessage = "Activating \(message.descriptor.hostName)…"
+            } catch { recordSessionFailure("Could not fence old host: \(error.localizedDescription)") }
+        case .commit:
+            guard fromHost, message.targetID == localSessionDeviceID,
+                  let checkpoint = message.checkpoint,
+                  checkpoint.descriptor == message.descriptor,
+                  sessionTransferID == message.id,
+                  sessionRecoveryRole == .prepared || sessionRecoveryRole == .host else { return }
+            if isSessionAuthority, let current = sessionDescriptor,
+               current.sessionID == message.descriptor.sessionID,
+               current.epoch == message.descriptor.epoch,
+               current.hostDeviceID == message.descriptor.hostDeviceID {
+                // Addresses and sync status can change immediately after
+                // activation. A retried commit acknowledges that authority;
+                // it must never reapply the old game checkpoint.
+                _ = sendSession(.init(kind: .committed, id: message.id, descriptor: current))
+                return
+            }
+            do {
+                if message.descriptor.ownerDeviceID == localSessionDeviceID {
+                    try persistOwnerSessionFile(checkpoint)
+                    try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+                    logManager.flushPendingWrites()
+                } else {
+                    try ScoreboardHostedMatchStorage.save(checkpoint)
+                    try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName,
+                        storageURL: ScoreboardHostedMatchStorage.logURL(for: message.descriptor.sessionID))
+                }
+                try ScoreboardSessionRecovery(role: .host, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: message.id).save()
+                sessionTransferCheckpoint = checkpoint
+                activateSessionCheckpoint(checkpoint, fromRecovery: false)
+                if isSessionAuthority {
+                    _ = sendSession(.init(kind: .committed, id: message.id,
+                                          descriptor: sessionDescriptor ?? message.descriptor))
+                } else {
+                    try? ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                                   checkpoint: checkpoint, transferID: message.id).save()
+                    _ = sendSession(.init(kind: .error, id: message.id,
+                        descriptor: message.descriptor,
+                        detail: sessionStatusMessage ?? "The new host could not activate the match."))
+                }
+            } catch {
+                let detail = "Cannot activate host: \(error.localizedDescription)"
+                sessionStatusMessage = detail
+                sessionRecoveryRole = .fenced
+                sessionAuthorityFenced = true
+                try? ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                               checkpoint: checkpoint, transferID: message.id).save()
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+            }
+        case .committed:
+            guard !fromHost, senderID == sessionTransferTargetID,
+                  message.id == sessionTransferID, sessionRecoveryRole == .fenced,
+                  message.descriptor.sessionID == sessionDescriptor?.sessionID,
+                  message.descriptor.epoch == sessionDescriptor?.epoch else { return }
+            completeSessionTransfer(message.descriptor)
+        case .abort:
+            guard fromHost, sessionRecoveryRole == .prepared, message.id == sessionTransferID else { return }
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionRecoveryRole = nil
+            sessionAuthorityFenced = false
+            sessionDescriptor = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        case .settings:
+            if fromHost { return }
+            guard senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch else { return }
+            if let settings = message.integrationSettings { applySessionIntegrationSettings(settings) }
+            if let visual = message.game, let fields = message.visualFields {
+                applySessionVisualSnapshot(visual, fields: fields)
+            }
+            if let name = message.gameName { currentGameDisplayName = name; logManager.setCurrentGameDisplayName(name) }
+        case .game:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch,
+                  let snapshot = message.game else { return }
+            isApplyingSessionUpdate = true
+            applyGameSnapshot(snapshot)
+            if let name = message.gameName { currentGameDisplayName = name; logManager.setCurrentGameDisplayName(name) }
+            isApplyingSessionUpdate = false
+        case .administration:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch,
+                  let admin = message.administration else { return }
+            applySessionAdministration(admin)
+        case .peers:
+            guard fromHost, isSessionOwner, isFollowingSessionHost,
+                  sessionDescriptor?.accepts(message.descriptor) == true else { return }
+            if let peers = message.peers { sessionHostPeers = peers }
+            if let pairings = message.pairingConfiguration {
+                remoteDisplayTrustedDisplays = pairings.peers.filter { $0.id != localSessionDeviceID }
+                remoteDisplayMutedDisplayIDs = pairings.mutedDisplayIDs
+                remoteDisplayDirectionsByID = pairings.displayDirectionsByID
+                remoteDisplayCustomDisplayIDsByDisplayID = pairings.customDisplayIDsByID
+                ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(remoteDisplayTrustedDisplays)
+                ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(pairings.mutedDisplayIDs)
+                ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(pairings.displayDirectionsByID)
+                ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(pairings.customDisplayIDsByID)
+            }
+            if let peers = message.peers {
+                remoteDisplayConnectedDisplays = peers.filter { $0.connected && $0.id != localSessionDeviceID }.map { peer in
+                    ScoreboardRemoteDisplayConnection(id: peer.id, name: peer.name, quality: peer.quality ?? .live,
+                        latencyMilliseconds: peer.latencyMilliseconds,
+                        lastHandshakeAgeSeconds: peer.lastHandshakeAgeSeconds, appVersion: peer.appVersion,
+                        deviceType: peer.deviceType,
+                        isMuted: remoteDisplayMutedDisplayIDs.contains(peer.id),
+                        supportsSessionHosting: peer.supportsHosting)
+                }
+            }
+            if let allowed = message.allowedControllers {
+                remoteControlAllowedDisplayIDs = allowed
+                UserDefaults.standard.set(allowed.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            }
+        case .logRequest:
+            guard !fromHost, isSessionAuthority, let senderID,
+                  remoteDisplayConnectedDisplays.contains(where: { $0.id == senderID }) else { return }
+            if let cursor = message.cursor { logCursorByPeer[senderID] = cursor }
+            else { logCursorByPeer.removeValue(forKey: senderID) }
+            pendingLogBatchByPeer.removeValue(forKey: senderID)
+            sendNextLogPage(to: senderID)
+        case .logBatch:
+            guard fromHost, let batch = message.batch,
+                  sessionDescriptor?.accepts(message.descriptor) == true else { return }
+            do {
+                let cursor = try logManager.mergeReplicatedLogBatch(batch)
+                _ = sendSession(.init(kind: .logAck, descriptor: message.descriptor, cursor: cursor))
+            } catch { sessionStatusMessage = "Log synchronization will retry: \(error.localizedDescription)" }
+        case .logAck:
+            guard !fromHost, isSessionAuthority, let senderID, let cursor = message.cursor,
+                  let pending = pendingLogBatchByPeer[senderID], cursor.sessionID == pending.sessionID,
+                  cursor.nextIndex >= pending.nextCursor.nextIndex else { return }
+            logCursorByPeer[senderID] = cursor
+            pendingLogBatchByPeer.removeValue(forKey: senderID)
+        case .snapshot:
+            guard fromHost, isFollowingSessionHost,
+                  sessionDescriptor?.accepts(message.descriptor) == true,
+                  let checkpoint = message.checkpoint,
+                  checkpoint.descriptor.sessionID == message.descriptor.sessionID,
+                  checkpoint.descriptor.epoch == message.descriptor.epoch,
+                  let revision = message.syncRevision else { return }
+            do {
+                try persistOwnerSessionFile(checkpoint)
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+                logManager.flushPendingWrites()
+                try ScoreboardSessionRecovery(role: .follower, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: nil).save()
+                sessionTransferCheckpoint = checkpoint
+                _ = sendSession(.init(kind: .snapshotAck, id: message.id,
+                                      descriptor: message.descriptor, syncRevision: revision))
+            } catch {
+                sessionStatusMessage = "Could not save the host's match copy: \(error.localizedDescription)"
+            }
+        case .snapshotAck:
+            guard !fromHost, isDelegatedSessionHost,
+                  senderID == sessionDescriptor?.ownerDeviceID,
+                  message.id == pendingSnapshotSyncID,
+                  message.syncRevision == sessionSyncRevision else { return }
+            ownerAcknowledgedRevision = sessionSyncRevision
+            ownerAcknowledgedLogCount = pendingSnapshotLogCount
+            pendingSnapshotSyncID = nil
+            updateSessionSafeDisconnectStatus()
+        case .error:
+            if fromHost {
+                recordSessionFailure(message.detail ?? "Host transfer failed.")
+            } else if senderID == sessionTransferTargetID,
+                      message.id == sessionTransferID, sessionTransferInProgress {
+                let detail = message.detail ?? "The selected host could not activate the match."
+                if sessionRecoveryRole == .fenced { resumeAfterRejectedHostCommit(detail) }
+                else if sessionRecoveryRole == .host { recordSessionFailure(detail) }
+            }
+        }
+    }
+
+    private func activateSessionCheckpoint(_ checkpoint: ScoreboardSessionCheckpoint, fromRecovery: Bool) {
+        let descriptor = checkpoint.descriptor
+        guard descriptor.hostDeviceID == localSessionDeviceID else { return }
+        let wasRemoteViewer = isRemoteDisplayViewerModeEnabled
+        isApplyingSessionUpdate = true
+        sessionDescriptor = descriptor
+        sessionRecoveryRole = .host
+        sessionAuthorityFenced = false
+        do {
+            if fromRecovery && descriptor.ownerDeviceID != localSessionDeviceID {
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName,
+                    storageURL: ScoreboardHostedMatchStorage.logURL(for: descriptor.sessionID))
+            }
+            if descriptor.ownerDeviceID != localSessionDeviceID {
+                try restorePersistedStateData(checkpoint.settings)
+            }
+        } catch {
+            sessionAuthorityFenced = true
+            sessionRecoveryRole = .fenced
+            sessionStatusMessage = "Host recovery failed: \(error.localizedDescription)"
+            Self.sessionLogger.error("Host recovery failed: \(error.localizedDescription, privacy: .public)")
+            try? ScoreboardSessionRecovery(role: .fenced, descriptor: descriptor,
+                                           checkpoint: checkpoint, transferID: sessionTransferID).save()
+            isApplyingSessionUpdate = false
+            return
+        }
+        if descriptor.ownerDeviceID != localSessionDeviceID {
+            isRemoteDisplayViewerModeEnabled = wasRemoteViewer
+        }
+        applyGameSnapshot(checkpoint.game)
+        currentGameDisplayName = checkpoint.gameName
+        publicDisplayViewMode = checkpoint.mainDisplayMode
+        areSidesSwapped = checkpoint.runtime.areSidesSwapped
+        possessionDirection = checkpoint.runtime.possessionDirection
+        isClockRunning = checkpoint.runtime.isClockRunning
+        isShotClockRunning = checkpoint.runtime.isShotClockRunning
+        isDebatePrepClockRunning = checkpoint.runtime.isDebatePrepClockRunning
+        accumulatedGameClockElapsed = checkpoint.gameElapsed
+        accumulatedShotClockElapsed = checkpoint.shotElapsed
+        accumulatedPenaltyElapsed = checkpoint.penaltyElapsed
+        accumulatedDebatePrepElapsed = checkpoint.prepElapsed
+        remoteDisplayHostService.installSessionPairings(checkpoint.pairings)
+        remoteControlAllowedDisplayIDs = checkpoint.allowedControllers
+        isWebControlEnabled = checkpoint.webControlEnabled
+        webControlAPIKey = checkpoint.webControlKey
+        isRemoteDisplayHostEnabled = true
+        isApplyingSessionUpdate = false
+        if descriptor.ownerDeviceID != localSessionDeviceID {
+            sessionSyncRevision = 1
+            hostedCheckpointPersistedRevision = 1
+            ownerAcknowledgedRevision = 0
+            ownerAcknowledgedLogCount = -1
+            observedHostedLogCount = checkpoint.log.entries.count
+        }
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        receiver.hostedControlCommandHandler = { [weak self] command in
+            guard let self, self.isSessionAuthority,
+                  self.isRemoteControlAllowed(displayID: self.localSessionDeviceID) else {
+                return .failure(command.id, "disabled", "This device is no longer the session host.")
+            }
+            // This command originated on the host itself; there is no network
+            // timestamp or transit delay to validate or compensate.
+            return self.performControlCommand(command, remote: false)
+        }
+        let previousHostOffset = receiver.masterClockOffset ?? 0
+        receiver.updateHostedState(state: currentRemoteDisplayState(forDisplayID: localSessionDeviceID),
+                                   images: currentWebAPIImageResponses())
+        updateTimerState()
+        // The packet timestamp is in the old host's wall clock. Clock sync turns
+        // it into this device's time; a bounded gap covers the handoff network hop.
+        let gap = max(0, min(10, Date().timeIntervalSince1970 - (checkpoint.capturedAt - previousHostOffset)))
+        if timer != nil {
+            lastTimerFireDate = Date().addingTimeInterval(-gap)
+            reconcileRunningTimersWithWallClock()
+        }
+        startRemoteDisplayHostService()
+        if isWebAPIEnabled { startWebAPIService() }
+        var updated = descriptor
+        updated.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        updated.hostWebAPIStatus = webAPIStatus.healthValue
+        updated.hostCompanionEnabled = isCompanionEnabled
+        sessionDescriptor = updated
+        sessionTransferInProgress = false
+        sessionTransferStartedAt = nil
+        sessionStatusMessage = "Hosting this session."
+        sessionConnectionStatus = "Hosting"
+        sessionIsConnected = true
+        refreshRemoteDisplayState()
+    }
+
+    private func completeSessionTransfer(_ descriptor: ScoreboardSessionDescriptor) {
+        let wasOwner = isSessionOwner
+        // The outgoing host is already fenced, so isDelegatedSessionHost is
+        // false here even though it still owns an isolated working copy.
+        let hostedSessionID = wasOwner ? nil : sessionDescriptor?.sessionID
+        let followerPairing = sessionTransferCheckpoint?.pairings.peers.first { $0.id == localSessionDeviceID }
+        let shouldExitRemoteMode = exitRemoteModeAfterHostTransfer
+        Self.sessionLogger.notice("Host handoff completed at epoch \(descriptor.epoch); restoring client pairing")
+        sessionTransferInProgress = false
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        lastSessionPrepareSentAt = nil
+        lastSessionCommitSentAt = nil
+        sessionRecoveryRole = .follower
+        sessionAuthorityFenced = true
+        sessionDescriptor = descriptor
+        stopRemoteDisplayHostService()
+        remoteDisplayHostService.clearSessionPairings()
+        ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+        let quitCompletion = hostedMatchQuitCompletion
+        hostedMatchQuitCompletion = nil
+        if wasOwner {
+            try? ScoreboardSessionRecovery(role: .follower, descriptor: descriptor,
+                                           checkpoint: sessionTransferCheckpoint, transferID: nil).save()
+            attachOwnerReceiver()
+            remoteDisplayHostService.startDiscoveryOnly(networkMode: remoteDisplayNetworkMode)
+            sessionStatusMessage = "Waiting for \(descriptor.hostName) to connect…"
+            sessionConnectionStatus = "Connecting"
+            sessionIsConnected = false
+        } else {
+            // A completed handoff clears the same isolated data as Discard.
+            // Retain only receiver pairing so the new host can reconnect it.
+            var cleanupError: String?
+            if let hostedSessionID {
+                do { try removeHostedSessionData(sessionID: hostedSessionID) }
+                catch {
+                    cleanupError = "Could not remove the old host's match copy: \(error.localizedDescription)"
+                    // If deletion failed, replace any authority record with a
+                    // non-host marker so a restart cannot revive the old host.
+                    try? ScoreboardSessionRecovery(role: .follower, descriptor: descriptor,
+                                                   checkpoint: nil, transferID: nil).save()
+                }
+            }
+            clearHostedSessionBookkeeping()
+            isApplyingSessionUpdate = true
+            loadPersistedState()
+            isRemoteDisplayViewerModeEnabled = true
+            isApplyingSessionUpdate = false
+            sessionConnectionStatus = "Connecting"
+            sessionIsConnected = false
+            sessionRoundTripSeconds = nil
+            if let secret = followerPairing?.pairingSecret, !secret.isEmpty {
+                ScoreboardRemoteDisplayReceiver.shared.trustSessionHost(
+                    ownerHostID: descriptor.ownerHostID, ownerName: descriptor.hostName,
+                    pairingSecret: secret)
+            }
+            sessionStatusMessage = cleanupError ?? "Waiting for \(descriptor.hostName) to connect…"
+            if shouldExitRemoteMode {
+                sessionAuthorityFenced = false
+                setRemoteDisplayViewerModeEnabled(false)
+            }
+            persistState()
+        }
+        quitCompletion?(true)
+    }
+
+    private func maintainSession() {
+        guard let descriptor = sessionDescriptor else { return }
+        if isFollowingSessionHost, sessionTransferInProgress,
+           let started = sessionTransferStartedAt, Date().timeIntervalSince(started) > 12 {
+            sessionTransferInProgress = false
+            sessionTransferStartedAt = nil
+            sessionStatusMessage = "Host transfer did not complete. Reconnect to the host or recover from the owner's last saved copy."
+        }
+        if sessionTransferInProgress, sessionRecoveryRole == .host,
+           let targetID = sessionTransferTargetID,
+           let transferID = sessionTransferID,
+           let checkpoint = sessionTransferCheckpoint,
+           let lastSent = lastSessionPrepareSentAt,
+           Date().timeIntervalSince(lastSent) > 2 {
+            let prepare = ScoreboardSessionMessage(kind: .prepare, id: transferID,
+                descriptor: checkpoint.descriptor, targetID: targetID, checkpoint: checkpoint)
+            lastSessionPrepareSentAt = Date()
+            if sendSession(prepare, to: targetID) {
+                Self.sessionLogger.notice("Retried host preparation")
+            } else {
+                Self.sessionLogger.warning("Could not retry host preparation; waiting for the display connection")
+            }
+        }
+        if sessionRecoveryRole == .fenced,
+           let targetID = sessionTransferTargetID,
+           let transferID = sessionTransferID,
+           let checkpoint = sessionTransferCheckpoint,
+           lastSessionCommitSentAt.map({ Date().timeIntervalSince($0) > 2 }) ?? true {
+            let commit = ScoreboardSessionMessage(kind: .commit, id: transferID,
+                descriptor: descriptor, targetID: targetID, checkpoint: checkpoint)
+            if sendSession(commit, to: targetID) { lastSessionCommitSentAt = Date() }
+        }
+        if sessionTransferInProgress, sessionRecoveryRole == .host,
+           let started = sessionTransferStartedAt, Date().timeIntervalSince(started) > 12 {
+            if let target = sessionTransferTargetID, let id = sessionTransferID {
+                _ = sendSession(.init(kind: .abort, id: id, descriptor: descriptor), to: target)
+            }
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferStartedAt = nil
+            lastSessionPrepareSentAt = nil
+            exitRemoteModeAfterHostTransfer = false
+            sessionStatusMessage = "Host preparation timed out; the current host is still active. Keep Scoreboard open on the selected display and retry."
+            Self.sessionLogger.error("Host preparation timed out; local authority remains active")
+            let completion = hostedMatchQuitCompletion
+            hostedMatchQuitCompletion = nil
+            completion?(false)
+        }
+        if isSessionAuthority {
+            if isDelegatedSessionHost {
+                let logCount = logManager.currentSessionSnapshot()?.entries.count ?? 0
+                if observedHostedLogCount != logCount {
+                    observedHostedLogCount = logCount
+                    sessionSyncRevision &+= 1
+                }
+                let ownerConnected = remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID }
+                if ownerConnected && !isAnyTimerRunning && !sessionTransferInProgress {
+                    if hostedCheckpointPersistedRevision != sessionSyncRevision { persistState() }
+                    if hostedCheckpointPersistedRevision == sessionSyncRevision,
+                       ownerAcknowledgedRevision != sessionSyncRevision,
+                       lastSnapshotSyncSentAt.map({ Date().timeIntervalSince($0) > 3 }) ?? true,
+                       let checkpoint = try? makeSessionCheckpoint(descriptor: descriptor) {
+                        let message = ScoreboardSessionMessage(kind: .snapshot, descriptor: descriptor,
+                            checkpoint: checkpoint, syncRevision: sessionSyncRevision)
+                        if sendSession(message, to: descriptor.ownerDeviceID, lowPriority: true) {
+                            pendingSnapshotSyncID = message.id
+                            pendingSnapshotLogCount = checkpoint.log.entries.count
+                            lastSnapshotSyncSentAt = Date()
+                        }
+                    }
+                }
+                updateSessionSafeDisconnectStatus()
+            }
+            if lastSessionPeerReportAt.map({ Date().timeIntervalSince($0) > 1 }) ?? true {
+                lastSessionPeerReportAt = Date()
+                let peers = remoteDisplayHostService.exportSessionPairings()
+                let connected = Set(remoteDisplayConnectedDisplays.map(\.id))
+                let rows = peers.peers.map { peer in
+                    let connection = remoteDisplayConnectedDisplays.first { $0.id == peer.id }
+                    return ScoreboardSessionPeer(id: peer.id, name: peer.name,
+                        deviceType: peer.deviceType ?? .unknown,
+                        connected: connected.contains(peer.id) || peer.id == localSessionDeviceID,
+                        supportsHosting: peer.id == localSessionDeviceID ||
+                            connection?.supportsSessionHosting == true,
+                        latencyMilliseconds: connection?.latencyMilliseconds,
+                        lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
+                        appVersion: connection?.appVersion ?? (peer.id == localSessionDeviceID ? .current : nil),
+                        quality: connection?.quality)
+                }
+                let report = ScoreboardSessionMessage(kind: .peers, descriptor: descriptor,
+                    peers: rows, pairingConfiguration: peers,
+                    allowedControllers: remoteControlAllowedDisplayIDs)
+                if descriptor.ownerDeviceID != localSessionDeviceID {
+                    _ = sendSession(report, to: descriptor.ownerDeviceID, lowPriority: true)
+                }
+            }
+            for peer in remoteDisplayConnectedDisplays where peer.supportsSessionHosting {
+                sendNextLogPage(to: peer.id)
+            }
+        } else if !ScoreboardRemoteDisplayReceiver.shared.isHostingSession {
+            requestSessionLogsIfNeeded()
+        }
+    }
+
+    private func updateSessionSafeDisconnectStatus() {
+        guard isDelegatedSessionHost, var descriptor = sessionDescriptor else { return }
+        let ownerConnected = remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID }
+        let logCount = logManager.currentSessionSnapshot()?.entries.count ?? 0
+        let clean = ScoreboardSessionCleanState(ownerConnected: ownerConnected,
+            anyTimerRunning: isAnyTimerRunning, transferring: sessionTransferInProgress,
+            revision: sessionSyncRevision, persistedRevision: hostedCheckpointPersistedRevision,
+            acknowledgedRevision: ownerAcknowledgedRevision, logCount: logCount,
+            acknowledgedLogCount: ownerAcknowledgedLogCount).isSafeToDisconnect
+        if descriptor.safeToDisconnect != clean {
+            descriptor.safeToDisconnect = clean
+            sessionDescriptor = descriptor
+            refreshRemoteDisplayState()
+        }
+    }
+
+    private func requestSessionLogsIfNeeded() {
+        guard !isSessionAuthority, let descriptor = sessionDescriptor,
+              ScoreboardRemoteDisplayReceiver.shared.status.isLive,
+              lastSessionLogRequestAt.map({ Date().timeIntervalSince($0) > 3 }) ?? true else { return }
+        let cursor = logManager.receivedLogCursor(for: descriptor.logSessionID ?? UUID())
+        if sendSession(.init(kind: .logRequest, descriptor: descriptor, cursor: cursor)) {
+            lastSessionLogRequestAt = Date()
+        }
+    }
+
+    private func sendNextLogPage(to peerID: String) {
+        guard isSessionAuthority, !sessionTransferInProgress, let descriptor = sessionDescriptor,
+              lastLogPageAtByPeer[peerID].map({ Date().timeIntervalSince($0) > 1 }) ?? true else { return }
+        if let pending = pendingLogBatchByPeer[peerID] {
+            guard lastLogPageAtByPeer[peerID].map({ Date().timeIntervalSince($0) > 3 }) ?? true else { return }
+            let resend = ScoreboardSessionMessage(kind: .logBatch, descriptor: descriptor, batch: pending)
+            if sendSession(resend, to: peerID, lowPriority: true) { lastLogPageAtByPeer[peerID] = Date() }
+            return
+        }
+        guard let batch = try? logManager.sessionLogBatch(after: logCursorByPeer[peerID]) else { return }
+        let message = ScoreboardSessionMessage(kind: .logBatch, descriptor: descriptor, batch: batch)
+        if sendSession(message, to: peerID, lowPriority: true) {
+            pendingLogBatchByPeer[peerID] = batch
+            lastLogPageAtByPeer[peerID] = Date()
+        }
+    }
+
+    private func currentSessionIntegrationSettings() -> ScoreboardSessionIntegrationSettings {
+        .init(webAPIEnabled: isWebAPIEnabled, webControlEnabled: isWebControlEnabled,
+              webControlKey: webControlAPIKey, webUpdateMode: webAPIUpdateMode,
+              companionEnabled: isCompanionEnabled, companionHost: companionHost,
+              companionMode: companionMode, companionPort: companionPort,
+              companionSyncWithSound: companionSyncWithSound,
+              companionAssignments: companionAssignmentsBySport,
+              soundEnabled: isSoundEnabled, soundAssignments: soundAssignmentsBySport,
+              bypassedSoundEvents: bypassedSoundEventsBySport,
+              bypassedCompanionEvents: bypassedCompanionEventsBySport,
+              broadcastControlEnabled: isWebAPIBroadcastControlEnabled,
+              broadcastDisplayCount: webAPIBroadcastEnabledDisplayCount,
+              broadcastModes: webAPIBroadcastDisplayModesByID,
+              customDisplayTitles: customDisplayModeTitlesByMode,
+              remoteIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
+              remoteNetworkMode: remoteDisplayNetworkMode)
+    }
+
+    private func applySessionIntegrationSettings(_ settings: ScoreboardSessionIntegrationSettings) {
+        guard isSessionAuthority else { return }
+        isApplyingSessionUpdate = true
+        isWebAPIEnabled = settings.webAPIEnabled
+        isWebControlEnabled = settings.webControlEnabled
+        webControlAPIKey = settings.webControlKey
+        webAPIUpdateMode = settings.webUpdateMode
+        isCompanionEnabled = settings.companionEnabled
+        companionHost = settings.companionHost
+        companionMode = settings.companionMode
+        companionPort = settings.companionPort
+        companionSyncWithSound = settings.companionSyncWithSound
+        companionAssignmentsBySport = settings.companionAssignments
+        isSoundEnabled = settings.soundEnabled
+        soundAssignmentsBySport = settings.soundAssignments
+        bypassedSoundEventsBySport = settings.bypassedSoundEvents
+        bypassedCompanionEventsBySport = settings.bypassedCompanionEvents
+        isWebAPIBroadcastControlEnabled = settings.broadcastControlEnabled
+        webAPIBroadcastEnabledDisplayCount = settings.broadcastDisplayCount
+        webAPIBroadcastDisplayModesByID = settings.broadcastModes
+        customDisplayModeTitlesByMode = settings.customDisplayTitles
+        isRemoteDisplayIndividualControlEnabled = settings.remoteIndividualControlEnabled
+        remoteDisplayNetworkMode = settings.remoteNetworkMode
+        isApplyingSessionUpdate = false
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+    }
+
+    private func scheduleOwnerSettingsSync() {
+        guard isFollowingSessionHost, !isApplyingSessionUpdate, !pendingOwnerSettingsSync else { return }
+        pendingOwnerSettingsSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.pendingOwnerSettingsSync = false
+            guard self.isFollowingSessionHost, self.sessionIsConnected,
+                  let descriptor = self.sessionDescriptor else { return }
+            let settings = self.currentSessionIntegrationSettings()
+            guard let data = try? JSONEncoder().encode(settings), data != self.lastOwnerSettingsData else { return }
+            if self.sendSession(.init(kind: .settings, descriptor: descriptor, integrationSettings: settings)) {
+                self.lastOwnerSettingsData = data
+            }
+        }
+    }
+
+    private func currentSessionVisualSnapshot() -> ScoreboardGameSnapshot {
+        let current = currentGameSnapshot()
+        var visual = ScoreboardGameSnapshot.empty
+        visual.externalDisplayBackgroundMode = current.externalDisplayBackgroundMode
+        visual.externalDisplayBackgroundImage = current.externalDisplayBackgroundImage
+        visual.externalDisplayAnimatedLogoStyle = current.externalDisplayAnimatedLogoStyle
+        visual.externalDisplayAnimatedLogoBackgroundColor = current.externalDisplayAnimatedLogoBackgroundColor
+        visual.externalDisplayAnimatedLogoSpeed = current.externalDisplayAnimatedLogoSpeed
+        visual.externalDisplayAnimatedLogoSize = current.externalDisplayAnimatedLogoSize
+        visual.externalDisplayAnimatedLogoOpacity = current.externalDisplayAnimatedLogoOpacity
+        visual.showsExternalDisplayDateTime = current.showsExternalDisplayDateTime
+        visual.externalDisplayDateTimeFormat = current.externalDisplayDateTimeFormat
+        visual.showsExternalDisplayDateTimeSeconds = current.showsExternalDisplayDateTimeSeconds
+        visual.showsTeamLogos = current.showsTeamLogos
+        visual.showsEventLogo = current.showsEventLogo
+        visual.homeTeamLogoImage = current.homeTeamLogoImage
+        visual.guestTeamLogoImage = current.guestTeamLogoImage
+        visual.eventLogoImage = current.eventLogoImage
+        return visual
+    }
+
+    private func scheduleOwnerVisualSync(field: String? = nil) {
+        guard isFollowingSessionHost, !isApplyingRemoteControlState,
+              !isApplyingSessionUpdate else { return }
+        if let field {
+            pendingOwnerVisualFields.insert(field)
+            // @Published emits before storage changes. Capture on the next main
+            // turn so reconnects cannot replace an offline owner edit.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isFollowingSessionHost else { return }
+                self.pendingOwnerVisualSnapshot = self.currentSessionVisualSnapshot()
+            }
+        }
+        guard !pendingOwnerVisualSync else { return }
+        pendingOwnerVisualSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.pendingOwnerVisualSync = false
+            guard self.isFollowingSessionHost, let descriptor = self.sessionDescriptor else { return }
+            guard self.sessionIsConnected else {
+                self.sessionStatusMessage = "Visual settings will sync when the session host reconnects."
+                return
+            }
+            let visual = self.pendingOwnerVisualSnapshot ?? self.currentSessionVisualSnapshot()
+            let fields = self.pendingOwnerVisualFields
+            guard !fields.isEmpty else { return }
+            if self.sendSession(.init(kind: .settings, descriptor: descriptor,
+                                      game: visual, visualFields: fields)) {
+                self.pendingOwnerVisualFields.subtract(fields)
+                if self.pendingOwnerVisualFields.isEmpty { self.pendingOwnerVisualSnapshot = nil }
+                self.lastOwnerVisualData = try? JSONEncoder().encode(visual)
+            }
+        }
+    }
+
+    private func applySessionVisualSnapshot(_ visual: ScoreboardGameSnapshot, fields: Set<String>) {
+        guard isSessionAuthority else { return }
+        isApplyingSessionUpdate = true
+        if fields.contains("backgroundImage") {
+            externalDisplayBackgroundImage = visual.externalDisplayBackgroundImage.flatMap(ExternalDisplayBackgroundImage.init(embeddedImage:))
+        }
+        if fields.contains("backgroundMode") { externalDisplayBackgroundMode = visual.externalDisplayBackgroundMode ?? .blurred }
+        if fields.contains("logoStyle") { externalDisplayAnimatedLogoStyle = visual.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee }
+        if fields.contains("logoColor") { externalDisplayAnimatedLogoBackgroundColor = visual.externalDisplayAnimatedLogoBackgroundColor ?? .themeBackground }
+        if fields.contains("logoSpeed") { setExternalDisplayAnimatedLogoSpeed(visual.externalDisplayAnimatedLogoSpeed ?? Self.defaultAnimatedLogoSpeed) }
+        if fields.contains("logoSize") { setExternalDisplayAnimatedLogoSize(visual.externalDisplayAnimatedLogoSize ?? Self.defaultAnimatedLogoSize) }
+        if fields.contains("logoOpacity") { setExternalDisplayAnimatedLogoOpacity(visual.externalDisplayAnimatedLogoOpacity ?? Self.defaultAnimatedLogoOpacity) }
+        if fields.contains("dateTime") { showsExternalDisplayDateTime = visual.showsExternalDisplayDateTime ?? false }
+        if fields.contains("dateTimeFormat") { externalDisplayDateTimeFormat = visual.externalDisplayDateTimeFormat ?? .time24Hour }
+        if fields.contains("dateTimeSeconds") { showsExternalDisplayDateTimeSeconds = visual.showsExternalDisplayDateTimeSeconds ?? true }
+        if fields.contains("teamLogosVisible") { showsTeamLogos = visual.showsTeamLogos ?? true }
+        if fields.contains("eventLogoVisible") { showsEventLogo = visual.showsEventLogo ?? true }
+        if fields.contains("homeLogo") { homeTeamLogoImage = visual.homeTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:)) }
+        if fields.contains("guestLogo") { guestTeamLogoImage = visual.guestTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:)) }
+        if fields.contains("eventLogo") { eventLogoImage = visual.eventLogoImage.flatMap(EventLogoImage.init(embeddedImage:)) }
+        isApplyingSessionUpdate = false
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+    }
+
+    private func sendOwnerGameName(_ name: String?) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else { return }
+        _ = sendSession(.init(kind: .settings, descriptor: descriptor, gameName: name ?? ""))
+    }
+
+    private func sendOwnerGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else {
+            sessionStatusMessage = "Connect to the session host before changing game setup."
+            return
+        }
+        if !sendSession(.init(kind: .game, descriptor: descriptor, game: snapshot,
+                              gameName: currentGameDisplayName)) {
+            sessionStatusMessage = "Game setup was not sent. Reconnect and retry."
+        }
+    }
+
+    private func sendSessionAdministration(_ admin: ScoreboardSessionAdministration) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else {
+            sessionStatusMessage = "Connect to the session host before changing paired devices."
+            return
+        }
+        if !sendSession(.init(kind: .administration, descriptor: descriptor, administration: admin)) {
+            sessionStatusMessage = "Device change was not sent. Reconnect and retry."
+        }
+    }
+
+    private func applySessionAdministration(_ admin: ScoreboardSessionAdministration) {
+        switch admin.action {
+        case "controlPermission": setRemoteControlAllowed(displayID: admin.displayID, isAllowed: admin.enabled == true)
+        case "pair":
+            if let source = remoteDisplaySources.first(where: { $0.id == admin.displayID }), let code = admin.text {
+                pairRemoteDisplay(source, pairingCode: code, takeoverConfirmed: admin.enabled == true)
+            }
+        case "connect":
+            if let source = remoteDisplaySources.first(where: { $0.id == admin.displayID }) {
+                connectTrustedRemoteDisplay(source, takeoverConfirmed: admin.enabled == true)
+            }
+        case "remove": removeRemoteDisplayPairing(displayID: admin.displayID)
+        case "disconnect": disconnectRemoteDisplay(displayID: admin.displayID)
+        case "disconnectAll": disconnectRemoteDisplays()
+        case "soundTest": sendRemoteDisplaySoundTest(displayID: admin.displayID)
+        case "mute": setRemoteDisplayMuted(displayID: admin.displayID, isMuted: admin.enabled == true)
+        case "direction":
+            if let value = admin.text.flatMap(ScoreboardDisplayDirection.init(rawValue:)) {
+                setRemoteDisplayDirection(displayID: admin.displayID, direction: value)
+            }
+        case "externalDirection":
+            if let value = admin.text.flatMap(ScoreboardDisplayDirection.init(rawValue:)) {
+                setRemoteDisplayExternalDirection(displayID: admin.displayID, direction: value)
+            }
+        case "customDisplay":
+            if let value = admin.number { setRemoteDisplayCustomDisplayID(displayID: admin.displayID, customDisplayID: value) }
+        case "companionTest":
+            if let event = admin.soundEvent, let sport = admin.sport { testCompanionCommand(for: event, sport: sport) }
+        default: break
+        }
+    }
+}
+
 struct ScoreboardRemoteTimerOperation {
     var primary = false
     var shot = false
@@ -8183,7 +9843,11 @@ extension ScoreboardStore {
     func routeRemoteControlCommand(_ action: String, side: TeamSide? = nil, value: Int? = nil,
                                    text: String? = nil, enabled: Bool? = nil,
                                    playerID: UUID? = nil, timerID: UUID? = nil) -> Bool {
-        guard isRemoteControlProxy, !isApplyingRemoteControlState else { return false }
+        if sessionAuthorityFenced && !routesControlToSessionHost {
+            sessionStatusMessage = "Session authority is unavailable. Reconnect to the host before controlling."
+            return true
+        }
+        guard routesControlToSessionHost, !isApplyingRemoteControlState, !isApplyingSessionUpdate else { return false }
         var command = ScoreboardControlCommand(action: action, sport: selectedSport, side: side,
             value: value, text: text, enabled: enabled, playerID: playerID, timerID: timerID)
         // Running-state commands allow quick start/pause taps without interpreting
@@ -8197,7 +9861,8 @@ extension ScoreboardStore {
             command.enabled = !isShotClockRunning
             command.expectedRunning = isShotClockRunning
         }
-        remoteCommandSender?(command)
+        if let remoteCommandSender { remoteCommandSender(command) }
+        else { ScoreboardRemoteDisplayReceiver.shared.sendCommand(command) }
         return true
     }
 
@@ -8232,9 +9897,13 @@ extension ScoreboardStore {
     }
 
     func applyRemoteControlState(_ state: ScoreboardWebAPIState) {
-        guard isRemoteControlProxy else { return }
+        guard isRemoteControlProxy || isFollowingSessionHost else { return }
         isApplyingRemoteControlState = true
         defer { isApplyingRemoteControlState = false }
+        if remoteControlState?.control?.connectedDeviceCount != state.control?.connectedDeviceCount ||
+            remoteControlState?.control?.disconnectedDeviceCount != state.control?.disconnectedDeviceCount {
+            objectWillChange.send()
+        }
         remoteControlState = state
         assignRemoteValue(\.currentGameDisplayName, state.control?.gameName)
         var snapshot = state.game
@@ -8291,8 +9960,10 @@ extension ScoreboardStore {
         assignRemoteValue(\.possessionDirection, state.runtime.possessionDirection)
         assignRemoteValue(\.homeRoster, normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam))
         assignRemoteValue(\.guestRoster, normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam))
-        assignRemoteValue(\.isCompanionVisible, false)
-        assignRemoteValue(\.isCompanionEnabled, false)
+        if isRemoteControlProxy {
+            assignRemoteValue(\.isCompanionVisible, false)
+            assignRemoteValue(\.isCompanionEnabled, false)
+        }
         if let display = state.display {
             assignRemoteValue(\.isWebAPIBroadcastControlEnabled, display.broadcastControl?.isEnabled == true)
             assignRemoteValue(\.isRemoteDisplayIndividualControlEnabled, state.control?.customDisplayControlVisible == true && !isWebAPIBroadcastControlEnabled)
@@ -8326,7 +9997,7 @@ extension ScoreboardStore {
     }
 
     private func applyRemoteControlImages(_ state: ScoreboardWebAPIState) {
-        guard let receiver = remoteControlReceiver else { return }
+        guard let receiver = remoteControlReceiver ?? (isFollowingSessionHost ? ScoreboardRemoteDisplayReceiver.shared : nil) else { return }
         if let metadata = state.display?.backgroundImage, let data = receiver.imageData(for: metadata.id) {
             assignRemoteValue(\.externalDisplayBackgroundImage, ExternalDisplayBackgroundImage(id: metadata.id, sourceName: nil,
                 mimeType: metadata.mimeType, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight,
@@ -8352,7 +10023,8 @@ extension ScoreboardStore {
     }
 
     private func projectRemoteControlClocks() {
-        guard let receiver = remoteControlReceiver, receiver.status.isLive,
+        guard let receiver = remoteControlReceiver ?? (isFollowingSessionHost ? ScoreboardRemoteDisplayReceiver.shared : nil),
+              receiver.status.isLive,
               let state = remoteControlState else { return }
         let projection = RemoteScoreboardProjection(state: state, lastReceivedAt: receiver.lastReceivedAt,
             masterClockOffset: receiver.masterClockOffset, now: Date())

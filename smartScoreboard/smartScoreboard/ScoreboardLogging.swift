@@ -396,6 +396,37 @@ struct ScoreboardLogSession: Codable, Sendable {
     }
 }
 
+/// A cursor names an acknowledged, contiguous prefix of one immutable log.
+/// The final entry ID detects a stale cursor after restoring an older checkpoint.
+struct ScoreboardSessionLogCursor: Codable, Equatable, Sendable {
+    var sessionID: UUID
+    var nextIndex: Int
+    var lastEntryID: UUID?
+}
+
+struct ScoreboardSessionLogBatch: Codable, Sendable {
+    var fileVersion: Int
+    var sessionID: UUID
+    var startedAt: Date
+    var lastUpdatedAt: Date
+    var startIndex: Int
+    var totalEntryCount: Int
+    var entries: [ScoreboardLogEntry]
+
+    var nextCursor: ScoreboardSessionLogCursor {
+        ScoreboardSessionLogCursor(sessionID: sessionID, nextIndex: startIndex + entries.count,
+                                   lastEntryID: entries.last?.id)
+    }
+
+    var hasMore: Bool { startIndex + entries.count < totalEntryCount }
+}
+
+enum ScoreboardSessionLogError: Error {
+    case invalidBatch
+    case conflictingHistory
+    case entryExceedsByteLimit
+}
+
 struct StoredLogSession: Identifiable {
     let url: URL
     let modifiedAt: Date
@@ -472,9 +503,13 @@ final class ScoreboardLogManager {
     private var currentSessionURL: URL?
     private var currentSession: ScoreboardLogSession?
     private var currentGameFileURL: URL?
+    private var currentGameDisplayName: String?
     private var lastPersistDate: Date?
     private var isPersistPending = false
     private var pendingPersistWorkItem: DispatchWorkItem?
+    private var pendingSessionWrites: [UUID: (session: ScoreboardLogSession, url: URL)] = [:]
+    private var replicatedSessions: [UUID: (session: ScoreboardLogSession, url: URL)] = [:]
+    private var receivedSessionID: UUID?
 
     private init() {
         encoder = JSONEncoder()
@@ -486,7 +521,8 @@ final class ScoreboardLogManager {
     }
 
     func startSession() {
-        cancelPendingPersist()
+        // A new session must not discard the previous session's throttled tail.
+        flushPendingWrites()
 
         let now = Date()
         let session = ScoreboardLogSession(startedAt: now, lastUpdatedAt: now)
@@ -511,6 +547,13 @@ final class ScoreboardLogManager {
 
     func setCurrentGameFile(url: URL?) {
         currentGameFileURL = url
+        currentGameDisplayName = nil
+    }
+
+    /// Used by a delegated host, which has a game name but no owner-local URL.
+    func setCurrentGameDisplayName(_ name: String?) {
+        currentGameFileURL = nil
+        currentGameDisplayName = name
     }
 
     func record(
@@ -543,6 +586,144 @@ final class ScoreboardLogManager {
         currentSession
     }
 
+    /// Continue the same authoritative log when the session changes hosts.
+    func adoptAuthoritativeSession(_ snapshot: ScoreboardLogSession, gameDisplayName: String? = nil,
+                                   storageURL: URL? = nil) throws {
+        guard snapshot.startedAt.timeIntervalSince1970.isFinite,
+              snapshot.lastUpdatedAt.timeIntervalSince1970.isFinite,
+              Set(snapshot.entries.map(\.id)).count == snapshot.entries.count else {
+            throw ScoreboardSessionLogError.conflictingHistory
+        }
+        let url = try storageURL ?? sessionURL(for: snapshot)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let existing = try knownSession(id: snapshot.sessionID, url: url) {
+            guard existing.startedAt.ISO8601Format() == snapshot.startedAt.ISO8601Format(),
+                  historiesAgree(existing.entries, snapshot.entries) else {
+                throw ScoreboardSessionLogError.conflictingHistory
+            }
+            // Never replace a locally acknowledged history with an older checkpoint.
+            guard snapshot.entries.count >= existing.entries.count else {
+                throw ScoreboardSessionLogError.conflictingHistory
+            }
+        }
+        // Queue the previous session before changing the active reference.
+        if let currentSession, let currentSessionURL, isPersistPending {
+            pendingSessionWrites[currentSession.sessionID] = (currentSession, currentSessionURL)
+        }
+        currentSession = snapshot
+        currentSessionURL = url
+        replicatedSessions.removeValue(forKey: snapshot.sessionID)
+        setCurrentGameDisplayName(gameDisplayName)
+        notifyCurrentSessionChange()
+        requestPersistCurrentSession()
+    }
+
+    func releaseHostedSession(sessionID: UUID) {
+        guard currentSession?.sessionID == sessionID,
+              currentSessionURL == ScoreboardHostedMatchStorage.logURL(for: sessionID) else { return }
+        flushPendingWrites()
+        startSession()
+    }
+
+    /// Produces one bounded page. A cursor from a different/restored session
+    /// restarts at zero, allowing the receiver to reconcile by stable entry IDs.
+    func sessionLogBatch(after cursor: ScoreboardSessionLogCursor?, maxEntries: Int = 32,
+                         maxBytes: Int = 32_768) throws -> ScoreboardSessionLogBatch? {
+        guard let session = currentSession else { return nil }
+        let entryLimit = max(1, min(32, maxEntries))
+        let byteLimit = max(1, min(32_768, maxBytes))
+        var start = 0
+        if let cursor, cursor.sessionID == session.sessionID,
+           cursor.nextIndex >= 0, cursor.nextIndex <= session.entries.count,
+           (cursor.nextIndex == 0 ? cursor.lastEntryID == nil :
+            session.entries[cursor.nextIndex - 1].id == cursor.lastEntryID) {
+            start = cursor.nextIndex
+            if start == session.entries.count { return nil }
+        }
+        var batch = ScoreboardSessionLogBatch(fileVersion: session.fileVersion, sessionID: session.sessionID,
+            startedAt: session.startedAt, lastUpdatedAt: session.lastUpdatedAt, startIndex: start,
+            totalEntryCount: session.entries.count, entries: [])
+        let wireEncoder = JSONEncoder()
+        guard try wireEncoder.encode(batch).count <= byteLimit else {
+            throw ScoreboardSessionLogError.entryExceedsByteLimit
+        }
+        for entry in session.entries.dropFirst(start).prefix(entryLimit) {
+            batch.entries.append(entry)
+            if try wireEncoder.encode(batch).count > byteLimit {
+                batch.entries.removeLast()
+                guard !batch.entries.isEmpty else { throw ScoreboardSessionLogError.entryExceedsByteLimit }
+                break
+            }
+        }
+        return batch
+    }
+
+    var currentReceivedLogCursor: ScoreboardSessionLogCursor? {
+        receivedSessionID.flatMap { receivedLogCursor(for: $0) }
+    }
+
+    func receivedLogCursor(for sessionID: UUID) -> ScoreboardSessionLogCursor? {
+        if let session = replicatedSessions[sessionID]?.session { return logCursor(for: session) }
+        if let currentSession, currentSession.sessionID == sessionID { return logCursor(for: currentSession) }
+        return nil
+    }
+
+    /// Merge only contiguous history. Gaps return the last accepted cursor, so
+    /// reconnects and out-of-order delivery retry without losing any entries.
+    @discardableResult
+    func mergeReplicatedLogBatch(_ batch: ScoreboardSessionLogBatch) throws -> ScoreboardSessionLogCursor {
+        guard batch.startIndex >= 0, batch.totalEntryCount >= 0,
+              batch.startIndex <= batch.totalEntryCount,
+              batch.entries.count <= 32,
+              batch.entries.count <= batch.totalEntryCount - batch.startIndex,
+              Set(batch.entries.map(\.id)).count == batch.entries.count,
+              batch.startedAt.timeIntervalSince1970.isFinite,
+              batch.lastUpdatedAt.timeIntervalSince1970.isFinite,
+              try JSONEncoder().encode(batch).count <= 32_768 else {
+            throw ScoreboardSessionLogError.invalidBatch
+        }
+        var session = ScoreboardLogSession(fileVersion: batch.fileVersion, sessionID: batch.sessionID,
+            startedAt: batch.startedAt, lastUpdatedAt: batch.lastUpdatedAt, entries: [])
+        let url = try sessionURL(for: session)
+        if let known = try knownSession(id: batch.sessionID, url: url) {
+            // Existing disk files use ISO 8601 dates with second precision.
+            guard known.startedAt.ISO8601Format() == batch.startedAt.ISO8601Format() else {
+                throw ScoreboardSessionLogError.conflictingHistory
+            }
+            session = known
+        }
+        guard batch.startIndex <= session.entries.count else { return logCursor(for: session) }
+        var knownIDs = Set(session.entries.map(\.id))
+        let oldCount = session.entries.count
+        for (offset, entry) in batch.entries.enumerated() {
+            let index = batch.startIndex + offset
+            if index < session.entries.count {
+                guard session.entries[index].id == entry.id else { throw ScoreboardSessionLogError.conflictingHistory }
+            } else {
+                guard knownIDs.insert(entry.id).inserted else { throw ScoreboardSessionLogError.conflictingHistory }
+                session.entries.append(entry)
+            }
+        }
+        session.lastUpdatedAt = max(session.lastUpdatedAt, batch.lastUpdatedAt)
+        receivedSessionID = session.sessionID
+        if currentSession?.sessionID == session.sessionID {
+            if session.entries.count != oldCount {
+                currentSession = session
+                notifyCurrentSessionChange()
+                requestPersistCurrentSession()
+            }
+        } else {
+            let isNewSession = replicatedSessions[session.sessionID] == nil
+            replicatedSessions[session.sessionID] = (session, url)
+            if isNewSession || session.entries.count != oldCount {
+                pendingSessionWrites[session.sessionID] = (session, url)
+                requestPersistSessions()
+                notifyChange()
+            }
+        }
+        return logCursor(for: session)
+    }
+
     func listSessions() throws -> [StoredLogSession] {
         let directoryURL = try logsDirectory()
         let urls = try fileManager.contentsOfDirectory(
@@ -551,7 +732,7 @@ final class ScoreboardLogManager {
             options: [.skipsHiddenFiles]
         )
 
-        return try urls
+        var stored = try urls
             .filter { $0.pathExtension.lowercased() == "scoreboardlog" }
             .map { url in
                 let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
@@ -561,7 +742,16 @@ final class ScoreboardLogManager {
                     session: try loadSession(from: url)
                 )
             }
-            .sorted {
+        // Replicas appear in the existing log browser before the throttled write.
+        for replica in replicatedSessions.values {
+            stored.removeAll { $0.session.sessionID == replica.session.sessionID }
+            stored.append(StoredLogSession(url: replica.url, modifiedAt: replica.session.lastUpdatedAt, session: replica.session))
+        }
+        for pending in pendingSessionWrites.values {
+            stored.removeAll { $0.session.sessionID == pending.session.sessionID }
+            stored.append(StoredLogSession(url: pending.url, modifiedAt: pending.session.lastUpdatedAt, session: pending.session))
+        }
+        return stored.sorted {
                 if $0.startedAt == $1.startedAt {
                     return $0.modifiedAt > $1.modifiedAt
                 }
@@ -571,15 +761,24 @@ final class ScoreboardLogManager {
     }
 
     func loadSession(from url: URL) throws -> ScoreboardLogSession {
+        if let replica = replicatedSessions.values.first(where: { $0.url == url }) { return replica.session }
+        if let pending = pendingSessionWrites.values.first(where: { $0.url == url }) { return pending.session }
         let data = try Data(contentsOf: url)
         return try decoder.decode(ScoreboardLogSession.self, from: data)
     }
 
     func deleteSession(at url: URL) throws {
-        try fileManager.removeItem(at: url)
+        if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
+        pendingSessionWrites = pendingSessionWrites.filter { $0.value.url != url }
+        let removedIDs = replicatedSessions.filter { $0.value.url == url }.map(\.key)
+        for id in removedIDs {
+            replicatedSessions.removeValue(forKey: id)
+            pendingSessionWrites.removeValue(forKey: id)
+            if receivedSessionID == id { receivedSessionID = nil }
+        }
 
         if currentSessionURL == url {
-            cancelPendingPersist()
+            if let currentSession { pendingSessionWrites.removeValue(forKey: currentSession.sessionID) }
             currentSession = nil
             currentSessionURL = nil
             startSession()
@@ -614,6 +813,8 @@ final class ScoreboardLogManager {
     func replaceSessions(with files: [ScoreboardBackupFile]) throws {
         try validateBackupFiles(files)
         cancelPendingPersist()
+        replicatedSessions.removeAll()
+        receivedSessionID = nil
 
         let directoryURL = try logsDirectory()
         let existingURLs = try fileManager.contentsOfDirectory(
@@ -742,16 +943,48 @@ final class ScoreboardLogManager {
         try data.write(to: url, options: .atomic)
     }
 
-    private func requestPersistCurrentSession() {
-        guard currentSession != nil else {
-            return
-        }
+    private func sessionURL(for session: ScoreboardLogSession) throws -> URL {
+        try logsDirectory().appendingPathComponent(sessionFilename(for: session)).appendingPathExtension("scoreboardlog")
+    }
 
-        guard currentSessionURL != nil else {
+    private func knownSession(id: UUID, url: URL) throws -> ScoreboardLogSession? {
+        if currentSession?.sessionID == id { return currentSession }
+        if let session = replicatedSessions[id]?.session { return session }
+        if let session = pendingSessionWrites[id]?.session { return session }
+        let existingURL: URL?
+        if fileManager.fileExists(atPath: url.path) { existingURL = url }
+        else {
+            let suffix = "-\(id.uuidString).scoreboardlog"
+            existingURL = try fileManager.contentsOfDirectory(at: logsDirectory(), includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]).first { $0.lastPathComponent.hasSuffix(suffix) }
+        }
+        guard let existingURL else { return nil }
+        let session = try loadSession(from: existingURL)
+        guard session.sessionID == id else { throw ScoreboardSessionLogError.conflictingHistory }
+        return session
+    }
+
+    private func historiesAgree(_ lhs: [ScoreboardLogEntry], _ rhs: [ScoreboardLogEntry]) -> Bool {
+        zip(lhs, rhs).allSatisfy { $0.id == $1.id }
+    }
+
+    private func logCursor(for session: ScoreboardLogSession) -> ScoreboardSessionLogCursor {
+        ScoreboardSessionLogCursor(sessionID: session.sessionID, nextIndex: session.entries.count,
+                                   lastEntryID: session.entries.last?.id)
+    }
+
+    private func requestPersistCurrentSession() {
+        guard let currentSession, let currentSessionURL else {
             notifyChange()
             return
         }
 
+        pendingSessionWrites[currentSession.sessionID] = (currentSession, currentSessionURL)
+        requestPersistSessions()
+    }
+
+    private func requestPersistSessions() {
+        guard !pendingSessionWrites.isEmpty else { return }
         isPersistPending = true
         let now = Date()
         if let lastPersistDate {
@@ -771,40 +1004,50 @@ final class ScoreboardLogManager {
             }
         }
 
-        persistPendingCurrentSession()
+        // Network log pages never perform disk IO inline with command handling.
+        // Coalesce writes on the same throttle used for local log entries.
+        guard pendingPersistWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { self.persistPendingCurrentSession() }
+        pendingPersistWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
     }
 
     private func persistPendingCurrentSession() {
         pendingPersistWorkItem?.cancel()
         pendingPersistWorkItem = nil
 
-        guard isPersistPending, let currentSessionURL, let currentSession else {
+        guard isPersistPending else {
             isPersistPending = false
             return
         }
 
-        do {
-            try persist(currentSession, to: currentSessionURL)
-            lastPersistDate = Date()
-            isPersistPending = false
-            notifyChange()
-        } catch {
-            isPersistPending = false
-            NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
+        let writes = pendingSessionWrites
+        pendingSessionWrites.removeAll()
+        isPersistPending = false
+        var didWrite = false
+        for pending in writes.values {
+            do {
+                try persist(pending.session, to: pending.url)
+                didWrite = true
+            } catch {
+                NSLog("ScoreboardLogManager failed to persist entry: %@", String(describing: error))
+            }
         }
+        if didWrite { lastPersistDate = Date(); notifyChange() }
     }
 
     private func cancelPendingPersist() {
         pendingPersistWorkItem?.cancel()
         pendingPersistWorkItem = nil
         isPersistPending = false
+        pendingSessionWrites.removeAll()
     }
 
     private func mergedContext(from context: ScoreboardLogContext) -> ScoreboardLogContext {
         var merged = context
 
         if merged.gameFileName == nil {
-            merged.gameFileName = currentGameFileURL?.deletingPathExtension().lastPathComponent
+            merged.gameFileName = currentGameDisplayName ?? currentGameFileURL?.deletingPathExtension().lastPathComponent
         }
 
         if merged.gameFilePath == nil {

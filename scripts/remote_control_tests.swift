@@ -368,6 +368,8 @@ import Combine
             expect(newKey.0 == 200, "new key HTTP")
             store.setWebAPIEnabled(false)
         }
+        checks += try! runSessionLogTests()
+        checks += try! runSessionAuthorityTests()
         print("Passed \(checks) control checks across all \(SportType.allCases.count) sports.")
     }
 }

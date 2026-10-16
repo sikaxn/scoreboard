@@ -366,6 +366,7 @@ nonisolated enum ScoreboardWebAPIV2ResourceName: String, CaseIterable, Codable, 
     case players
     case debate
     case audio
+    case session
 
     var path: String {
         "/api/v2/state/\(rawValue)"
@@ -1651,7 +1652,8 @@ extension ScoreboardWebAPIV2StatePayload {
             makeResource(.clocks, value: v2State.clocks, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
             makeResource(.players, value: v2State.players, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
             makeResource(.debate, value: v2State.debate, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
-            makeResource(.audio, value: v2State.audio, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime)
+            makeResource(.audio, value: v2State.audio, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.session, value: v2State.control?.session, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime)
         ]
         let manifest = ScoreboardWebAPIV2StateManifest(
             schemaVersion: 2,
@@ -2615,11 +2617,25 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         return message
     }
 
+    private struct SessionIdentityPayload: Decodable {
+        struct Control: Decodable {
+            let session: ScoreboardSessionDescriptor?
+        }
+        let control: Control?
+    }
+
+    private func sessionIdentityLocked() -> ScoreboardSessionDescriptor? {
+        // Read just provenance from the latest authoritative state; never consult
+        // the UI store from the service's networking queue.
+        (try? JSONDecoder().decode(SessionIdentityPayload.self, from: latestPayload.v1State))?.control?.session
+    }
+
     private func healthDataLocked() -> Data {
         let health = HealthResponse(
             schemaVersion: 1,
             service: "smartscoreboard.web_api",
             app: ScoreboardWebAPIAppInfo.current,
+            session: sessionIdentityLocked(),
             status: status.healthValue,
             httpPort: Self.httpPort,
             webSocketPort: Self.webSocketPort,
@@ -2637,6 +2653,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let status = AppStatusResponse(
             schemaVersion: 2,
             app: ScoreboardWebAPIAppInfo.current(apiVersion: "v2"),
+            session: sessionIdentityLocked(),
             generatedAt: Self.timestamp(),
             generatedAtUnixTime: Date().timeIntervalSince1970
         )
@@ -2650,6 +2667,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             service: "smartscoreboard.web_api",
             apiVersion: "v2",
             supportedAPIVersions: ["v1", "v2"],
+            session: sessionIdentityLocked(),
             status: status.healthValue,
             httpPort: Self.httpPort,
             webSocketPort: Self.webSocketPort,
@@ -2753,6 +2771,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let schemaVersion: Int
         let service: String
         let app: ScoreboardWebAPIAppInfo
+        let session: ScoreboardSessionDescriptor?
         let status: String
         let httpPort: UInt16
         let webSocketPort: UInt16
@@ -2765,6 +2784,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private struct AppStatusResponse: Codable {
         let schemaVersion: Int
         let app: ScoreboardWebAPIAppInfo
+        let session: ScoreboardSessionDescriptor?
         let generatedAt: String
         let generatedAtUnixTime: TimeInterval
     }
@@ -2774,6 +2794,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let service: String
         let apiVersion: String
         let supportedAPIVersions: [String]
+        let session: ScoreboardSessionDescriptor?
         let status: String
         let httpPort: UInt16
         let webSocketPort: UInt16
@@ -3185,7 +3206,9 @@ extension ScoreboardStore {
                 playerFoulsEnabled: isDebatePlayerFoulsEnabled,
                 playerCardsEnabled: isDebatePlayerCardsEnabled
             ) : nil,
-            control: ScoreboardControlStatus(webEnabled: isWebControlEnabled, remoteEnabled: remoteControlEnabled, gameName: currentGameDisplayName, isSoundEnabled: isSoundEnabled, mainDisplayMode: publicDisplayViewMode, customDisplayControlVisible: isCustomDisplayControlVisible, customDisplayEnabledIDs: customDisplayEnabledDisplayIDs, customDisplayModes: webAPIBroadcastDisplayModesByID)
+            control: ScoreboardControlStatus(webEnabled: isWebControlEnabled, remoteEnabled: remoteControlEnabled, gameName: currentGameDisplayName, isSoundEnabled: isSoundEnabled, mainDisplayMode: publicDisplayViewMode, customDisplayControlVisible: isCustomDisplayControlVisible, customDisplayEnabledIDs: customDisplayEnabledDisplayIDs, customDisplayModes: webAPIBroadcastDisplayModesByID, session: sessionDescriptor,
+                connectedDeviceCount: remoteSessionDeviceCounts?.connected,
+                disconnectedDeviceCount: remoteSessionDeviceCounts?.disconnected)
         )
     }
 
@@ -3406,8 +3429,9 @@ extension ScoreboardStore {
     }
 
     private func webAPIAbsoluteURLs(for path: String) -> [String] {
-        let addresses = webAPILocalAddresses.isEmpty ? ScoreboardWebAPIService.localIPv4Addresses() : webAPILocalAddresses
-        let resolvedAddresses = addresses.isEmpty ? ["127.0.0.1"] : addresses
+        let addresses = isFollowingSessionHost ? sessionHostAddresses
+            : (webAPILocalAddresses.isEmpty ? ScoreboardWebAPIService.localIPv4Addresses() : webAPILocalAddresses)
+        let resolvedAddresses = addresses.isEmpty && !isFollowingSessionHost ? ["127.0.0.1"] : addresses
         return resolvedAddresses.map { address in
             "http://\(address):\(ScoreboardWebAPIService.httpPort)\(path)"
         }

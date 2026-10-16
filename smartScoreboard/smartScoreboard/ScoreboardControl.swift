@@ -9,6 +9,9 @@ nonisolated struct ScoreboardControlStatus: Codable, Sendable {
     var customDisplayControlVisible: Bool? = nil
     var customDisplayEnabledIDs: [Int]? = nil
     var customDisplayModes: [Int: ScoreboardWebAPIBroadcastDisplayMode]? = nil
+    var session: ScoreboardSessionDescriptor? = nil
+    var connectedDeviceCount: Int? = nil
+    var disconnectedDeviceCount: Int? = nil
 }
 
 // Both transports use this contract. Setup and integration configuration are deliberately absent.
@@ -163,7 +166,7 @@ extension ScoreboardStore {
         func fail(_ code: String, _ message: String) -> ScoreboardControlResult {
             .failure(command.id, code, message)
         }
-        guard !isRemoteDisplayViewerModeEnabled, !isRemoteControlProxy else { return fail("disabled", "This device is a receiver.") }
+        guard isSessionAuthority else { return fail("disabled", "This device is not the session host.") }
         guard command.sport == selectedSport else { return fail("conflict", "The sport changed. Refresh state before controlling.") }
         guard let operation = ScoreboardControlOperation.all.first(where: { $0.id == command.action }) else {
             return fail("invalidCommand", "Unknown operation.")

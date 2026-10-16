@@ -123,8 +123,11 @@ struct ContentView: View {
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var recordingKeyboardShortcutAction: ScoreboardKeyboardShortcutAction?
     @State private var isSettingsSidebarCollapsed = false
+    @State private var showsRemoteSessionHelp = false
+    @State private var showsHostRecoveryConfirmation = false
     @State private var storedGameFiles: [StoredGameFile] = []
     @State private var selectedStoredGameFileID: String?
+    @AppStorage("scoreboard.workingGameFilename") private var workingGameFilename = ""
     @State private var renameGameFileNameDraft = ""
     @State private var selectedGameFileIDs: Set<String> = []
     @State private var isSelectingGameFiles = false
@@ -506,6 +509,9 @@ struct ContentView: View {
             .onChange(of: setupCustomDebatePreset) { _, _ in handleSetupDraftChanged() }
             .onChange(of: setupCustomSportConfig) { _, _ in handleSetupDraftChanged() }
             .onChange(of: selectedStoredGameFileID) { _, _ in
+                if !store.isRemoteControlProxy {
+                    workingGameFilename = selectedStoredGameFile?.url.lastPathComponent ?? ""
+                }
                 syncCurrentLogGameFile()
                 renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
             }
@@ -704,6 +710,8 @@ struct ContentView: View {
                 else { lifecycleConfiguredRootView }
             }
             .onChange(of: selectedStoredGameFile?.displayName, initial: true) { _, name in
+                // A restored local selection must not rename the live host's game.
+                guard !store.isFollowingSessionHost else { return }
                 store.setCurrentGameDisplayName(name)
             }
         }
@@ -3548,8 +3556,9 @@ struct ContentView: View {
 
     private func settingsWebAPIPane() -> some View {
         VStack(alignment: .leading, spacing: 22) {
+            settingsIntegrationSessionHostSection()
             #if os(iOS)
-            settingsIPadLifecycleSection()
+            if !store.isFollowingSessionHost { settingsIPadLifecycleSection() }
             #endif
 
             settingsSection(title: "Web API", footer: "Publishes live scoreboard state over HTTP 5516 and WebSocket 5517 for trusted local production tools.") {
@@ -3561,11 +3570,11 @@ struct ContentView: View {
                 settingsDivider()
                 settingsWebAPIUpdateModeRow()
                 settingsDivider()
-                settingsSummaryValueRow(title: "Status", value: localizedWebAPIStatusTitle(store.webAPIStatus))
+                settingsSummaryValueRow(title: "Status", value: localizedWebAPIStatusTitle(sessionWebAPIStatus))
                 settingsDivider()
-                Text(localizedWebAPIStatusDetail(store.webAPIStatus))
+                Text(localizedWebAPIStatusDetail(sessionWebAPIStatus))
                     .font(.subheadline)
-                    .foregroundStyle(store.webAPIStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
+                    .foregroundStyle(sessionWebAPIStatus.isError ? themePalette.destructiveTint : settingsPalette.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
                 settingsDivider()
@@ -3576,7 +3585,7 @@ struct ContentView: View {
                     buttonTitle: "Open",
                     tint: settingsPalette.accent,
                     foreground: settingsPalette.accentText,
-                    isEnabled: store.isWebAPIEnabled
+                    isEnabled: store.isWebAPIEnabled && webAPIIntegrationAddress != nil
                 ) {
                     openWebAPIDemo()
                 }
@@ -3620,8 +3629,8 @@ struct ContentView: View {
             #endif
 
             settingsSection(title: "Security") {
-                settingsOptionTip("Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices and does not expose controls for changing scores, clocks, rosters, files, or settings.", systemImage: "lock.shield")
-                Text("This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes.")
+                settingsOptionTip("Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices. Web Control allows authenticated game operations; files and setup remain on the session owner.", systemImage: "lock.shield")
+                Text("The session host publishes live game data on the local network. Game operations require Web Control and the API key. File and setup changes remain on the session owner.")
                     .font(.body)
                     .foregroundStyle(settingsPalette.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -3797,10 +3806,21 @@ struct ContentView: View {
         return VStack(alignment: .leading, spacing: 22) {
             settingsRemoteDisplayThisDeviceSection()
             settingsRemoteDisplayAboutSection()
+            settingsRemoteDisplaySessionHostSection()
             settingsRemoteDisplayBroadcastSection()
             settingsRemoteDisplayDisplaysSection(displayRows)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .sheet(isPresented: $showsRemoteSessionHelp) { RemoteSessionHelpView() }
+        .confirmationDialog("Recover Session on This Device?", isPresented: $showsHostRecoveryConfirmation,
+                            titleVisibility: .visible) {
+            Button("Recover from Last Saved Copy", role: .destructive) {
+                store.recoverSessionHostOnOwner()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Use this only if the current host is gone. Changes made on that host after the owner's last saved copy cannot be recovered. Timers will be stopped. If the old host returns, discard its local hosted match before reconnecting it.")
+        }
     }
 
     @ViewBuilder
@@ -3855,23 +3875,108 @@ struct ContentView: View {
     }
 
     private var remoteDisplayViewerModeTip: String {
-        "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display only."
+        "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display and session hosting."
     }
 
     private func settingsRemoteDisplayAboutSection() -> some View {
         settingsSection(title: "About Remote Display & Control") {
-            settingsOptionTip("Pair nearby devices to display or control the scoreboard without browser URLs. The main device remains the source of live updates and grants control to each device separately.", systemImage: "tv.and.mediabox")
-            Text("iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display only. Scores, timers, players, display settings, and sounds stay synchronized with the main device.")
+            settingsOptionTip("Pair nearby devices to display or control the scoreboard without browser URLs. The owner grants control to each device separately and can assign one connected device to host the game.", systemImage: "tv.and.mediabox")
+            Text("iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display and session hosting. Scores, timers, players, display settings, and sounds stay synchronized with the session host.")
                 .font(.body)
                 .foregroundStyle(settingsPalette.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 10)
+            settingsDivider()
+            settingsButtonRow(title: "How Remote Sessions Work", buttonTitle: "Open Guide",
+                              tint: settingsPalette.accent, foreground: settingsPalette.accentText) {
+                showsRemoteSessionHelp = true
+            }
+        }
+    }
+
+    private func settingsRemoteDisplaySessionHostSection() -> some View {
+        settingsSection(title: "Session Host", footer: "The host runs game logic, timers, Web API, and Companion. Game files and setup stay on the owner. Other connected devices can keep operating when the owner disconnects.") {
+            settingsSummaryValueRow(title: "Host", value: store.sessionHostDisplayName)
+            settingsDivider()
+            settingsSummaryValueRow(title: "Host IP", value: sessionHostAddressLabel)
+            if store.isFollowingSessionHost || store.isDelegatedSessionHost {
+                settingsDivider()
+                settingsSummaryValueRow(title: "Disconnect status", value:
+                    store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+            }
+            if let session = store.sessionDescriptor {
+                settingsDivider()
+                settingsSummaryValueRow(title: "Owner", value: session.ownerName)
+            }
+            if let message = store.sessionStatusMessage {
+                Text(ScoreboardLocalization.remoteSessionMessage(message))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
+            if store.isSessionOwner && store.isFollowingSessionHost {
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Host on This Device",
+                    buttonTitle: "Move Host Here",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText,
+                    isEnabled: store.canChangeSessionHost && !store.sessionTransferInProgress
+                ) {
+                    store.assignSessionHost(displayID: store.localSessionDeviceID)
+                }
+            }
+            if store.canRecoverSessionHost {
+                settingsDivider()
+                settingsButtonRow(
+                    title: "Host Unavailable",
+                    buttonTitle: "Recover Here",
+                    tint: settingsPalette.accent,
+                    foreground: settingsPalette.accentText
+                ) {
+                    showsHostRecoveryConfirmation = true
+                }
+            }
+            if store.isAnyTimerRunning {
+                Text("Stop all timers before moving the session host.")
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .padding(.vertical, 10)
+            }
+            if store.sessionTransferInProgress {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    localizedAppText("Moving session host…")
+                }
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private var sessionHostAddressLabel: String {
+        let addresses = store.sessionHostAddresses
+        return addresses.isEmpty ? localizedAppString("Waiting for session host address") : addresses.joined(separator: ", ")
+    }
+
+    private func settingsIntegrationSessionHostSection() -> some View {
+        settingsSection(title: "Session Host", footer: "Web API and Companion run on the host shown here. Integration settings are managed on the session owner.") {
+            settingsSummaryValueRow(title: "Host", value: store.sessionHostDisplayName)
+            settingsDivider()
+            settingsSummaryValueRow(title: "Host IP", value: sessionHostAddressLabel)
+            if let message = store.sessionStatusMessage {
+                Text(ScoreboardLocalization.remoteSessionMessage(message))
+                    .font(.subheadline)
+                    .foregroundStyle(settingsPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+            }
         }
     }
 
     private func settingsRemoteDisplayBroadcastSection() -> some View {
         settingsSection(title: "Operator Broadcast", footer: "Turn this on from the main device. Nearby devices in Remote Display / Control Mode appear by device name.") {
-            settingsOptionTip("Turn on Operator Broadcast from the device that will run the game. Nearby Remote Display devices can then pair, reconnect if saved, receive live scoreboard state, and stay in sync with theme and sound settings.", systemImage: "dot.radiowaves.left.and.right")
+            settingsOptionTip("Turn on Operator Broadcast to pair nearby devices. The session owner keeps game files and settings and can assign a paired device to run the game as host. Devices reconnect to the selected host automatically.", systemImage: "dot.radiowaves.left.and.right")
             settingsToggleRow(title: "Enable Remote Display / Control Pairing", isOn: Binding(
                 get: { store.isRemoteDisplayHostEnabled },
                 set: { store.setRemoteDisplayHostEnabled($0) }
@@ -4066,7 +4171,7 @@ struct ContentView: View {
             )
         }
 
-        return rowsByID.values.sorted { lhs, rhs in
+        return rowsByID.values.filter { $0.id != store.localSessionDeviceID }.sorted { lhs, rhs in
             if lhs.sortRank != rhs.sortRank {
                 return lhs.sortRank < rhs.sortRank
             }
@@ -4292,6 +4397,19 @@ struct ContentView: View {
 
             if row.isTrusted || row.isConnected {
                 VStack(alignment: .leading, spacing: 8) {
+                    if store.sessionDescriptor?.hostDeviceID == row.id {
+                        settingsSummaryValueRow(title: "Session Host", value: localizedAppString("Current Host"))
+                    } else if row.connection?.supportsSessionHosting == true || row.source?.supportsSessionHosting == true {
+                        settingsButtonRow(
+                            title: "Session Host",
+                            buttonTitle: "Make Session Host",
+                            tint: settingsPalette.accent,
+                            foreground: settingsPalette.accentText,
+                            isEnabled: row.isConnected && store.canChangeSessionHost && !store.sessionTransferInProgress
+                        ) {
+                            store.assignSessionHost(displayID: row.id)
+                        }
+                    }
                     if row.deviceType != .appleTV {
                         settingsToggleRow(title: "Allow This Device to Control", isOn: Binding(
                             get: { store.isRemoteControlAllowed(displayID: row.id) },
@@ -4577,6 +4695,9 @@ struct ContentView: View {
     }
 
     private func remoteDisplayConnectionDetail(_ connection: ScoreboardRemoteDisplayConnection) -> String {
+        if connection.id == store.sessionDescriptor?.hostDeviceID {
+            return localizedAppString("Hosting")
+        }
         if let latencyMilliseconds = connection.latencyMilliseconds {
             if let age = connection.lastHandshakeAgeSeconds, age >= 1 {
                 return localizedAppFormat("Ping %d ms · last reply %d s ago", latencyMilliseconds, age)
@@ -4586,7 +4707,7 @@ struct ContentView: View {
         if let age = connection.lastHandshakeAgeSeconds {
             return localizedAppFormat("Waiting for ping reply · last reply %d s ago", age)
         }
-        return localizedAppString("Pinging")
+        return localizedAppString(connection.quality == .live ? "Connected" : "Pinging")
     }
 
     private func remoteDisplayConnectionQualityColor(_ quality: ScoreboardRemoteDisplayConnectionQuality) -> Color {
@@ -4620,6 +4741,7 @@ struct ContentView: View {
         let events = store.assignableSoundEvents(for: sport)
 
         return VStack(alignment: .leading, spacing: 22) {
+            settingsIntegrationSessionHostSection()
             settingsCompanionAboutSection()
 
             settingsTwoColumnLayout(layout: layout) {
@@ -4969,19 +5091,33 @@ struct ContentView: View {
         .padding(.vertical, 10)
     }
 
-    private var webAPIIntegrationURL: String {
-        if let address = store.webAPILocalAddresses.first {
-            return "http://\(address):\(ScoreboardWebAPIService.httpPort)/"
+    private var webAPIIntegrationAddress: String? {
+        if store.isFollowingSessionHost {
+            return store.sessionHostAddresses.first
         }
-        return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/"
+        return store.sessionHostAddresses.first ?? store.webAPILocalAddresses.first ?? "127.0.0.1"
+    }
+
+    private var webAPIIntegrationURL: String {
+        guard let address = webAPIIntegrationAddress else {
+            return localizedAppString("Waiting for session host address")
+        }
+        return "http://\(address):\(ScoreboardWebAPIService.httpPort)/"
+    }
+
+    private var sessionWebAPIStatus: ScoreboardWebAPIStatus {
+        if store.isFollowingSessionHost {
+            return store.sessionHostWebAPIStatus ?? .suspended
+        }
+        return store.webAPIStatus
     }
 
     #if ENABLE_CUSTOM_USER_PAGE
     private var webAPICustomUserPageURL: String {
-        if let address = store.webAPILocalAddresses.first {
-            return "http://\(address):\(ScoreboardWebAPIService.httpPort)/user"
+        guard let address = webAPIIntegrationAddress else {
+            return localizedAppString("Waiting for session host address")
         }
-        return "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/user"
+        return "http://\(address):\(ScoreboardWebAPIService.httpPort)/user"
     }
 
     private var customWebPageFilesLocationDescription: String {
@@ -5032,7 +5168,7 @@ struct ContentView: View {
     }
 
     private func openWebAPIDemo() {
-        guard let url = URL(string: "http://127.0.0.1:\(ScoreboardWebAPIService.httpPort)/") else {
+        guard webAPIIntegrationAddress != nil, let url = URL(string: webAPIIntegrationURL) else {
             return
         }
         openURL(url)
@@ -8089,7 +8225,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, layout.headerHorizontalPadding)
         .padding(.vertical, layout.headerVerticalPadding)
-        .background(store.isRemoteControlProxy ? Color.teal.opacity(0.24) : themePalette.dashboardCardBackground,
+        .background((store.isDelegatedSessionHost || remoteControlReceiver.isHostingSession) ? Color.indigo.opacity(0.25) :
+                    (store.isRemoteControlProxy || store.isFollowingSessionHost ? Color.teal.opacity(0.24) : themePalette.dashboardCardBackground),
                     in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -8149,6 +8286,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private func headerStatusBadge(layout: InterfaceLayout) -> some View {
+        if store.isFollowingSessionHost {
+            remoteControlHeaderStatusBadge(layout: layout)
+        } else {
         #if os(iOS)
         if layout.headerUsesVerticalFlow {
             localDisplayStatusGroup(layout: layout)
@@ -8159,11 +8299,12 @@ struct ContentView: View {
         #else
         publicBoardStatusGroup(layout: layout)
         #endif
+        }
     }
 
     @ViewBuilder
     private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
-        if store.isRemoteControlProxy {
+        if store.isRemoteControlProxy || store.isFollowingSessionHost {
             remoteControlHeaderStatusBadge(layout: layout)
         } else {
         HStack(spacing: 8) {
@@ -8201,8 +8342,15 @@ struct ContentView: View {
     }
 
     private var remoteControlConnectionTitle: String {
+        if remoteControlReceiver.isHostingSession { return localizedAppString("Hosting") }
         guard remoteControlReceiver.status.isLive else { return localizedAppString(remoteControlReceiver.status.title) }
-        return localizedAppString(remoteControlReceiver.isControlConnectionReady ? "Connected" : "Waiting for main device…")
+        return localizedAppString(remoteControlReceiver.isControlConnectionReady ? "Connected" :
+            (store.isFollowingSessionHost ? "Waiting for session host…" : "Waiting for main device…"))
+    }
+
+    private var remoteControlDeviceCountsTitle: String? {
+        guard let counts = store.remoteSessionDeviceCounts else { return nil }
+        return localizedAppFormat("%d connected · %d disconnected", counts.connected, counts.disconnected)
     }
 
     private func remoteControlHeaderStatusBadge(layout: InterfaceLayout) -> some View {
@@ -8211,14 +8359,26 @@ struct ContentView: View {
         TimelineView(.periodic(from: Date(), by: 1)) { _ in
             Button { showsRemoteConnectionDetails = true } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: remoteControlReceiver.isControlConnectionReady ? "network" : "wifi.exclamationmark")
+                    Image(systemName: remoteControlReceiver.isHostingSession ? "server.rack" :
+                        (remoteControlReceiver.isControlConnectionReady ? "network" : "wifi.exclamationmark"))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(remoteControlConnectionTitle)
                             .font(layout.headerBadgeFont)
-                        Text(remoteControlPingTitle)
-                            .font(layout.headerBadgeDetailFont)
-                            .monospacedDigit()
+                        if !remoteControlReceiver.isHostingSession {
+                            Text(remoteControlPingTitle)
+                                .font(layout.headerBadgeDetailFont)
+                                .monospacedDigit()
+                        }
+                        if let remoteControlDeviceCountsTitle {
+                            Text(remoteControlDeviceCountsTitle)
+                                .font(layout.headerBadgeDetailFont)
+                                .monospacedDigit()
+                        }
+                        if store.isFollowingSessionHost {
+                            Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+                                .font(layout.headerBadgeDetailFont)
+                        }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -8228,22 +8388,35 @@ struct ContentView: View {
                         .frame(width: 16)
                 }
                 .frame(width: 180, alignment: .leading)
-                .foregroundStyle(remoteControlReceiver.isControlConnectionReady ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
+                .foregroundStyle(remoteControlReceiver.isHostingSession || remoteControlReceiver.isControlConnectionReady ? themePalette.dashboardStatusLive : themePalette.dashboardStatusIdle)
                 .padding(.horizontal, layout.headerBadgeHorizontalPadding)
                 .padding(.vertical, layout.headerBadgeVerticalPadding)
-                .background(Color.teal.opacity(0.18), in: Capsule())
+                .background(remoteControlReceiver.isHostingSession ? Color.indigo.opacity(0.2) : Color.teal.opacity(0.18), in: Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(remoteControlConnectionTitle), \(remoteControlPingTitle)")
-            .help(remoteControlReceiver.status.detail)
+            .accessibilityLabel(remoteControlReceiver.isHostingSession ? remoteControlConnectionTitle :
+                "\(remoteControlConnectionTitle), \(remoteControlPingTitle)")
+            .help(remoteControlReceiver.isHostingSession ? localizedAppString("Running this session on this device.") : remoteControlReceiver.status.detail)
         }
         .popover(isPresented: $showsRemoteConnectionDetails) {
             VStack(alignment: .leading, spacing: 12) {
-                localizedAppText("Remote Control Board").font(.headline)
-                Text(remoteControlReceiver.status.detail)
-                Text(remoteControlPingTitle).monospacedDigit()
+                Text(store.isFollowingSessionHost ? localizedAppFormat("Session Host: %@", store.sessionHostDisplayName) :
+                     (remoteControlReceiver.isHostingSession ? localizedAppString("Hosting Session") : localizedAppString("Remote Control Board")))
+                    .font(.headline)
+                Text(remoteControlReceiver.isHostingSession ? localizedAppString("Running this session on this device.") : remoteControlReceiver.status.detail)
+                if !remoteControlReceiver.isHostingSession {
+                    Text(remoteControlPingTitle).monospacedDigit()
+                }
+                if let remoteControlDeviceCountsTitle {
+                    Text(remoteControlDeviceCountsTitle).monospacedDigit()
+                    if !remoteControlReceiver.isHostingSession && !remoteControlReceiver.status.isLive {
+                        Text("Last reported by the session host.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if let result = remoteControlReceiver.controlResult, !result.success {
-                    Text(result.message ?? localizedAppString("Command failed"))
+                    Text(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"))
                         .foregroundStyle(themePalette.destructiveTint)
                 }
                 if let returnToRemoteControl {
@@ -12762,6 +12935,9 @@ struct ContentView: View {
 
             try FileManager.default.moveItem(at: selectedURL, to: destinationURL)
             refreshStoredGameFiles(selectedURL: destinationURL)
+            if store.isFollowingSessionHost {
+                store.setCurrentGameDisplayName(destinationURL.deletingPathExtension().lastPathComponent)
+            }
             syncCurrentLogGameFile()
             recordFileLog(
                 kind: .fileRename,
@@ -12780,6 +12956,7 @@ struct ContentView: View {
             let snapshot = try loadGameSnapshot(from: gameFile.url)
             selectedStoredGameFileID = gameFile.id
             store.applyGameSnapshot(snapshot)
+            if store.isFollowingSessionHost { store.setCurrentGameDisplayName(gameFile.displayName) }
             loadSetupDraftsFromStore()
             gameFileNameDraft = gameFile.displayName
             recordFileLog(
@@ -12824,6 +13001,8 @@ struct ContentView: View {
                 selectedStoredGameFileID = selectedURL.path
             } else if let selectedStoredGameFileID, storedGameFiles.contains(where: { $0.id == selectedStoredGameFileID }) {
                 self.selectedStoredGameFileID = selectedStoredGameFileID
+            } else if let savedFile = storedGameFiles.first(where: { $0.url.lastPathComponent == workingGameFilename }) {
+                selectedStoredGameFileID = savedFile.id
             } else {
                 selectedStoredGameFileID = storedGameFiles.first?.id
             }
@@ -13471,6 +13650,15 @@ struct ContentView: View {
         APP_STORE_PREVIEW_CAPTURE_END */
         migrateLegacyPresetsToStoredGameFilesIfNeeded()
         refreshStoredGameFiles()
+
+        if store.sessionDescriptor != nil {
+            // Keep the live host authoritative when the owner's view is recreated.
+            // The selected local file remains the destination for normal autosave.
+            ensureWorkingGameFileExists()
+            loadSetupDraftsFromStore()
+            gameFileNameDraft = selectedStoredGameFile?.displayName ?? store.currentGameDisplayName ?? ""
+            return
+        }
 
         if let selectedStoredGameFile {
             loadStoredGameFile(selectedStoredGameFile)
@@ -14138,20 +14326,22 @@ struct ContentView: View {
     }
 
     private var remoteDisplayHeaderConnectedDisplayCount: Int {
+        if let counts = store.remoteSessionDeviceCounts { return counts.connected }
         let knownDisplayIDs = remoteDisplayHeaderKnownDisplayIDs
-        return store.remoteDisplayConnectedDisplays.filter {
-            knownDisplayIDs.contains($0.id)
-        }.count
+        return Set(store.remoteDisplayConnectedDisplays.map(\.id))
+            .intersection(knownDisplayIDs).count
     }
 
     private var remoteDisplayHeaderTotalDisplayCount: Int {
-        remoteDisplayHeaderKnownDisplayIDs.count
+        if let counts = store.remoteSessionDeviceCounts { return counts.connected + counts.disconnected }
+        return remoteDisplayHeaderKnownDisplayIDs.count
     }
 
     private var remoteDisplayHeaderKnownDisplayIDs: Set<String> {
         let pairedDisplayIDs = Set(store.remoteDisplayTrustedDisplays.map(\.id))
         let connectedDisplayIDs = Set(store.remoteDisplayConnectedDisplays.map(\.id))
         return pairedDisplayIDs.union(connectedDisplayIDs)
+            .subtracting([store.localSessionDeviceID])
     }
 
     private var displayStatusSystemImage: String {
