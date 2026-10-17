@@ -58,7 +58,15 @@ func runSessionAuthorityTests() throws -> Int {
         allowedControllers: ["owner-ipad", "control-mac"], webControlEnabled: true,
         webControlKey: "0123456789ABCDEF", log: ScoreboardLogManager.shared.currentSessionSnapshot()!,
         capturedAt: Date().timeIntervalSince1970, gameElapsed: 0.7, shotElapsed: 0.03,
-        penaltyElapsed: 0.2, prepElapsed: 0.8)
+        penaltyElapsed: 0.2, prepElapsed: 0.8, pauseElapsed: 0.6)
+    let pausedCheckpointData = try JSONEncoder().encode(checkpoint)
+    let pausedCheckpoint = try JSONDecoder().decode(ScoreboardSessionCheckpoint.self, from: pausedCheckpointData)
+    expect(pausedCheckpoint.pauseElapsed == 0.6, "checkpoint preserves pause fractional time")
+    var legacyCheckpoint = try JSONSerialization.jsonObject(with: pausedCheckpointData) as! [String: Any]
+    legacyCheckpoint.removeValue(forKey: "pauseElapsed")
+    let decodedLegacyCheckpoint = try JSONDecoder().decode(ScoreboardSessionCheckpoint.self,
+        from: JSONSerialization.data(withJSONObject: legacyCheckpoint))
+    expect(decodedLegacyCheckpoint.pauseElapsed == nil, "older checkpoints remain compatible without pause timing")
     let transferID = UUID()
     let hostedDirectory = ScoreboardHostedMatchStorage.directory(for: delegated.sessionID)
     defer { try? ScoreboardHostedMatchStorage.remove(sessionID: delegated.sessionID) }

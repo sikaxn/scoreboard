@@ -103,6 +103,10 @@ nonisolated struct ScoreboardControlOperation: Codable, Identifiable, Sendable {
         .init(id: "all.teamFoulsReset", title: "Reset all team fouls", parameters: [], capability: "supportsTeamFouls"),
         .init(id: "substitution.adjust", title: "Substitutions used", parameters: ["side", "value"], capability: "supportsSubstitutions"),
         .init(id: "pause.adjust", title: "Pauses used", parameters: ["side", "value"], capability: "supportsPauses"),
+        .init(id: "pause.start", title: "Start team pause", parameters: ["side", "value"], capability: "supportsPauses"),
+        .init(id: "pause.official", title: "Start official pause (0 = indefinite)", parameters: ["value"], capability: ""),
+        .init(id: "pause.running", title: "Pause / continue pause timer", parameters: ["enabled"], capability: "activePause"),
+        .init(id: "pause.cancel", title: "Stop pause", parameters: [], capability: "activePause"),
         .init(id: "chess.switch", title: "Switch chess clock", parameters: [], capability: "usesChessClocks"),
         .init(id: "chess.side", title: "Active chess side", parameters: ["side"], capability: "usesChessClocks"),
         .init(id: "chess.adjust", title: "Adjust chess seconds", parameters: ["side", "value"], capability: "usesChessClocks"),
@@ -151,6 +155,7 @@ nonisolated struct ScoreboardControlOperation: Codable, Identifiable, Sendable {
         case "supportsTeamFouls": return r.supportsTeamFouls
         case "supportsSubstitutions": return r.supportsSubstitutions
         case "supportsPauses": return r.supportsPauses == true
+        case "activePause": return state.clocks.pauseTimer != nil
         case "usesChessClocks": return r.usesChessClocks
         case "debateDualClock": return state.debate != nil && r.usesChessClocks
         case "debate": return state.debate != nil
@@ -190,6 +195,30 @@ extension ScoreboardStore {
         if let value = command.value, abs(Double(value)) > 86400 { return fail("invalidCommand", "Value must be between -86400 and 86400.") }
         if let text = command.text, text.count > 200 { return fail("invalidCommand", "Text is too long.") }
         let side = command.side ?? .home
+        switch command.action {
+        case "pause.start", "pause.official":
+            guard pauseTimer == nil else { return fail("conflict", "Cancel the current pause before starting another.") }
+            guard let duration = command.value, duration >= 0,
+                  duration <= Self.maxGameClockSeconds else { return fail("invalidCommand", "Invalid pause duration.") }
+            if command.action == "pause.start" {
+                guard supportsPauseTracking, pausesRemaining(for: side) > 0 else { return fail("conflict", "This team has no pauses remaining.") }
+            }
+        case "pause.running":
+            guard let seconds = pauseTimer?.remainingSeconds, seconds > 0 else {
+                return fail("conflict", "Only an unfinished countdown can be paused or continued.")
+            }
+        default: break
+        }
+        // No transport may restart play while a pause overlay is active.
+        if pauseTimer != nil {
+            let startsTimer: Bool
+            switch command.action {
+            case "clock.toggle", "shot.toggle", "debate.prepToggle", "penalty.toggle", "chess.switch", "chess.side", "debate.turn", "shot.assign", "serve.set", "debate.return": startsTimer = true
+            case "clock.running", "shot.running", "penalty.add": startsTimer = command.enabled == true
+            default: startsTimer = false
+            }
+            if startsTimer { return fail("conflict", "Cancel the pause before restarting play.") }
+        }
         if command.action == "period.award", periodWinMatchWinner != nil {
             return fail("conflict", "This match already has a winner.")
         }
@@ -238,7 +267,8 @@ extension ScoreboardStore {
         }
         if remote, let expected = command.expectedRunning {
             let running: Bool
-            if command.action.hasPrefix("shot.") { running = isShotClockRunning }
+            if command.action.hasPrefix("pause.") { running = pauseTimer?.isRunning == true }
+            else if command.action.hasPrefix("shot.") { running = isShotClockRunning }
             else if command.action.hasPrefix("penalty.") {
                 running = (homePenaltyTimers + guestPenaltyTimers).first { $0.id == command.timerID }?.isRunning ?? false
             } else if command.action == "debate.prepToggle" {
@@ -287,6 +317,10 @@ extension ScoreboardStore {
         case "all.teamFoulsReset": resetAllTeamFouls()
         case "substitution.adjust": adjustSubstitutionsUsed(for: side, by: value)
         case "pause.adjust": adjustPausesUsed(for: side, by: value)
+        case "pause.start": startPause(for: side, seconds: value)
+        case "pause.official": startPause(seconds: value)
+        case "pause.running": setPauseTimerRunning(enabled)
+        case "pause.cancel": cancelPause()
         case "chess.switch": switchChessClock()
         case "chess.side": setActiveChessClockSide(side)
         case "chess.adjust": adjustChessClock(for: side, by: value)

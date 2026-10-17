@@ -36,6 +36,7 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Apple TV, iPhone, iPad, and Mac Remote Display pairing with live scoreboard sync across multiple displays
 - Built-in modes for Simple, Basketball, Volleyball, Soccer, Hockey, Chess, and Debate
 - Custom sport mode with configurable periods, clocks, score steps, possession, players, fouls, cards, and substitutions
+- Timed or indefinite team and official pauses, with inline operator controls and synchronized public display overlays
 - Shot clock controls for supported sports
 - Chess clock presets for bullet, blitz, rapid, and classical play
 - Debate timers for Public Forum, Lincoln-Douglas, Policy, and custom formats
@@ -51,6 +52,10 @@ For the full Scoreboard experience, connect an external display, use AirPlay, or
 - Paired iPhone, iPad, and Mac remote control boards, with timer delay compensation and simultaneous remote display output
 - Assign a paired device, including Apple TV, to host the game while the owner keeps game files and settings
 - Optional authenticated Web API control with a resettable 16-character key, control demo, and operation reference
+
+Team pauses are available in Basketball, Volleyball, Hockey, and Custom Sport with the Pauses module enabled. Set **Default Pause Duration**, **Indefinite Team Pauses**, and each team's allowance in **Settings → Pauses**. **Start Pause** always uses the saved countdown duration; enabling indefinite team pauses adds a separate **Start Inf Pause** button. Both starts consume one allowance. Volleyball starts with a 30-second duration; other modes start with 60 seconds. **Official Pause** offers timed and indefinite options in every mode. Active team timer controls replace the start/count row, keeping the panel height unchanged. **Back** opens the pause count controls, and **Return to Timer** reopens the active timer. **Pause +** and **Pause −** only adjust usage counts. Timer controls offer pause/continue and **Stop**; official controls use **Stop Pause**. Starting a pause stops all play timers. At zero, the overlay remains until stopped; stopping leaves play stopped and keeps the team's used allowance.
+
+Pause state follows local, AirPlay, and paired displays, remote control boards, Merged View, Live Activities, saved games, backups, and the Web API's scoreboard, OBS, commentator, and control demos. Opening a saved game or restoring a backup keeps the pause state with its countdown stopped. Keyboard actions include official pause, pause/continue countdown, and **Stop Pause**; start-home/start-guest shortcuts use the saved countdown duration, while Pause +/− shortcuts only adjust counts. Indefinite pauses show centered pause text with the corresponding team logo, falling back to the event logo; official pauses use the event logo. No clock value is shown for indefinite pauses. Sounds and Companion support pause start, official start, countdown pause/resume, end, and expiry events. Stopping either a timed or indefinite team/official pause triggers the configured **Pause Ended** sound and Companion action once. Indefinite pauses never fire the expiry event. API actions are `pause.start`, `pause.official` (both accept value 0 for indefinite), `pause.running`, and `pause.cancel` (the Stop Pause action); read `clocks.pauseTimer`, `clocks.pauseTitle`, `clocks.pauseDurationSeconds`, and `clocks.isTeamPauseIndefinite`. `pause.adjust` remains a usage-count correction.
 
 ## Supported Platforms
 
@@ -114,7 +119,7 @@ Pair another iPhone, iPad, or Mac using the existing Remote Display workflow. On
 
 The device that starts pairing remains the **owner**. To move game logic to another device, open **Settings → Integration → Remote Display & Control** and choose **Make Session Host** for a connected device. There is one host at a time; connected devices move to the selected host after the transfer handshake. An Ethernet-connected Apple TV or Mac can keep timers and other controllers operating while the owner is disconnected. Use **Host on This Device** to move hosting back. Host changes require the current host to be reachable.
 
-Stop every game, shot, debate prep, and penalty timer before moving the host. Control boards show the host's connected and disconnected device counts, using the same session totals as the owner. The owner's local entry is excluded; an offline control board labels these counts as the last report from the host.
+Stop every game, shot, debate prep, pause countdown, and penalty timer before moving the host. Control boards show the host's connected and disconnected device counts, using the same session totals as the owner. The owner's local entry is excluded; an offline control board labels these counts as the last report from the host.
 
 A delegated host keeps an isolated match file and log while the owner is offline. When the owner reconnects, the host sends the latest match and log back to the owner's saved game file. **Safe to Disconnect** appears on the owner's control board and connected remote display only after all timers stop and the owner confirms a durable save. Leaving hosted Remote Display mode in that state moves hosting back to the owner and removes the host's isolated copy. If the match is not synced, the exit prompt offers a deliberate choice to keep hosting and reconnect or delete the local match. Use **Open Guide** in Remote Display & Control settings for a court diagram and LAN/nearby pairing explanation.
 
@@ -136,4 +141,4 @@ Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode, select the **smartSco
 python3 scripts/run_remote_control_tests.py
 ```
 
-The runner uses Xcode's Swift compiler to check all sports, timer compensation, validation, duplicate commands, and HTTP authentication. It uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. Optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom`.
+The runner uses Xcode's Swift compiler to check all sports, pause countdowns and overlays, timer compensation, validation, duplicate commands, saved-game compatibility, and HTTP authentication. It uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. Optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom` and `node scripts/test_pause_web_templates.cjs /path/to/jsdom`.

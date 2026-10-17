@@ -47,8 +47,7 @@ def main():
         )
         (temp / "storage.swift").write_text(storage)
         session = (SOURCE / "ScoreboardSession.swift").read_text()
-        recovery_path = '''let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("smartScoreboard/Session/authority.json")'''
+        recovery_path = 'return base.appendingPathComponent("smartScoreboard/Session/authority.json")'
         assert recovery_path in session, "Session recovery storage changed; update test isolation."
         session = session.replace(
             recovery_path,
@@ -72,6 +71,21 @@ def main():
         store += """
 @MainActor
 extension ScoreboardStore {
+    // Hold playback as if another sound is active, then inspect the real event
+    // queue without playing audio or contacting a Companion server.
+    func captureControlTestEventActions(_ action: () -> Void)
+        -> [(event: ScoreboardSoundEvent, effect: ScoreboardSoundEffect, location: String?)] {
+        clearQueuedEventActions()
+        activeEventPlaybackID = UUID()
+        action()
+        let actions = queuedEventActions.map { ($0.triggerEvent, $0.effect, $0.companionLocation?.rawValue) }
+        clearQueuedEventActions()
+        return actions
+    }
+    func advanceControlTestTimers(by elapsed: TimeInterval) {
+        tick(elapsed: elapsed)
+        lastTimerFireDate = Date()
+    }
     func refreshControlTestTrustedDisplay(_ peer: ScoreboardRemoteDisplayTrustedPeer) {
         remoteDisplayHostService.refreshControlTestTrustedDisplay(peer)
     }
@@ -89,6 +103,7 @@ extension ScoreboardStore {
             str(temp / "storage.swift"), str(temp / "session.swift"), str(temp / "confirmations.swift"),
             str(temp / "remote.swift"), str(temp / "store.swift"),
             str(ROOT / "scripts" / "remote_control_tests.swift"),
+            str(ROOT / "scripts" / "pause_timer_tests.swift"),
             str(ROOT / "scripts" / "session_log_tests.swift"),
             str(ROOT / "scripts" / "session_authority_tests.swift"),
         ])

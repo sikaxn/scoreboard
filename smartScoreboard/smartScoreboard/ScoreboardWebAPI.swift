@@ -300,6 +300,10 @@ nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
     let guestChessClockSeconds: Int
     let formattedGuestChessClock: String
     let activeChessClockSide: TeamSide?
+    var pauseTimer: ScoreboardPauseTimer? = nil
+    var pauseTitle: String? = nil
+    var pauseDurationSeconds: Int? = nil
+    var isTeamPauseIndefinite: Bool? = nil
 }
 
 nonisolated enum ScoreboardWebAPILegacyScrollDirection: String, Codable, Sendable {
@@ -589,7 +593,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
                 mode: "dualClock",
                 label: "Dual Clock",
                 value: "\(clocks.formattedHomeChessClock) / \(clocks.formattedGuestChessClock)",
-                state: clocks.activeChessClockSide == nil ? "stopped" : "running",
+                state: clocks.isGameClockRunning ? "running" : "stopped",
                 side: clocks.activeChessClockSide,
                 secondaryValue: nil
             )
@@ -787,6 +791,11 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         let clocks = state.clocks
         var insights: [ScoreboardWebAPICommentatorInsight] = []
 
+        if let pause = clocks.pauseTimer {
+            insights.append(insight(id: "active-pause", priority: "high", category: "clock",
+                title: clocks.pauseTitle ?? "Pause", detail: pause.remainingSeconds == nil ? "Indefinite Pause" : "\(pause.formattedTime) · \(pause.isRunning ? "Running" : "Stopped")"))
+        }
+
         if rules.supportsScore {
             if summary.leader == "tied" {
                 insights.append(insight(id: "score-tied", priority: "normal", category: "score", title: "Score tied", detail: "\(home.name) \(home.score)-\(guest.score) \(guest.name)"))
@@ -905,7 +914,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
                 insights.append(entryInsight(entry, priority: "high", category: "clock"))
             case .clockToggle, .clockAdjustment, .clockReset, .shotClockToggle, .shotClockAssignment, .shotClockAdjustment, .shotClockReset:
                 insights.append(entryInsight(entry, priority: "normal", category: "clock"))
-            case .playerFoulAdjustment, .teamFoulAdjustment, .playerCardSet, .playerCardReset, .teamPauseAdjustment:
+            case .playerFoulAdjustment, .teamFoulAdjustment, .playerCardSet, .playerCardReset, .teamPauseAdjustment, .pauseTimerChange:
                 insights.append(entryInsight(entry, priority: "high", category: "discipline"))
             case .substitutionsAdjustment, .lineupToggle, .playerOverlayToggle:
                 insights.append(entryInsight(entry, priority: "normal", category: "player"))
@@ -986,7 +995,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         switch kind {
         case .scoreAdjustment, .scoresReset, .volleyballSetAward, .volleyballSetUndo:
             return "score"
-        case .clockToggle, .clockExpired, .clockAdjustment, .clockReset, .shotClockAssignment, .shotClockToggle, .shotClockExpired, .shotClockAdjustment, .shotClockReset, .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset:
+        case .clockToggle, .clockExpired, .clockAdjustment, .clockReset, .shotClockAssignment, .shotClockToggle, .shotClockExpired, .shotClockAdjustment, .shotClockReset, .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset, .pauseTimerChange:
             return "clock"
         case .playerFoulAdjustment, .playerFoulReset, .playerFoulResetAll, .playerCardSet, .playerCardReset, .playerCardResetAll, .teamFoulAdjustment, .teamFoulReset, .teamFoulResetAll, .teamPauseAdjustment:
             return "discipline"
@@ -1041,6 +1050,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
             return "Swap Sides"
         case .substitutionsAdjustment:
             return "Substitution Swap"
+        case .pauseTimerChange: return "Pause Timer Change"
         case .teamPauseAdjustment:
             return "Team Pause Change"
         case .chessClockToggle:
@@ -3138,7 +3148,7 @@ extension ScoreboardStore {
                 supportsPlayerTracking: supportsPlayerTracking,
                 supportsCards: supportsCards,
                 supportsSubstitutions: rules.showsSubstitutionTracking || showsSubstitutionTracking,
-                supportsPauses: rules.showsPauseTracking || showsPauseTracking,
+                supportsPauses: supportsPauseTracking,
                 supportsHockeyPenalties: supportsHockeyPenalties,
                 usesChessClocks: usesChessClocks,
                 supportsInjuryTime: supportsInjuryTime
@@ -3166,7 +3176,11 @@ extension ScoreboardStore {
                 formattedHomeChessClock: formattedHomeChessClock,
                 guestChessClockSeconds: guestChessClockSeconds,
                 formattedGuestChessClock: formattedGuestChessClock,
-                activeChessClockSide: activeChessClockSide
+                activeChessClockSide: activeChessClockSide,
+                pauseTimer: pauseTimer,
+                pauseTitle: pauseTitle,
+                pauseDurationSeconds: pauseDurationSeconds,
+                isTeamPauseIndefinite: isTeamPauseIndefinite
             ),
             players: ScoreboardWebAPIPlayers(
                 isPlayerTrackingEnabled: isPlayerTrackingEnabled,

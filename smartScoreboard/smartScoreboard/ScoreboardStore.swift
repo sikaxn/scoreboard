@@ -921,6 +921,12 @@ final class ScoreboardStore: ObservableObject {
         .redCardAssigned: .none,
         .substitutionUsed: .none,
         .teamPauseUsed: .none,
+        .pauseStarted: .none,
+        .officialPauseStarted: .none,
+        .pauseTimerPaused: .none,
+        .pauseTimerResumed: .none,
+        .pauseEnded: .none,
+        .pauseExpired: .softChime,
         .teamFoulApplied: .none,
         .playerFoulApplied: .none,
         .sideSwitched: .none,
@@ -997,6 +1003,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestSubstitutionsAllowed = 0
     @Published var homeSubstitutionsUsed = 0
     @Published var guestSubstitutionsUsed = 0
+    @Published var pauseDurationSeconds = 60
+    @Published var isTeamPauseIndefinite = false
+    @Published var pauseTimer: ScoreboardPauseTimer?
     @Published var homePausesAllowed = 0
     @Published var guestPausesAllowed = 0
     @Published var homePausesUsed = 0
@@ -1348,6 +1357,7 @@ final class ScoreboardStore: ObservableObject {
     private var accumulatedShotClockElapsed: TimeInterval = 0
     private var accumulatedPenaltyElapsed: TimeInterval = 0
     private var accumulatedDebatePrepElapsed: TimeInterval = 0
+    private var accumulatedPauseElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
     private var isReconcilingTimersFromWallClock = false
@@ -1567,7 +1577,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var isAnyTimerRunning: Bool {
-        isClockRunning ||
+        pauseTimer?.isRunning == true ||
+            isClockRunning ||
             isShotClockRunning ||
             isDebatePrepClockRunning ||
             homePenaltyTimers.contains(where: \.isRunning) ||
@@ -1861,7 +1872,7 @@ final class ScoreboardStore: ObservableObject {
                 .debatePrepStarted,
                 .debatePrepStopped,
                 .debatePrepExpired
-            ] + sideClockSoundEvents + debatePrepClockSoundEvents + [
+            ] + pauseSoundEvents + sideClockSoundEvents + debatePrepClockSoundEvents + [
                 .sideSwitched,
                 .periodChanged,
                 .scoreChanged,
@@ -1880,7 +1891,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func assignableSoundEvents(for rules: SportRules) -> [ScoreboardSoundEvent] {
-        var events: [ScoreboardSoundEvent] = []
+        var events: [ScoreboardSoundEvent] = pauseSoundEvents
 
         if rules.usesChessClocks {
             events.append(.chessClockExpired)
@@ -3160,6 +3171,10 @@ final class ScoreboardStore: ObservableObject {
         gameClockSeconds = defaultClockSeconds
         resetInjuryTimeForPeriod()
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        pauseTimer = nil
+        accumulatedPauseElapsed = 0
+        homePausesUsed = 0
+        guestPausesUsed = 0
         homeSubstitutionsUsed = 0
         guestSubstitutionsUsed = 0
         homeTeamFouls = 0
@@ -3176,6 +3191,7 @@ final class ScoreboardStore: ObservableObject {
             configureDebateSegment(index: 0, preserveRunningState: false)
         }
         resetPlayerTrackingForNewGame()
+        updateTimerState()
         requestGameClockAutosave()
     }
 
@@ -3719,6 +3735,7 @@ final class ScoreboardStore: ObservableObject {
 
     func toggleDebatePrepClock(for side: TeamSide) {
         if routeRemoteControlCommand("debate.prepToggle", side: side) { return }
+        guard pauseTimer == nil else { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
@@ -3855,6 +3872,7 @@ final class ScoreboardStore: ObservableObject {
 
     func toggleChessClock() {
         if routeRemoteControlCommand("clock.toggle") { return }
+        guard pauseTimer == nil else { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
@@ -4054,6 +4072,7 @@ final class ScoreboardStore: ObservableObject {
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int, player: TrackedPlayer?, startsRunning: Bool) {
         if routeRemoteControlCommand("penalty.add", side: side, value: seconds, enabled: startsRunning, playerID: player?.id) { return }
+        guard pauseTimer == nil || !startsRunning else { return }
         guard supportsHockeyPenalties else {
             recordLog(
                 kind: .hockeyPenaltyAdd,
@@ -4118,6 +4137,7 @@ final class ScoreboardStore: ObservableObject {
 
     func togglePenaltyTimer(for side: TeamSide, timerID: UUID) {
         if routeRemoteControlCommand("penalty.toggle", side: side, timerID: timerID) { return }
+        guard pauseTimer == nil else { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -4245,15 +4265,19 @@ final class ScoreboardStore: ObservableObject {
         shotClockWasRunning: Bool,
         debatePrepWasRunning: Bool
     ) {
-        isClockRunning = clockWasRunning && (showsGameClock || usesChessClocks)
-        isShotClockRunning = shotClockWasRunning && supportsShotClock
-        isDebatePrepClockRunning = debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
+        isClockRunning = pauseTimer == nil && clockWasRunning && (showsGameClock || usesChessClocks)
+        isShotClockRunning = pauseTimer == nil && shotClockWasRunning && supportsShotClock
+        isDebatePrepClockRunning = pauseTimer == nil && debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
         normalizeInjuryTimeState()
         updateTimerState()
     }
 
     func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
-        if sport != selectedSport || applyDefaults { clearQueuedEventActions() }
+        if sport != selectedSport || applyDefaults {
+            clearQueuedEventActions()
+            pauseTimer = nil
+            accumulatedPauseElapsed = 0
+        }
         selectedSport = sport
         let rules = currentRules
 
@@ -4273,6 +4297,8 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = rules.defaultSubstitutionLimit
             homeSubstitutionsUsed = 0
             guestSubstitutionsUsed = 0
+            pauseDurationSeconds = sport == .volleyball ? 30 : 60
+            isTeamPauseIndefinite = false
             homePausesAllowed = rules.defaultPauseLimit
             guestPausesAllowed = rules.defaultPauseLimit
             homePausesUsed = 0
@@ -4394,6 +4420,84 @@ final class ScoreboardStore: ObservableObject {
         if delta > 0, substitutionsUsed(for: side) != previousValue {
             handleScoreboardEvent(.substitutionUsed)
         }
+    }
+
+    private var pauseSoundEvents: [ScoreboardSoundEvent] {
+        [.pauseStarted, .officialPauseStarted, .pauseTimerPaused, .pauseTimerResumed, .pauseEnded, .pauseExpired]
+    }
+
+    var pauseTitle: String? {
+        pauseTimer?.title(homeTeamName: homeTeamName, guestTeamName: guestTeamName)
+    }
+
+    func setPauseDurationSeconds(_ seconds: Int) {
+        pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, seconds))
+    }
+
+    func setTeamPauseIndefinite(_ isIndefinite: Bool) {
+        isTeamPauseIndefinite = isIndefinite
+    }
+
+    /// Official pauses do not consume a team allowance. Zero means indefinite for either kind of pause.
+    func startPause(for side: TeamSide? = nil, seconds: Int? = nil) {
+        let duration = seconds ?? pauseDurationSeconds
+        if routeRemoteControlCommand(side == nil ? "pause.official" : "pause.start", side: side, value: duration) { return }
+        guard pauseTimer == nil, duration >= 0, duration <= Self.maxGameClockSeconds else { return }
+        if let side {
+            guard supportsPauseTracking, pausesRemaining(for: side) > 0 else { return }
+        }
+        reconcileRunningTimersWithWallClock()
+        var stoppedDispatches = [currentRunningClockStoppedDispatch()].compactMap { $0 }
+        if isShotClockRunning { stoppedDispatches.append(eventDispatch(.shotClockPaused)) }
+        if (homePenaltyTimers + guestPenaltyTimers).contains(where: \.isRunning) {
+            stoppedDispatches.append(eventDispatch(.hockeyPenaltyPaused))
+        }
+        isClockRunning = false
+        isShotClockRunning = false
+        isDebatePrepClockRunning = false
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices { timers[index].isRunning = false }
+            }
+        }
+        if let side { adjustPausesUsed(for: side, by: 1) }
+        accumulatedPauseElapsed = 0
+        pauseTimer = ScoreboardPauseTimer(side: side, remainingSeconds: duration == 0 ? nil : duration, isRunning: duration > 0)
+        updateTimerState()
+        refreshPrimaryTimerPersistence()
+        handleScoreboardEventDispatches(stoppedDispatches)
+        recordLog(kind: .pauseTimerChange, summary: pauseTitle ?? "", outcome: .applied, teamSide: side, value: duration)
+        handleScoreboardEvent(.pauseStarted)
+        if side == nil { handleScoreboardEvent(.officialPauseStarted) }
+    }
+
+    func setPauseTimerRunning(_ running: Bool) {
+        if routeRemoteControlCommand("pause.running", enabled: running) { return }
+        reconcileRunningTimersWithWallClock()
+        guard var pause = pauseTimer, let seconds = pause.remainingSeconds, seconds > 0,
+              pause.isRunning != running else { return }
+        pause.isRunning = running
+        pauseTimer = pause
+        updateTimerState()
+        recordLog(kind: .pauseTimerChange, summary: localizedStoreString(running ? "Pause Timer Resumed" : "Pause Timer Paused"), outcome: .applied, teamSide: pause.side, value: seconds)
+        handleScoreboardEvent(running ? .pauseTimerResumed : .pauseTimerPaused)
+    }
+
+    func cancelPause() {
+        if routeRemoteControlCommand("pause.cancel") { return }
+        guard let pause = pauseTimer else { return }
+        pauseTimer = nil
+        accumulatedPauseElapsed = 0
+        updateTimerState()
+        recordLog(kind: .pauseTimerChange, summary: localizedStoreString("Pause Ended"), outcome: .applied, teamSide: pause.side)
+        handleScoreboardEvent(.pauseEnded)
+    }
+
+    private func normalizedPauseTimer(_ source: ScoreboardPauseTimer?, preserveRunning: Bool) -> ScoreboardPauseTimer? {
+        guard var pause = source, pause.side == nil || supportsPauseTracking else { return nil }
+        if let seconds = pause.remainingSeconds { pause.remainingSeconds = max(0, min(Self.maxGameClockSeconds, seconds)) }
+        pause.isRunning = preserveRunning && pause.isRunning && (pause.remainingSeconds ?? 0) > 0
+        return pause
     }
 
     func setPausesAllowed(for side: TeamSide, to value: Int) {
@@ -4599,7 +4703,10 @@ final class ScoreboardStore: ObservableObject {
             playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: embeddedTeamLogoImage(for: .home),
             guestTeamLogoImage: embeddedTeamLogoImage(for: .guest),
-            eventLogoImage: embeddedEventLogoImage()
+            eventLogoImage: embeddedEventLogoImage(),
+            pauseDurationSeconds: pauseDurationSeconds,
+            pauseTimer: pauseTimer,
+            isTeamPauseIndefinite: isTeamPauseIndefinite
         )
     }
 
@@ -4760,6 +4867,10 @@ final class ScoreboardStore: ObservableObject {
             if isDebateMode {
                 clearSubstitutionTracking()
             }
+            pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, snapshot.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            isTeamPauseIndefinite = snapshot.isTeamPauseIndefinite ?? false
+            pauseTimer = normalizedPauseTimer(snapshot.pauseTimer, preserveRunning: isApplyingRemoteControlState || isApplyingSessionUpdate)
+            accumulatedPauseElapsed = 0
             homePausesAllowed = max(0, snapshot.homePausesAllowed ?? currentRules.defaultPauseLimit)
             guestPausesAllowed = max(0, snapshot.guestPausesAllowed ?? currentRules.defaultPauseLimit)
             homePausesUsed = max(0, min(homePausesAllowed, snapshot.homePausesUsed ?? 0))
@@ -4833,6 +4944,17 @@ final class ScoreboardStore: ObservableObject {
             if !showsGameClock {
                 pauseClock()
             }
+            if pauseTimer != nil {
+                isClockRunning = false
+                isShotClockRunning = false
+                isDebatePrepClockRunning = false
+                for side in TeamSide.allCases {
+                    updatePenaltyTimers(for: side) { timers in
+                        for index in timers.indices { timers[index].isRunning = false }
+                    }
+                }
+            }
+            updateTimerState()
             normalizeInjuryTimeState()
             didCompleteSetup = true
         }
@@ -4924,6 +5046,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startClock() {
+        guard pauseTimer == nil else { return }
         if usesChessClocks {
             guard activeChessClockSide != nil else {
                 activeChessClockSide = .home
@@ -4975,6 +5098,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startShotClock() {
+        guard pauseTimer == nil else { return }
         guard supportsShotClock else {
             return
         }
@@ -5031,7 +5155,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
-        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning || pauseTimer?.isRunning == true else {
             timer?.invalidate()
             timer = nil
             lastTimerFireDate = nil
@@ -5071,7 +5195,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
-        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning || pauseTimer?.isRunning == true else {
             lastTimerFireDate = nil
             return
         }
@@ -5223,6 +5347,22 @@ final class ScoreboardStore: ObservableObject {
                 case .segment:
                     isDebatePrepClockRunning = false
                 }
+            }
+        }
+
+        if var pause = pauseTimer, pause.isRunning, let remaining = pause.remainingSeconds {
+            accumulatedPauseElapsed += elapsed
+            let wholeSeconds = Int(accumulatedPauseElapsed)
+            if wholeSeconds > 0 {
+                accumulatedPauseElapsed -= Double(wholeSeconds)
+                pause.remainingSeconds = max(0, remaining - wholeSeconds)
+                if pause.remainingSeconds == 0 {
+                    pause.isRunning = false
+                    accumulatedPauseElapsed = 0
+                    recordLog(kind: .pauseTimerChange, summary: localizedStoreString("Pause Timer Expired"), outcome: .applied, teamSide: pause.side, value: 0)
+                    soundEvents.append(.pauseExpired)
+                }
+                pauseTimer = pause
             }
         }
 
@@ -6254,6 +6394,7 @@ final class ScoreboardStore: ObservableObject {
         recoveredDescriptor.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         recoveredDescriptor.safeToDisconnect = nil
         checkpoint.descriptor = recoveredDescriptor
+        checkpoint.game.pauseTimer?.isRunning = false
         checkpoint.runtime = ScoreboardWebAPIRuntime(
             isGameRunning: checkpoint.runtime.isGameRunning,
             isClockRunning: false, isShotClockRunning: false,
@@ -6939,6 +7080,9 @@ final class ScoreboardStore: ObservableObject {
             $guestSubstitutionsAllowed.map { _ in () }.eraseToAnyPublisher(),
             $homeSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
             $guestSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
+            $pauseTimer.map { _ in () }.eraseToAnyPublisher(),
+            $pauseDurationSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $isTeamPauseIndefinite.map { _ in () }.eraseToAnyPublisher(),
             $homePausesAllowed.map { _ in () }.eraseToAnyPublisher(),
             $guestPausesAllowed.map { _ in () }.eraseToAnyPublisher(),
             $homePausesUsed.map { _ in () }.eraseToAnyPublisher(),
@@ -7197,6 +7341,10 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+            pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, persistedState.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            isTeamPauseIndefinite = persistedState.isTeamPauseIndefinite ?? false
+            pauseTimer = normalizedPauseTimer(persistedState.pauseTimer, preserveRunning: false)
+            accumulatedPauseElapsed = 0
             homePausesAllowed = max(0, persistedState.homePausesAllowed)
             guestPausesAllowed = max(0, persistedState.guestPausesAllowed)
             homePausesUsed = max(0, min(homePausesAllowed, persistedState.homePausesUsed))
@@ -7350,6 +7498,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func restorePrimaryTimerPersistenceIfNeeded() {
         guard sessionDescriptor == nil else { return }
+        guard pauseTimer == nil else { clearPrimaryTimerPersistence(); return }
         guard
             let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
             let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
@@ -7618,7 +7767,10 @@ final class ScoreboardStore: ObservableObject {
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
             isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
             isRemoteDisplayIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
-            remoteDisplayNetworkMode: remoteDisplayNetworkMode
+            remoteDisplayNetworkMode: remoteDisplayNetworkMode,
+            pauseDurationSeconds: pauseDurationSeconds,
+            pauseTimer: pauseTimer,
+            isTeamPauseIndefinite: isTeamPauseIndefinite
         )
     }
 
@@ -7914,6 +8066,9 @@ private struct PersistedState: Codable {
     var isRemoteDisplayViewerModeEnabled: Bool
     var isRemoteDisplayIndividualControlEnabled: Bool
     var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
+    var pauseDurationSeconds: Int?
+    var pauseTimer: ScoreboardPauseTimer?
+    var isTeamPauseIndefinite: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
@@ -8031,6 +8186,9 @@ private struct PersistedState: Codable {
         case isRemoteDisplayViewerModeEnabled
         case isRemoteDisplayIndividualControlEnabled
         case remoteDisplayNetworkMode
+        case pauseDurationSeconds
+        case pauseTimer
+        case isTeamPauseIndefinite
     }
 
     init(
@@ -8144,7 +8302,10 @@ private struct PersistedState: Codable {
         isRemoteDisplayHostEnabled: Bool,
         isRemoteDisplayViewerModeEnabled: Bool,
         isRemoteDisplayIndividualControlEnabled: Bool,
-        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
+        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode,
+        pauseDurationSeconds: Int? = nil,
+        pauseTimer: ScoreboardPauseTimer? = nil,
+        isTeamPauseIndefinite: Bool? = nil
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
@@ -8257,6 +8418,9 @@ private struct PersistedState: Codable {
         self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
         self.isRemoteDisplayIndividualControlEnabled = isRemoteDisplayIndividualControlEnabled
         self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
+        self.pauseDurationSeconds = pauseDurationSeconds
+        self.pauseTimer = pauseTimer
+        self.isTeamPauseIndefinite = isTeamPauseIndefinite
     }
 
     init(from decoder: Decoder) throws {
@@ -8422,6 +8586,9 @@ private struct PersistedState: Codable {
         isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
         isRemoteDisplayIndividualControlEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayIndividualControlEnabled) ?? false
         remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
+        pauseDurationSeconds = try container.decodeIfPresent(Int.self, forKey: .pauseDurationSeconds)
+        pauseTimer = try container.decodeIfPresent(ScoreboardPauseTimer.self, forKey: .pauseTimer)
+        isTeamPauseIndefinite = try container.decodeIfPresent(Bool.self, forKey: .isTeamPauseIndefinite)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -8538,6 +8705,9 @@ private struct PersistedState: Codable {
         try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
         try container.encode(isRemoteDisplayIndividualControlEnabled, forKey: .isRemoteDisplayIndividualControlEnabled)
         try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
+        try container.encodeIfPresent(pauseDurationSeconds, forKey: .pauseDurationSeconds)
+        try container.encodeIfPresent(pauseTimer, forKey: .pauseTimer)
+        try container.encodeIfPresent(isTeamPauseIndefinite, forKey: .isTeamPauseIndefinite)
     }
 }
 
@@ -8945,7 +9115,8 @@ extension ScoreboardStore {
             log: logManager.currentSessionSnapshot() ?? ScoreboardLogSession(),
             capturedAt: Date().timeIntervalSince1970,
             gameElapsed: accumulatedGameClockElapsed, shotElapsed: accumulatedShotClockElapsed,
-            penaltyElapsed: accumulatedPenaltyElapsed, prepElapsed: accumulatedDebatePrepElapsed)
+            penaltyElapsed: accumulatedPenaltyElapsed, prepElapsed: accumulatedDebatePrepElapsed,
+            pauseElapsed: accumulatedPauseElapsed)
     }
 
     private func persistOwnerSessionFile(_ checkpoint: ScoreboardSessionCheckpoint) throws {
@@ -9408,6 +9579,7 @@ extension ScoreboardStore {
         accumulatedShotClockElapsed = checkpoint.shotElapsed
         accumulatedPenaltyElapsed = checkpoint.penaltyElapsed
         accumulatedDebatePrepElapsed = checkpoint.prepElapsed
+        accumulatedPauseElapsed = checkpoint.pauseElapsed ?? 0
         remoteDisplayHostService.installSessionPairings(checkpoint.pairings)
         remoteControlAllowedDisplayIDs = checkpoint.allowedControllers
         isWebControlEnabled = checkpoint.webControlEnabled
@@ -9896,6 +10068,8 @@ struct ScoreboardRemoteTimerOperation {
     var primary = false
     var shot = false
     var prep = false
+    var pause = false
+    var allPenalties = false
     var penaltyID: UUID?
 }
 
@@ -9904,9 +10078,12 @@ extension ScoreboardStore {
     func beginRemoteTimerOperation(_ command: ScoreboardControlCommand, delay: TimeInterval) -> ScoreboardRemoteTimerOperation {
         var scope = ScoreboardRemoteTimerOperation()
         guard delay > 0 else { return scope }
-        scope.primary = command.action.hasPrefix("clock.") || command.action.hasPrefix("chess.") || command.action.hasPrefix("debate.")
-        scope.prep = command.action.hasPrefix("debate.") || (isDebateMode && command.action.hasPrefix("clock."))
-        scope.shot = command.action.hasPrefix("shot.") || command.action == "serve.set" || command.action == "possession.set"
+        scope.pause = command.action.hasPrefix("pause.") && command.action != "pause.adjust"
+        let startsPause = command.action == "pause.start" || command.action == "pause.official"
+        scope.allPenalties = startsPause
+        scope.primary = startsPause || command.action.hasPrefix("clock.") || command.action.hasPrefix("chess.") || command.action.hasPrefix("debate.")
+        scope.prep = startsPause || command.action.hasPrefix("debate.") || (isDebateMode && command.action.hasPrefix("clock."))
+        scope.shot = startsPause || command.action.hasPrefix("shot.") || command.action == "serve.set" || command.action == "possession.set"
         scope.penaltyID = command.action.hasPrefix("penalty.") ? command.timerID : nil
         func rewind(_ seconds: inout Int, fraction: inout TimeInterval, countdown: Bool) {
             let exact = countdown ? Double(seconds) - fraction + delay : Double(seconds) + fraction - delay
@@ -9917,6 +10094,11 @@ extension ScoreboardStore {
                 seconds = max(0, Int(floor(exact)))
                 fraction = max(0, exact - Double(seconds))
             }
+        }
+        if scope.pause, var pause = pauseTimer, pause.isRunning, var seconds = pause.remainingSeconds {
+            rewind(&seconds, fraction: &accumulatedPauseElapsed, countdown: true)
+            pause.remainingSeconds = seconds
+            pauseTimer = pause
         }
         if scope.primary && isClockRunning {
             if usesChessClocks {
@@ -9931,10 +10113,10 @@ extension ScoreboardStore {
             if debateActiveTimer == .prepHome { rewind(&debatePrepHomeSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
             else { rewind(&debatePrepGuestSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
         }
-        if let id = scope.penaltyID {
+        if scope.allPenalties || scope.penaltyID != nil {
             for side in TeamSide.allCases {
                 updatePenaltyTimers(for: side) { timers in
-                    if let index = timers.firstIndex(where: { $0.id == id && $0.isRunning }) {
+                    for index in timers.indices where timers[index].isRunning && (scope.allPenalties || timers[index].id == scope.penaltyID) {
                         timers[index].remainingSeconds += Int(ceil(delay - accumulatedPenaltyElapsed))
                     }
                 }
@@ -9945,6 +10127,9 @@ extension ScoreboardStore {
 
     func finishRemoteTimerOperation(_ scope: ScoreboardRemoteTimerOperation, delay: TimeInterval) {
         guard delay > 0 else { return }
+        let savedPause = pauseTimer
+        let pauseFraction = accumulatedPauseElapsed
+        if !scope.pause { pauseTimer?.isRunning = false }
         let primaryRunning = isClockRunning
         let shotRunning = isShotClockRunning
         let prepRunning = isDebatePrepClockRunning
@@ -9952,7 +10137,7 @@ extension ScoreboardStore {
         let shotFraction = accumulatedShotClockElapsed
         let prepFraction = accumulatedDebatePrepElapsed
         let penaltyFraction = accumulatedPenaltyElapsed
-        let unrelatedPenalties = (homePenaltyTimers + guestPenaltyTimers).filter { $0.id != scope.penaltyID && $0.isRunning }.map(\.id)
+        let unrelatedPenalties = (homePenaltyTimers + guestPenaltyTimers).filter { !scope.allPenalties && $0.id != scope.penaltyID && $0.isRunning }.map(\.id)
         if !scope.primary { isClockRunning = false }
         if !scope.shot { isShotClockRunning = false }
         if !scope.prep { isDebatePrepClockRunning = false }
@@ -9962,6 +10147,7 @@ extension ScoreboardStore {
             }
         }
         tick(elapsed: delay)
+        if !scope.pause { pauseTimer = savedPause; accumulatedPauseElapsed = pauseFraction }
         if !scope.primary { isClockRunning = primaryRunning; accumulatedGameClockElapsed = primaryFraction }
         if !scope.shot { isShotClockRunning = shotRunning; accumulatedShotClockElapsed = shotFraction }
         if !scope.prep { isDebatePrepClockRunning = prepRunning; accumulatedDebatePrepElapsed = prepFraction }
@@ -10072,6 +10258,7 @@ extension ScoreboardStore {
         configuration.debatePrepHomeSeconds = nil
         configuration.debatePrepGuestSeconds = nil
         configuration.isDebatePrepClockRunning = nil
+        configuration.pauseTimer = nil
         configuration.homePenaltyTimers = nil
         configuration.guestPenaltyTimers = nil
         configuration.homeRoster = nil
@@ -10089,6 +10276,7 @@ extension ScoreboardStore {
             assignRemoteValue(\.homePenaltyTimers, snapshot.homePenaltyTimers ?? [])
             assignRemoteValue(\.guestPenaltyTimers, snapshot.guestPenaltyTimers ?? [])
         }
+        assignRemoteValue(\.pauseTimer, snapshot.pauseTimer)
         // The display payload may be assigned to this device's external screen;
         // operator buttons always show the main board's display control mode.
         assignRemoteValue(\.publicDisplayViewMode, state.control?.mainDisplayMode ?? state.display?.viewMode ?? .scoreboard)
@@ -10175,6 +10363,7 @@ extension ScoreboardStore {
         if guestChessClockSeconds != projection.guestChessClockSeconds { guestChessClockSeconds = projection.guestChessClockSeconds }
         if debatePrepHomeSeconds != projection.projectedDebatePrepSeconds(for: .home) { debatePrepHomeSeconds = projection.projectedDebatePrepSeconds(for: .home) }
         if debatePrepGuestSeconds != projection.projectedDebatePrepSeconds(for: .guest) { debatePrepGuestSeconds = projection.projectedDebatePrepSeconds(for: .guest) }
+        if pauseTimer != projection.pauseTimer { pauseTimer = projection.pauseTimer }
         if homePenaltyTimers != projection.homePenaltyTimers { homePenaltyTimers = projection.homePenaltyTimers }
         if guestPenaltyTimers != projection.guestPenaltyTimers { guestPenaltyTimers = projection.guestPenaltyTimers }
         // Projection is visual only. Expiry events and automation remain on the main board.

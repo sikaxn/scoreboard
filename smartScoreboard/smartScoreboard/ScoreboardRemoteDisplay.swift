@@ -2310,6 +2310,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
                 command.expectedRunning = state.runtime.isClockRunning
             case "shot.toggle", "shot.running":
                 command.expectedRunning = state.runtime.isShotClockRunning
+            case "pause.running":
+                command.expectedRunning = state.clocks.pauseTimer?.isRunning == true
             case "penalty.toggle":
                 command.expectedRunning = ((state.game.homePenaltyTimers ?? []) + (state.game.guestPenaltyTimers ?? []))
                     .first { $0.id == command.timerID }?.isRunning

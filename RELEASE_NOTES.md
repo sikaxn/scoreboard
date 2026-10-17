@@ -4,6 +4,7 @@
 
 ### Feature Added
 
+- Added configurable timed or indefinite team and official pauses, with separate timed/infinite start buttons, inline operator pause/resume/stop controls, separate pause-count adjustments, centered pause labels with team/event logos, synchronized display overlays, remote control, Web API templates, keyboard shortcuts, Live Activities, saved state, sounds, and Companion events (including infinite pause stops).
 - Added Remote Control Board support for iPhone, iPad, and Mac, reusing the existing Control Board for scores, timers, players, sounds, and display controls across supported sports and modes, with separate control permission for each paired device.
 - Added simultaneous remote control and scoreboard display, including Merged View, local display, and external display support.
 - Added session host assignment to a paired Mac, iPad, or Apple TV. The owner sets up the game and keeps the match file, while the host runs game logic, timers, logs, Web API, and Bitfocus Companion.

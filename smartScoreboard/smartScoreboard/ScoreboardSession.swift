@@ -40,6 +40,7 @@ nonisolated struct ScoreboardSessionCheckpoint: Codable, Sendable {
     var shotElapsed: TimeInterval
     var penaltyElapsed: TimeInterval
     var prepElapsed: TimeInterval
+    var pauseElapsed: TimeInterval? = nil
 }
 
 nonisolated struct ScoreboardSessionCleanState: Equatable, Sendable {

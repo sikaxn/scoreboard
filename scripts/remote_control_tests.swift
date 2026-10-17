@@ -27,6 +27,7 @@ import Combine
                                      text: text, enabled: enabled, playerID: playerID, timerID: timerID,
                                      sentAt: delay.map { Date().timeIntervalSince1970 - $0 })
         }
+        checks += try! runPauseTimerTests()
         for sport in SportType.allCases {
             store.setSelectedSport(sport)
             store.newGame()

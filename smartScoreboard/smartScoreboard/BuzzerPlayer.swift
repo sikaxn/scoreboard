@@ -3,7 +3,7 @@ import Foundation
 
 enum ScoreboardEventGroup: String, CaseIterable, Identifiable, Sendable {
     case timerExpiry, results, timerPause, timerStart, prepTimers, shotTimer
-    case penaltyTimers, gameActions, players, cardsAndFouls, samples
+    case penaltyTimers, pauseTimers, gameActions, players, cardsAndFouls, samples
 
     var id: String { rawValue }
     var title: String {
@@ -15,6 +15,7 @@ enum ScoreboardEventGroup: String, CaseIterable, Identifiable, Sendable {
         case .prepTimers: return "Prep Timers"
         case .shotTimer: return "Shot Timer"
         case .penaltyTimers: return "Penalty Timers"
+        case .pauseTimers: return "Pause Timer"
         case .gameActions: return "Game Actions"
         case .players: return "Players"
         case .cardsAndFouls: return "Cards and Fouls"
@@ -74,6 +75,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
     case yellowCardAssigned
     case redCardAssigned
     case substitutionUsed
+    case pauseStarted
+    case officialPauseStarted
+    case pauseTimerPaused
+    case pauseTimerResumed
+    case pauseEnded
+    case pauseExpired
     case teamPauseUsed
     case teamFoulApplied
     case playerFoulApplied
@@ -120,6 +127,8 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return .cardsAndFouls
         case .scoreChanged, .periodChanged, .possessionChanged, .sideSwitched, .substitutionUsed, .teamPauseUsed:
             return .gameActions
+        case .pauseStarted, .officialPauseStarted, .pauseTimerPaused, .pauseTimerResumed, .pauseEnded, .pauseExpired:
+            return .pauseTimers
         case .general:
             return .samples
         }
@@ -243,6 +252,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "Red Card"
         case .substitutionUsed:
             return "Substitution Used"
+        case .pauseStarted: return "Pause Started"
+        case .officialPauseStarted: return "Official Pause Started"
+        case .pauseTimerPaused: return "Pause Timer Paused"
+        case .pauseTimerResumed: return "Pause Timer Resumed"
+        case .pauseEnded: return "Pause Ended"
+        case .pauseExpired: return "Pause Timer Expired"
         case .teamPauseUsed:
             return "Team Pause Used"
         case .teamFoulApplied:
@@ -376,6 +391,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "A red card is assigned"
         case .substitutionUsed:
             return "A substitution count is used"
+        case .pauseStarted: return "A team or official pause starts"
+        case .officialPauseStarted: return "An official pause starts"
+        case .pauseTimerPaused: return "The pause countdown is paused"
+        case .pauseTimerResumed: return "The pause countdown continues"
+        case .pauseEnded: return "The pause is stopped (timed or indefinite)"
+        case .pauseExpired: return "The pause countdown reaches zero"
         case .teamPauseUsed:
             return "A team pause count is used"
         case .teamFoulApplied:
@@ -509,6 +530,12 @@ enum ScoreboardSoundEvent: String, Codable, CaseIterable, Hashable, Identifiable
             return "rectangle.fill"
         case .substitutionUsed:
             return "arrow.triangle.2.circlepath"
+        case .pauseStarted: return "pause.circle.fill"
+        case .officialPauseStarted: return "person.crop.circle.badge.exclamationmark"
+        case .pauseTimerPaused: return "pause.circle"
+        case .pauseTimerResumed: return "play.circle"
+        case .pauseEnded: return "stop.circle"
+        case .pauseExpired: return "timer"
         case .teamPauseUsed:
             return "pause.circle"
         case .teamFoulApplied:

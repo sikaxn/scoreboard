@@ -155,6 +155,7 @@ struct ContentView: View {
     @State private var pendingLogDeletion: StoredLogSession?
     @State private var isFactoryDefaultConfirmationPresented = false
     @State private var pendingPenaltySelection: PendingPenaltySelection?
+    @State private var showsPauseCountControls = false
     @State private var logPlaybackOrder: LogPlaybackOrder = .topToBottom
     @State private var isLoadingSetupDrafts = false
     @State private var isCommittingSetupEdits = false
@@ -368,6 +369,7 @@ struct ContentView: View {
     private var synchronizedRootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
             rootView
+            .onChange(of: store.pauseTimer?.side) { _, _ in showsPauseCountControls = false }
             .onReceive(store.$homeTeamName) { homeTeamDraft = $0 }
             .onReceive(store.$guestTeamName) { guestTeamDraft = $0 }
             .onReceive(store.$eventName) { eventNameDraft = $0 }
@@ -424,6 +426,9 @@ struct ContentView: View {
             .onReceive(store.$guestSubstitutionsAllowed) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$homeSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$guestSubstitutionsUsed) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$pauseTimer) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$pauseDurationSeconds) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$isTeamPauseIndefinite) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$homePausesAllowed) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$guestPausesAllowed) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$homePausesUsed) { _ in autosaveSelectedGameFile() }
@@ -1739,10 +1744,21 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private func settingsPauseTrackingSection() -> some View {
-        if setupRules.showsPauseTracking && setupSport != .chess && setupSport != .debate && (setupSport != .custom || setupCustomSportConfig.isPauseTrackingEnabled) {
-            settingsSection(title: "Pauses", footer: "Set how many team pauses each side can use during the match.") {
+        settingsSection(title: "Pauses", footer: "Choose the default pause duration. Enable indefinite team pauses to offer both timed and indefinite start buttons. Official pauses do not use a team allowance.") {
+            settingsStepperValueRow(
+                title: "Default Pause Duration",
+                value: formatClock(store.pauseDurationSeconds),
+                decrement: { store.setPauseDurationSeconds(store.pauseDurationSeconds - 5) },
+                increment: { store.setPauseDurationSeconds(store.pauseDurationSeconds + 5) }
+            )
+            if setupRules.showsPauseTracking {
+                settingsDivider()
+                settingsToggleRow(title: "Indefinite Team Pauses", isOn: Binding(
+                    get: { store.isTeamPauseIndefinite },
+                    set: { store.setTeamPauseIndefinite($0) }
+                ))
+                settingsDivider()
                 settingsOptionTip("Set pause allowances before the match so the live board can count remaining pauses for each side. These limits are saved with the current game setup and can differ for home and guest.", systemImage: "pause.circle")
                 settingsStepperValueRow(
                     title: "Home Allowed",
@@ -8903,7 +8919,8 @@ struct ContentView: View {
             ActionDescriptor(
                 title: store.isShotClockRunning ? "\(timerAction) Pause" : "Start \(timerAction)",
                 tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardSuccessButton,
-                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardSuccessButtonText
+                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardSuccessButtonText,
+                isEnabled: store.pauseTimer == nil
             ) {
                 store.toggleShotClock()
             },
@@ -10565,6 +10582,25 @@ struct ContentView: View {
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Menu {
+                Button { store.startPause(seconds: 0) } label: { localizedAppText("Indefinite Official Pause") }
+                Button { store.startPause(seconds: store.pauseDurationSeconds) } label: { localizedAppText("Timed Official Pause") }
+            } label: {
+                Label { localizedAppText("Official Pause") } icon: { Image(systemName: "pause.circle") }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(store.pauseTimer != nil)
+            if let pause = store.pauseTimer, pause.side == nil {
+                pauseTimerControlPanel(pause, layout: layout)
+            }
+            primaryGameControls(layout: layout)
+        }
+    }
+
+    private func primaryGameControls(layout: InterfaceLayout) -> some View {
         if store.isDebateMode {
             return AnyView(debateGameControls(layout: layout))
         }
@@ -10584,7 +10620,8 @@ struct ContentView: View {
                     tint: themePalette.dashboardSuccessButton,
                     foreground: themePalette.dashboardSuccessButtonText,
                     titleFont: .title3.weight(.black),
-                    verticalPadding: layout.isCombinedDisplay ? 10 : layout.denseControls ? 16 : 20
+                    verticalPadding: layout.isCombinedDisplay ? 10 : layout.denseControls ? 16 : 20,
+                    isEnabled: store.pauseTimer == nil
                 ) {
                     store.toggleClock()
                 }
@@ -10711,7 +10748,8 @@ struct ContentView: View {
                 tint: themePalette.dashboardSuccessButton,
                 foreground: themePalette.dashboardSuccessButtonText,
                 titleFont: .title3.weight(.black),
-                verticalPadding: layout.denseControls ? 16 : 20
+                verticalPadding: layout.denseControls ? 16 : 20,
+                isEnabled: store.pauseTimer == nil
             ) {
                 store.toggleChessClock()
             }
@@ -10913,7 +10951,8 @@ struct ContentView: View {
                 tint: themePalette.dashboardSuccessButton,
                 foreground: themePalette.dashboardSuccessButtonText,
                 titleFont: .title3.weight(.black),
-                verticalPadding: layout.denseControls ? 16 : 20
+                verticalPadding: layout.denseControls ? 16 : 20,
+                isEnabled: store.pauseTimer == nil
             ) {
                 if store.debateActiveTimer == .segment {
                     store.toggleClock()
@@ -11118,7 +11157,8 @@ struct ContentView: View {
                     ActionDescriptor(
                         title: isActive && store.isDebatePrepClockRunning ? "Pause Prep" : "Use Prep",
                         tint: isActive ? tint.opacity(0.82) : tint,
-                        foreground: tintText
+                        foreground: tintText,
+                        isEnabled: store.pauseTimer == nil
                     ) {
                         store.toggleDebatePrepClock(for: side)
                     },
@@ -11422,8 +11462,78 @@ struct ContentView: View {
         }
     }
 
+    private func pauseTimerControlPanel(_ pause: ScoreboardPauseTimer, layout: InterfaceLayout) -> some View {
+        let tint = pause.side.map { $0 == .home ? homeTint : guestTint } ?? themePalette.dashboardWarningButton
+        let canToggleCountdown = (pause.remainingSeconds ?? 0) > 0
+        let logoData = pause.logoData(
+            homeTeamLogoData: store.showsTeamLogos ? store.homeTeamLogoImage?.data : nil,
+            guestTeamLogoData: store.showsTeamLogos ? store.guestTeamLogoImage?.data : nil,
+            eventLogoData: store.showsEventLogo ? store.eventLogoImage?.data : nil
+        )
+
+        return VStack(alignment: .leading, spacing: 8) {
+            if pause.remainingSeconds == nil {
+                VStack(spacing: 8) {
+                    if let logoData {
+                        TeamLogoImageView(data: logoData, cornerRadius: 8)
+                            .frame(width: 56, height: 56)
+                    }
+                    Text(verbatim: store.pauseTitle ?? "")
+                        .font(.headline.weight(.bold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    if let logoData {
+                        TeamLogoImageView(data: logoData, cornerRadius: 8)
+                            .frame(width: 36, height: 36)
+                    }
+                    Text(verbatim: store.pauseTitle ?? "")
+                        .font(.subheadline.weight(.bold))
+                        .singleLineFitted(minScale: 0.6)
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+                    Spacer(minLength: 0)
+                    Text(verbatim: pause.formattedTime)
+                        .font(.system(size: layout.centerMetricValueSize - 4, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .singleLineFitted(minScale: 0.6)
+                        .foregroundStyle(tint)
+                }
+                localizedAppText(pause.remainingSeconds == 0 ? "Pause Timer Expired" : pause.isRunning ? "Running" : "Pause Timer Paused")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(themePalette.dashboardMutedText)
+            }
+
+            buttonGrid(
+                columns: canToggleCountdown ? 2 : 1,
+                buttons: (canToggleCountdown ? [
+                    ActionDescriptor(
+                        title: pause.isRunning ? "Pause Countdown" : "Continue Countdown",
+                        tint: themePalette.dashboardSuccessButton,
+                        foreground: themePalette.dashboardSuccessButtonText
+                    ) {
+                        store.setPauseTimerRunning(!pause.isRunning)
+                    }
+                ] : []) + [
+                    ActionDescriptor(title: "Stop Pause", tint: themePalette.destructiveTint, foreground: destructiveText) {
+                        store.cancelPause()
+                    }
+                ],
+                dense: layout.denseControls,
+                compactVerticalPadding: layout.advancedButtonVerticalPadding
+            )
+        }
+        .padding(10)
+        .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
     private func pauseControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let tintText = teamAccentText(for: side)
+        let hasActivePause = store.pauseTimer?.side == side
+        let showsInfinitePauseStart = store.isTeamPauseIndefinite && !hasActivePause
+        let countButtonWidth: CGFloat = layout.denseControls || showsInfinitePauseStart ? 44 : 52
 
         return VStack(alignment: .leading, spacing: 10) {
             Text("Pauses \(store.pausesUsed(for: side))/\(store.pausesAllowed(for: side)) Used • \(store.pausesRemaining(for: side)) Left")
@@ -11431,24 +11541,100 @@ struct ContentView: View {
                 .singleLineFitted(minScale: 0.7)
                 .foregroundStyle(themePalette.dashboardMutedText)
 
-            buttonGrid(
-                columns: 2,
-                buttons: [
-                    ActionDescriptor(title: "Pause -", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+            HStack(spacing: layout.isCombinedDisplay || showsInfinitePauseStart ? 6 : 10) {
+                if let pause = store.pauseTimer, pause.side == side, !showsPauseCountControls {
+                    smallActionButton(
+                        "Back",
+                        tint: themePalette.dashboardNeutralButton,
+                        foreground: themePalette.dashboardNeutralButtonText,
+                        verticalPadding: layout.advancedButtonVerticalPadding
+                    ) {
+                        showsPauseCountControls = true
+                    }
+                    .frame(width: layout.denseControls ? 44 : 52)
+
+                    Text(verbatim: pause.remainingSeconds == nil ? store.pauseTitle ?? "" : pause.formattedTime)
+                        .font(.headline.weight(.bold))
+                        .monospacedDigit()
+                        .singleLineFitted(minScale: 0.55)
+                        .foregroundStyle(tint)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, layout.advancedButtonVerticalPadding)
+
+                    if (pause.remainingSeconds ?? 0) > 0 {
+                        smallActionButton(
+                            pause.isRunning ? "Pause" : "Continue",
+                            tint: themePalette.dashboardSuccessButton,
+                            foreground: themePalette.dashboardSuccessButtonText,
+                            verticalPadding: layout.advancedButtonVerticalPadding
+                        ) {
+                            store.setPauseTimerRunning(!pause.isRunning)
+                        }
+                        .accessibilityLabel(localizedAppString(pause.isRunning ? "Pause Countdown" : "Continue Countdown"))
+                    }
+
+                    smallActionButton(
+                        "Stop",
+                        tint: themePalette.destructiveTint,
+                        foreground: destructiveText,
+                        verticalPadding: layout.advancedButtonVerticalPadding
+                    ) {
+                        store.cancelPause()
+                    }
+                    .accessibilityLabel(localizedAppString("Stop Pause"))
+                } else {
+                    smallActionButton(
+                        "-",
+                        tint: themePalette.dashboardNeutralButton,
+                        foreground: themePalette.dashboardNeutralButtonText,
+                        verticalPadding: layout.advancedButtonVerticalPadding,
+                        isEnabled: store.pausesUsed(for: side) > 0
+                    ) {
                         store.adjustPausesUsed(for: side, by: -1)
-                    },
-                    ActionDescriptor(
-                        title: "Pause +",
+                    }
+                    .frame(width: countButtonWidth)
+                    .accessibilityLabel(localizedAppFormat("%@ Pause -1", store.sideRoleLabel(for: side)))
+
+                    smallActionButton(
+                        hasActivePause ? "Return to Timer" : "Start Pause",
                         tint: tint,
                         foreground: tintText,
-                        isEnabled: store.pausesUsed(for: side) < store.pausesAllowed(for: side)
+                        verticalPadding: layout.advancedButtonVerticalPadding,
+                        isEnabled: hasActivePause || (store.pauseTimer == nil && store.pausesRemaining(for: side) > 0)
+                    ) {
+                        showsPauseCountControls = false
+                        if !hasActivePause {
+                            store.startPause(for: side)
+                        }
+                    }
+
+                    if showsInfinitePauseStart {
+                        smallActionButton(
+                            "Start Inf Pause",
+                            tint: tint,
+                            foreground: tintText,
+                            verticalPadding: layout.advancedButtonVerticalPadding,
+                            isEnabled: store.pauseTimer == nil && store.pausesRemaining(for: side) > 0
+                        ) {
+                            showsPauseCountControls = false
+                            store.startPause(for: side, seconds: 0)
+                        }
+                        .frame(minWidth: 76)
+                    }
+
+                    smallActionButton(
+                        "+",
+                        tint: tint,
+                        foreground: tintText,
+                        verticalPadding: layout.advancedButtonVerticalPadding,
+                        isEnabled: store.pausesRemaining(for: side) > 0
                     ) {
                         store.adjustPausesUsed(for: side, by: 1)
                     }
-                ],
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
+                    .frame(width: countButtonWidth)
+                    .accessibilityLabel(localizedAppFormat("%@ Pause +1", store.sideRoleLabel(for: side)))
+                }
+            }
         }
     }
 
@@ -11463,9 +11649,9 @@ struct ContentView: View {
             buttonGrid(
                 columns: 3,
                 buttons: [
-                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: tintText) { addPenaltyTimer(side: side, seconds: 120) },
-                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: tintText) { addPenaltyTimer(side: side, seconds: 240) },
-                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: tintText) { addPenaltyTimer(side: side, seconds: 300) }
+                    ActionDescriptor(title: "Add 2:00", tint: tint, foreground: tintText, isEnabled: store.pauseTimer == nil) { addPenaltyTimer(side: side, seconds: 120) },
+                    ActionDescriptor(title: "Add 4:00", tint: tint.opacity(0.9), foreground: tintText, isEnabled: store.pauseTimer == nil) { addPenaltyTimer(side: side, seconds: 240) },
+                    ActionDescriptor(title: "Add 5:00", tint: tint.opacity(0.8), foreground: tintText, isEnabled: store.pauseTimer == nil) { addPenaltyTimer(side: side, seconds: 300) }
                 ],
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -11486,7 +11672,7 @@ struct ContentView: View {
                     buttonGrid(
                         columns: 4,
                         buttons: [
-                            ActionDescriptor(title: timer.isRunning ? "Pause" : "Start", tint: themePalette.dashboardSuccessButton, foreground: themePalette.dashboardSuccessButtonText) {
+                            ActionDescriptor(title: timer.isRunning ? "Pause" : "Start", tint: themePalette.dashboardSuccessButton, foreground: themePalette.dashboardSuccessButtonText, isEnabled: store.pauseTimer == nil) {
                                 store.togglePenaltyTimer(for: side, timerID: timer.id)
                             },
                             ActionDescriptor(title: "-1s", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
@@ -12384,7 +12570,9 @@ struct ContentView: View {
             playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: store.currentGameSnapshot().homeTeamLogoImage,
             guestTeamLogoImage: store.currentGameSnapshot().guestTeamLogoImage,
-            eventLogoImage: store.currentGameSnapshot().eventLogoImage
+            eventLogoImage: store.currentGameSnapshot().eventLogoImage,
+            pauseDurationSeconds: store.pauseDurationSeconds,
+            isTeamPauseIndefinite: setupRules.showsPauseTracking && store.isTeamPauseIndefinite
         )
     }
 
@@ -13969,7 +14157,10 @@ struct ContentView: View {
             playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
             guestTeamLogoImage: currentSnapshot.guestTeamLogoImage,
-            eventLogoImage: currentSnapshot.eventLogoImage
+            eventLogoImage: currentSnapshot.eventLogoImage,
+            pauseDurationSeconds: currentSnapshot.pauseDurationSeconds,
+            pauseTimer: currentSnapshot.pauseTimer,
+            isTeamPauseIndefinite: setupRules.showsPauseTracking && (currentSnapshot.isTeamPauseIndefinite ?? false)
         )
     }
 
@@ -14376,6 +14567,7 @@ struct ContentView: View {
             guestDisplayedPlayers: store.displayedGuestPlayers,
             homeRosterPlayers: store.homeRoster.players,
             guestRosterPlayers: store.guestRoster.players,
+            pauseTimer: store.pauseTimer,
             animatesAnimatedLogoBackground: false
         )
     }

@@ -86,6 +86,15 @@ struct RemoteScoreboardProjection {
         return ScoreboardStore.formatGameClock(projectedDebatePrepSeconds(for: .guest))
     }
 
+    var pauseTimer: ScoreboardPauseTimer? {
+        guard var pause = state.clocks.pauseTimer ?? state.game.pauseTimer else { return nil }
+        if pause.isRunning, let seconds = pause.remainingSeconds {
+            pause.remainingSeconds = max(0, seconds - elapsedWholeSeconds)
+            if pause.remainingSeconds == 0 { pause.isRunning = false }
+        }
+        return pause
+    }
+
     var homePenaltyTimers: [HockeyPenaltyTimer] {
         projectedPenaltyTimers(state.game.homePenaltyTimers ?? [])
     }

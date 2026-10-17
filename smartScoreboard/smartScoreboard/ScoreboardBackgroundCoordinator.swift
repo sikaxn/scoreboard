@@ -39,7 +39,7 @@ final class ScoreboardBackgroundCoordinator {
         store.prepareForBackgroundRuntime()
         scheduleMaintenanceIfNeeded(store: store)
 
-        guard store.isGameRunning else {
+        guard store.isGameRunning || store.pauseTimer?.isRunning == true else {
             store.suspendWebAPIForAppLifecycle()
             endBackgroundRuntime()
             return
@@ -65,7 +65,7 @@ final class ScoreboardBackgroundCoordinator {
 
     private func scheduleMaintenanceIfNeeded(store: ScoreboardStore) {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.maintenanceTaskIdentifier)
-        guard store.isGameRunning else {
+        guard store.isGameRunning || store.pauseTimer?.isRunning == true else {
             return
         }
 

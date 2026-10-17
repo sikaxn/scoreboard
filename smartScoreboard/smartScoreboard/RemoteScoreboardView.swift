@@ -412,7 +412,8 @@ private struct RemoteScoreboardFace: View {
             homeDisplayedPlayers: state.players.homeDisplayed,
             guestDisplayedPlayers: state.players.guestDisplayed,
             homeRosterPlayers: state.players.homeRoster.players,
-            guestRosterPlayers: state.players.guestRoster.players
+            guestRosterPlayers: state.players.guestRoster.players,
+            pauseTimer: projection.pauseTimer
         )
     }
 

@@ -531,6 +531,9 @@
         white-space: normal;
       }
     }
+    #pauseBanner { display:flex; align-items:center; justify-content:center; gap:12px; text-align:center; }
+    #pauseBannerLogo { width:64px; height:64px; object-fit:contain; }
+    #pauseBanner[hidden] { display:none; }
   </style>
 </head>
 <body>
@@ -545,6 +548,8 @@
         <button id="settingsButton" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
       </div>
     </header>
+
+    <section id="pauseBanner" class="panel" role="status" hidden><img id="pauseBannerLogo" class="hidden" alt=""><span id="pauseBannerText"></span></section>
 
     <section class="score-strip">
       <article class="team home">
@@ -885,6 +890,7 @@
         sideSwap: 'Swap Sides',
         substitutionsAdjustment: 'Substitution Swap',
         teamPauseAdjustment: 'Team Pause Change',
+        pauseTimerChange: 'Pause Timer Change',
         chessClockToggle: 'Chess Clock Toggle',
         chessClockSwitch: 'Chess Clock Switch',
         chessClockAdjustment: 'Chess Clock Adjust',
@@ -943,6 +949,7 @@
         sideSwap: '交换主客队',
         substitutionsAdjustment: '换人变化',
         teamPauseAdjustment: '暂停变化',
+        pauseTimerChange: '暂停计时变更',
         chessClockToggle: '棋钟切换',
         chessClockSwitch: '棋钟换边',
         chessClockAdjustment: '棋钟调整',
@@ -1095,6 +1102,21 @@
       const rules = v2State.rules || {};
       const teams = v2State.teams || {};
       const clocks = v2State.clocks || {};
+      const pause = clocks.pauseTimer;
+      el('pauseBanner').hidden = !pause;
+      if (pause) {
+        const side = pause.side;
+        const name = side ? (teams[side] || {}).name || (side === 'home' ? 'HOME' : 'GUEST') : '';
+        const label = side ? `${name}${language === 'zh' ? '暂停' : ' Pause'}` : (language === 'zh' ? '官方暂停' : 'Official Pause');
+        const display = v2State.display || {};
+        const teamLogo = side && display.showsTeamLogos !== false ? (teams[side] || {}).logo : null;
+        const eventLogo = display.showsEventLogo !== false ? display.eventLogo : null;
+        applyLogo('pauseBannerLogo', logoURL(teamLogo) ? teamLogo : eventLogo);
+        const seconds = pause.remainingSeconds;
+        const time = seconds == null ? '' : `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
+        const status = seconds === 0 ? (language === 'zh' ? '时间到' : 'Expired') : seconds != null && !pause.isRunning ? (language === 'zh' ? '计时已暂停' : 'Countdown Paused') : '';
+        el('pauseBannerText').textContent = `${label}${time ? ' · ' + time : ''}${status ? ' · ' + status : ''}`;
+      }
       const home = teamSummary('home');
       const guest = teamSummary('guest');
       const supportsScore = rules.supportsScore !== false && summary.leader !== 'none';
