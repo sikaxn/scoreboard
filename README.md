@@ -66,6 +66,8 @@ Pause state follows local, AirPlay, and paired displays, remote control boards, 
 
 The iPhone, iPad, and Mac app includes the operator interface and can also be switched into Remote Display mode from Settings. Apple TV AirPlay does not require the Scoreboard Apple TV app. If the Apple TV app is installed, it shows the scoreboard and can be selected as the session host. It has no operator control board. Remote Display uses Network Framework Bonjour pairing, not the Web API, and can sync more than one display device from the same session host. The owner can choose same Wi-Fi/LAN only or allow Apple peer-to-peer Wi-Fi for nearby devices.
 
+Remote devices now negotiate an optional data-only WebRTC connection for live state and control, with WebSocket fallback. The Web API control demo also supports RTC with HTTP fallback. The standalone LiveKitWebRTC package includes Apple TV device and arm64 simulator binaries, so Apple TV can host RTC sessions without a LiveKit server. V2 browser resource feeds, pairing, clock synchronization, handoff, images, and logs retain their existing transports. See [WebRTC transport and manual verification](docs/webrtc-transport.md).
+
 ## Build From Source
 
 1. Clone the repository.

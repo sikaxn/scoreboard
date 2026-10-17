@@ -8477,6 +8477,7 @@ struct ContentView: View {
             }
             if !remoteConnectionIsHosting {
                 remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
+                remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
             }
             Divider()
             Text("Remote Devices").font(.subheadline.weight(.semibold))
@@ -8544,6 +8545,9 @@ struct ContentView: View {
                 Text(localizedAppString(device.deviceType.title)).font(.caption).foregroundStyle(.secondary)
                 if let canControl = device.controlEnabled, !isHost {
                     Text(canControl ? "Control enabled" : "Remote Display").font(.caption).foregroundStyle(.secondary)
+                }
+                if !isHost && device.connected, let transport = device.realtimeTransport {
+                    Text(transport).font(.caption).foregroundStyle(.secondary)
                 }
                 if !isHost && device.connected, let latency = device.latencyMilliseconds {
                     Text(localizedAppFormat("Ping %d ms", latency)).font(.caption).monospacedDigit()

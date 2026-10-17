@@ -71,6 +71,7 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var lastHandshakeAgeSeconds: Int? = nil
     var appVersion: ScoreboardRemoteDisplayAppVersion? = nil
     var quality: ScoreboardRemoteDisplayConnectionQuality? = nil
+    var realtimeTransport: String? = nil
 }
 
 nonisolated struct ScoreboardSessionAdministration: Codable, Sendable {

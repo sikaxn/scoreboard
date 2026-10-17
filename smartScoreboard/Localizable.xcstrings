@@ -18531,6 +18531,17 @@
           }
         }
       }
+    },
+    "Transport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "传输方式"
+          }
+        }
+      }
     }
   },
   "version" : "1.2"

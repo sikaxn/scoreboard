@@ -7,8 +7,8 @@
 </style></head><body>
 <a href="/">← API docs</a> · <a href="/demo/scoreboard">Display demo</a>
 <h1>Remote Control</h1>
-<p>Enable Web Control in Settings → Integration → Web API on the main board. Enter its 16-character key. Commands use the same operations as paired control boards.</p>
-<section><label>API key <input id="key" type="password" maxlength="16" autocomplete="off" spellcheck="false"></label><p>The key stays in this page's memory and is sent only in the X-API-Key header.</p><p id="connection" role="status">Connecting…</p><div id="score"></div><div id="clock"></div><div id="quick" class="row"></div></section>
+<p>Enable Web Control in Settings → Integration → Web API on the session host. Enter its 16-character key. Commands use the same operations as paired control boards.</p>
+<section><label>API key <input id="key" type="password" maxlength="16" autocomplete="off" spellcheck="false"></label><p>The key stays in this page’s memory. It is sent in the HTTP X-API-Key header or with each command over the encrypted RTC data channel.</p><label><input id="useRTC" type="checkbox" checked> Use WebRTC when available (automatic fallback)</label><p id="transport" role="status">HTTP</p><p id="connection" role="status">Connecting…</p><div id="score"></div><div id="clock"></div><div id="quick" class="row"></div></section>
 <section id="pausePanel" hidden><img id="pauseLogo" alt="" hidden><h2 id="pauseTitle"></h2><p id="pauseTime" style="font-size:48px;font-variant-numeric:tabular-nums"></p><div id="pauseControls" class="row"></div></section>
 <section><h2>Board operations</h2><label>Operation <select id="action"></select></label><div id="fields"></div><button id="apply" disabled>Apply</button><p id="message" role="status" aria-live="polite"></p></section>
 <details><summary>Current game state</summary><pre id="state"></pre></details>
@@ -29,10 +29,117 @@ if(param==='side'||param==='playerID'||param==='timerID'||(param==='text'&&enumO
 else if(param==='enabled'){input.type='checkbox';input.checked=true;}else if(param==='value'){input.type='number';input.step='1';input.min='-86400';input.max='86400';input.value=op.id==='pause.official'?'0':op.id==='pause.start'?String(state.clocks.pauseDurationSeconds||60):'1';}else{input.type='text';input.maxLength=200;}label.append(input);$('fields').append(label);}populateEntities();}
 function populateEntities(){const side=$('param-side')?.value||'home';for(const param of ['playerID','timerID']){const input=$('param-'+param);if(!input)continue;input.replaceChildren();input.add(new Option('Select '+(param==='playerID'?'player':'penalty'),''));const items=param==='playerID'?state.players[side+'Roster'].players:(state.game[side+'PenaltyTimers']||[]);for(const item of items)input.add(new Option(param==='playerID'?`${item.number} ${item.name}`:`${item.playerNumber} ${item.playerName} · ${item.remainingSeconds}s`,item.id));}}
 function updateEnabled(){const valid=connected&&Date.now()-lastGood<3500&&!busy&&state?.control?.webEnabled&&/^[a-z0-9]{16}$/i.test($('key').value);$('apply').disabled=!valid;for(const b of document.querySelectorAll('#quick button,#pauseControls button'))b.disabled=!valid;}
-async function send(command){if(busy||!connected)return;if(['game.new','score.reset','debate.resetRound'].includes(command.action)&&!confirm('Reset the main board?'))return;busy=true;updateEnabled();$('message').textContent='Sending…';const payload={id:crypto.randomUUID?.()||uuid(),sport:state.rules.sport,...command};try{const response=await fetch('/api/v2/control',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('key').value},body:JSON.stringify(payload),signal:AbortSignal.timeout(3500)});const result=await response.json();$('message').textContent=result.success?'Applied':`${result.error}: ${result.message}`;}catch(e){$('message').textContent='No acknowledgement. The command may have applied. Refresh state before trying again.';connected=false;}finally{busy=false;updateEnabled();poll();}}
+async function send(command){if(busy||!connected)return;if(['game.new','score.reset','debate.resetRound'].includes(command.action)&&!confirm('Reset the main board?'))return;busy=true;updateEnabled();$('message').textContent='Sending…';const payload={id:crypto.randomUUID?.()||uuid(),sport:state.rules.sport,...command};try{const result=await deliverCommand(payload);$('message').textContent=result.success?'Applied':`${result.error}: ${result.message}`;}catch(e){$('message').textContent='No acknowledgement. The command may have applied. Refresh state before trying again.';connected=false;}finally{busy=false;updateEnabled();poll();}}
 // LAN HTTP is not a secure context on every browser, so provide a UUID fallback.
 function uuid(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const h=[...bytes].map(v=>v.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
 $('apply').onclick=()=>{const op=operations.find(o=>o.id===$('action').value);if(!op)return;const command={action:op.id};for(const param of op.parameters){const input=$('param-'+param);if(param==='enabled')command[param]=input.checked;else if(param==='value'){const value=Number(input.value);if(!Number.isSafeInteger(value)||input.value===''){$('message').textContent='Enter an integer value.';return;}command[param]=value;}else{if((param==='playerID'||param==='timerID')&&!input.value){$('message').textContent='Select '+param;return;}command[param]=input.value;}}send(command);};$('action').onchange=fields;$('key').oninput=updateEnabled;
-let polling=false;async function poll(){if(polling)return;polling=true;try{if(!operations.length){const response=await fetch('/api/v2/control/operations',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('Catalog unavailable');operations=await response.json();}const response=await fetch('/api/v1/state',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('State unavailable');const fresh=await response.json();if(!fresh.rules)throw Error('Invalid state');const sportChanged=state&&state.rules.sport!==fresh.rules.sport;state=fresh;connected=true;lastGood=Date.now();$('connection').textContent=state.control?.webEnabled?'Connected · web control enabled':'Connected · enable Web Control on main board';render();if(sportChanged)fields();}catch(e){connected=false;$('connection').textContent='Disconnected. Waiting for main board…';updateEnabled();}finally{polling=false;}}
+// The existing WebSocket remains the signaling/liveness path. No external servers.
+let socket=null,peer=null,channel=null,negotiationID=null,rtcAttempted=false;
+let remoteCandidates=[],localCandidates=[],offerPublished=false,rtcDeadline=null;
+const rtcCommands=new Map();
+function signalRTC(signal){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'rtcSignal',signal}));}
+function stopRTC(notify=true){
+  clearTimeout(rtcDeadline);
+  if(notify&&negotiationID)signalRTC({kind:'close',negotiationID});
+  const old=peer;peer=null;channel=null;negotiationID=null;remoteCandidates=[];localCandidates=[];offerPublished=false;
+  if(old){old.onicecandidate=null;old.onconnectionstatechange=null;old.close();}
+  for(const pending of rtcCommands.values()){clearTimeout(pending.timer);pending.reject(Error('RTC unavailable'));}
+  rtcCommands.clear();$('transport').textContent=socket?.readyState===WebSocket.OPEN?'WebSocket / HTTP':'HTTP';
+}
+async function beginRTC(){
+  if(rtcAttempted||!$('useRTC').checked||!window.RTCPeerConnection)return;
+  rtcAttempted=true;negotiationID=crypto.randomUUID?.()||uuid();
+  let current;try{current=new RTCPeerConnection({iceServers:[]});}catch(e){stopRTC();return;}peer=current;
+  channel=current.createDataChannel('scoreboard.reliable.v1',{ordered:true});
+  channel.onmessage=event=>{if(peer===current&&typeof event.data==='string')receiveRealtime(event.data);};
+  channel.onopen=()=>{if(peer===current){clearTimeout(rtcDeadline);$('transport').textContent='WebRTC';}};
+  channel.onclose=()=>{if(peer===current)stopRTC();};
+  channel.onerror=()=>{if(peer===current)stopRTC();};
+  current.onicecandidate=event=>{
+    if(peer!==current||!event.candidate)return;
+    const c=event.candidate,signal={kind:'candidate',negotiationID,sdp:c.candidate,sdpMid:c.sdpMid,sdpMLineIndex:c.sdpMLineIndex};
+    if(offerPublished)signalRTC(signal);else localCandidates.push(signal);
+  };
+  current.onconnectionstatechange=()=>{if(peer===current&&['failed','disconnected','closed'].includes(current.connectionState))stopRTC();};
+  rtcDeadline=setTimeout(()=>{if(peer===current)stopRTC();},8000);
+  try{
+    const offer=await current.createOffer();if(peer!==current)return;
+    await current.setLocalDescription(offer);if(peer!==current)return;
+    signalRTC({kind:'offer',negotiationID,sdp:offer.sdp});offerPublished=true;
+    for(const signal of localCandidates)signalRTC(signal);localCandidates=[];
+  }catch(e){if(peer===current)stopRTC();}
+}
+async function receiveSignal(signal){
+  const current=peer;
+  if(!current||String(signal.negotiationID).toLowerCase()!==String(negotiationID).toLowerCase())return;
+  try{
+    if(signal.kind==='close'){stopRTC(false);return;}
+    if(signal.kind==='answer'&&!current.remoteDescription){
+      await current.setRemoteDescription({type:'answer',sdp:signal.sdp});if(peer!==current)return;
+      for(const candidate of remoteCandidates)await current.addIceCandidate(candidate);remoteCandidates=[];
+    }else if(signal.kind==='candidate'){
+      const candidate={candidate:signal.sdp,sdpMid:signal.sdpMid,sdpMLineIndex:signal.sdpMLineIndex};
+      if(current.remoteDescription)await current.addIceCandidate(candidate);
+      else if(remoteCandidates.length<128)remoteCandidates.push(candidate);else stopRTC();
+    }
+  }catch(e){if(peer===current)stopRTC();}
+}
+function receiveRealtime(text){
+  let message;try{message=JSON.parse(text);}catch(e){return;}
+  if(message.type==='rtcSignal'){receiveSignal(message.signal);return;}
+  if(message.type==='controlResult'){
+    const id=String(message.result?.id).toLowerCase(),pending=rtcCommands.get(id);
+    if(pending){clearTimeout(pending.timer);rtcCommands.delete(id);pending.resolve(message.result);}return;
+  }
+  const fresh=message.type==='scoreboard.state'?message.payload:null;
+  if(fresh?.rules)acceptState(fresh);
+}
+function connectRealtime(){
+  if(!$('useRTC').checked||socket)return;
+  const url=new URL(location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.port='5517';url.pathname='/';url.search='';url.hash='';
+  let current;try{current=new WebSocket(url);}catch(e){$('transport').textContent='HTTP';return;}socket=current;rtcAttempted=false;
+  current.onopen=()=>{if(socket!==current)return;$('transport').textContent='WebSocket / HTTP';current.send(JSON.stringify({type:'get'}));beginRTC();};
+  current.onmessage=event=>{if(socket===current&&typeof event.data==='string')receiveRealtime(event.data);};
+  current.onclose=()=>{if(socket!==current)return;stopRTC(false);socket=null;$('transport').textContent='HTTP';};
+  current.onerror=()=>current.close();
+}
+function sendRTCCommand(command){
+  return new Promise((resolve,reject)=>{
+    if(channel?.readyState!=='open'||socket?.readyState!==WebSocket.OPEN||channel.bufferedAmount>262144){reject(Error('RTC unavailable'));return;}
+    const id=command.id.toLowerCase(),timer=setTimeout(()=>{rtcCommands.delete(id);stopRTC();reject(Error('RTC acknowledgement timed out'));},750);
+    rtcCommands.set(id,{resolve,reject,timer});
+    try{channel.send(JSON.stringify({type:'control',apiKey:$('key').value,command}));}
+    catch(e){clearTimeout(timer);rtcCommands.delete(id);stopRTC();reject(e);}
+  });
+}
+async function deliverCommand(payload){
+  if(channel?.readyState==='open'){
+    try{return await sendRTCCommand(payload);}catch(e){/* Same UUID: host deduplicates a command already applied over RTC. */}
+  }
+  const response=await fetch('/api/v2/control',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('key').value},body:JSON.stringify(payload),signal:AbortSignal.timeout(3500)});
+  return response.json();
+}
+function acceptState(fresh){
+  if(!fresh.rules)return;
+  const oldSession=state?.control?.session,newSession=fresh.control?.session;
+  if(oldSession?.sessionID===newSession?.sessionID&&oldSession?.epoch===newSession?.epoch&&
+     Number(fresh.generatedAtUnixTime)<Number(state?.generatedAtUnixTime))return;
+  const sportChanged=state&&state.rules.sport!==fresh.rules.sport;state=fresh;connected=true;lastGood=Date.now();
+  $('connection').textContent=state.control?.webEnabled?'Connected · web control enabled':'Connected · enable Web Control on session host';
+  render();if(sportChanged)fields();
+}
+$('useRTC').onchange=()=>{if($('useRTC').checked)connectRealtime();else{stopRTC();const old=socket;socket=null;old?.close();$('transport').textContent='HTTP';}};
+let polling=false;async function poll(){
+  if(polling)return;polling=true;
+  try{
+    if(!operations.length){const response=await fetch('/api/v2/control/operations',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('Catalog unavailable');operations=await response.json();}
+    connectRealtime();
+    if(socket?.readyState===WebSocket.OPEN){socket.send(JSON.stringify({type:'get'}));if(Date.now()-lastGood<2000)return;stopRTC();}
+    const response=await fetch('/api/v1/state',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('State unavailable');
+    const fresh=await response.json();if(!fresh.rules)throw Error('Invalid state');acceptState(fresh);
+  }catch(e){
+    if(Date.now()-lastGood>3500){connected=false;$('connection').textContent='Disconnected. Waiting for session host…';stopRTC();updateEnabled();}
+  }finally{polling=false;}
+}
 poll();setInterval(poll,1000);setInterval(updateEnabled,250);
 </script></body></html>

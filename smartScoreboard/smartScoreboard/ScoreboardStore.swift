@@ -1187,7 +1187,8 @@ final class ScoreboardStore: ObservableObject {
                 latencyMilliseconds: isLocalHost ? nil : connection?.latencyMilliseconds,
                 lastHandshakeAgeSeconds: isLocalHost ? nil : connection?.lastHandshakeAgeSeconds,
                 appVersion: isLocalHost ? .current : connection?.appVersion,
-                quality: isLocalHost ? .live : connection?.quality)
+                quality: isLocalHost ? .live : connection?.quality,
+                realtimeTransport: isLocalHost ? nil : connection?.realtimeTransport)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     var canRecoverSessionHost: Bool {
@@ -9803,7 +9804,8 @@ extension ScoreboardStore {
                         latencyMilliseconds: connection?.latencyMilliseconds,
                         lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
                         appVersion: connection?.appVersion ?? (peer.id == localSessionDeviceID ? .current : nil),
-                        quality: connection?.quality)
+                        quality: connection?.quality,
+                        realtimeTransport: connection?.realtimeTransport)
                 }
                 let report = ScoreboardSessionMessage(kind: .peers, descriptor: descriptor,
                     peers: rows, pairingConfiguration: peers,

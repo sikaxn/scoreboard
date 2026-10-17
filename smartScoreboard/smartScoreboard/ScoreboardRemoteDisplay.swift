@@ -337,6 +337,7 @@ nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, S
     let deviceType: ScoreboardRemoteDisplayDeviceType
     let isMuted: Bool
     var supportsSessionHosting: Bool = false
+    var realtimeTransport: String = "WebSocket"
 }
 
 nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equatable, Sendable {
@@ -404,6 +405,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         case command
         case commandResult
         case session
+        case rtcSignal
         case imageRequest
         case soundTest
         case soundEffect
@@ -438,6 +440,8 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let sessionProtocolVersion: Int?
     let sessionID: UUID?
     let sessionEpoch: UInt64?
+    let rtcVersion: Int?
+    let rtcSignal: ScoreboardRTCSignal?
 
     init(
         kind: Kind,
@@ -465,7 +469,9 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         sessionMessage: Data? = nil,
         sessionProtocolVersion: Int? = nil,
         sessionID: UUID? = nil,
-        sessionEpoch: UInt64? = nil
+        sessionEpoch: UInt64? = nil,
+        rtcVersion: Int? = nil,
+        rtcSignal: ScoreboardRTCSignal? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -493,6 +499,8 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.sessionProtocolVersion = sessionProtocolVersion
         self.sessionID = sessionID
         self.sessionEpoch = sessionEpoch
+        self.rtcVersion = rtcVersion
+        self.rtcSignal = rtcSignal
     }
 }
 
@@ -979,7 +987,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             display.displayID == targetID ? nil : endpoint
         }
         for endpoint in staleEndpoints {
-            displayConnectionsByEndpoint.removeValue(forKey: endpoint)?.connection.cancel()
+            if let display = displayConnectionsByEndpoint.removeValue(forKey: endpoint) {
+                display.rtcPeer?.close(notifyRemote: false)
+                display.connection.cancel()
+            }
         }
         updateBrowsingStatus()
     }
@@ -1032,6 +1043,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         browser?.cancel()
         browser = nil
         for display in displayConnectionsByEndpoint.values {
+            display.rtcPeer?.close(notifyRemote: false)
             display.connection.cancel()
         }
         displayConnectionsByEndpoint.removeAll()
@@ -1325,6 +1337,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
         operatorDisconnectedDisplayIDs.formUnion(connectedDisplays.map(\.id))
         for display in displayConnectionsByEndpoint.values {
+            display.rtcPeer?.close(notifyRemote: false)
             display.connection.cancel()
         }
         displayConnectionsByEndpoint.removeAll()
@@ -1536,6 +1549,15 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func handleControlMessage(_ message: ScoreboardRemoteDisplayControlMessage, from endpoint: NWEndpoint) {
+        if message.kind == .rtcSignal {
+            guard let display = displayConnectionsByEndpoint[endpoint], display.isReady,
+                  display.pendingTrustedDisplay == nil, let ack = display.lastAckAt,
+                  Date().timeIntervalSince(ack) < 5,
+                  message.displayID == display.displayID, message.hostID == hostID,
+                  let signal = message.rtcSignal else { return }
+            display.rtcPeer?.receive(signal)
+            return
+        }
         if message.kind == .session {
             guard let display = displayConnectionsByEndpoint[endpoint], display.isReady,
                   display.pendingTrustedDisplay == nil, let ack = display.lastAckAt,
@@ -1643,7 +1665,42 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 remoteControlEnabled: controlPermissionProvider?(displayID) ?? false), to: [endpoint])
         }
         sendMuteState(to: [endpoint], displayID: displayID)
+        if message.rtcVersion == ScoreboardRTCPeer.protocolVersion,
+           commitRecoveryTargetID == nil { beginRTCIfNeeded(to: endpoint) }
         updateBrowsingStatus()
+    }
+
+    private func beginRTCIfNeeded(to endpoint: NWEndpoint) {
+        guard var display = displayConnectionsByEndpoint[endpoint], display.rtcPeer == nil,
+              display.pendingTrustedDisplay == nil, display.lastAckAt != nil else { return }
+        let connection = display.connection
+        display.rtcPeer = ScoreboardRTCPeer(isOfferer: true, onSignal: { [weak self, weak connection] signal in
+            MainActor.assumeIsolated {
+                guard let self, let connection,
+                      self.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
+                self.sendControlMessage(.init(kind: .rtcSignal, sequence: 0, sentAt: Date().timeIntervalSince1970,
+                    hostID: self.hostID, hostName: self.displayName, displayID: self.sourceID(for: endpoint),
+                    displayName: nil, rtcSignal: signal), to: [endpoint])
+            }
+        }, onData: { [weak self, weak connection] data in
+            MainActor.assumeIsolated {
+                guard let self, let connection,
+                      self.displayConnectionsByEndpoint[endpoint]?.connection === connection,
+                      self.commitRecoveryTargetID == nil,
+                      let message = try? JSONDecoder().decode(ScoreboardRemoteDisplayControlMessage.self, from: data),
+                      message.kind == .command else { return }
+                // Reuse the exact same permission, host-epoch and command-ID checks.
+                self.handleControlMessage(message, from: endpoint)
+            }
+        }, onReady: { [weak self, weak connection] _ in
+            MainActor.assumeIsolated {
+                guard let self, let connection,
+                      self.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
+                self.sendCurrentState(to: [endpoint])
+                self.updateBrowsingStatus()
+            }
+        })
+        displayConnectionsByEndpoint[endpoint] = display
     }
 
     private func handleImageRequest(_ message: ScoreboardRemoteDisplayControlMessage, from endpoint: NWEndpoint) {
@@ -1703,7 +1760,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         customDisplayIDsByID.removeValue(forKey: displayID)
         if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(customDisplayIDsByID) }
         endpointsResettingPairing.insert(endpoint)
-        displayConnectionsByEndpoint.removeValue(forKey: endpoint)
+        displayConnectionsByEndpoint.removeValue(forKey: endpoint)?.rtcPeer?.close(notifyRemote: false)
         invitedPeerIDs.remove(displayID)
         lastTrustedInviteAttemptByID.removeValue(forKey: displayID)
         updateSourceAfterDisplayReset(
@@ -1957,7 +2014,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                     appVersion: display.appVersion,
                     deviceType: display.deviceType,
                     isMuted: mutedDisplayIDs.contains(display.displayID),
-                    supportsSessionHosting: display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion
+                    supportsSessionHosting: display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
+                    realtimeTransport: display.rtcPeer?.isReady == true ? "WebRTC" : "WebSocket"
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -2006,6 +2064,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         guard !data.isEmpty, var display = displayConnectionsByEndpoint[endpoint], display.isReady else {
             return
         }
+        if display.rtcPeer?.send(data) == true { return }
         if display.isSendingState {
             display.pendingStateData = data
             displayConnectionsByEndpoint[endpoint] = display
@@ -2148,6 +2207,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             return
         }
 
+        display.rtcPeer?.close(notifyRemote: false)
         display.connection.cancel()
         clearReconnectBookkeeping(for: display, endpoint: endpoint)
         lastPeriodicStateSyncAt = nil
@@ -2220,6 +2280,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
         var isSendingState = false
         var pendingStateData: Data?
+        var rtcPeer: ScoreboardRTCPeer? = nil
 
         func supportsRemoteStateVersion(_ version: Int) -> Bool {
             remoteStateVersions.contains(version)
@@ -2325,10 +2386,21 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         pendingControlCommandID = command.id
         controlResult = nil
         let sessionFence = commandSessionProvider?()
-        sendControlMessage(ScoreboardRemoteDisplayControlMessage(
+        let message = ScoreboardRemoteDisplayControlMessage(
             kind: .command, sequence: 0, sentAt: command.sentAt!, hostID: pairedHostID, hostName: pairedHostName,
             displayID: displayID, displayName: displayName, command: command,
-            sessionID: sessionFence?.0, sessionEpoch: sessionFence?.1), to: [connection])
+            sessionID: sessionFence?.0, sessionEpoch: sessionFence?.1)
+        let usedRTC = (try? JSONEncoder().encode(message)).map { rtcPeer?.send($0) == true } ?? false
+        if !usedRTC { sendControlMessage(message, to: [connection]) }
+        else {
+            Task { @MainActor [weak self, weak connection] in
+                try? await Task.sleep(for: .milliseconds(750))
+                guard let self, let connection, self.pairedConnection === connection,
+                      self.pendingControlCommands[command.id] != nil, !self.isHostingSession else { return }
+                self.rtcPeer?.close()
+                self.sendControlMessage(message, to: [connection])
+            }
+        }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard let self, self.pendingControlCommands[command.id] != nil else { return }
@@ -2369,6 +2441,9 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     /// for completing the handoff handshake.
     func updateHostedState(state: ScoreboardWebAPIState, images: [String: ScoreboardWebAPIImageResponse]) {
         let wasHosting = isHostingSession
+        rtcPeer?.close(notifyRemote: false)
+        rtcPeer = nil
+        realtimeTransport = "WebSocket"
         isHostingSession = true
         isSessionOwnerDevice = state.control?.session?.ownerDeviceID == displayID
         if !wasHosting {
@@ -2454,7 +2529,17 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var listener: NWListener?
     private var advertisedDiscoveryInfo: [String: String]?
     private var connectionsByID: [ObjectIdentifier: NWConnection] = [:]
-    private var pairedConnection: NWConnection?
+    private var rtcPeer: ScoreboardRTCPeer?
+    @Published private(set) var realtimeTransport = "WebSocket"
+    private var pairedConnection: NWConnection? {
+        willSet {
+            if pairedConnection !== newValue {
+                rtcPeer?.close(notifyRemote: false)
+                rtcPeer = nil
+                realtimeTransport = "WebSocket"
+            }
+        }
+    }
     private var activeConsumerCount = 0
     private var isSessionOwnerDevice = false
     private var pairingCodeTimer: Timer?
@@ -2760,6 +2845,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func markStaleHostIfNeeded() {
+        // WebSocket heartbeats may still arrive while the RTC path is blackholed.
+        // Hosts publish a full snapshot at least once per second.
+        if rtcPeer?.isReady == true,
+           let lastReceivedAt, Date().timeIntervalSince(lastReceivedAt) > 3 {
+            rtcPeer?.close()
+        }
         if isHostingSession {
             lastHeartbeatAt = Date()
             return
@@ -3056,6 +3147,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        if let previous = state,
+           previous.control?.session?.sessionID == decodedState.control?.session?.sessionID,
+           previous.control?.session?.epoch == decodedState.control?.session?.epoch,
+           let oldTime = previous.generatedAtUnixTime, let newTime = decodedState.generatedAtUnixTime,
+           newTime < oldTime { return }
         let wasSessionOwner = isSessionOwnerDevice
         isSessionOwnerDevice = decodedState.control?.session?.ownerDeviceID == displayID
         if wasSessionOwner != isSessionOwnerDevice { startOrRefreshListener() }
@@ -3211,6 +3307,38 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
+        if message.kind == .rtcSignal {
+            guard !isHostingSession, pairedConnection === connection,
+                  message.hostID == pairedHostID, message.displayID == displayID,
+                  let hostID = pairedHostID,
+                  trustedHosts.contains(where: { $0.id == hostID && $0.pairingSecret?.isEmpty == false }),
+                  let signal = message.rtcSignal else { return }
+            if rtcPeer == nil, signal.kind == .offer {
+                rtcPeer = ScoreboardRTCPeer(negotiationID: signal.negotiationID, isOfferer: false,
+                    onSignal: { [weak self, weak connection] signal in
+                        MainActor.assumeIsolated {
+                            guard let self, let connection, self.pairedConnection === connection, !self.isHostingSession else { return }
+                            self.sendControlMessage(.init(kind: .rtcSignal, sequence: 0,
+                                sentAt: Date().timeIntervalSince1970, hostID: self.pairedHostID,
+                                hostName: self.pairedHostName, displayID: self.displayID,
+                                displayName: self.displayName, rtcSignal: signal), to: [connection])
+                        }
+                    }, onData: { [weak self, weak connection] data in
+                        MainActor.assumeIsolated {
+                            guard let self, let connection, self.pairedConnection === connection,
+                                  !self.isHostingSession else { return }
+                            self.handleReceivedData(data, from: connection)
+                        }
+                    }, onReady: { [weak self, weak connection] ready in
+                        MainActor.assumeIsolated {
+                            guard let self, let connection, self.pairedConnection === connection else { return }
+                            self.realtimeTransport = ready ? "WebRTC" : "WebSocket"
+                        }
+                    })
+            }
+            rtcPeer?.receive(signal)
+            return
+        }
         if message.kind == .session {
             guard pairedConnection === connection, let hostID = pairedHostID,
                   message.hostID == hostID, message.displayID == displayID,
@@ -3224,7 +3352,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         guard !isHostingSession else { return }
 
         switch message.kind {
-        case .session:
+        case .session, .rtcSignal:
             return
         case .command:
             return
@@ -3311,7 +3439,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             deviceType: ScoreboardRemoteDisplayDeviceType.current,
             remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue,
             receivedAt: receivedAt.timeIntervalSince1970,
-            sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion
+            sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion,
+            rtcVersion: ScoreboardRTCPeer.protocolVersion
         )
         sendControlMessage(response, to: [connection])
     }

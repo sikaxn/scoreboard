@@ -15,6 +15,7 @@
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
 		D88F712A2FCFD6CF000A14F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
 		E253E13773694DE49BFD86F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
+		E60117000000000000000001 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = E60117000000000000000002 /* LiveKitWebRTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +73,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E60117000000000000000001 /* LiveKitWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,6 +160,7 @@
 			);
 			name = smartScoreboard;
 			packageProductDependencies = (
+				E60117000000000000000002 /* LiveKitWebRTC */,
 			);
 			productName = smartScoreboard;
 			productReference = D820B2122FCAA97400523B92 /* smartScoreboard.app */;
@@ -191,6 +194,9 @@
 			);
 			mainGroup = D820B2092FCAA97400523B92;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D820B2132FCAA97400523B92 /* Products */;
 			projectDirPath = "";
@@ -566,6 +572,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/webrtc-xcframework.git";
+			requirement = {
+				kind = exactVersion;
+				version = 150.7871.03;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E60117000000000000000002 /* LiveKitWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;
+			productName = LiveKitWebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D820B20A2FCAA97400523B92 /* Project object */;
 }

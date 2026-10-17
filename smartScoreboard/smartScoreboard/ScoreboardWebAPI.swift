@@ -2487,6 +2487,13 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             latestV2ResourcesProvider: { [weak self] in
                 self?.latestPayload.v2State.resources ?? []
             },
+            rtcControlHandler: { [weak self] command, key, completion in
+                guard let handler = self?.controlHandler else {
+                    completion(.failure(command.id, "disabled", "Web control is disabled."))
+                    return
+                }
+                handler(command, key, completion)
+            },
             onClose: { [weak self] clientID in
                 self?.queue.async {
                     self?.clients[clientID] = nil
@@ -2824,6 +2831,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         private let latestV2ManifestProvider: @Sendable () -> Data
         private let latestV2ResourcesProvider: @Sendable () -> [ScoreboardWebAPIV2ResourcePayload]
         private let onClose: @Sendable (UUID) -> Void
+        private let rtcControlHandler: @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void
+        private var rtcPeer: ScoreboardRTCPeer?
         private var isClosed = false
         private var pendingSends = 0
         private var initialV1WorkItem: DispatchWorkItem?
@@ -2838,6 +2847,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             latestV1EnvelopeProvider: @escaping @Sendable () -> Data,
             latestV2ManifestProvider: @escaping @Sendable () -> Data,
             latestV2ResourcesProvider: @escaping @Sendable () -> [ScoreboardWebAPIV2ResourcePayload],
+            rtcControlHandler: @escaping @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void,
             onClose: @escaping @Sendable (UUID) -> Void
         ) {
             self.id = id
@@ -2847,6 +2857,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             self.latestV1EnvelopeProvider = latestV1EnvelopeProvider
             self.latestV2ManifestProvider = latestV2ManifestProvider
             self.latestV2ResourcesProvider = latestV2ResourcesProvider
+            self.rtcControlHandler = rtcControlHandler
             self.onClose = onClose
         }
 
@@ -2923,8 +2934,15 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return
             }
 
+            if let request = try? JSONDecoder().decode(WebRTCSignalingMessage.self, from: payload), request.type == "rtcSignal" {
+                handleRTCSignal(request.signal)
+                return
+            }
             let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if isV2SubscribePayload(payload) {
+                // V2's independent resource revisions stay on their existing
+                // ordered WS stream in this first RTC version.
+                rtcPeer?.close()
                 initialV1WorkItem?.cancel()
                 initialV1WorkItem = nil
                 isSubscribedToV2 = true
@@ -2942,6 +2960,58 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             } else {
                 sendError("The WebSocket state feed is read only. Use POST /api/v2/control for commands. Send {\"type\":\"subscribe\",\"apiVersion\":\"v2\"} for v2 resources or {\"type\":\"get\"} for v1 state.")
             }
+        }
+
+        private struct WebRTCSignalingMessage: Codable {
+            var type = "rtcSignal"
+            var signal: ScoreboardRTCSignal
+        }
+
+        private struct WebRTCCommandMessage: Decodable {
+            var type: String
+            var apiKey: String
+            var command: ScoreboardControlCommand
+        }
+
+        private struct WebRTCCommandResultMessage: Encodable {
+            var type = "controlResult"
+            var result: ScoreboardControlResult
+        }
+
+        private func handleRTCSignal(_ signal: ScoreboardRTCSignal) {
+            guard !isClosed, !isSubscribedToV2 else { return }
+            if rtcPeer == nil, signal.kind == .offer {
+                rtcPeer = ScoreboardRTCPeer(negotiationID: signal.negotiationID, isOfferer: false,
+                    callbackQueue: queue, onSignal: { [weak self] signal in
+                        guard let self, !self.isClosed,
+                              let data = try? JSONEncoder().encode(WebRTCSignalingMessage(signal: signal)) else { return }
+                        self.sendText(data, allowRTC: false)
+                    }, onData: { [weak self] data in
+                        guard let self, !self.isClosed,
+                              let message = try? JSONDecoder().decode(WebRTCCommandMessage.self, from: data),
+                              message.type == "control" else { return }
+                        let key = message.apiKey
+                        guard key.count == 16, key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+                            self.sendRTCResult(.failure(message.command.id, "unauthorized", "Supply a 16-character API key."))
+                            return
+                        }
+                        // Exactly the same key, enable switch, sport validation,
+                        // command deduplication and authority checks as HTTP POST.
+                        self.rtcControlHandler(message.command, key) { [weak self] result in
+                            self?.queue.async { self?.sendRTCResult(result) }
+                        }
+                    }, onReady: { [weak self] _ in
+                        guard let self, !self.isClosed else { return }
+                        self.sendLatestState()
+                    })
+            }
+            rtcPeer?.receive(signal)
+        }
+
+        private func sendRTCResult(_ result: ScoreboardControlResult) {
+            guard let data = try? JSONEncoder().encode(WebRTCCommandResultMessage(result: result)) else { return }
+            // Keep acknowledgements on WS, independent of RTC path health.
+            sendText(data, allowRTC: false)
         }
 
         private func isV2SubscribePayload(_ payload: Data) -> Bool {
@@ -2987,8 +3057,9 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             }
         }
 
-        func sendText(_ data: Data) {
+        func sendText(_ data: Data, allowRTC: Bool = true) {
             guard !isClosed else { return }
+            if allowRTC, !isSubscribedToV2, rtcPeer?.send(data) == true { return }
             guard pendingSends < 32 else {
                 return
             }
@@ -3021,6 +3092,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         func close() {
             guard !isClosed else { return }
             isClosed = true
+            rtcPeer?.close(notifyRemote: false)
+            rtcPeer = nil
             initialV1WorkItem?.cancel()
             initialV1WorkItem = nil
             connection.cancel()

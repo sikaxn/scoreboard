@@ -62,6 +62,8 @@ Apple TV 有两种使用方式。你可以从操作设备通过 AirPlay 投放�
 
 iPhone、iPad 和 Mac 应用包含操作界面，也可以在设置中切换为远程显示模式。Apple TV AirPlay 不需要安装 Scoreboard Apple TV 应用。如果安装了 Apple TV 应用，它始终只作为远程显示运行；它用于显示记分牌，而不是控制比赛。远程显示使用 Network Framework Bonjour 配对，不依赖 Web API，并且可以从同一台操作设备同步多台显示设备。操作员可以选择仅同一 Wi-Fi/LAN，或允许附近设备使用 Apple 点对点 Wi-Fi。
 
+远程设备可协商仅传输数据的 WebRTC 连接，用于实时状态与控制，并在不可用时回退至 WebSocket。Web API 控制演示也支持 RTC，并可回退至 HTTP。独立的 LiveKitWebRTC 包包含 Apple TV 真机和 arm64 模拟器二进制，因此 Apple TV 无需 LiveKit 服务器即可主持 RTC 会话。浏览器 V2 资源推送、配对、时钟同步、主机切换、图片和日志继续使用现有传输。详见 [WebRTC 传输与手动验证说明](docs/webrtc-transport.md)。
+
 ## 从源码构建
 
 1. 克隆仓库。

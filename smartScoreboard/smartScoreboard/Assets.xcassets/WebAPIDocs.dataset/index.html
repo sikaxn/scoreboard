@@ -254,6 +254,21 @@
       </table>
     </section>
 
+    <section class="card" id="webrtc">
+      <h2 data-i18n="rtcTitle">Optional WebRTC transport</h2>
+      <p data-i18n="rtcBody">The control demo can upgrade v1 state updates and control commands to a reliable, ordered WebRTC data channel. HTTP and WebSocket remain available. WebRTC runs on the session host, including Apple TV, with direct local connections and no external signaling, STUN, or TURN server.</p>
+      <p data-i18n="rtcFallback">Keep the existing WebSocket open for signaling and command acknowledgements. V2 resource subscriptions remain on WebSocket. Images, logs, pairing, host handoff, and native clock synchronization retain their existing transports. Commands use the same API key and enable switch as HTTP.</p>
+      <pre>WS send: {"type":"rtcSignal","signal":{"kind":"offer","negotiationID":"UUID","sdp":"SDP offer"}}
+WS receive: {"type":"rtcSignal","signal":{"kind":"answer","negotiationID":"UUID","sdp":"SDP answer"}}
+ICE (both directions): {"type":"rtcSignal","signal":{"kind":"candidate","negotiationID":"UUID","sdp":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
+Data channel: scoreboard.reliable.v1 (ordered, reliable; no media tracks)
+RTC send: {"type":"control","apiKey":"YOUR16CHARAPIKEY0","command":{"id":"UUID","action":"score.adjust","sport":"basketball","side":"home","value":1}}
+WS receive: {"type":"controlResult","result":{"id":"UUID","success":true}}
+State: existing scoreboard.state envelope, with the full v1 state in payload.
+Close: {"type":"rtcSignal","signal":{"kind":"close","negotiationID":"UUID"}}</pre>
+      <p data-i18n="rtcLimits">Limit RTC messages to 48 KiB and buffered output to 256 KiB; larger state updates use WebSocket. Buffer ICE candidates until the remote description is applied. Discard stale state by session ID, host epoch, and generatedAtUnixTime. If RTC negotiation or delivery fails, fall back to WebSocket/HTTP. When retrying a command, keep its UUID and parameters unchanged to prevent duplicate actions. Reconnect and renegotiate with the new host after a handoff.</p>
+    </section>
+
     <section class="card" id="remote-control">
       <h2>Remote Control and Web Control</h2>
       <p>The session owner can choose <strong>Make Session Host</strong> for a connected device in Remote Display &amp; Control settings. The host runs game logic, Web API, and Companion; the owner retains game files and settings. Point integrations at the host IP shown in the app. <code>GET /api/v2/state/session</code> returns the session ID, owner, host, host addresses, and transfer epoch. The same identity appears as <code>control.session</code> in v1 state and <code>session</code> in API/app status and health responses. It is null when no shared session exists.</p>
@@ -360,7 +375,11 @@
         commentatorBody: 'Live score, clock, timeline, roster alerts, and deterministic talking points for commentators on the local network.',
         openCommentator: 'Open Commentator',
         endpointsTitle: 'Endpoints',
-        endpointsBody: 'The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.',
+        endpointsBody: 'The demo pages are reference implementations. Display demos use WebSocket; the control demo also offers WebRTC with fallback. HTTP remains available for polling clients. Push delivery follows the Update Mode selected in the app settings.',
+        rtcTitle: 'Optional WebRTC transport',
+        rtcBody: 'The control demo can upgrade v1 state updates and control commands to a reliable, ordered WebRTC data channel. HTTP and WebSocket remain available. WebRTC runs on the session host, including Apple TV, with direct local connections and no external signaling, STUN, or TURN server.',
+        rtcFallback: 'Keep the existing WebSocket open for signaling and command acknowledgements. V2 resource subscriptions remain on WebSocket. Images, logs, pairing, host handoff, and native clock synchronization retain their existing transports. Commands use the same API key and enable switch as HTTP.',
+        rtcLimits: 'Limit RTC messages to 48 KiB and buffered output to 256 KiB; larger state updates use WebSocket. Buffer ICE candidates until the remote description is applied. Discard stale state by session ID, host epoch, and generatedAtUnixTime. If RTC negotiation or delivery fails, fall back to WebSocket/HTTP. When retrying a command, keep its UUID and parameters unchanged to prevent duplicate actions. Reconnect and renegotiate with the new host after a handoff.',
         httpState: 'HTTP state manifest',
         apiStatus: 'API status',
         appStatus: 'App status',
@@ -405,7 +424,11 @@
         commentatorBody: '为局域网内解说席提供实时比分、计时、事件线、球员提醒和确定性解说提示。',
         openCommentator: '打开解说面板',
         endpointsTitle: '端点',
-        endpointsBody: '演示页面只是参考实现，并且仅使用 WebSocket。HTTP 仍可供通用轮询客户端使用。WebSocket 发送方式遵循 App 设置中的更新模式。',
+        endpointsBody: '演示页面仅供参考。显示演示使用 WebSocket；控制演示还提供可自动回退的 WebRTC。HTTP 仍可用于轮询。推送方式遵循 App 设置中的更新模式。',
+        rtcTitle: '可选的 WebRTC 传输',
+        rtcBody: '控制演示可将 v1 状态更新和控制命令升级到可靠、有序的 WebRTC 数据通道，同时保留 HTTP 和 WebSocket。WebRTC 由会话主机提供，包括 Apple TV，使用本地直连，无需外部信令、STUN 或 TURN 服务器。',
+        rtcFallback: '请保持 WebSocket 连接以交换信令并接收命令确认。V2 资源订阅继续使用 WebSocket。图片、日志、配对、主机切换及原生设备时钟同步继续使用现有传输。控制命令使用与 HTTP 相同的 API 密钥和启用开关。',
+        rtcLimits: 'RTC 单条消息上限为 48 KiB，输出缓冲上限为 256 KiB；更大的状态更新使用 WebSocket。请先缓存 ICE 候选项，待远端描述应用后再添加。根据会话 ID、主机版本和 generatedAtUnixTime 丢弃过期状态。RTC 协商或传输失败时回退到 WebSocket／HTTP。重试命令时必须保留原 UUID 和参数，以防重复操作。主机切换后需连接新主机并重新协商。',
         httpState: 'HTTP 状态清单',
         apiStatus: 'API 状态',
         appStatus: 'App 状态',
