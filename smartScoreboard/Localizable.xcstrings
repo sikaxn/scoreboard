@@ -9592,6 +9592,26 @@
         }
       }
     },
+    "Open Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开设置"
+          }
+        }
+      }
+    },
+    "Open Settings While Timers Are Running?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器运行时打开设置？"
+          }
+        }
+      }
+    },
     "Open Settings and enable Local Network for Scoreboard." : {
       "localizations" : {
         "zh-Hans" : {
@@ -16743,6 +16763,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "提示历史"
+          }
+        }
+      }
+    },
+    "Timers will keep running while Settings is open. Changing game setup may affect the live timers. Continue?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开设置后，计时器将继续运行。更改比赛设置可能影响正在运行的计时器。是否继续？"
           }
         }
       }

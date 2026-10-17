@@ -104,6 +104,7 @@ struct ContentView: View {
     @State private var setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
     @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
     @State private var setupCustomDebatePreset = DebatePreset.customDefault
+    @State private var setupStoreOptionsBaseline: ScoreboardGameSnapshot?
     @State private var selectedSoundSettingsSport: SportType = .simple
     @AppStorage("showsSoundLibrary") private var showsSoundLibrary = false
     @State private var soundEventSearch = ""
@@ -158,6 +159,7 @@ struct ContentView: View {
     @State private var showsPauseCountControls = false
     @State private var logPlaybackOrder: LogPlaybackOrder = .topToBottom
     @State private var isLoadingSetupDrafts = false
+    @State private var hasPendingSetupEdits = false
     @State private var isCommittingSetupEdits = false
     @State private var isInitialSetupStateLoaded = false
     @State private var didStartRootInitialization = false
@@ -739,10 +741,7 @@ struct ContentView: View {
                     return Alert(
                         title: Text(gameConfirmationTitle(for: action)),
                         message: Text(gameConfirmationMessage(for: action)),
-                        primaryButton: .destructive(Text(gameConfirmationButtonTitle(for: action))) {
-                            pendingGameConfirmation = nil
-                            performConfirmedGameAction(action)
-                        },
+                        primaryButton: gameConfirmationButton(for: action),
                         secondaryButton: .cancel {
                             pendingGameConfirmation = nil
                         }
@@ -12402,10 +12401,15 @@ struct ContentView: View {
         setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
         gameFileNameDraft = ""
         markSetupClockBaselinesCurrent()
+        hasPendingSetupEdits = true
     }
 
-    private func openSettingsFromLiveBoard() {
+    private func openSettingsFromLiveBoard(confirmedRunningTimers: Bool = false) {
         guard !store.isRemoteControlProxy else { return }
+        if store.isAnyTimerRunning, !confirmedRunningTimers {
+            requestGameConfirmation(.openSettings)
+            return
+        }
         isLoadingSetupDrafts = true
         isInitialSetupStateLoaded = false
         loadSetupDraftsFromStore(keepsLoadingFlag: true)
@@ -12464,6 +12468,7 @@ struct ContentView: View {
             return
         }
 
+        hasPendingSetupEdits = true
         commitSetupEdits(animated: true)
     }
 
@@ -12476,6 +12481,7 @@ struct ContentView: View {
     private func applySetupClockDefaultsAndCommit(_ updates: () -> Void) {
         isApplyingSetupSportDefaults = true
         updates()
+        hasPendingSetupEdits = true
         DispatchQueue.main.async {
             commitSetupEdits(animated: true)
             DispatchQueue.main.async {
@@ -13485,6 +13491,8 @@ struct ContentView: View {
         setupDebatePrepTimeEnabled = store.isDebatePrepTimeEnabled
         gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
         markSetupClockBaselinesCurrent()
+        hasPendingSetupEdits = false
+        setupStoreOptionsBaseline = store.currentGameSnapshot()
         if !keepsLoadingFlag {
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
@@ -14015,6 +14023,14 @@ struct ContentView: View {
         guard !isCommittingSetupEdits else {
             return
         }
+        // Returning to the board is navigation. Loading a snapshot would stop
+        // live timers locally, or send a game replacement to a delegated host.
+        let hasStoredSetupEdits = store.isFollowingSessionHost
+            && setupStoreOptionsBaseline.map { storedSetupOptionsChanged(since: $0) } == true
+        guard hasPendingSetupEdits || hasStoredSetupEdits || !store.didCompleteSetup else {
+            if forceRefresh { autosaveSelectedGameFile(refreshSelection: true) }
+            return
+        }
 
         isCommittingSetupEdits = true
         defer {
@@ -14045,7 +14061,35 @@ struct ContentView: View {
             )
         }
         markSetupClockBaselinesCurrent()
+        hasPendingSetupEdits = store.isFollowingSessionHost && !store.sessionIsConnected
+        setupStoreOptionsBaseline = store.currentGameSnapshot()
         autosaveSelectedGameFile(refreshSelection: forceRefresh)
+    }
+
+    private func storedSetupOptionsChanged(since baseline: ScoreboardGameSnapshot) -> Bool {
+        // These settings write directly to the owner's store. Forward actual
+        // edits to its host, excluding live clocks, scores, rosters, and counts.
+        let current = store.currentGameSnapshot()
+        return current.isPlayerTrackingEnabled != baseline.isPlayerTrackingEnabled
+            || current.rosterSizePerTeam != baseline.rosterSizePerTeam
+            || current.displayLineupSize != baseline.displayLineupSize
+            || current.playerLineupOverflowMode != baseline.playerLineupOverflowMode
+            || current.playerLineupOverflowLogoOverride != baseline.playerLineupOverflowLogoOverride
+            || current.playerLineupOverflowNoLogoOverride != baseline.playerLineupOverflowNoLogoOverride
+            || current.playerLineupFadePageSeconds != baseline.playerLineupFadePageSeconds
+            || current.playerLineupScrollSpeed != baseline.playerLineupScrollSpeed
+            || current.playerLineupScrollDirection != baseline.playerLineupScrollDirection
+            || current.playerFoulHighlightColor != baseline.playerFoulHighlightColor
+            || current.isGameClockRedEnabled != baseline.isGameClockRedEnabled
+            || current.gameClockRedThresholdSeconds != baseline.gameClockRedThresholdSeconds
+            || current.isShotClockRedEnabled != baseline.isShotClockRedEnabled
+            || current.shotClockRedThresholdSeconds != baseline.shotClockRedThresholdSeconds
+            || current.homeSubstitutionsAllowed != baseline.homeSubstitutionsAllowed
+            || current.guestSubstitutionsAllowed != baseline.guestSubstitutionsAllowed
+            || current.homePausesAllowed != baseline.homePausesAllowed
+            || current.guestPausesAllowed != baseline.guestPausesAllowed
+            || current.pauseDurationSeconds != baseline.pauseDurationSeconds
+            || current.isTeamPauseIndefinite != baseline.isTeamPauseIndefinite
     }
 
     private func currentSetupWorkingSnapshot() -> ScoreboardGameSnapshot {
@@ -14748,6 +14792,8 @@ struct ContentView: View {
 
     private func gameConfirmationTitle(for action: GameConfirmationAction) -> String {
         switch action {
+        case .openSettings:
+            return localizedAppString("Open Settings While Timers Are Running?")
         case .awardVolleyballSet(let side):
             return localizedAppFormat("Confirm %@ Period Win", store.sideRoleLabel(for: side))
         case .undoVolleyballSet:
@@ -14791,6 +14837,8 @@ struct ContentView: View {
 
     private func gameConfirmationMessage(for action: GameConfirmationAction) -> String {
         switch action {
+        case .openSettings:
+            return localizedAppString("Timers will keep running while Settings is open. Changing game setup may affect the live timers. Continue?")
         case .awardVolleyballSet(let side):
             let isLegalScore = store.selectedSport != .volleyball || store.isLegalVolleyballSetWin(for: side)
             let scoreLine = localizedAppFormat("Current score is %d-%d.", store.homeScore, store.guestScore)
@@ -14839,6 +14887,8 @@ struct ContentView: View {
 
     private func gameConfirmationButtonTitle(for action: GameConfirmationAction) -> String {
         switch action {
+        case .openSettings:
+            return localizedAppString("Open Settings")
         case .awardVolleyballSet:
             return localizedAppString("Award Period")
         case .undoVolleyballSet:
@@ -14874,6 +14924,17 @@ struct ContentView: View {
         }
     }
 
+    private func gameConfirmationButton(for action: GameConfirmationAction) -> Alert.Button {
+        let confirm = {
+            pendingGameConfirmation = nil
+            performConfirmedGameAction(action)
+        }
+        if case .openSettings = action {
+            return .default(Text(gameConfirmationButtonTitle(for: action)), action: confirm)
+        }
+        return .destructive(Text(gameConfirmationButtonTitle(for: action)), action: confirm)
+    }
+
     private func requestGameConfirmation(_ action: GameConfirmationAction) {
         if pendingGameConfirmation?.id == action.id {
             pendingGameConfirmation = nil
@@ -14887,6 +14948,8 @@ struct ContentView: View {
 
     private func performConfirmedGameAction(_ action: GameConfirmationAction) {
         switch action {
+        case .openSettings:
+            openSettingsFromLiveBoard(confirmedRunningTimers: true)
         case .awardVolleyballSet(let side):
             store.awardPeriod(to: side)
         case .undoVolleyballSet:
@@ -15545,6 +15608,7 @@ private enum DashboardPage: Hashable {
 }
 
 enum GameConfirmationAction: Identifiable {
+    case openSettings
     case awardVolleyballSet(TeamSide)
     case undoVolleyballSet
     case previousPeriod
@@ -15567,6 +15631,8 @@ enum GameConfirmationAction: Identifiable {
 
     var id: String {
         switch self {
+        case .openSettings:
+            return "openSettings"
         case .awardVolleyballSet(let side):
             return "awardVolleyballSet-\(side.rawValue)"
         case .undoVolleyballSet:

@@ -28,6 +28,7 @@ import Combine
                                      sentAt: delay.map { Date().timeIntervalSince1970 - $0 })
         }
         checks += try! runPauseTimerTests()
+        checks += await runSetupNavigationTests()
         for sport in SportType.allCases {
             store.setSelectedSport(sport)
             store.newGame()

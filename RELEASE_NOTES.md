@@ -15,6 +15,7 @@
 
 ### Issue Fixed
 
+- Fixed returning from Settings reloading an unchanged game and stopping timers on the owner or delegated host. Added a confirmation before opening Settings while timers are running.
 - Improved remote timer operation timing with network-delay compensation.
 - Improved pairing, discovery, reconnection, host switching, and cleanup of former hosted sessions; excluded the local device and unavailable owner/host pairing endpoints from client discovery.
 - Improved remote disconnect handling so the interface stays responsive and connection status updates when commands cannot be delivered.
