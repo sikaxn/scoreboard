@@ -665,7 +665,7 @@ private enum ScoreboardRemoteDisplayIdentity {
 
     static func stableID(forKey key: String) -> String {
         let defaultsKey = "\(keyPrefix)\(key)"
-        let defaults = UserDefaults.standard
+        let defaults = ScoreboardPreferences.current
         if let existingID = defaults.string(forKey: defaultsKey), !existingID.isEmpty {
             return existingID
         }
@@ -677,7 +677,7 @@ private enum ScoreboardRemoteDisplayIdentity {
 
     static func resetStableID(forKey key: String) -> String {
         let newID = UUID().uuidString
-        UserDefaults.standard.set(newID, forKey: "\(keyPrefix)\(key)")
+        ScoreboardPreferences.current.set(newID, forKey: "\(keyPrefix)\(key)")
         return newID
     }
 }
@@ -734,24 +734,24 @@ enum ScoreboardRemoteDisplayPairingStore {
 
     static func saveLastActiveOperator(_ peer: ScoreboardRemoteDisplayTrustedPeer?) {
         guard let peer else {
-            UserDefaults.standard.removeObject(forKey: lastActiveOperatorKey)
+            ScoreboardPreferences.current.removeObject(forKey: lastActiveOperatorKey)
             return
         }
         save([peer], key: lastActiveOperatorKey)
     }
 
     static func mutedDisplayIDs() -> Set<String> {
-        let ids = UserDefaults.standard.stringArray(forKey: mutedDisplaysKey) ?? []
+        let ids = ScoreboardPreferences.current.stringArray(forKey: mutedDisplaysKey) ?? []
         return Set(ids.filter { !$0.isEmpty })
     }
 
     static func saveMutedDisplayIDs(_ ids: Set<String>) {
-        UserDefaults.standard.set(ids.sorted(), forKey: mutedDisplaysKey)
+        ScoreboardPreferences.current.set(ids.sorted(), forKey: mutedDisplaysKey)
     }
 
     static func displayDirectionsByID() -> [String: ScoreboardRemoteDisplayDirectionSettings] {
         guard
-            let data = UserDefaults.standard.data(forKey: displayDirectionsKey),
+            let data = ScoreboardPreferences.current.data(forKey: displayDirectionsKey),
             let settings = try? JSONDecoder().decode([String: ScoreboardRemoteDisplayDirectionSettings].self, from: data)
         else {
             return [:]
@@ -761,14 +761,14 @@ enum ScoreboardRemoteDisplayPairingStore {
 
     static func saveDisplayDirectionsByID(_ settings: [String: ScoreboardRemoteDisplayDirectionSettings]) {
         if let data = try? JSONEncoder().encode(settings) {
-            UserDefaults.standard.set(data, forKey: displayDirectionsKey)
+            ScoreboardPreferences.current.set(data, forKey: displayDirectionsKey)
             saveDisplayDirectionModelVersion(ScoreboardStore.displayDirectionModelVersion)
         }
     }
 
     static func customDisplayIDsByID() -> [String: Int] {
         guard
-            let data = UserDefaults.standard.data(forKey: customDisplayIDsKey),
+            let data = ScoreboardPreferences.current.data(forKey: customDisplayIDsKey),
             let assignments = try? JSONDecoder().decode([String: Int].self, from: data)
         else {
             return [:]
@@ -779,28 +779,28 @@ enum ScoreboardRemoteDisplayPairingStore {
     static func saveCustomDisplayIDsByID(_ assignments: [String: Int]) {
         let normalizedAssignments = normalizedCustomDisplayIDsByID(assignments)
         guard !normalizedAssignments.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: customDisplayIDsKey)
+            ScoreboardPreferences.current.removeObject(forKey: customDisplayIDsKey)
             return
         }
         if let data = try? JSONEncoder().encode(normalizedAssignments) {
-            UserDefaults.standard.set(data, forKey: customDisplayIDsKey)
+            ScoreboardPreferences.current.set(data, forKey: customDisplayIDsKey)
         }
     }
 
     static func displayDirectionModelVersion() -> Int {
-        guard UserDefaults.standard.object(forKey: displayDirectionModelVersionKey) != nil else {
+        guard ScoreboardPreferences.current.object(forKey: displayDirectionModelVersionKey) != nil else {
             return 1
         }
-        return UserDefaults.standard.integer(forKey: displayDirectionModelVersionKey)
+        return ScoreboardPreferences.current.integer(forKey: displayDirectionModelVersionKey)
     }
 
     static func saveDisplayDirectionModelVersion(_ version: Int) {
-        UserDefaults.standard.set(version, forKey: displayDirectionModelVersionKey)
+        ScoreboardPreferences.current.set(version, forKey: displayDirectionModelVersionKey)
     }
 
     private static func load(key: String) -> [ScoreboardRemoteDisplayTrustedPeer] {
         guard
-            let data = UserDefaults.standard.data(forKey: key),
+            let data = ScoreboardPreferences.current.data(forKey: key),
             let peers = try? JSONDecoder().decode([ScoreboardRemoteDisplayTrustedPeer].self, from: data)
         else {
             return []
@@ -811,7 +811,7 @@ enum ScoreboardRemoteDisplayPairingStore {
     private static func save(_ peers: [ScoreboardRemoteDisplayTrustedPeer], key: String) {
         let sortedPeers = peers.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         if let data = try? JSONEncoder().encode(sortedPeers) {
-            UserDefaults.standard.set(data, forKey: key)
+            ScoreboardPreferences.current.set(data, forKey: key)
         }
     }
 
@@ -849,7 +849,13 @@ private enum ScoreboardRemoteDisplayNetworkTransport {
     static func send(_ data: Data, on connection: NWConnection, completion: @escaping (NWError?) -> Void = { _ in }) {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .binary)
         let context = NWConnection.ContentContext(identifier: "remote-display-message", metadata: [metadata])
+        #if SCOREBOARD_TESTING
+        _ = context
+        ScoreboardControlTestTransport.packets.append(data)
+        completion(nil)
+        #else
         connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed(completion))
+        #endif
     }
 
     static func discoveryInfo(from result: NWBrowser.Result) -> [String: String]? {
@@ -3739,3 +3745,55 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
     }
 }
+
+#if SCOREBOARD_TESTING
+
+// Compiled only into the native test bundle; the wire stays in memory.
+@MainActor
+enum ScoreboardControlTestTransport {
+    static var packets: [Data] = []
+}
+
+@MainActor
+extension ScoreboardRemoteDisplayHostService {
+    func refreshControlTestTrustedDisplay(_ peer: ScoreboardRemoteDisplayTrustedPeer) {
+        trustDisplay(id: peer.id, name: peer.name, pairingSetID: peer.pairingSetID,
+                     deviceType: peer.deviceType, pairingSecret: peer.pairingSecret)
+    }
+}
+
+@MainActor
+extension ScoreboardRemoteDisplayReceiver {
+    func configureControlTestConnection(state: ScoreboardWebAPIState) {
+        self.state = state
+        status = .paired("Test main board")
+        pairedHostID = "test-main-host"
+        pairedHostName = "Test main board"
+        pairedConnection = NWConnection(host: "127.0.0.1", port: 1, using: .tcp)
+        masterClockOffset = 0
+        lastClockSyncAt = Date()
+        lastReceivedAt = Date()
+        isRemoteControlAvailable = state.control?.remoteEnabled == true
+        isControlBoardDevice = isRemoteControlAvailable
+    }
+
+    func receiveControlTestMessage(_ message: ScoreboardRemoteDisplayControlMessage) {
+        handleControlMessage(message, from: pairedConnection!)
+    }
+
+    func disconnectControlTestConnection() {
+        clearControlConnection()
+        status = .disconnected("Test connection lost")
+    }
+
+    func simulateSilentControlTestDisconnect() {
+        lastHeartbeatAt = Date().addingTimeInterval(-6)
+        lastClockSyncAt = Date().addingTimeInterval(-6)
+    }
+
+    func checkControlTestConnectionHealth() {
+        markStaleHostIfNeeded()
+    }
+}
+
+#endif

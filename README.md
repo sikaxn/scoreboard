@@ -87,9 +87,7 @@ For iPhone Duo, build with Xcode 27.1 or later to enable the full display area a
 - Keep `Localizable.xcstrings` format placeholders type-compatible across languages. `%1$@` positional placeholders are fine, but the argument count and placeholder type must still match the source string.
 - The top-level `version` field in `Localizable.xcstrings` is the string-catalog schema version, not the app release version.
 
-Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 scripts/check_localization.py` on macOS to validate translated placeholders and exercise the app's formatter, including debate labels and custom text with percent signs. Also check Debate and Custom Sport settings in English and Simplified Chinese on a simulator when changing settings or localization code.
-
-Use `python3 scripts/check_localization.py --catalog-only` to check catalog structure and placeholders without compiling or running Swift.
+Localization catalog validation, formatter regressions, and English/Chinese bundle lookup checks run in `LocalizationTests.swift` through **Product → Test** (⌘U). Also check Debate and Custom Sport settings in English and Simplified Chinese on a simulator when changing settings or localization code.
 
 ## Project Structure
 
@@ -137,10 +135,21 @@ For browser or script control, enable the Web API and **Web Control**, then copy
 
 ### Build and test with Xcode
 
-Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode, select the **smartScoreboard** scheme and a destination, then choose **Product → Build** (⌘B) to build the app. The project currently has no XCTest target, so **Product → Test** (⌘U) does not run the remote-control suite. Run it from Terminal at the repository root instead:
+Open `smartScoreboard/smartScoreboard.xcodeproj` in Xcode. To run the app, select **smartScoreboard** and choose **Product → Build** (⌘B).
+
+To run unit tests, select **smartScoreboardTests → My Mac** and choose **Product → Test** (⌘U). The main **smartScoreboard** scheme also runs the unit target on My Mac. The **Run** button (▶ / ⌘R) launches the app in either scheme. The Test navigator (⌘6) shows named Swift Testing cases and individual sport/input cases.
+
+The unit suite covers scoring, roster CSV, all sport capability gates, pause timers, remote commands and clock compensation, session authority, recovery, and log replication. Tests use isolated temporary storage and preferences. See [Testing Smart Scoreboard](docs/testing.md) for the terminal command, coverage map, and guidance for adding regression tests.
+
+For simulator UI checks, select **smartScoreboardUITests → an iPad simulator** and press **⌘U**. The default `AllUI` plan enables all 53 cases; choose **Product → Test Plan → SmokeUI** for two control/display cases. UI tests cover event setup and scoring, running-clock settings, official pauses, full-screen display, scrolling and rotation, Companion failures/recovery, and remote-client pairing/reconnection. See [UI tests and regression history](docs/ui-testing.md).
+
+Shared test plans separate core regressions, operator workflows, and integration recovery for local runs and Xcode Cloud. See [Xcode Cloud test setup](docs/xcode-cloud-testing.md).
+
+Settings-navigation, live HTTP authentication, and localization checks are included in the same Xcode test target. HTTP tests use OS-assigned ports and isolated storage.
+
+Browser DOM tests live in `tests/web` and run with:
 
 ```sh
-python3 scripts/run_remote_control_tests.py
+npm ci --prefix tests/web
+npm test --prefix tests/web
 ```
-
-The runner uses Xcode's Swift compiler to check all sports, pause countdowns and overlays, timer compensation, validation, duplicate commands, saved-game compatibility, and HTTP authentication. It uses temporary storage and a separate command-line preference domain; HTTP checks are skipped if either API port is already occupied. Optional browser DOM checks run with `node scripts/test_web_control_demo.cjs /path/to/jsdom` and `node scripts/test_pause_web_templates.cjs /path/to/jsdom`.

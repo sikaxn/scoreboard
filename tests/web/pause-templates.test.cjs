@@ -1,7 +1,7 @@
-// Run with Node and jsdom installed, or pass the path to a temporary jsdom installation.
-const {JSDOM}=require(process.argv[2] || 'jsdom');
+const {JSDOM}=require('jsdom');
+const path=require('node:path');
 const fs=require('node:fs'),assert=require('node:assert/strict');
-const base='smartScoreboard/smartScoreboard/Assets.xcassets/';
+const base=path.resolve(__dirname,'../../smartScoreboard/smartScoreboard/Assets.xcassets')+'/';
 function page(path){
   const errors=[];
   const dom=new JSDOM(fs.readFileSync(base+path,'utf8'),{

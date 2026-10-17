@@ -350,6 +350,7 @@ struct ScoreboardFaceView: View {
 
             if showsScore {
                 Text("\(score)")
+                    .accessibilityIdentifier("public.score.\(side.rawValue)")
                     .font(.system(size: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout), weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.32)
                     .contentTransition(.numericText())
@@ -526,6 +527,7 @@ struct ScoreboardFaceView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             } else if showsGameClock {
                 Text(formattedClock)
+                    .accessibilityIdentifier("public.clock")
                     .font(.system(size: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.24)

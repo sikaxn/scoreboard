@@ -213,6 +213,14 @@ nonisolated struct ScoreboardSessionRecovery: Codable, Sendable {
     var transferID: UUID?
 
     static var url: URL {
+        #if DEBUG && !SCOREBOARD_TESTING
+        if let root = ScoreboardUITestLaunch.storageRoot {
+            return root.appendingPathComponent("Session/authority.json")
+        }
+        #endif
+        #if SCOREBOARD_TESTING
+        return ScoreboardTestEnvironment.root.appendingPathComponent("Session/authority.json")
+        #else
         #if os(tvOS)
         // tvOS rejects writes to Documents and Application Support. Its app
         // cache is writable while the match runs, but can be purged after exit.
@@ -221,6 +229,7 @@ nonisolated struct ScoreboardSessionRecovery: Codable, Sendable {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         #endif
         return base.appendingPathComponent("smartScoreboard/Session/authority.json")
+        #endif
     }
 
     func save(to url: URL = Self.url) throws {

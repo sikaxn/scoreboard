@@ -1948,6 +1948,18 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     static let webSocketPort: UInt16 = 5517
     static let bonjourServiceType = "_smartscoreboard._tcp"
 
+    private let listeningHTTPPort: UInt16
+    private let listeningWebSocketPort: UInt16
+    private let advertisesService: Bool
+
+    init(httpPort: UInt16 = ScoreboardWebAPIService.httpPort,
+         webSocketPort: UInt16 = ScoreboardWebAPIService.webSocketPort,
+         advertisesService: Bool = true) {
+        listeningHTTPPort = httpPort
+        listeningWebSocketPort = webSocketPort
+        self.advertisesService = advertisesService
+    }
+
     private let queue = DispatchQueue(label: "com.ironmaple.smartscoreboard.webapi", qos: .utility)
     var controlHandler: (@Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void)?
     private let maxHTTPHeaderBytes = 16 * 1024
@@ -1992,8 +2004,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             self.updateStatusLocked(.starting)
 
             guard
-                let httpPort = NWEndpoint.Port(rawValue: Self.httpPort),
-                let webSocketPort = NWEndpoint.Port(rawValue: Self.webSocketPort)
+                let httpPort = NWEndpoint.Port(rawValue: self.listeningHTTPPort),
+                let webSocketPort = NWEndpoint.Port(rawValue: self.listeningWebSocketPort)
             else {
                 self.updateStatusLocked(.failed("Invalid Web API port configuration."))
                 return
@@ -2002,12 +2014,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             do {
                 let httpListener = try NWListener(using: .tcp, on: httpPort)
                 let webSocketListener = try NWListener(using: Self.webSocketParameters(), on: webSocketPort)
-                httpListener.service = NWListener.Service(
-                    name: nil,
-                    type: Self.bonjourServiceType,
-                    domain: nil,
-                    txtRecord: nil
-                )
+                if self.advertisesService {
+                    httpListener.service = NWListener.Service(
+                        name: nil,
+                        type: Self.bonjourServiceType,
+                        domain: nil,
+                        txtRecord: nil
+                    )
+                }
                 self.configureHTTPListener(httpListener)
                 self.configureWebSocketListener(webSocketListener)
                 self.httpListener = httpListener
@@ -2573,8 +2587,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             return
         }
         updateStatusLocked(.running(
-            httpPort: Self.httpPort,
-            webSocketPort: Self.webSocketPort,
+            httpPort: httpListener?.port?.rawValue ?? listeningHTTPPort,
+            webSocketPort: webSocketListener?.port?.rawValue ?? listeningWebSocketPort,
             clientCount: clients.count
         ))
     }

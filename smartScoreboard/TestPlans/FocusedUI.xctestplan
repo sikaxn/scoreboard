@@ -1,0 +1,35 @@
+{
+  "configurations": [
+    {
+      "id": "A5E35BA1-D7D9-48EC-917C-6A46A6125D3D",
+      "name": "iPad",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 300,
+    "maximumTestExecutionTimeAllowance": 360
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:smartScoreboard.xcodeproj",
+        "identifier": "75C74EB93A284F618E736C09",
+        "name": "smartScoreboardUITests"
+      },
+      "selectedTests": [
+        "EventModeUITests/testChessBulletWithUnequalOpeningClocks()",
+        "EventModeUITests/testVolleyballBestOfThreeWithoutMatchTimer()",
+        "DebateEditingUITests/testCustomDebateDualClockStartsOnGuestWithoutSwitching()",
+        "DebateEditingUITests/testPublicForumTemplateCanBeEditedWithoutChangingBuiltInFormat()",
+        "CustomModeEditingUITests/testCountdownWithOneAndTwoPointButtons()",
+        "CustomModeEditingUITests/testCustomEditorCommitsEveryModuleAndRepeatedTitleEdits()",
+        "EventModeUITests/testSoccerEventEditsScoringHalfAndClock()",
+        "EventWorkflowUITests/testSettingsWarningAndUneditedReturnPreserveRunningEvent()"
+      ]
+    }
+  ],
+  "version": 1
+}

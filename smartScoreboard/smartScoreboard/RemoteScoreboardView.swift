@@ -17,11 +17,11 @@ private enum RemoteDisplayReceiverNetworkModeStore {
 
     static var mode: ScoreboardRemoteDisplayNetworkMode {
         get {
-            UserDefaults.standard.string(forKey: key)
+            ScoreboardPreferences.current.string(forKey: key)
                 .flatMap(ScoreboardRemoteDisplayNetworkMode.init(rawValue:)) ?? .nearbyAndLocalNetwork
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: key)
+            ScoreboardPreferences.current.set(newValue.rawValue, forKey: key)
         }
     }
 }

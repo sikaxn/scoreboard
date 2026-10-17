@@ -1240,15 +1240,15 @@ final class ScoreboardStore: ObservableObject {
     @Published var showGettingStartedOnStartup = true
     @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
-    @Published var isWebControlEnabled = UserDefaults.standard.bool(forKey: "scoreboard.webControlEnabled") {
+    @Published var isWebControlEnabled = ScoreboardPreferences.current.bool(forKey: "scoreboard.webControlEnabled") {
         didSet {
             if !isDelegatedSessionHost && !isApplyingSessionUpdate {
-                UserDefaults.standard.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled")
+                ScoreboardPreferences.current.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled")
             }
             scheduleOwnerSettingsSync()
         }
     }
-    @Published private(set) var remoteControlAllowedDisplayIDs = Set(UserDefaults.standard.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
+    @Published private(set) var remoteControlAllowedDisplayIDs = Set(ScoreboardPreferences.current.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
 
     func isRemoteControlAllowed(displayID: String) -> Bool {
         if isSessionAuthority && sessionDescriptor?.ownerDeviceID == displayID { return true }
@@ -1274,17 +1274,17 @@ final class ScoreboardStore: ObservableObject {
             remoteControlAllowedDisplayIDs.insert(displayID)
         } else { remoteControlAllowedDisplayIDs.remove(displayID) }
         if !isDelegatedSessionHost {
-            UserDefaults.standard.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            ScoreboardPreferences.current.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
         }
         refreshRemoteDisplayState()
         remoteDisplayHostService.refreshControlPermissions()
     }
     @Published private(set) var webControlAPIKey: String = {
-        if let key = UserDefaults.standard.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
+        if let key = ScoreboardPreferences.current.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
            key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) { return key.uppercased() }
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         let key = String((0..<16).map { _ in alphabet.randomElement()! })
-        UserDefaults.standard.set(key, forKey: "scoreboard.webControlAPIKey")
+        ScoreboardPreferences.current.set(key, forKey: "scoreboard.webControlAPIKey")
         return key
     }()
     private var controlCommandResults: [UUID: (Data, ScoreboardControlResult, Date)] = [:]
@@ -1292,7 +1292,7 @@ final class ScoreboardStore: ObservableObject {
     func resetWebControlAPIKey() {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         webControlAPIKey = String((0..<16).map { _ in alphabet.randomElement()! })
-        UserDefaults.standard.set(webControlAPIKey, forKey: "scoreboard.webControlAPIKey")
+        ScoreboardPreferences.current.set(webControlAPIKey, forKey: "scoreboard.webControlAPIKey")
         scheduleOwnerSettingsSync()
     }
 
@@ -1381,7 +1381,11 @@ final class ScoreboardStore: ObservableObject {
     private var activeEventDidStart = false
     private var companionCommandGeneration = UUID()
     private let logManager = ScoreboardLogManager.shared
+    #if SCOREBOARD_TESTING
+    private let webAPIService = ScoreboardWebAPIService(httpPort: 0, webSocketPort: 0, advertisesService: false)
+    #else
     private let webAPIService = ScoreboardWebAPIService()
+    #endif
     private let remoteDisplayHostService = ScoreboardRemoteDisplayHostService()
     private let companionService = ScoreboardCompanionService()
     private var isWebAPIAppLifecycleActive = true
@@ -1444,8 +1448,8 @@ final class ScoreboardStore: ObservableObject {
             } catch {
                 fatalError("Invalid App Store preview fixture: \(error)")
             }
-            UserDefaults.standard.set(data, forKey: persistenceKey)
-            UserDefaults.standard.set(
+            ScoreboardPreferences.current.set(data, forKey: persistenceKey)
+            ScoreboardPreferences.current.set(
                 ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] == "merged",
                 forKey: "showsMergedView"
             )
@@ -1499,6 +1503,9 @@ final class ScoreboardStore: ObservableObject {
             sessionStatusMessage = "Session authority could not be restored: \(error.localizedDescription)"
         }
         loadPersistedState()
+        #if DEBUG && !SCOREBOARD_TESTING
+        ScoreboardUITestLaunch.configure(self)
+        #endif
         if sessionRecoveryRole == .host, let checkpoint = sessionTransferCheckpoint,
            checkpoint.descriptor.hostDeviceID == localSessionDeviceID {
             activateSessionCheckpoint(checkpoint, fromRecovery: true)
@@ -5167,6 +5174,8 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        #if !SCOREBOARD_TESTING
+        // Unit tests retain the reset logic above and advance tick explicitly.
         guard timer == nil else {
             return
         }
@@ -5183,6 +5192,7 @@ final class ScoreboardStore: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        #endif
     }
 
     func reconcileRunningTimersWithWallClock() {
@@ -6849,7 +6859,7 @@ final class ScoreboardStore: ObservableObject {
         if permitted != remoteControlAllowedDisplayIDs {
             remoteControlAllowedDisplayIDs = permitted
             if !isDelegatedSessionHost {
-                UserDefaults.standard.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+                ScoreboardPreferences.current.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
             }
         }
 
@@ -7231,10 +7241,10 @@ final class ScoreboardStore: ObservableObject {
         applyPersistedState(.factoryDefault)
         isWebControlEnabled = false
         remoteControlAllowedDisplayIDs.removeAll()
-        UserDefaults.standard.removeObject(forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        ScoreboardPreferences.current.removeObject(forKey: "scoreboard.remoteControlAllowedDisplayIDs")
         resetWebControlAPIKey()
         controlCommandResults.removeAll()
-        UserDefaults.standard.removeObject(forKey: persistenceKey)
+        ScoreboardPreferences.current.removeObject(forKey: persistenceKey)
         persistState()
     }
 
@@ -7266,7 +7276,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func loadPersistedState() {
         guard
-            let data = UserDefaults.standard.data(forKey: persistenceKey),
+            let data = ScoreboardPreferences.current.data(forKey: persistenceKey),
             let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data)
         else {
             clearPrimaryTimerPersistence()
@@ -7471,7 +7481,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        UserDefaults.standard.set(data, forKey: persistenceKey)
+        ScoreboardPreferences.current.set(data, forKey: persistenceKey)
     }
 
     private func refreshPrimaryTimerPersistence() {
@@ -7486,14 +7496,14 @@ final class ScoreboardStore: ObservableObject {
         }
 
         if let data = try? JSONEncoder().encode(snapshot) {
-            UserDefaults.standard.set(data, forKey: primaryTimerPersistenceKey)
+            ScoreboardPreferences.current.set(data, forKey: primaryTimerPersistenceKey)
             lastPrimaryTimerPersistenceSignature = snapshot.signature
         }
     }
 
     private func clearPrimaryTimerPersistence() {
         guard !isRemoteControlProxy, !isDelegatedSessionHost else { return }
-        UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
+        ScoreboardPreferences.current.removeObject(forKey: primaryTimerPersistenceKey)
         lastPrimaryTimerPersistenceSignature = nil
     }
 
@@ -7501,7 +7511,7 @@ final class ScoreboardStore: ObservableObject {
         guard sessionDescriptor == nil else { return }
         guard pauseTimer == nil else { clearPrimaryTimerPersistence(); return }
         guard
-            let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
+            let data = ScoreboardPreferences.current.data(forKey: primaryTimerPersistenceKey),
             let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
         else {
             return
@@ -9108,7 +9118,7 @@ extension ScoreboardStore {
             descriptor: descriptor, settings: try exportPersistedStateData(), game: currentGameSnapshot(),
             runtime: currentWebAPIState().runtime, gameName: currentGameDisplayName,
             ownerGameFilename: isSessionOwner
-                ? UserDefaults.standard.string(forKey: "scoreboard.workingGameFilename")
+                ? ScoreboardPreferences.current.string(forKey: "scoreboard.workingGameFilename")
                 : sessionTransferCheckpoint?.ownerGameFilename,
             mainDisplayMode: publicDisplayViewMode, pairings: pairings,
             allowedControllers: remoteControlAllowedDisplayIDs,
@@ -9129,7 +9139,7 @@ extension ScoreboardStore {
         let filename = isSafeFilename ? proposed : "Recovered-\(checkpoint.descriptor.sessionID.uuidString).scoreboardgame"
         let url = directory.appendingPathComponent(filename)
         try JSONEncoder().encode(checkpoint.game).write(to: url, options: .atomic)
-        UserDefaults.standard.set(filename, forKey: "scoreboard.workingGameFilename")
+        ScoreboardPreferences.current.set(filename, forKey: "scoreboard.workingGameFilename")
     }
 
     var canHostOnOwnerAndDisconnectOthers: Bool {
@@ -9477,7 +9487,7 @@ extension ScoreboardStore {
             }
             if let allowed = message.allowedControllers {
                 remoteControlAllowedDisplayIDs = allowed
-                UserDefaults.standard.set(allowed.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+                ScoreboardPreferences.current.set(allowed.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
             }
         case .logRequest:
             guard !fromHost, isSessionAuthority, let senderID,
@@ -10371,3 +10381,46 @@ extension ScoreboardStore {
         // Projection is visual only. Expiry events and automation remain on the main board.
     }
 }
+
+#if SCOREBOARD_TESTING
+// Private-state fixtures are compiled only into the hostless unit test bundle.
+
+@MainActor
+extension ScoreboardStore {
+    func withControlTestFollowingSessionHost(_ action: () -> Void) {
+        let previousDescriptor = sessionDescriptor
+        let previousRole = sessionRecoveryRole
+        let previousConnection = sessionIsConnected
+        defer {
+            sessionDescriptor = previousDescriptor
+            sessionRecoveryRole = previousRole
+            sessionIsConnected = previousConnection
+        }
+        sessionDescriptor = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 1,
+            ownerDeviceID: localSessionDeviceID, ownerHostID: "test-owner", ownerName: "Owner",
+            hostDeviceID: "test-delegated-host", hostName: "Host", hostAddresses: [])
+        sessionRecoveryRole = .follower
+        sessionIsConnected = false
+        action()
+    }
+    // Hold playback as if another sound is active, then inspect the real event
+    // queue without playing audio or contacting a Companion server.
+    func captureControlTestEventActions(_ action: () -> Void)
+        -> [(event: ScoreboardSoundEvent, effect: ScoreboardSoundEffect, location: String?)] {
+        clearQueuedEventActions()
+        activeEventPlaybackID = UUID()
+        action()
+        let actions = queuedEventActions.map { ($0.triggerEvent, $0.effect, $0.companionLocation?.rawValue) }
+        clearQueuedEventActions()
+        return actions
+    }
+    func advanceControlTestTimers(by elapsed: TimeInterval) {
+        tick(elapsed: elapsed)
+        lastTimerFireDate = Date()
+    }
+    func refreshControlTestTrustedDisplay(_ peer: ScoreboardRemoteDisplayTrustedPeer) {
+        remoteDisplayHostService.refreshControlTestTrustedDisplay(peer)
+    }
+}
+
+#endif

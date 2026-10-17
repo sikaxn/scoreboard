@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "id": "8D4014FD-FBCE-47B5-B0BE-E90FE11980C9",
+      "name": "Mac",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {},
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:smartScoreboard.xcodeproj",
+        "identifier": "3B10E21C208847718DB16BD7",
+        "name": "smartScoreboardTests"
+      }
+    }
+  ],
+  "version": 1
+}

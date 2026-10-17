@@ -24,7 +24,13 @@ struct SmartScoreboardApp: App {
 
         #if os(iOS) || os(macOS)
         do {
+            #if DEBUG
+            if !ScoreboardUITestLaunch.isEnabled {
+                try Tips.configure()
+            }
+            #else
             try Tips.configure()
+            #endif
         } catch {
             print("Error initializing TipKit \(error.localizedDescription)")
         }
@@ -42,6 +48,8 @@ struct SmartScoreboardApp: App {
         #elseif os(macOS)
         Window("Control Board", id: "control-board") {
             MacControlBoardRootView()
+                .defaultAppStorage(ScoreboardPreferences.current)
+                .scoreboardUITestAnimationPolicy()
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
                 .onAppear {
@@ -55,6 +63,8 @@ struct SmartScoreboardApp: App {
 
         Window("Public Scoreboard", id: "public-scoreboard") {
             MacPublicScoreboardRootView()
+                .defaultAppStorage(ScoreboardPreferences.current)
+                .scoreboardUITestAnimationPolicy()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environmentObject(store)
                 .environmentObject(publicBoardState)
@@ -82,6 +92,8 @@ struct SmartScoreboardApp: App {
                         .environmentObject(publicBoardState)
                 }
             }
+            .defaultAppStorage(ScoreboardPreferences.current)
+            .scoreboardUITestAnimationPolicy()
             #if os(iOS)
             .modifier(ExternalScoreboardSceneAccessory())
             #endif
@@ -189,3 +201,16 @@ private struct MacPublicScoreboardRootView: View {
     }
 }
 #endif
+
+private extension View {
+    func scoreboardUITestAnimationPolicy() -> some View {
+        transaction { transaction in
+            #if DEBUG
+            if ScoreboardUITestLaunch.isEnabled {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+            #endif
+        }
+    }
+}

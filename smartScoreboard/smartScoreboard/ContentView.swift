@@ -37,7 +37,7 @@ private struct PendingGameFileAutosave {
     var refreshSelection: Bool
 }
 
-struct ContentView: View {
+struct ContentView: View, ScoreboardSetupEditing {
     private static let tipHistoryResetGenerationKey = "scoreboardTipHistoryResetGeneration"
 
     /* APP_STORE_PREVIEW_CAPTURE_BEGIN
@@ -69,7 +69,7 @@ struct ContentView: View {
     private var returnToRemoteControl: (() -> Void)?
     @State private var showsRemoteConnectionDetails = false
 
-    @EnvironmentObject private var store: ScoreboardStore
+    @EnvironmentObject var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
@@ -78,34 +78,34 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
     @Environment(\.openURL) private var openURL
-    @FocusState private var focusedSettingsTextFieldID: String?
+    @FocusState var focusedSettingsTextFieldID: String?
 
-    @State private var homeTeamDraft = ""
-    @State private var guestTeamDraft = ""
-    @State private var eventNameDraft = ""
-    @State private var setupSport: SportType = .simple
-    @State private var setupPeriod = 1
-    @State private var setupClockSeconds = 10 * 60
-    @State private var setupUsesGameClock = true
-    @State private var setupShotClockSeconds = 24
-    @State private var setupVolleyballMatchFormat: VolleyballMatchFormat = .bestOf5
-    @State private var setupGuestClockSeconds = ChessClockPreset.rapid.seconds
-    @State private var setupClockSecondsBaseline = 10 * 60
-    @State private var setupShotClockSecondsBaseline = 24
-    @State private var setupGuestClockSecondsBaseline = ChessClockPreset.rapid.seconds
-    @State private var setupChessPreset: ChessClockPreset = .rapid
-    @State private var setupCustomSportConfig: CustomSportConfig = .default
-    @State private var setupDebatePresetID = DebatePreset.publicForum.id
-    @State private var setupDebateHomeSideLabel = DebatePreset.publicForum.homeSideLabel
-    @State private var setupDebateGuestSideLabel = DebatePreset.publicForum.guestSideLabel
-    @State private var setupDebateScoreTrackingEnabled = DebatePreset.publicForum.defaultScoreTrackingEnabled
-    @State private var setupDebatePlayerTrackingEnabled = DebatePreset.publicForum.defaultPlayerTrackingEnabled
-    @State private var setupDebatePlayerFoulsEnabled = DebatePreset.publicForum.defaultPlayerFoulsEnabled
-    @State private var setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
-    @State private var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
-    @State private var setupCustomDebatePreset = DebatePreset.customDefault
-    @State private var setupStoreOptionsBaseline: ScoreboardGameSnapshot?
-    @State private var selectedSoundSettingsSport: SportType = .simple
+    @State var homeTeamDraft = ""
+    @State var guestTeamDraft = ""
+    @State var eventNameDraft = ""
+    @State var setupSport: SportType = .simple
+    @State var setupPeriod = 1
+    @State var setupClockSeconds = 10 * 60
+    @State var setupUsesGameClock = true
+    @State var setupShotClockSeconds = 24
+    @State var setupVolleyballMatchFormat: VolleyballMatchFormat = .bestOf5
+    @State var setupGuestClockSeconds = ChessClockPreset.rapid.seconds
+    @State var setupClockSecondsBaseline = 10 * 60
+    @State var setupShotClockSecondsBaseline = 24
+    @State var setupGuestClockSecondsBaseline = ChessClockPreset.rapid.seconds
+    @State var setupChessPreset: ChessClockPreset = .rapid
+    @State var setupCustomSportConfig: CustomSportConfig = .default
+    @State var setupDebatePresetID = DebatePreset.publicForum.id
+    @State var setupDebateHomeSideLabel = DebatePreset.publicForum.homeSideLabel
+    @State var setupDebateGuestSideLabel = DebatePreset.publicForum.guestSideLabel
+    @State var setupDebateScoreTrackingEnabled = DebatePreset.publicForum.defaultScoreTrackingEnabled
+    @State var setupDebatePlayerTrackingEnabled = DebatePreset.publicForum.defaultPlayerTrackingEnabled
+    @State var setupDebatePlayerFoulsEnabled = DebatePreset.publicForum.defaultPlayerFoulsEnabled
+    @State var setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
+    @State var setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
+    @State var setupCustomDebatePreset = DebatePreset.customDefault
+    @State var setupStoreOptionsBaseline: ScoreboardGameSnapshot?
+    @State var selectedSoundSettingsSport: SportType = .simple
     @AppStorage("showsSoundLibrary") private var showsSoundLibrary = false
     @State private var soundEventSearch = ""
     @State private var companionEventSearch = ""
@@ -113,14 +113,14 @@ struct ContentView: View {
     @State private var expandedCompanionEventGroups: Set<ScoreboardEventGroup> = []
     @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .remoteDisplay
     @State private var remoteDisplayPairingCodes: [String: String] = [:]
-    @State private var selectedCompanionSettingsSport: SportType = .simple
-    @State private var gameFileNameDraft = ""
-    @State private var showsSetup = !ScoreboardStore.shared.didCompleteSetup
+    @State var selectedCompanionSettingsSport: SportType = .simple
+    @State var gameFileNameDraft = ""
+    @State var showsSetup = !ScoreboardStore.shared.didCompleteSetup
     @State private var showsGettingStarted = false
     @State private var showsBunnyEasterEgg = false
     @State private var isGettingStartedAutoPresentation = false
     @AppStorage(ScoreboardEasterEggIcon.userDefaultsKey) private var isBunnyIconEnabled = false
-    @State private var tipHistoryResetGeneration = UserDefaults.standard.integer(forKey: Self.tipHistoryResetGenerationKey)
+    @State private var tipHistoryResetGeneration = ScoreboardPreferences.current.integer(forKey: Self.tipHistoryResetGenerationKey)
     @State private var selectedSettingsPane: SettingsPane = .game
     @State private var recordingKeyboardShortcutAction: ScoreboardKeyboardShortcutAction?
     @State private var isSettingsSidebarCollapsed = false
@@ -136,7 +136,7 @@ struct ContentView: View {
     @State private var selectedStoredLogSessionID: String?
     @State private var selectedLogSessionIDs: Set<String> = []
     @State private var isSelectingLogSessions = false
-    @State private var isApplyingSetupSportDefaults = false
+    @State var isApplyingSetupSportDefaults = false
     @State private var showsGameImporter = false
     @State private var showsBackupImporter = false
     @State private var showsRosterCSVImporter = false
@@ -158,10 +158,10 @@ struct ContentView: View {
     @State private var pendingPenaltySelection: PendingPenaltySelection?
     @State private var showsPauseCountControls = false
     @State private var logPlaybackOrder: LogPlaybackOrder = .topToBottom
-    @State private var isLoadingSetupDrafts = false
-    @State private var hasPendingSetupEdits = false
-    @State private var isCommittingSetupEdits = false
-    @State private var isInitialSetupStateLoaded = false
+    @State var isLoadingSetupDrafts = false
+    @State var hasPendingSetupEdits = false
+    @State var isCommittingSetupEdits = false
+    @State var isInitialSetupStateLoaded = false
     @State private var didStartRootInitialization = false
     @State private var fileMigrationProgress: ScoreboardFileMigrationProgress?
     @State private var isExternalBackgroundImageEditorVisible = false
@@ -234,7 +234,7 @@ struct ContentView: View {
         }
         return localizedAppString("Version unavailable")
     }
-    private var setupRules: SportRules { setupSport.rules(customConfig: setupCustomSportConfig) }
+
     private var setupPeriodUpperBound: Int {
         setupSport == .volleyball ? setupVolleyballMatchFormat.maximumSets : 9
     }
@@ -242,43 +242,7 @@ struct ContentView: View {
         setupSport == .volleyball ||
             (setupSport == .custom && setupCustomSportConfig.isShotClockEnabled && setupCustomSportConfig.shotClockMode == .serve)
     }
-    private var isSetupDraftUpdateSuppressed: Bool {
-        !showsSetup || isLoadingSetupDrafts || isCommittingSetupEdits || isApplyingSetupSportDefaults
-    }
-    private var resolvedSetupCustomSportConfig: CustomSportConfig {
-        var config = setupCustomSportConfig
-        config.defaultClockSeconds = setupClockSeconds
-        config.defaultShotClockSeconds = setupShotClockSeconds
-        if !config.isScoreEnabled || !config.isPeriodEnabled {
-            config.isPeriodWinTrackingEnabled = false
-        }
-        if !config.isShotClockEnabled {
-            config.shotClockMode = .shot
-            config.isPossessionEnabled = false
-        }
-        return config
-    }
-    private var resolvedSetupCustomDebatePreset: DebatePreset {
-        var preset = setupCustomDebatePreset
-        preset.id = DebatePreset.customID
-        preset.homeSideLabel = setupDebateHomeSideLabel
-        preset.guestSideLabel = setupDebateGuestSideLabel
-        preset.defaultScoreTrackingEnabled = setupDebateScoreTrackingEnabled
-        preset.defaultPlayerTrackingEnabled = setupDebatePlayerTrackingEnabled
-        preset.defaultPlayerFoulsEnabled = setupDebatePlayerTrackingEnabled && setupDebatePlayerFoulsEnabled
-        preset.defaultPlayerCardsEnabled = setupDebatePlayerTrackingEnabled && setupDebatePlayerCardsEnabled
-        preset.isPrepTimeEnabled = setupDebatePrepTimeEnabled
-        if !preset.isPrepTimeEnabled {
-            preset.prepSecondsPerSide = 0
-        }
-        if preset.segments.isEmpty {
-            preset.segments = DebatePreset.customDefault.segments
-        }
-        return preset
-    }
-    private var setupDebatePreset: DebatePreset {
-        setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : DebatePreset.preset(id: setupDebatePresetID)
-    }
+
     private var usesDedicatedDualClockLayout: Bool { store.selectedSport == .chess }
     private var isResetInterlockActive: Bool { store.isResetInterlockActive }
     private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
@@ -990,6 +954,7 @@ struct ContentView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 12)
             }
+            .accessibilityIdentifier("settings.sidebar")
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             VStack(spacing: 10) {
@@ -1139,6 +1104,7 @@ struct ContentView: View {
         .opacity(isEnabled ? 1 : 0.38)
         .disabled(!isEnabled)
         .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.pane.\(String(describing: pane))")
     }
 
     private func selectSettingsPane(_ pane: SettingsPane) {
@@ -1204,6 +1170,7 @@ struct ContentView: View {
                 .padding(layout.settingsDetailPadding)
                 .frame(width: max(0, proxy.size.width), alignment: .topLeading)
             }
+            .accessibilityIdentifier("settings.content")
         }
         .id(selectedSettingsPane.id)
         .scoreboardSettingsKeyboardAwareScroll(bottomInset: settingsKeyboardAvoidanceInset)
@@ -2539,6 +2506,7 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.debate.template.\(template.id)")
         .scoreboardPopoverTip(ScoreboardTips.about, isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
@@ -2653,6 +2621,7 @@ struct ContentView: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.sport.\(sport.rawValue)")
     }
 
     private func compactSportSelectionGrid(layout: InterfaceLayout, selection: Binding<SportType>) -> some View {
@@ -3813,6 +3782,7 @@ struct ContentView: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.integration.\(String(describing: detail))")
     }
 
     private func settingsRemoteDisplayPane(layout _: InterfaceLayout) -> some View {
@@ -4386,6 +4356,7 @@ struct ContentView: View {
                                 localizedAppString("Code"),
                                 text: remoteDisplayPairingCodeBinding(for: source)
                             )
+                            .accessibilityIdentifier("remote.code.\(row.id)")
                             .font(.title3.weight(.black).monospacedDigit())
                             .multilineTextAlignment(.center)
                             .scoreboardNumberEntry()
@@ -4460,6 +4431,8 @@ struct ContentView: View {
             }
         }
         .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("remote.peer.\(row.id)")
     }
 
     private func remoteDisplayDirectionControls(_ row: RemoteDisplaySettingsRow) -> some View {
@@ -6471,12 +6444,15 @@ struct ContentView: View {
             if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
             Text(value)
+                .accessibilityIdentifier("settings.value.\(title)")
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(settingsPalette.secondaryText)
 
             Stepper("", onIncrement: increment, onDecrement: decrement)
                 .labelsHidden()
+                .accessibilityLabel(localizedAppString(title))
+                .accessibilityIdentifier("settings.stepper.\(title)")
         }
         .padding(.vertical, 10)
     }
@@ -6487,6 +6463,7 @@ struct ContentView: View {
                 .foregroundStyle(settingsPalette.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityIdentifier("settings.toggle.\(title)")
         .toggleStyle(.switch)
         .padding(.vertical, 10)
     }
@@ -6508,6 +6485,7 @@ struct ContentView: View {
                 }
             }
             .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
+            .accessibilityIdentifier("settings.picker.\(title)")
             .frame(maxWidth: usesStackedSettingsRows ? .infinity : 280)
         }
         .padding(.vertical, 10)
@@ -6575,6 +6553,7 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.menu)
+            .accessibilityIdentifier("settings.picker.\(title)")
         }
         .padding(.vertical, 10)
     }
@@ -6609,10 +6588,6 @@ struct ContentView: View {
             setupClockSeconds = firstSegment.durationSeconds
             setupGuestClockSeconds = firstSegment.durationSeconds
         }
-    }
-
-    private var setupDebateOpeningSegmentSeconds: Int {
-        max(0, setupDebatePreset.segments.first?.durationSeconds ?? 0)
     }
 
     private func debateTotalDurationSeconds(_ preset: DebatePreset) -> Int {
@@ -6832,6 +6807,8 @@ struct ContentView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings.debate.segment.\(index)")
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(settingsPalette.fieldBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -9819,6 +9796,7 @@ struct ContentView: View {
                 gameStateScoreColumn(
                     title: displayTeamName(leftName),
                     score: leftScore,
+                    side: leftSide,
                     tint: leftTint,
                     layout: layout
                 )
@@ -9830,6 +9808,7 @@ struct ContentView: View {
                 gameStateScoreColumn(
                     title: displayTeamName(rightName),
                     score: rightScore,
+                    side: rightSide,
                     tint: rightTint,
                     layout: layout
                 )
@@ -9840,6 +9819,7 @@ struct ContentView: View {
                 compactDualClockRow(layout: layout)
             } else if store.showsGameClock {
                 Text(store.formattedClock)
+                    .accessibilityIdentifier("live.clock")
                     .font(.system(size: layout.centerScoreSize + 6, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.4)
@@ -9898,6 +9878,7 @@ struct ContentView: View {
             compactDualClockBadge(
                 title: displayTeamName(store.homeTeamName),
                 value: store.formattedHomeChessClock,
+                accessibilityID: "live.chess.home",
                 tint: homeTint,
                 isActive: store.activeChessClockSide == .home,
                 layout: layout
@@ -9906,6 +9887,7 @@ struct ContentView: View {
             compactDualClockBadge(
                 title: displayTeamName(store.guestTeamName),
                 value: store.formattedGuestChessClock,
+                accessibilityID: "live.chess.guest",
                 tint: guestTint,
                 isActive: store.activeChessClockSide == .guest,
                 layout: layout
@@ -9917,6 +9899,7 @@ struct ContentView: View {
     private func compactDualClockBadge(
         title: String,
         value: String,
+        accessibilityID: String,
         tint: Color,
         isActive: Bool,
         layout: InterfaceLayout
@@ -9933,6 +9916,7 @@ struct ContentView: View {
                     .frame(width: 10, height: 10)
 
                 Text(value)
+                    .accessibilityIdentifier(accessibilityID)
                     .font(.system(size: layout.centerMetricValueSize + 2, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.55)
@@ -9968,6 +9952,7 @@ struct ContentView: View {
                 chessClockColumn(
                     title: displayTeamName(store.homeTeamName),
                     value: store.formattedHomeChessClock,
+                    side: .home,
                     tint: homeTint,
                     isActive: store.activeChessClockSide == .home,
                     layout: layout
@@ -9976,6 +9961,7 @@ struct ContentView: View {
                 chessClockColumn(
                     title: displayTeamName(store.guestTeamName),
                     value: store.formattedGuestChessClock,
+                    side: .guest,
                     tint: guestTint,
                     isActive: store.activeChessClockSide == .guest,
                     layout: layout
@@ -9991,18 +9977,20 @@ struct ContentView: View {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
-    private func chessClockColumn(title: String, value: String, tint: Color, isActive: Bool, layout: InterfaceLayout) -> some View {
+    private func chessClockColumn(title: String, value: String, side: TeamSide, tint: Color, isActive: Bool, layout: InterfaceLayout) -> some View {
         VStack(spacing: 10) {
             localizedAppText(title)
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(themePalette.dashboardSubtleText)
 
             Text(value)
+                .accessibilityIdentifier("live.chess.\(side.rawValue)")
                 .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(tint)
 
             localizedAppText(isActive ? "ACTIVE" : "WAITING")
+                .accessibilityIdentifier("live.chess.active.\(side.rawValue)")
                 .font(.caption.weight(.black))
                 .foregroundStyle(isActive ? tint : themePalette.dashboardMutedText)
         }
@@ -10012,6 +10000,7 @@ struct ContentView: View {
     private func gameStateScoreColumn(
         title: String,
         score: Int,
+        side: TeamSide,
         tint: Color,
         layout: InterfaceLayout
     ) -> some View {
@@ -10022,6 +10011,7 @@ struct ContentView: View {
                 .foregroundStyle(themePalette.dashboardSubtleText)
 
             Text("\(score)")
+                .accessibilityIdentifier("live.score.\(side.rawValue)")
                 .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .singleLineFitted(minScale: 0.4)
@@ -10046,6 +10036,7 @@ struct ContentView: View {
                 .foregroundStyle(themePalette.dashboardSubtleText)
 
             gameMetricValueText(value, monospaced: monospaced, animatesValue: animatesValue, layout: layout)
+                .accessibilityIdentifier("live.metric.\(title)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
@@ -10201,6 +10192,8 @@ struct ContentView: View {
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.controls.\(side.rawValue)")
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
             borderColor: themePalette.dashboardCardBorder,
@@ -10230,6 +10223,7 @@ struct ContentView: View {
 
             if !layout.isCombinedDisplay {
                 Text(clockText)
+                    .accessibilityIdentifier("live.chess.\(side.rawValue)")
                     .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(tint)
@@ -10274,6 +10268,8 @@ struct ContentView: View {
                 dense: layout.denseControls
             )
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.controls.\(side.rawValue)")
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
             borderColor: themePalette.dashboardCardBorder,
@@ -10595,6 +10591,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.bordered)
+            .accessibilityIdentifier("live.officialPause")
             .disabled(store.pauseTimer != nil)
             if let pause = store.pauseTimer, pause.side == nil {
                 pauseTimerControlPanel(pause, layout: layout)
@@ -10835,6 +10832,7 @@ struct ContentView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else if store.showsGameClock {
                 Text(store.formattedClock)
+                    .accessibilityIdentifier("live.clock")
                     .font(.system(size: layout.centerScoreSize + 10, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.4)
@@ -10857,6 +10855,7 @@ struct ContentView: View {
                     compactDualClockBadge(
                         title: localizedAppFormat("%@ Prep", store.sideRoleLabel(for: .home)),
                         value: store.formattedDebatePrepHomeClock,
+                        accessibilityID: "live.debate.prep.home",
                         tint: homeTint,
                         isActive: store.debateActiveTimer == .prepHome,
                         layout: layout
@@ -10865,6 +10864,7 @@ struct ContentView: View {
                     compactDualClockBadge(
                         title: localizedAppFormat("%@ Prep", store.sideRoleLabel(for: .guest)),
                         value: store.formattedDebatePrepGuestClock,
+                        accessibilityID: "live.debate.prep.guest",
                         tint: guestTint,
                         isActive: store.debateActiveTimer == .prepGuest,
                         layout: layout
@@ -10877,6 +10877,7 @@ struct ContentView: View {
                     gameStateScoreColumn(
                         title: store.sideRoleLabel(for: .home),
                         score: store.homeScore,
+                    side: .home,
                         tint: homeTint,
                         layout: layout
                     )
@@ -10888,6 +10889,7 @@ struct ContentView: View {
                     gameStateScoreColumn(
                         title: store.sideRoleLabel(for: .guest),
                         score: store.guestScore,
+                    side: .guest,
                         tint: guestTint,
                         layout: layout
                     )
@@ -10939,6 +10941,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
 
                 Text("Segment \(store.debateCurrentSegmentIndex + 1)/\(store.currentDebatePreset.segments.count)")
+                    .accessibilityIdentifier("live.debate.position")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(themePalette.dashboardMutedText)
                     .contentTransition(.numericText())
@@ -11053,6 +11056,7 @@ struct ContentView: View {
             }
 
             localizedAppText(store.debateSegmentTitle)
+                .accessibilityIdentifier("live.debate.\(idPrefix).title")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(themePalette.dashboardMutedText)
                 .lineLimit(1)
@@ -11361,6 +11365,7 @@ struct ContentView: View {
         .opacity(isEnabled ? 1 : 0.42)
         .disabled(!isEnabled)
         .buttonStyle(.plain)
+        .accessibilityIdentifier("action.\(title)")
     }
 
     private func smallActionButton(
@@ -11383,6 +11388,7 @@ struct ContentView: View {
         .opacity(isEnabled ? 1 : 0.42)
         .disabled(!isEnabled)
         .buttonStyle(.plain)
+        .accessibilityIdentifier("action.\(title)")
     }
 
     private func clockPresetOptions(for sport: SportType) -> [(String, Int)] {
@@ -11898,7 +11904,7 @@ struct ContentView: View {
         #if os(iOS) || os(macOS)
         let nextGeneration = tipHistoryResetGeneration + 1
         tipHistoryResetGeneration = nextGeneration
-        UserDefaults.standard.set(nextGeneration, forKey: Self.tipHistoryResetGenerationKey)
+        ScoreboardPreferences.current.set(nextGeneration, forKey: Self.tipHistoryResetGenerationKey)
         store.areTipsEnabled = true
 
         if #available(iOS 26.0, macOS 26.0, *) {
@@ -12064,8 +12070,10 @@ struct ContentView: View {
             AppSleepPrevention.setReason(.localScoreboardVisible, active: false)
             cancelLocalScoreboardReturnHint()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(localizedAppString("Local Scoreboard"))
         .accessibilityHint(localizedAppString("Tap anywhere on screen to return to the control board."))
+        .accessibilityIdentifier("display.local-scoreboard")
     }
 
     private func localScoreboardReturnHintTopPadding(in proxy: GeometryProxy) -> CGFloat {
@@ -12379,51 +12387,17 @@ struct ContentView: View {
         current == target ? .none : target
     }
 
-    private func resetSetupDraftsToDefaults() {
-        homeTeamDraft = ""
-        guestTeamDraft = ""
-        eventNameDraft = ""
-        setupSport = .simple
-        setupPeriod = 1
-        setupClockSeconds = 10 * 60
-        setupShotClockSeconds = 24
-        setupGuestClockSeconds = ChessClockPreset.rapid.seconds
-        setupChessPreset = .rapid
-        setupCustomSportConfig = .default
-        setupCustomDebatePreset = .customDefault
-        setupDebatePresetID = DebatePreset.publicForum.id
-        setupDebateHomeSideLabel = DebatePreset.publicForum.homeSideLabel
-        setupDebateGuestSideLabel = DebatePreset.publicForum.guestSideLabel
-        setupDebateScoreTrackingEnabled = DebatePreset.publicForum.defaultScoreTrackingEnabled
-        setupDebatePlayerTrackingEnabled = DebatePreset.publicForum.defaultPlayerTrackingEnabled
-        setupDebatePlayerFoulsEnabled = DebatePreset.publicForum.defaultPlayerFoulsEnabled
-        setupDebatePlayerCardsEnabled = DebatePreset.publicForum.defaultPlayerCardsEnabled
-        setupDebatePrepTimeEnabled = DebatePreset.publicForum.isPrepTimeEnabled
-        gameFileNameDraft = ""
-        markSetupClockBaselinesCurrent()
-        hasPendingSetupEdits = true
+    var selectedSetupGameDisplayName: String? { selectedStoredGameFile?.displayName }
+
+    func selectGameSettingsPane() {
+        // Reopening Settings starts at Game Setup, including when the last
+        // edit was inside the Debate Designer rather than another sidebar pane.
+        isDebateDesignerVisible = false
+        selectedSettingsPane = .game
     }
 
-    private func openSettingsFromLiveBoard(confirmedRunningTimers: Bool = false) {
-        guard !store.isRemoteControlProxy else { return }
-        if store.isAnyTimerRunning, !confirmedRunningTimers {
-            requestGameConfirmation(.openSettings)
-            return
-        }
-        isLoadingSetupDrafts = true
-        isInitialSetupStateLoaded = false
-        loadSetupDraftsFromStore(keepsLoadingFlag: true)
-        normalizeSetupCustomDebatePreset()
-        selectedSettingsPane = .game
-        withAnimation(.easeInOut(duration: 0.24)) {
-            showsSetup = true
-        }
-        DispatchQueue.main.async {
-            DispatchQueue.main.async {
-                isInitialSetupStateLoaded = true
-                isLoadingSetupDrafts = false
-            }
-        }
+    func requestSetupGameConfirmation(_ action: GameConfirmationAction) {
+        requestGameConfirmation(action)
     }
 
     private func createNewGame() {
@@ -12440,53 +12414,9 @@ struct ContentView: View {
         swap(&homeTeamDraft, &guestTeamDraft)
     }
 
-    private func openSetupGame() {
-        if focusedSettingsTextFieldID != nil {
-            focusedSettingsTextFieldID = nil
-            DispatchQueue.main.async {
-                openSetupGame()
-            }
-            return
-        }
-
-        #if os(macOS)
-        let shouldOpenPublicBoard = !store.didCompleteSetup && NSScreen.screens.count > 1
-        #endif
-        commitSetupEdits(forceRefresh: true)
-        #if os(macOS)
-        if shouldOpenPublicBoard {
-            showPublicBoardWindow()
-        }
-        #endif
-        withAnimation(.easeInOut(duration: 0.24)) {
-            showsSetup = false
-        }
-    }
-
-    private func handleSetupDraftChanged() {
-        guard !isSetupDraftUpdateSuppressed else {
-            return
-        }
-
-        hasPendingSetupEdits = true
-        commitSetupEdits(animated: true)
-    }
-
     private func applySetupSportDefaultsAndCommit(_ sport: SportType) {
         applySetupClockDefaultsAndCommit {
             applySetupSportDefaults(sport)
-        }
-    }
-
-    private func applySetupClockDefaultsAndCommit(_ updates: () -> Void) {
-        isApplyingSetupSportDefaults = true
-        updates()
-        hasPendingSetupEdits = true
-        DispatchQueue.main.async {
-            commitSetupEdits(animated: true)
-            DispatchQueue.main.async {
-                isApplyingSetupSportDefaults = false
-            }
         }
     }
 
@@ -13461,66 +13391,6 @@ struct ContentView: View {
         return "\(resolvedHome) vs \(resolvedGuest).scoreboardgame"
     }
 
-    private func loadSetupDraftsFromStore(keepsLoadingFlag: Bool = false) {
-        if !keepsLoadingFlag {
-            isLoadingSetupDrafts = true
-        }
-        homeTeamDraft = store.homeTeamName
-        guestTeamDraft = store.guestTeamName
-        eventNameDraft = store.eventName
-        setupSport = store.selectedSport
-        selectedSoundSettingsSport = store.selectedSport
-        selectedCompanionSettingsSport = store.selectedSport
-        setupPeriod = store.period
-        setupClockSeconds = store.defaultClockSeconds
-        setupUsesGameClock = store.isGameClockEnabled
-        setupShotClockSeconds = store.activeShotClockPresetSeconds
-        setupVolleyballMatchFormat = store.volleyballMatchFormat
-        setupGuestClockSeconds = store.guestChessClockSeconds
-        setupChessPreset = store.chessClockPreset
-        setupCustomSportConfig = store.customSportConfig
-        setupCustomDebatePreset = store.customDebatePreset
-        normalizeSetupCustomDebatePreset()
-        setupDebatePresetID = store.selectedDebatePresetID
-        setupDebateHomeSideLabel = store.debateHomeSideLabel
-        setupDebateGuestSideLabel = store.debateGuestSideLabel
-        setupDebateScoreTrackingEnabled = store.isDebateScoreTrackingEnabled
-        setupDebatePlayerTrackingEnabled = store.isDebatePlayerTrackingEnabled
-        setupDebatePlayerFoulsEnabled = store.isDebatePlayerFoulsEnabled
-        setupDebatePlayerCardsEnabled = store.isDebatePlayerCardsEnabled
-        setupDebatePrepTimeEnabled = store.isDebatePrepTimeEnabled
-        gameFileNameDraft = selectedStoredGameFile?.displayName ?? resolvedGameFilenameDraft(store.homeTeamName, store.guestTeamName, includeExtension: false)
-        markSetupClockBaselinesCurrent()
-        hasPendingSetupEdits = false
-        setupStoreOptionsBaseline = store.currentGameSnapshot()
-        if !keepsLoadingFlag {
-            DispatchQueue.main.async {
-                DispatchQueue.main.async {
-                    isLoadingSetupDrafts = false
-                }
-            }
-        }
-    }
-
-    private func normalizeSetupCustomDebatePreset() {
-        setupCustomDebatePreset.id = DebatePreset.customID
-        if setupCustomDebatePreset.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            setupCustomDebatePreset.title = DebatePreset.customDefault.title
-        }
-        if setupCustomDebatePreset.homeSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            setupCustomDebatePreset.homeSideLabel = DebatePreset.customDefault.homeSideLabel
-        }
-        if setupCustomDebatePreset.guestSideLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            setupCustomDebatePreset.guestSideLabel = DebatePreset.customDefault.guestSideLabel
-        }
-        if setupCustomDebatePreset.segments.isEmpty {
-            setupCustomDebatePreset.segments = DebatePreset.customDefault.segments
-        }
-        if !setupCustomDebatePreset.isPrepTimeEnabled {
-            setupCustomDebatePreset.prepSecondsPerSide = 0
-        }
-    }
-
     private func displayTeamName(_ name: String) -> String {
         name.isEmpty ? localizedAppString("TBD") : name
     }
@@ -13833,7 +13703,7 @@ struct ContentView: View {
         return candidateURL
     }
 
-    private func resolvedGameFilenameDraft(_ home: String, _ guest: String, includeExtension: Bool = true) -> String {
+    func resolvedGameFilenameDraft(_ home: String, _ guest: String, includeExtension: Bool = true) -> String {
         let trimmed = gameFileNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             return includeExtension && !trimmed.lowercased().hasSuffix(".scoreboardgame")
@@ -13996,7 +13866,7 @@ struct ContentView: View {
         }
     }
 
-    private func ensureWorkingGameFileExists() {
+    func ensureWorkingGameFileExists() {
         if selectedStoredGameFile != nil {
             return
         }
@@ -14019,206 +13889,7 @@ struct ContentView: View {
         }
     }
 
-    private func commitSetupEdits(forceRefresh: Bool = false, animated: Bool = false) {
-        guard !isCommittingSetupEdits else {
-            return
-        }
-        // Returning to the board is navigation. Loading a snapshot would stop
-        // live timers locally, or send a game replacement to a delegated host.
-        let hasStoredSetupEdits = store.isFollowingSessionHost
-            && setupStoreOptionsBaseline.map { storedSetupOptionsChanged(since: $0) } == true
-        guard hasPendingSetupEdits || hasStoredSetupEdits || !store.didCompleteSetup else {
-            if forceRefresh { autosaveSelectedGameFile(refreshSelection: true) }
-            return
-        }
-
-        isCommittingSetupEdits = true
-        defer {
-            DispatchQueue.main.async {
-                isCommittingSetupEdits = false
-            }
-        }
-
-        ensureWorkingGameFileExists()
-        let currentSnapshot = store.currentGameSnapshot()
-        let shouldPreserveRuntime = currentSnapshot.sport == setupSport
-        let clockWasRunning = store.isClockRunning
-        let shotClockWasRunning = store.isShotClockRunning
-        let debatePrepWasRunning = store.isDebatePrepClockRunning
-        let snapshot = currentSetupWorkingSnapshot()
-        if animated {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
-                store.applyGameSnapshot(snapshot)
-            }
-        } else {
-            store.applyGameSnapshot(snapshot)
-        }
-        if shouldPreserveRuntime {
-            store.restoreRuntimeAfterSetupApply(
-                clockWasRunning: clockWasRunning,
-                shotClockWasRunning: shotClockWasRunning,
-                debatePrepWasRunning: debatePrepWasRunning
-            )
-        }
-        markSetupClockBaselinesCurrent()
-        hasPendingSetupEdits = store.isFollowingSessionHost && !store.sessionIsConnected
-        setupStoreOptionsBaseline = store.currentGameSnapshot()
-        autosaveSelectedGameFile(refreshSelection: forceRefresh)
-    }
-
-    private func storedSetupOptionsChanged(since baseline: ScoreboardGameSnapshot) -> Bool {
-        // These settings write directly to the owner's store. Forward actual
-        // edits to its host, excluding live clocks, scores, rosters, and counts.
-        let current = store.currentGameSnapshot()
-        return current.isPlayerTrackingEnabled != baseline.isPlayerTrackingEnabled
-            || current.rosterSizePerTeam != baseline.rosterSizePerTeam
-            || current.displayLineupSize != baseline.displayLineupSize
-            || current.playerLineupOverflowMode != baseline.playerLineupOverflowMode
-            || current.playerLineupOverflowLogoOverride != baseline.playerLineupOverflowLogoOverride
-            || current.playerLineupOverflowNoLogoOverride != baseline.playerLineupOverflowNoLogoOverride
-            || current.playerLineupFadePageSeconds != baseline.playerLineupFadePageSeconds
-            || current.playerLineupScrollSpeed != baseline.playerLineupScrollSpeed
-            || current.playerLineupScrollDirection != baseline.playerLineupScrollDirection
-            || current.playerFoulHighlightColor != baseline.playerFoulHighlightColor
-            || current.isGameClockRedEnabled != baseline.isGameClockRedEnabled
-            || current.gameClockRedThresholdSeconds != baseline.gameClockRedThresholdSeconds
-            || current.isShotClockRedEnabled != baseline.isShotClockRedEnabled
-            || current.shotClockRedThresholdSeconds != baseline.shotClockRedThresholdSeconds
-            || current.homeSubstitutionsAllowed != baseline.homeSubstitutionsAllowed
-            || current.guestSubstitutionsAllowed != baseline.guestSubstitutionsAllowed
-            || current.homePausesAllowed != baseline.homePausesAllowed
-            || current.guestPausesAllowed != baseline.guestPausesAllowed
-            || current.pauseDurationSeconds != baseline.pauseDurationSeconds
-            || current.isTeamPauseIndefinite != baseline.isTeamPauseIndefinite
-    }
-
-    private func currentSetupWorkingSnapshot() -> ScoreboardGameSnapshot {
-        let currentSnapshot = store.currentGameSnapshot()
-        let isSameSport = currentSnapshot.sport == setupSport
-        let didEditMainClock = !isSameSport || setupClockSeconds != setupClockSecondsBaseline
-        let didEditShotClock = !isSameSport || setupShotClockSeconds != setupShotClockSecondsBaseline
-        let didEditGuestClock = !isSameSport || setupGuestClockSeconds != setupGuestClockSecondsBaseline
-        let resolvedDebatePreset = setupDebatePresetID == DebatePreset.customID ? resolvedSetupCustomDebatePreset : setupCustomDebatePreset
-        let isSameDebateFormat = isSameSport
-            && setupSport == .debate
-            && currentSnapshot.selectedDebatePresetID == setupDebatePresetID
-            && (setupDebatePresetID != DebatePreset.customID || currentSnapshot.customDebatePreset == resolvedDebatePreset)
-        let debateOpeningClockSeconds = setupDebateOpeningSegmentSeconds
-        let setupDefaultClockSeconds = setupSport == .debate ? debateOpeningClockSeconds : setupClockSeconds
-        let gameClockSeconds = setupSport == .debate && !isSameDebateFormat
-            ? debateOpeningClockSeconds
-            : (didEditMainClock ? setupClockSeconds : currentSnapshot.gameClockSeconds)
-        let shotClockMilliseconds = didEditShotClock ? setupShotClockSeconds * 1_000 : currentSnapshot.shotClockMilliseconds
-        let homeChessClockSeconds = setupRules.usesChessClocks
-            ? (setupSport == .debate && !isSameDebateFormat ? debateOpeningClockSeconds : (didEditMainClock ? setupClockSeconds : currentSnapshot.homeChessClockSeconds))
-            : currentSnapshot.homeChessClockSeconds
-        let guestChessClockSeconds = setupRules.usesChessClocks
-            ? (setupSport == .debate && !isSameDebateFormat ? debateOpeningClockSeconds : (didEditGuestClock ? setupGuestClockSeconds : currentSnapshot.guestChessClockSeconds))
-            : currentSnapshot.guestChessClockSeconds
-        let activeChessClockSide = setupRules.usesChessClocks
-            ? ((setupSport == .debate ? isSameDebateFormat : isSameSport) ? currentSnapshot.activeChessClockSide : .home)
-            : currentSnapshot.activeChessClockSide
-        let tracksPeriodWins = setupSport == .volleyball ||
-            (setupSport == .custom && resolvedSetupCustomSportConfig.isPeriodWinTrackingEnabled)
-
-        return ScoreboardGameSnapshot(
-            fileVersion: 12,
-            sport: setupSport,
-            customSportConfig: setupSport == .custom ? resolvedSetupCustomSportConfig : nil,
-            customDebatePreset: setupSport == .debate
-                ? resolvedDebatePreset
-                : currentSnapshot.customDebatePreset,
-            homeTeamName: homeTeamDraft,
-            guestTeamName: guestTeamDraft,
-            eventName: eventNameDraft,
-            homeScore: currentSnapshot.homeScore,
-            guestScore: currentSnapshot.guestScore,
-            period: setupPeriod,
-            volleyballMatchFormat: setupSport == .volleyball ? setupVolleyballMatchFormat : nil,
-            volleyballSetResults: tracksPeriodWins ? currentSnapshot.volleyballSetResults : nil,
-            gameClockSeconds: gameClockSeconds,
-            defaultClockSeconds: setupDefaultClockSeconds,
-            isGameClockEnabled: setupSport == .volleyball || setupSport == .custom ? setupUsesGameClock : true,
-            shotClockMilliseconds: setupRules.supportsShotClock ? shotClockMilliseconds : 0,
-            defaultShotClockSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
-            activeShotClockPresetSeconds: setupRules.supportsShotClock ? setupShotClockSeconds : 0,
-            possessionDirection: setupRules.supportsPossession ? .none : .none,
-            areSidesSwapped: currentSnapshot.areSidesSwapped,
-            isPlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isPlayerTrackingEnabled,
-            isPlayerOverlayPaused: currentSnapshot.isPlayerOverlayPaused,
-            rosterSizePerTeam: currentSnapshot.rosterSizePerTeam,
-            displayLineupSize: currentSnapshot.displayLineupSize,
-            playerLineupOverflowMode: currentSnapshot.playerLineupOverflowMode,
-            playerLineupOverflowLogoOverride: currentSnapshot.playerLineupOverflowLogoOverride,
-            playerLineupOverflowNoLogoOverride: currentSnapshot.playerLineupOverflowNoLogoOverride,
-            playerLineupFadePageSeconds: currentSnapshot.playerLineupFadePageSeconds,
-            playerLineupScrollSpeed: currentSnapshot.playerLineupScrollSpeed,
-            playerLineupScrollDirection: currentSnapshot.playerLineupScrollDirection,
-            playerFoulHighlightColor: currentSnapshot.playerFoulHighlightColor,
-            isGameClockRedEnabled: currentSnapshot.isGameClockRedEnabled,
-            gameClockRedThresholdSeconds: currentSnapshot.gameClockRedThresholdSeconds,
-            isShotClockRedEnabled: currentSnapshot.isShotClockRedEnabled,
-            shotClockRedThresholdSeconds: currentSnapshot.shotClockRedThresholdSeconds,
-            homeSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsAllowed : 0,
-            guestSubstitutionsAllowed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsAllowed : 0,
-            homeSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.homeSubstitutionsUsed : 0,
-            guestSubstitutionsUsed: setupRules.showsSubstitutionTracking ? currentSnapshot.guestSubstitutionsUsed : 0,
-            homePausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.homePausesAllowed : 0,
-            guestPausesAllowed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesAllowed : 0,
-            homePausesUsed: setupRules.showsPauseTracking ? currentSnapshot.homePausesUsed : 0,
-            guestPausesUsed: setupRules.showsPauseTracking ? currentSnapshot.guestPausesUsed : 0,
-            homeTeamFouls: currentSnapshot.homeTeamFouls,
-            guestTeamFouls: currentSnapshot.guestTeamFouls,
-            homeChessClockSeconds: homeChessClockSeconds,
-            guestChessClockSeconds: guestChessClockSeconds,
-            activeChessClockSide: activeChessClockSide,
-            chessClockPreset: setupSport == .chess ? setupChessPreset : currentSnapshot.chessClockPreset,
-            selectedDebatePresetID: setupSport == .debate ? setupDebatePresetID : currentSnapshot.selectedDebatePresetID,
-            debateHomeSideLabel: setupSport == .debate ? setupDebateHomeSideLabel : currentSnapshot.debateHomeSideLabel,
-            debateGuestSideLabel: setupSport == .debate ? setupDebateGuestSideLabel : currentSnapshot.debateGuestSideLabel,
-            debateCurrentSegmentIndex: isSameDebateFormat ? currentSnapshot.debateCurrentSegmentIndex : (setupSport == .debate ? 0 : currentSnapshot.debateCurrentSegmentIndex),
-            debatePrepHomeSeconds: isSameDebateFormat ? currentSnapshot.debatePrepHomeSeconds : (setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepHomeSeconds),
-            debatePrepGuestSeconds: isSameDebateFormat ? currentSnapshot.debatePrepGuestSeconds : (setupSport == .debate && setupDebatePrepTimeEnabled ? setupDebatePreset.prepSecondsPerSide : currentSnapshot.debatePrepGuestSeconds),
-            isDebatePrepTimeEnabled: setupSport == .debate ? setupDebatePrepTimeEnabled : currentSnapshot.isDebatePrepTimeEnabled,
-            debateActiveTimer: isSameDebateFormat ? currentSnapshot.debateActiveTimer : (setupSport == .debate ? .segment : currentSnapshot.debateActiveTimer),
-            isDebatePrepClockRunning: isSameDebateFormat ? currentSnapshot.isDebatePrepClockRunning : (setupSport == .debate ? false : currentSnapshot.isDebatePrepClockRunning),
-            isDebateScoreTrackingEnabled: setupSport == .debate ? setupDebateScoreTrackingEnabled : currentSnapshot.isDebateScoreTrackingEnabled,
-            isDebatePlayerTrackingEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled : currentSnapshot.isDebatePlayerTrackingEnabled,
-            isDebatePlayerFoulsEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled && setupDebatePlayerFoulsEnabled : currentSnapshot.isDebatePlayerFoulsEnabled,
-            isDebatePlayerCardsEnabled: setupSport == .debate ? setupDebatePlayerTrackingEnabled && setupDebatePlayerCardsEnabled : currentSnapshot.isDebatePlayerCardsEnabled,
-            homePenaltyTimers: setupRules.supportsHockeyPenalties ? currentSnapshot.homePenaltyTimers : [],
-            guestPenaltyTimers: setupRules.supportsHockeyPenalties ? currentSnapshot.guestPenaltyTimers : [],
-            homeRoster: currentSnapshot.homeRoster,
-            guestRoster: currentSnapshot.guestRoster,
-            externalDisplayBackgroundMode: currentSnapshot.externalDisplayBackgroundMode,
-            externalDisplayBackgroundImage: currentSnapshot.externalDisplayBackgroundImage,
-            externalDisplayAnimatedLogoStyle: currentSnapshot.externalDisplayAnimatedLogoStyle,
-            externalDisplayAnimatedLogoBackgroundColor: currentSnapshot.externalDisplayAnimatedLogoBackgroundColor,
-            externalDisplayAnimatedLogoSpeed: currentSnapshot.externalDisplayAnimatedLogoSpeed,
-            externalDisplayAnimatedLogoSize: currentSnapshot.externalDisplayAnimatedLogoSize,
-            externalDisplayAnimatedLogoOpacity: currentSnapshot.externalDisplayAnimatedLogoOpacity,
-            showsExternalDisplayDateTime: currentSnapshot.showsExternalDisplayDateTime,
-            externalDisplayDateTimeFormat: currentSnapshot.externalDisplayDateTimeFormat,
-            showsExternalDisplayDateTimeSeconds: currentSnapshot.showsExternalDisplayDateTimeSeconds,
-            showsTeamLogos: currentSnapshot.showsTeamLogos,
-            showsEventLogo: currentSnapshot.showsEventLogo,
-            playerViewRosterScope: .fullRoster,
-            homeTeamLogoImage: currentSnapshot.homeTeamLogoImage,
-            guestTeamLogoImage: currentSnapshot.guestTeamLogoImage,
-            eventLogoImage: currentSnapshot.eventLogoImage,
-            pauseDurationSeconds: currentSnapshot.pauseDurationSeconds,
-            pauseTimer: currentSnapshot.pauseTimer,
-            isTeamPauseIndefinite: setupRules.showsPauseTracking && (currentSnapshot.isTeamPauseIndefinite ?? false)
-        )
-    }
-
-    private func markSetupClockBaselinesCurrent() {
-        setupClockSecondsBaseline = setupClockSeconds
-        setupShotClockSecondsBaseline = setupShotClockSeconds
-        setupGuestClockSecondsBaseline = setupGuestClockSeconds
-    }
-
-    private func autosaveSelectedGameFile(refreshSelection: Bool = false) {
+    func autosaveSelectedGameFile(refreshSelection: Bool = false) {
         guard !store.isRemoteControlProxy else { return }
         guard let selectedURL = selectedStoredGameFile?.url else {
             return
@@ -14461,7 +14132,7 @@ struct ContentView: View {
     }
 
     #if os(macOS)
-    private func showPublicBoardWindow() {
+    func showPublicBoardWindow() {
         publicBoardState.requestFullscreen()
         openWindow(id: "public-scoreboard")
     }
@@ -15607,75 +15278,6 @@ private enum DashboardPage: Hashable {
     case preview
 }
 
-enum GameConfirmationAction: Identifiable {
-    case openSettings
-    case awardVolleyballSet(TeamSide)
-    case undoVolleyballSet
-    case previousPeriod
-    case resetClock
-    case resetShotClock
-    case zeroScores
-    case resetChessClocks
-    case resetDebateSegment
-    case resetDebateRound
-    case resetDebatePrep(TeamSide)
-    case resetAllPlayerFouls
-    case resetAllTeamFouls
-    case resetAllCards
-    case resetSidePlayerFouls(TeamSide)
-    case resetSideTeamFouls(TeamSide)
-    case resetSideCards(TeamSide)
-    case clearPlayerState(TeamSide, UUID)
-    case clearPenalty(TeamSide, UUID)
-    case resetSoundSettings
-
-    var id: String {
-        switch self {
-        case .openSettings:
-            return "openSettings"
-        case .awardVolleyballSet(let side):
-            return "awardVolleyballSet-\(side.rawValue)"
-        case .undoVolleyballSet:
-            return "undoVolleyballSet"
-        case .previousPeriod:
-            return "previousPeriod"
-        case .resetClock:
-            return "resetClock"
-        case .resetShotClock:
-            return "resetShotClock"
-        case .zeroScores:
-            return "zeroScores"
-        case .resetChessClocks:
-            return "resetChessClocks"
-        case .resetDebateSegment:
-            return "resetDebateSegment"
-        case .resetDebateRound:
-            return "resetDebateRound"
-        case .resetDebatePrep(let side):
-            return "resetDebatePrep-\(side.rawValue)"
-        case .resetAllPlayerFouls:
-            return "resetAllPlayerFouls"
-        case .resetAllTeamFouls:
-            return "resetAllTeamFouls"
-        case .resetAllCards:
-            return "resetAllCards"
-        case .resetSidePlayerFouls(let side):
-            return "resetSidePlayerFouls-\(side.rawValue)"
-        case .resetSideTeamFouls(let side):
-            return "resetSideTeamFouls-\(side.rawValue)"
-        case .resetSideCards(let side):
-            return "resetSideCards-\(side.rawValue)"
-        case .clearPlayerState(let side, let playerID):
-            return "clearPlayerState-\(side.rawValue)-\(playerID.uuidString)"
-        case .clearPenalty(let side, let timerID):
-            return "clearPenalty-\(side.rawValue)-\(timerID.uuidString)"
-        case .resetSoundSettings:
-            return "resetSoundSettings"
-        }
-    }
-
-}
-
 #if os(iOS) && compiler(>=6.4)
 @available(iOS 27.1, *)
 private struct ScoreboardAdaptiveToolbar<Content: View, Actions: View>: View {
@@ -15994,8 +15596,12 @@ private struct DeferredSettingsTextField: View {
 
     var body: some View {
         TextField(placeholder, text: $draft)
+            .accessibilityIdentifier("field.\(focusID)")
             .focused(focusedField, equals: focusID)
-            .onSubmit(commitDraft)
+            .onSubmit {
+                commitDraft()
+                focusedField.wrappedValue = nil
+            }
             .onChange(of: focusedField.wrappedValue) { oldValue, newValue in
                 if oldValue == focusID, newValue != focusID {
                     commitDraft()

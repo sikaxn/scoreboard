@@ -72,6 +72,16 @@ iPhone、iPad 和 Mac 应用包含操作界面，也可以在设置中切换为�
 4. 选择 iPhone 模拟器、iPad 模拟器、已连接的 iPhone 或 iPad、Mac，或 Apple TV 模拟器作为运行目标。
 5. 构建并运行。
 
+## 单元测试
+
+在 Xcode 中打开 `smartScoreboard/smartScoreboard.xcodeproj`，选择 **smartScoreboardTests → My Mac**，然后按 **⌘U**。测试导航器（⌘6）会显示 Swift Testing 测试及各运动项目的参数化用例。主 **smartScoreboard** scheme 在 My Mac 上也包含此测试目标。两个 scheme 的 **Run** 按钮（▶ / ⌘R）均用于启动应用；运行测试请使用 **⌘U**。
+
+单元测试覆盖记分、名单 CSV、暂停计时、远程控制、时钟延迟补偿、会话权限、恢复和日志同步，并使用独立的临时文件和偏好设置。运行方式、覆盖范围和新增回归测试的说明见 [测试指南](docs/testing.md)。设置导航、真实 HTTP 验证和本地化检查也在同一 Xcode 测试目标中运行。浏览器 DOM 测试位于 `tests/web`，使用 `npm ci --prefix tests/web` 安装依赖，再运行 `npm test --prefix tests/web`。
+
+操作流程 UI 测试使用 **smartScoreboardUITests → iPad 模拟器**，同样按 **⌘U** 运行。默认 `AllUI` 计划启用全部 53 个用例；选择 **Product → Test Plan → SmokeUI** 可运行两个控制与显示用例。覆盖比赛设置、记分与计时、设置警告、官方暂停、本机全屏显示、滚动及屏幕旋转、Companion 故障恢复和远程客户端重连。历史问题与测试对应关系见 [UI 测试指南](docs/ui-testing.md)。
+
+共享测试计划分别覆盖核心回归、操作流程和集成恢复，可在本机和 Xcode Cloud 中选择运行。配置步骤见 [Xcode Cloud 测试指南](docs/xcode-cloud-testing.md)。
+
 ## 本地化说明
 
 - 使用本地封装函数（`localizedAppText`、`localizedAppFormat`，以及对应的 store/display 封装），不要直接使用 `Text(LocalizedStringKey(...))` 或本地化后的 `String(format:)`。
