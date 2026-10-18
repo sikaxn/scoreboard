@@ -301,7 +301,7 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private var rootView: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
-            #if os(iOS) && compiler(>=6.4)
+            #if os(iOS) && compiler(>=6.4) && canImport(SwiftUICore, _version: 8.0.85.29)
             if #available(iOS 27.1, *) {
                 NavigationStack {
                     ScoreboardAdaptiveToolbar(
@@ -7903,7 +7903,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     private func mergedDisplayPanes(in proxy: GeometryProxy) -> (board: CGRect, controls: CGRect) {
         let bounds = CGRect(origin: .zero, size: proxy.size)
         let spacing: CGFloat = 8
-        #if os(iOS) && compiler(>=6.4)
+        #if os(iOS) && compiler(>=6.4) && canImport(SwiftUICore, _version: 8.0.85.29)
         if #available(iOS 27.1, *) {
             // The system frame already includes the clearance margins around the crease.
             // Only a horizontal fold needs the scoreboard above and controls below it.
@@ -15278,10 +15278,12 @@ private enum DashboardPage: Hashable {
     case preview
 }
 
-#if os(iOS) && compiler(>=6.4)
+// This is the verified SDK module containing the 27.1 layout APIs. The Swift
+// compiler version alone doesn't guarantee that the SDK declares those APIs.
+#if os(iOS) && compiler(>=6.4) && canImport(SwiftUICore, _version: 8.0.85.29)
 @available(iOS 27.1, *)
 private struct ScoreboardAdaptiveToolbar<Content: View, Actions: View>: View {
-    @Environment(\.toolbarVerticalEdge) private var toolbarVerticalEdge
+    @Environment(\EnvironmentValues.toolbarVerticalEdge) private var toolbarVerticalEdge: HorizontalEdge?
 
     var isEnabled: Bool
     @ViewBuilder var content: (Bool) -> Content

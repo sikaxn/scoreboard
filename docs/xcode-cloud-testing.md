@@ -10,7 +10,7 @@ workflow or upload the working tree.
 | --- | --- | --- | --- |
 | `smartScoreboardTests` | `CoreRegression` | All Swift Testing core, HTTP, and localization regressions | Pull requests and branch changes |
 | `smartScoreboardUITests` | `SmokeUI` | Two control/display smoke scenarios | Pull requests or manual |
-| `smartScoreboardUITests` | `FocusedUI` | Eight cases covering selector/text/scroll repairs, Debate starting side, Policy sequence, preload, and the complete Custom editor | Manual validation of current repairs |
+| `smartScoreboardUITests` | `FocusedUI` | Eight cases covering preloaded editors, Chess/Volleyball, Debate starting side/template copies, Custom editing, Soccer, and Settings warnings | Manual validation of current repairs |
 | `smartScoreboardUITests` | `OperatorWorkflows` | 51 event-mode, Debate/Custom editing, settings, and display/layout cases | Nightly or manual |
 | `smartScoreboardUITests` | `IntegrationRecovery` | Companion HTTP recovery and remote-client Bonjour/WebSocket recovery | Nightly or manual |
 | `smartScoreboardUITests` | `AllUI` (default) | All 53 UI cases, including both network recovery cases | Full local or cloud validation |
@@ -20,18 +20,22 @@ peers use real sockets in the test runner, so no external Companion installation
 receiver app, or server is required. The first cloud run must still validate
 Bonjour access on the cloud simulator.
 
-Current helper repairs and JSON fixture preloading have not been built or run,
-as requested. Earlier local runs do not validate these changes. AllUI remains
-the default; FocusedUI and SmokeUI provide smaller selections. Named configurations
-are bundled resources, so preloading works without runtime source-checkout access.
+The latest full local run passed 46 of 53 cases. Its seven Debate failures shared
+a navigation issue, now repaired with two focused Debate checks passing. See the
+[validation handoff](ui-testing-handoff.md) for the exact scope and results. AllUI
+remains the default; FocusedUI and SmokeUI provide smaller selections. Named
+configurations are bundled resources, so preloading works without runtime
+source-checkout access. A successful full Cloud UI run is still unverified.
 
 ## Create the workflows
 
 After the project changes are committed and available in the connected remote
 repository:
 
-1. In Xcode, open **Product → Xcode Cloud → Create Workflow**. If the app already
-   uses Xcode Cloud, edit or add a workflow in Xcode or App Store Connect instead.
+1. In Xcode, select the `smartScoreboard` app scheme, then open **Report navigator
+   (⌘9) → Cloud → Get Started**. The app scheme enables Archive for initial product
+   discovery. If the app already uses Xcode Cloud, edit or add a workflow in Xcode
+   or App Store Connect instead.
 2. Choose a cloud Xcode version compatible with the project. The local validation
    uses Xcode 27.1. Choose **macOS** for `CoreRegression`. For the UI scheme choose
    **iOS Simulator** with an **iPad** destination, such as iPad Pro or iPad mini.
@@ -50,6 +54,27 @@ results separately. Each test action builds and executes its own test products.
 
 Apple documents [test action configuration](https://developer.apple.com/documentation/xcode/configuring-your-xcode-cloud-workflow-s-actions)
 and [organizing tests with test plans](https://developer.apple.com/documentation/xcode/organizing-tests-to-improve-feedback).
+
+## A build error before any UI tests run
+
+Errors about `Environment`'s generic `Value` or an unresolved key path at
+`toolbarVerticalEdge` occur while compiling the iOS app, before UI tests launch.
+The macOS core action does not compile that iOS-only view, so it can pass while
+the iOS action fails. WebRTC Sendable warnings are separate from this error.
+
+The 27.1 toolbar and reserved-region code now requires the verified SwiftUICore
+SDK module version `8.0.85.29`, in addition to its compiler and runtime checks.
+The toolbar environment key path and its optional `HorizontalEdge` type are also
+explicit. Older SDK modules compile the existing layout fallback. A Swift
+compiler version check alone does not establish that an SDK contains an API.
+Focused compile checks passed for arm64/x86_64 simulator targets and for a forced
+fallback branch; no full app build or UI suite was run for this compatibility fix.
+
+Inspect the failing build's own environment and SDK path in its logs. The current
+workflow editor can show settings saved after that build started. An iOS 27.0
+simulator destination is a runtime choice and does not by itself explain an SDK
+compile error. Commit and push the compatibility change, save the workflow, and
+start a new build on that commit; existing failed builds retain their old results.
 
 ## Cloud execution and resources
 
