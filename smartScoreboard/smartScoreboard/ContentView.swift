@@ -9285,7 +9285,10 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func mainControlPane(layout: InterfaceLayout) -> some View {
         Group {
-            if layout.requiresDashboardScroll || layout.isCombinedDisplay {
+            // Custom modules can exceed the fixed top row even on a large
+            // iPad. Let their cards size naturally inside the scroll view so
+            // overflowing controls cannot cover the dashboard header.
+            if layout.requiresDashboardScroll || layout.isCombinedDisplay || store.selectedSport == .custom {
                 ScrollView(.vertical, showsIndicators: false) {
                     dashboardControlStack(layout: layout)
                         .padding(.bottom, layout.sectionSpacing)
@@ -10831,8 +10834,15 @@ struct ContentView: View, ScoreboardSetupEditing {
                 Label { localizedAppText("Official Pause") } icon: { Image(systemName: "pause.circle") }
                     .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .foregroundStyle(.tint)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            // Style the label instead of applying a bordered button style,
+            // which can prevent this native menu from opening on iPad.
+            .buttonStyle(.plain)
             .accessibilityIdentifier("live.officialPause")
             .disabled(store.pauseTimer != nil)
             if let pause = store.pauseTimer, pause.side == nil {

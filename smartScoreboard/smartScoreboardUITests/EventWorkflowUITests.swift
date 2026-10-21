@@ -47,7 +47,7 @@ final class EventWorkflowUITests: ScoreboardUITestCase {
         launch()
         tap(action("Start Game Clock"))
         tap(app.buttons["live.officialPause"].firstMatch)
-        tap(app.buttons["Indefinite Official Pause"].firstMatch)
+        tapMenuAction("Indefinite Official Pause")
         XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5))
         XCTAssertFalse(action("Start Game Clock").isEnabled)
         tap(action("Stop Pause"))

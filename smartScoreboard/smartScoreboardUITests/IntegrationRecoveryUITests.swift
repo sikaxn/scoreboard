@@ -58,6 +58,17 @@ final class IntegrationRecoveryUITests: ScoreboardUITestCase {
         let code = mainWindow.textFields["remote.code.\(peer.id)"]
         XCTAssertTrue(code.waitForExistence(timeout: 15), "The real browser must discover the test client")
         enter(peer.pairingCode, in: code, submit: false)
+        // Dismiss explicitly: otherwise XCTest's Pair tap can dismiss the
+        // keyboard, move the row, and miss the button at its previous position.
+        let keyboard = app.keyboards.firstMatch
+        let hideKeyboard = keyboard.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'hide keyboard' OR label CONTAINS[c] 'dismiss keyboard'")).firstMatch
+        if hideKeyboard.exists, hideKeyboard.isHittable {
+            hideKeyboard.tap()
+        }
+        waitUntil("The keyboard must dismiss before pairing") {
+            // A hidden keyboard can remain in the accessibility hierarchy.
+            !keyboard.exists || keyboard.frame.isEmpty || !keyboard.frame.intersects(self.mainWindow.frame)
+        }
         let row = mainWindow.otherElements["remote.peer.\(peer.id)"].firstMatch
         tap(row.buttons["Pair"].firstMatch)
         waitUntil("Pairing and live state must reach the client", timeout: 15) { peer.pairingCount > 0 && peer.stateCount > 0 }

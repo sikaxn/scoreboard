@@ -57,6 +57,39 @@ results separately. Each test action builds and executes its own test products.
 Apple documents [test action configuration](https://developer.apple.com/documentation/xcode/configuring-your-xcode-cloud-workflow-s-actions)
 and [organizing tests with test plans](https://developer.apple.com/documentation/xcode/organizing-tests-to-improve-feedback).
 
+## UI failures after the app launches
+
+The failures reported on 2026-10-21 were investigated locally with Xcode 27.1
+(`27A9275`) and an iPad Pro 12.9-inch (6th generation) simulator running iPadOS
+27.0, matching the Cloud test destination. The investigation reproduced failures
+outside Cloud and identified these separate causes:
+
+- **Alert snapshot errors:** an action-relative coordinate still resolves the
+  alert's accessibility query at tap time. XCTest can treat the expected alert
+  as an interruption, press Cancel, and then fail to find the alert. The helper
+  now snapshots the action's frame and taps from the application coordinate.
+- **Official Pause menu:** the native menu did not open with its bordered button
+  style, even with the clock stopped or with a long press. It now uses a plain
+  menu trigger, with the button appearance drawn in its label. The workflow still
+  checks that starting an official pause stops play and ending it leaves play stopped.
+- **Merged View scoring:** the station column replaces the team's
+  `live.controls.<side>` accessibility identifier with `station.team.<side>`.
+  Shared scoring helpers now accept both containers while retaining team scope.
+- **Custom Chess Settings:** the large iPad's fixed-height top row could be
+  shorter than the configured team cards. Those cards extended upward over the
+  header and intercepted Settings taps. Custom boards now use natural-height
+  cards in the scrollable control pane, including on larger screens.
+- **Remote pairing:** the display was discovered, but tapping Pair with the
+  keyboard present could dismiss the keyboard and move the row before activation.
+  The test dismisses the visible keyboard first, waits for it to leave the
+  viewport, and then taps Pair. A hidden keyboard may remain in the accessibility
+  hierarchy with an empty frame, so existence alone is not a dismissal check.
+
+Native popup actions are resolved by label across element types; they are not
+searched for by scrolling the board. Missing actions, disabled controls, score
+values, running clocks, real network delivery, and recovery still fail normally.
+See the [validation handoff](ui-testing-handoff.md) for the focused run's results.
+
 ## A build error before any UI tests run
 
 Errors about `Environment`'s generic `Value` or an unresolved key path at

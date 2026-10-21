@@ -1,4 +1,38 @@
-# UI test validation checkpoint — 2026-10-17
+# UI test validation checkpoints
+
+## 2026-10-21 — Xcode Cloud failures
+
+Investigation used Xcode **27.1 (`27A9275`)**, an **iPad Pro 12.9-inch
+(6th generation)** simulator, and **iPadOS 27.0**, matching the reported Cloud
+destination. The main failures reproduced locally. See
+[Cloud runtime failure diagnoses](xcode-cloud-testing.md#ui-failures-after-the-app-launches)
+for the app and test-helper repairs.
+
+All **seven reported cases** passed locally across the focused runs after their
+repairs. Three additional regressions passed: running-clock Settings Cancel and
+confirm, Custom countdown scoring, and the complete Custom editor workflow.
+
+- A separate `build-for-testing` / `test-without-building` check selected the
+  seven reported cases plus the Settings regression. **Seven passed; Custom
+  Chess still failed** because its oversized team cards overlapped the header.
+  Result: `/tmp/scoreboard-cloud-final.xcresult`.
+- After repairing the Custom control pane, **all three Custom checks passed**:
+  Chess with +1/+2 scoring (**169.4 s**), countdown with +1/+2 scoring
+  (**87.5 s**), and the full editor with repeated title edits (**211.8 s**).
+  Result: `/tmp/scoreboard-cloud-custom-layout.xcresult`.
+
+The last app change only extends the existing scrollable control-pane path to
+Custom events; the other paths checked in the combined run are unchanged.
+Assertions still check real scores, clocks, confirmations, socket delivery,
+saved pairing secrets, and both automatic and operator-driven recovery.
+No assertions were skipped or converted to retries of failed actions.
+
+The full `AllUI` suite and a new Xcode Cloud action have **not** been run on the
+final changes. The temporary simulator and intermediate result bundles were
+removed to conserve disk space; the two result bundles above and diagnostic
+logs were retained. The notes below are historical checkpoints.
+
+## 2026-10-17 checkpoint
 
 The UI target now runs on an iPad simulator. Native Mac UI automation was removed
 from this target at the user's request. All changes are uncommitted.
@@ -9,7 +43,7 @@ regressions have been added without a build or test run, at the user's request.
 `FocusedUI` now selects fourteen cases; `OperatorWorkflows` includes the station
 class. The results and case counts below describe the earlier validation checkpoint.
 
-## Current implementation
+### Current implementation
 
 Current suite: **53 UI cases**. The user's latest completed run passed **46** and
 failed **7**, all in Debate. All Custom, event-mode, operator, display, and
@@ -31,7 +65,7 @@ a future navigation regression fail directly instead of scrolling a long flow.
 Latest full-run evidence (46 passed, 7 failed before this navigation fix):
 `/Users/nathan/Library/Developer/Xcode/DerivedData/smartScoreboard-fqhfbijzeyhhdoafbwhkgmpxgrhc/Logs/Test/Test-smartScoreboardUITests-2026.10.17_18-36-43--0400.xcresult`.
 
-## Debate navigation validation
+### Debate navigation validation
 
 Two distinct cases were checked; no full suite was rerun:
 
@@ -52,7 +86,7 @@ temporary diagnostic export created during this task freed about 2 GB. The same
 template test then passed without any further code changes. Original user test
 results were retained. The app/UI build and `git diff --check` passed.
 
-## Previous repairs
+### Previous repairs
 
 - Nineteen failures opened preloaded Chess, Volleyball, Debate, or Custom events
   as fresh setup. Initial Simple drafts replaced their selected sport, leaving
@@ -111,7 +145,7 @@ results were retained. The app/UI build and `git diff --check` passed.
   timerless, Debate, and Chess boards. Additional accessibility identifiers expose
   picker/stepper values, segment editors, and side/prep clocks.
 
-## Previous focused validation
+### Previous focused validation
 
 Only two distinct cases were completed for validation:
 
@@ -151,7 +185,7 @@ Earlier baseline coverage:
 - The five UI plans use an iPad configuration; AllUI is the default. CoreRegression remains a separate
   Mac Swift Testing plan.
 
-## User's stopped expanded run (before these repairs)
+### User's stopped expanded run (before these repairs)
 
 Result bundle:
 `/Users/nathan/Library/Developer/Xcode/DerivedData/smartScoreboard-fqhfbijzeyhhdoafbwhkgmpxgrhc/Logs/Test/Test-smartScoreboardUITests-2026.10.17_16-28-55--0400.xcresult`.
@@ -166,7 +200,7 @@ games. The Guest-start failure had `startingSide: guest` but
 `activeChessClockSide: home`; the screenshot showed Home counting down while
 Guest remained unchanged. No run was started to diagnose or repair it.
 
-## Previous validation (before the 42-case expansion)
+### Previous validation (before the 42-case expansion)
 
 All **10 iPad UI tests passed together** on the dedicated iPad Pro 11-inch (M5)
 simulator running iPadOS 27.0: 255.5 seconds, zero failures. The final command used

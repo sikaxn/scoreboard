@@ -80,11 +80,7 @@ final class DisplayLayoutUITests: ScoreboardUITestCase {
 
     private func openLocalDisplay() {
         tap(mainWindow.buttons["Local Display"].firstMatch)
-        let item = app.buttons["Full Screen"].firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 5))
-        // iPadOS context-menu rows expose conflicting legacy Button / modern
-        // Cell types to XCTest. Tap the visible row's actual on-screen center.
-        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapMenuAction("Full Screen")
         XCTAssertTrue(mainWindow.otherElements["display.local-scoreboard"].waitForExistence(timeout: 5))
     }
 

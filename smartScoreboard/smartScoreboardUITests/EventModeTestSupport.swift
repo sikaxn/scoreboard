@@ -96,7 +96,11 @@ extension ScoreboardUITestCase {
     }
 
     func controls(_ side: String = "home") -> XCUIElement {
-        mainWindow.otherElements["live.controls.\(side)"].firstMatch
+        // Merged View wraps the full team card in the station column, whose
+        // accessibility identifier replaces the card's original identifier.
+        mainWindow.otherElements.matching(NSPredicate(format: "identifier IN %@", [
+            "live.controls.\(side)", "station.team.\(side)"
+        ])).firstMatch
     }
 
     func sideAction(_ title: String, side: String = "home") -> XCUIElement {
