@@ -14,9 +14,9 @@ share app data with your own simulator sessions. Tests synthesize touches and
 keyboard input inside that simulator. Allow local network access if iPadOS asks;
 the test interruption handler accepts the standard Allow prompt.
 
-The scheme's default test plan is `AllUI` (53 cases). Choose **Product → Test Plan**
-for `SmokeUI` (two control/display cases), `FocusedUI` (eight cases covering the
-recent helper repairs and preload path), `OperatorWorkflows` (51 event/display cases), or
+The scheme's default test plan is `AllUI` (all cases). Choose **Product → Test Plan**
+for `SmokeUI` (two control/display cases), `FocusedUI` (fourteen cases covering the
+recent helper repairs, preload path, and station modes), `OperatorWorkflows` (event/display/station cases), or
 `IntegrationRecovery` (two network cases). The same checked-in plans are selectable in Xcode Cloud; see
 [Xcode Cloud setup](xcode-cloud-testing.md).
 
@@ -33,7 +33,7 @@ UI-test runner. Replace the simulator name and OS with one installed in Xcode.
 
 Use `-only-testing:smartScoreboardUITests/EventWorkflowUITests` (or
 `EventModeUITests`, `DebateEditingUITests`, `CustomModeEditingUITests`,
-`DisplayLayoutUITests`, `IntegrationRecoveryUITests`) to select a group. Tests run
+`DisplayLayoutUITests`, `ControlBoardModeUITests`, `IntegrationRecoveryUITests`) to select a group. Tests run
 serially within each simulator. They use actual controls and bounded
 condition waits; missing or unreachable controls fail the test.
 
@@ -60,12 +60,19 @@ looking for its controls. Both focused Debate checks passed: Guest-start dual
 clocks and editing a Policy template without changing its built-in format. The
 full suite was not rerun; see the [validation handoff](ui-testing-handoff.md).
 `SmokeUI` still selects the same two cases.
+The eight new `ControlBoardModeUITests` scenarios and the accompanying core mode
+and connection tests have not been run or built, at the user's request.
+The station scenarios also check that the themed picker header stays at the top
+and Done remains reachable after scrolling; the toolbar button exposes the current mode.
+Additional checks cover roster columns, clock/score visibility, running clocks in
+Merged View, separate Display Control navigation, and the shared hockey penalty picker.
 
 | Added group | Cases | Coverage |
 | --- | --- | --- |
 | `EventModeUITests` | 14 | Simple, Basketball, Soccer, Hockey; Volleyball best-of-three/five × match timer on/off; all four Chess presets with unequal clocks; switch through all eight event modes in both directions |
 | `DebateEditingUITests` | 11 | All built-in formats and their segment sequences; score/player/prep combinations; custom labels and durations; independent prep clocks; shared, dual, and untimed blocks; automatic segment start; both starting sides; side-switch gating; add/reorder/delete; editable copies of each built-in template; reset confirmations |
 | `CustomModeEditingUITests` | 18 | All 16 combinations of four clock styles (countdown, count-up, disabled, chess) × four scoring layouts (off, +1, +1/+2, +1/+2/+3), plus a complete editor journey and dependent-option reset/re-enable checks |
+| `ControlBoardModeUITests` | 8 | Dedicated shot controls preserve a running primary clock; custom modules and team scope; per-sport choices; roster identity editing and columns; empty layouts; summary visibility; Merged View clocks/columns; separate Display Control; shared penalty selection |
 
 The Custom matrix also varies period tracking/wins, shot/serve/off secondary
 timers, possession, player tracking/layout/fouls/cards, substitutions, pauses,

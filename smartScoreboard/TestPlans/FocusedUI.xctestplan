@@ -27,7 +27,13 @@
         "CustomModeEditingUITests/testCountdownWithOneAndTwoPointButtons()",
         "CustomModeEditingUITests/testCustomEditorCommitsEveryModuleAndRepeatedTitleEdits()",
         "EventModeUITests/testSoccerEventEditsScoringHalfAndClock()",
-        "EventWorkflowUITests/testSettingsWarningAndUneditedReturnPreserveRunningEvent()"
+        "EventWorkflowUITests/testSettingsWarningAndUneditedReturnPreserveRunningEvent()",
+        "ControlBoardModeUITests/testShotStationKeepsPrimaryClockRunningAndHidesScoring()",
+        "ControlBoardModeUITests/testCustomModulesCanBeReorderedAndScopedToOneTeam()",
+        "ControlBoardModeUITests/testModePreferencesAreSeparateForEachSport()",
+        "ControlBoardModeUITests/testRosterColumnsAndSummaryOptionKeepDisplayControlSeparate()",
+        "ControlBoardModeUITests/testMergedViewKeepsStationColumnsAndRunningClocks()",
+        "ControlBoardModeUITests/testHockeyPenaltySelectionUsesTheSharedSheetStyle()"
       ]
     }
   ],

@@ -24,7 +24,8 @@
         "EventWorkflowUITests",
         "EventModeUITests",
         "DebateEditingUITests",
-        "CustomModeEditingUITests"
+        "CustomModeEditingUITests",
+        "ControlBoardModeUITests"
       ]
     }
   ],

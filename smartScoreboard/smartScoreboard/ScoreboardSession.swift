@@ -74,6 +74,32 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var realtimeTransport: String? = nil
 }
 
+extension ScoreboardSessionDescriptor {
+    /// Every row describes a client-to-host link. Ownership does not make a
+    /// device the host, and older hosts may have omitted the owner's row.
+    nonisolated func clientPeers(from peers: [ScoreboardSessionPeer], ownerConnected: Bool?) -> [ScoreboardSessionPeer] {
+        var clients: [String: ScoreboardSessionPeer] = [:]
+        for peer in peers where peer.id != hostDeviceID { clients[peer.id] = peer }
+        if ownerDeviceID != hostDeviceID {
+            var owner = clients[ownerDeviceID] ?? ScoreboardSessionPeer(
+                id: ownerDeviceID, name: ownerName, deviceType: .unknown,
+                connected: ownerConnected == true, supportsHosting: true)
+            owner.name = ownerName
+            owner.controlEnabled = true
+            if let ownerConnected {
+                owner.connected = ownerConnected
+                if !ownerConnected { owner.quality = .unresponsive }
+            }
+            clients[ownerDeviceID] = owner
+        }
+        return clients.values.sorted {
+            if ($0.id == ownerDeviceID) != ($1.id == ownerDeviceID) { return $0.id == ownerDeviceID }
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
+}
+
 nonisolated struct ScoreboardSessionAdministration: Codable, Sendable {
     var action: String
     var displayID: String

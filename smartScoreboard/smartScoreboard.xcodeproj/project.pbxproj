@@ -29,6 +29,7 @@
 		9D5565EB64524E53B413456E /* ScoreboardRosterCSV.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5EFFFDFA3E45818D42D70B /* ScoreboardRosterCSV.swift */; };
 		A1A19C84F1BB44E7A1920001 /* Localizable.xcstrings in Copy Localization Test Input */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
 		A1A19C84F1BB44E7A1920010 /* Built App Info.plist in Copy App Test Metadata */ = {isa = PBXBuildFile; fileRef = A1A19C84F1BB44E7A1920011 /* Built App Info.plist */; };
+		A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */; };
 		B01BBAF70C4E491AA1CA35ED /* ScoreboardCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */; };
 		CD4E06D9E13C4CD6B5D31141 /* BuzzerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234AF4FAD681442891669A6A /* BuzzerPlayer.swift */; };
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
@@ -129,6 +130,7 @@
 		A1A19C84F1BB44E7A1920013 /* SmokeUI.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SmokeUI.xctestplan; sourceTree = "<group>"; };
 		A2E0AF73BBA648169650BB74 /* ScoreboardAppBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardAppBackup.swift; sourceTree = "<group>"; };
 		A43479316DC3446980D4B514 /* DebateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebateModels.swift; sourceTree = "<group>"; };
+		A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardControlBoardConfiguration.swift; sourceTree = "<group>"; };
 		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
 		D5901BF521044B119386D971 /* ScoreboardPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardPreferences.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -274,6 +276,7 @@
 				8A8AB58B6A454601B1281A55 /* ScoreboardFileStorage.swift */,
 				6152FF3079A74B8DBC614C46 /* ScoreboardRemoteDisplay.swift */,
 				D5901BF521044B119386D971 /* ScoreboardPreferences.swift */,
+				A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */,
 				7381D4F78EF8495DBBFA7CC0 /* GameConfirmationAction.swift */,
 			);
 			name = "Core sources under test";
@@ -482,6 +485,7 @@
 				07266CBFD3C0440381F7E0F7 /* ScoreboardFileStorage.swift in Sources */,
 				6753133FB1964784AAF7E203 /* ScoreboardRemoteDisplay.swift in Sources */,
 				2A20A7B8126C411EA1086444 /* ScoreboardPreferences.swift in Sources */,
+				A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */,
 				F8DEF57765D04B129CFF11A3 /* ScoreboardSetupEditing.swift in Sources */,
 				4317E555A8B44A05A82A643D /* GameConfirmationAction.swift in Sources */,
 			);

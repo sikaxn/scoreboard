@@ -4,6 +4,11 @@ The UI target now runs on an iPad simulator. Native Mac UI automation was remove
 from this target at the user's request. All changes are uncommitted.
 See [UI scenarios](ui-testing.md) and [Cloud setup](xcode-cloud-testing.md).
 
+**2026-10-20 addition:** Eight control board station scenarios and core mode/connection
+regressions have been added without a build or test run, at the user's request.
+`FocusedUI` now selects fourteen cases; `OperatorWorkflows` includes the station
+class. The results and case counts below describe the earlier validation checkpoint.
+
 ## Current implementation
 
 Current suite: **53 UI cases**. The user's latest completed run passed **46** and

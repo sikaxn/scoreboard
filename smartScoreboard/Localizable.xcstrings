@@ -2435,6 +2435,17 @@
         }
       }
     },
+    "Both Teams" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "双方队伍"
+          }
+        }
+      }
+    },
     "Bottom to Top" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2742,6 +2753,17 @@
         }
       }
     },
+    "Choose at least one module in Control Board Mode to add controls to this station." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在“控制面板模式”中至少选择一个模块，以向此工作台添加控制功能。"
+          }
+        }
+      }
+    },
     "Choose between a shared game clock and chess-style side clocks." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2762,6 +2784,17 @@
         }
       }
     },
+    "Choose modules and their order within the team and timer columns. Unavailable sport features stay hidden." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择模块并调整其在队伍和计时列内的顺序。当前运动不支持的功能保持隐藏。"
+          }
+        }
+      }
+    },
     "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2769,6 +2802,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择每个屏幕的基础左右方向。比赛中“交换双方”仍会翻转实时布局。若要更改远程显示方向，请前往“集成”>“远程显示”。"
+          }
+        }
+      }
+    },
+    "Choose the controls for this station and arrange their order. Unavailable sport features stay hidden." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择此工作台的控制模块并调整顺序。当前运动不支持的功能会保持隐藏。"
           }
         }
       }
@@ -3022,6 +3066,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "清除此%@球员的红黄牌状态和犯规次数？"
+          }
+        }
+      }
+    },
+    "Clients Connected to Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接到主机的客户端"
           }
         }
       }
@@ -3666,6 +3721,17 @@
         }
       }
     },
+    "Connection to Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "到主机的连接"
+          }
+        }
+      }
+    },
     "Constructive" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3735,6 +3801,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "控制记分牌"
+          }
+        }
+      }
+    },
+    "Control Board Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制面板模式"
           }
         }
       }
@@ -4172,6 +4249,17 @@
         }
       }
     },
+    "Custom Modules" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义模块"
+          }
+        }
+      }
+    },
     "Custom Player Tools" : {
       "localizations" : {
         "zh-Hans" : {
@@ -4209,6 +4297,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义项目配置"
+          }
+        }
+      }
+    },
+    "Custom Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义工作台"
           }
         }
       }
@@ -5011,6 +5110,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示预览"
+          }
+        }
+      }
+    },
+    "Display Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示工作台"
           }
         }
       }
@@ -6290,6 +6400,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "完整 App 备份"
+          }
+        }
+      }
+    },
+    "Full Control Board" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整控制面板"
           }
         }
       }
@@ -8568,6 +8689,17 @@
         }
       }
     },
+    "Match & Timer Controls" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛与计时控制"
+          }
+        }
+      }
+    },
     "Match active or sync pending" : {
       "localizations" : {
         "zh-Hans" : {
@@ -8741,6 +8873,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移除会话主机前，请先将主机转移到另一台设备。"
+          }
+        }
+      }
+    },
+    "Move Module Up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移模块"
+          }
+        }
+      }
+    },
+    "Move Module Down" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下移模块"
           }
         }
       }
@@ -9768,6 +9922,17 @@
         }
       }
     },
+    "Owner · Client" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者 · 客户端"
+          }
+        }
+      }
+    },
     "P" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10353,6 +10518,17 @@
         }
       }
     },
+    "Penalty Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "罚时工作台"
+          }
+        }
+      }
+    },
     "Penalty Timer" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10819,6 +10995,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "球员跟踪"
+          }
+        }
+      }
+    },
+    "Player tracking is disabled. Enable it in Settings to manage the roster here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员跟踪已关闭。请在设置中启用，以在此处管理球员名单。"
           }
         }
       }
@@ -12484,6 +12671,17 @@
         }
       }
     },
+    "Reset This Sport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置此运动的配置"
+          }
+        }
+      }
+    },
     "Reset Tips" : {
       "localizations" : {
         "zh-Hans" : {
@@ -12769,12 +12967,34 @@
         }
       }
     },
+    "Roster Management" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员名单管理"
+          }
+        }
+      }
+    },
     "Roster Size" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "名单人数"
+          }
+        }
+      }
+    },
+    "Roster Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员名单工作台"
           }
         }
       }
@@ -13000,6 +13220,17 @@
         }
       }
     },
+    "Saved for this sport on this device. Changing station mode keeps the match and timers running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置按运动保存在此设备上。切换工作台模式时，比赛和计时器会继续运行。"
+          }
+        }
+      }
+    },
     "Saved. This operator device can reconnect automatically." : {
       "localizations" : {
         "zh-Hans" : {
@@ -13191,6 +13422,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "得分"
+          }
+        }
+      }
+    },
+    "Scoring Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计分工作台"
           }
         }
       }
@@ -14103,6 +14345,28 @@
         }
       }
     },
+    "Shot / Serve Controller" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻／发球计时控制台"
+          }
+        }
+      }
+    },
+    "Shot / Serve Timer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻／发球计时器"
+          }
+        }
+      }
+    },
     "Shot 14" : {
       "localizations" : {
         "zh-Hans" : {
@@ -14383,6 +14647,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "计时器运行时显示实时活动"
+          }
+        }
+      }
+    },
+    "Show Clock & Score Box" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示计时与比分框"
           }
         }
       }
@@ -15138,6 +15413,17 @@
         }
       }
     },
+    "Start Shot Clock" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始进攻计时"
+          }
+        }
+      }
+    },
     "Starting" : {
       "localizations" : {
         "zh-Hans" : {
@@ -15738,6 +16024,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "队伍视图"
+          }
+        }
+      }
+    },
+    "Team selection applies to team panels. Match timers remain shared." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍选择作用于队伍面板，比赛计时器仍由双方共用。"
+          }
+        }
+      }
+    },
+    "Team selection applies to team panels. Shared timer and display controls remain available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍选择作用于队伍面板。共享计时和显示控件仍可使用。"
           }
         }
       }
@@ -16569,6 +16877,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "计时器"
+          }
+        }
+      }
+    },
+    "Timer Controller" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时控制台"
           }
         }
       }

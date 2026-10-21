@@ -1138,26 +1138,21 @@ final class ScoreboardStore: ObservableObject {
             (isSessionAuthority || sessionIsConnected))
     }
     var remoteSessionDeviceCounts: (connected: Int, disconnected: Int)? {
+        if let clients = remoteSessionDevices {
+            let connected = clients.filter(\.connected).count
+            return (connected, clients.count - connected)
+        }
         if routesControlToSessionHost {
             guard let control = remoteControlState?.control,
                   let connected = control.connectedDeviceCount,
                   let disconnected = control.disconnectedDeviceCount else { return nil }
             return (connected, disconnected)
         }
-        let ownerID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
-        var known = Set(remoteDisplayTrustedDisplays.map(\.id))
-            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([ownerID])
-        if isDelegatedSessionHost { known.insert(localSessionDeviceID) }
-        var connected = Set(remoteDisplayConnectedDisplays.filter {
-            $0.quality == .live || $0.quality == .poor
-        }.map(\.id))
-        if isDelegatedSessionHost { connected.insert(localSessionDeviceID) }
-        let connectedCount = known.intersection(connected).count
-        return (connectedCount, known.count - connectedCount)
+        return nil
     }
     var remoteSessionOwnerConnected: Bool? {
         if routesControlToSessionHost {
-            if isSessionOwner { return sessionIsConnected }
+            if isFollowingSessionHost { return sessionIsConnected }
             return remoteControlState?.control?.ownerConnected
         }
         guard let descriptor = sessionDescriptor else { return nil }
@@ -1168,28 +1163,40 @@ final class ScoreboardStore: ObservableObject {
         }
     }
     var remoteSessionDevices: [ScoreboardSessionPeer]? {
-        if routesControlToSessionHost { return remoteControlState?.control?.devices }
-        let ownerID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
+        if routesControlToSessionHost {
+            guard let peers = remoteControlState?.control?.devices else { return nil }
+            guard let session = remoteControlState?.control?.session ?? sessionDescriptor else { return peers }
+            var clients = session.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected)
+            if isFollowingSessionHost, let index = clients.firstIndex(where: { $0.id == localSessionDeviceID }) {
+                clients[index].connected = sessionIsConnected
+                clients[index].quality = sessionIsConnected ? (clients[index].quality == .poor ? .poor : .live) : .unresponsive
+                clients[index].deviceType = .current
+                clients[index].latencyMilliseconds = sessionRoundTripSeconds.map { Int(($0 * 1_000).rounded()) }
+                clients[index].realtimeTransport = ScoreboardRemoteDisplayReceiver.shared.realtimeTransport
+            }
+            return clients
+        }
+        let hostID = sessionDescriptor?.hostDeviceID ?? localSessionDeviceID
         var ids = Set(remoteDisplayTrustedDisplays.map(\.id))
-            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([ownerID])
-        if isDelegatedSessionHost { ids.insert(localSessionDeviceID) }
-        return ids.map { id in
+            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([hostID])
+        if let ownerID = sessionDescriptor?.ownerDeviceID, ownerID != hostID { ids.insert(ownerID) }
+        let peers = ids.map { id in
             let connection = remoteDisplayConnectedDisplays.first { $0.id == id }
             let saved = remoteDisplayTrustedDisplays.first { $0.id == id }
-            let isLocalHost = isDelegatedSessionHost && id == localSessionDeviceID
             return ScoreboardSessionPeer(
                 id: id,
-                name: isLocalHost ? remoteDisplayHostName : (connection?.name ?? saved?.name ?? id),
-                deviceType: isLocalHost ? .current : (connection?.deviceType ?? saved?.deviceType ?? .unknown),
-                connected: isLocalHost || connection?.quality == .live || connection?.quality == .poor,
-                supportsHosting: isLocalHost || connection?.supportsSessionHosting == true,
-                controlEnabled: remoteControlAllowedDisplayIDs.contains(id),
-                latencyMilliseconds: isLocalHost ? nil : connection?.latencyMilliseconds,
-                lastHandshakeAgeSeconds: isLocalHost ? nil : connection?.lastHandshakeAgeSeconds,
-                appVersion: isLocalHost ? .current : connection?.appVersion,
-                quality: isLocalHost ? .live : connection?.quality,
-                realtimeTransport: isLocalHost ? nil : connection?.realtimeTransport)
+                name: connection?.name ?? saved?.name ?? id,
+                deviceType: connection?.deviceType ?? saved?.deviceType ?? .unknown,
+                connected: connection?.quality == .live || connection?.quality == .poor,
+                supportsHosting: connection?.supportsSessionHosting == true,
+                controlEnabled: id == sessionDescriptor?.ownerDeviceID || remoteControlAllowedDisplayIDs.contains(id),
+                latencyMilliseconds: connection?.latencyMilliseconds,
+                lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
+                appVersion: connection?.appVersion,
+                quality: connection?.quality,
+                realtimeTransport: connection?.realtimeTransport)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return sessionDescriptor?.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected) ?? peers
     }
     var canRecoverSessionHost: Bool {
         guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
@@ -7242,6 +7249,7 @@ final class ScoreboardStore: ObservableObject {
         isWebControlEnabled = false
         remoteControlAllowedDisplayIDs.removeAll()
         ScoreboardPreferences.current.removeObject(forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        ScoreboardPreferences.current.removeObject(forKey: ScoreboardControlBoardPreferences.storageKey)
         resetWebControlAPIKey()
         controlCommandResults.removeAll()
         ScoreboardPreferences.current.removeObject(forKey: persistenceKey)

@@ -10,10 +10,10 @@ workflow or upload the working tree.
 | --- | --- | --- | --- |
 | `smartScoreboardTests` | `CoreRegression` | All Swift Testing core, HTTP, and localization regressions | Pull requests and branch changes |
 | `smartScoreboardUITests` | `SmokeUI` | Two control/display smoke scenarios | Pull requests or manual |
-| `smartScoreboardUITests` | `FocusedUI` | Eight cases covering preloaded editors, Chess/Volleyball, Debate starting side/template copies, Custom editing, Soccer, and Settings warnings | Manual validation of current repairs |
-| `smartScoreboardUITests` | `OperatorWorkflows` | 51 event-mode, Debate/Custom editing, settings, and display/layout cases | Nightly or manual |
+| `smartScoreboardUITests` | `FocusedUI` | Fourteen cases covering preloaded editors, Chess/Volleyball, Debate starting side/template copies, Custom editing, Soccer, Settings warnings, and control board stations | Manual validation of current repairs |
+| `smartScoreboardUITests` | `OperatorWorkflows` | Event-mode, Debate/Custom editing, settings, display/layout, and control board station cases | Nightly or manual |
 | `smartScoreboardUITests` | `IntegrationRecovery` | Companion HTTP recovery and remote-client Bonjour/WebSocket recovery | Nightly or manual |
-| `smartScoreboardUITests` | `AllUI` (default) | All 53 UI cases, including both network recovery cases | Full local or cloud validation |
+| `smartScoreboardUITests` | `AllUI` (default) | All UI cases, including both network recovery cases | Full local or cloud validation |
 
 UI plans run the target serially and enable bounded test execution. Their local
 peers use real sockets in the test runner, so no external Companion installation,
@@ -26,6 +26,8 @@ a navigation issue, now repaired with two focused Debate checks passing. See the
 remains the default; FocusedUI and SmokeUI provide smaller selections. Named
 configurations are bundled resources, so preloading works without runtime
 source-checkout access. A successful full Cloud UI run is still unverified.
+The new station-mode and host-centric connection changes and tests have not
+been built or run, at the user's request.
 
 ## Create the workflows
 

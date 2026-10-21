@@ -551,8 +551,13 @@ struct ScoreboardKeyboardShortcutExecutionContext {
     let handleDebateTurnHere: (TeamSide) -> Void
     let addPenaltyTimer: (TeamSide, Int) -> Void
     let togglePlayersPage: () -> Void
+    var controlBoardConfiguration: ScoreboardControlBoardConfiguration? = nil
 
     func perform(_ action: ScoreboardKeyboardShortcutAction) {
+        if let controlBoardConfiguration {
+            let capabilities = ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)
+            guard controlBoardConfiguration.allows(action, capabilities: capabilities) else { return }
+        }
         guard action.isAvailable(
             store: store,
             isResetInterlockActive: isResetInterlockActive,
@@ -752,7 +757,10 @@ struct ScoreboardKeyboardShortcutExecutionContext {
             return
         }
 
-        if store.usesServeTimer || store.isShotClockRunning {
+        let stationMode = controlBoardConfiguration.map {
+            $0.effectiveMode(for: ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)) != .full
+        } ?? false
+        if store.usesServeTimer || store.isShotClockRunning || stationMode {
             store.toggleShotClock()
         } else {
             store.resetActiveShotClock()

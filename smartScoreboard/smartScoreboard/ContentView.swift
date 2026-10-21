@@ -68,6 +68,9 @@ struct ContentView: View, ScoreboardSetupEditing {
     @ObservedObject private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver
     private var returnToRemoteControl: (() -> Void)?
     @State private var showsRemoteConnectionDetails = false
+    @State private var showsControlBoardModePicker = false
+    @AppStorage(ScoreboardControlBoardPreferences.storageKey, store: ScoreboardPreferences.current)
+    private var controlBoardPreferencesData = Data()
 
     @EnvironmentObject var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
@@ -248,6 +251,8 @@ struct ContentView: View, ScoreboardSetupEditing {
     private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
     private var areLiveKeyboardShortcutsEnabled: Bool {
         guard !showsSetup,
+              !showsControlBoardModePicker,
+              focusedSettingsTextFieldID == nil,
               recordingKeyboardShortcutAction == nil,
               !store.isRemoteDisplayViewerModeEnabled,
               dashboardPage == .main || dashboardPage == .players,
@@ -779,6 +784,16 @@ struct ContentView: View, ScoreboardSetupEditing {
             .sheet(isPresented: $showsBunnyEasterEgg) {
                 bunnyEasterEggSheet
             }
+            .sheet(isPresented: $showsControlBoardModePicker) {
+                ScoreboardControlBoardModePicker(
+                    sportTitle: localizedAppString(store.selectedSport.title),
+                    capabilities: controlBoardCapabilities,
+                    palette: themePalette,
+                    configuration: controlBoardConfigurationBinding,
+                    showsMergedView: mergedViewBinding
+                )
+            }
+            .onChange(of: store.selectedSport) { _, _ in dashboardPage = .main }
             .sheet(item: $pendingPenaltySelection) { selection in
                 penaltyPlayerSelectionSheet(selection)
             }
@@ -7994,6 +8009,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         displayControlHeaderButton(layout: layout)
         soundHeaderButton(layout: layout)
         themeHeaderMenu(layout: layout)
+        controlBoardModeHeaderButton(layout: layout)
         if store.isCompanionVisible {
             companionHeaderButton(layout: layout)
         }
@@ -8123,6 +8139,11 @@ struct ContentView: View, ScoreboardSetupEditing {
             } label: {
                 Label(localizedAppString("Theme"), systemImage: store.theme.systemImage)
             }
+            Button(action: openControlBoardModePicker) {
+                Label(localizedAppString("Control Board Mode"), systemImage: "slider.horizontal.3")
+            }
+            .accessibilityValue(localizedAppString(controlBoardMode.title))
+            .accessibilityIdentifier("controlBoard.chooseMode")
             if store.isCompanionVisible {
                 Button {
                     store.toggleCompanionEnabled()
@@ -8350,7 +8371,9 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private var remoteConnectionIsHosting: Bool {
-        remoteControlReceiver.isHostingSession || (store.isSessionAuthority && store.isRemoteDisplayHostEnabled)
+        if store.isFollowingSessionHost { return false }
+        if let session = remoteConnectionSession, session.hostDeviceID != store.localSessionDeviceID { return false }
+        return remoteControlReceiver.isHostingSession || (store.isSessionAuthority && store.isRemoteDisplayHostEnabled)
     }
 
     private var remoteControlConnectionTitle: String {
@@ -8436,19 +8459,13 @@ struct ContentView: View, ScoreboardSetupEditing {
     private var remoteConnectionDetails: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Connection Status").font(.headline)
-            remoteConnectionDetailRow("Connection", value: remoteControlConnectionTitle)
+            remoteConnectionDetailRow(remoteConnectionIsHosting ? "Connection" : "Connection to Host", value: remoteControlConnectionTitle)
             if let session = remoteConnectionSession {
                 remoteConnectionDetailRow("Session Host", value: session.hostName)
-                VStack(alignment: .leading, spacing: 4) {
-                    remoteConnectionDetailRow("Owner", value: session.ownerName)
-                    Label(localizedAppString(store.remoteSessionOwnerConnected.map { $0 ? "Connected" : "Disconnected" } ?? "Unknown"),
-                          systemImage: remoteOwnerIsDisconnected ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle")
-                        .font(.caption)
-                        .foregroundStyle(.primary)
-                    if store.isFollowingSessionHost {
-                        Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                remoteConnectionDetailRow("Owner", value: session.ownerName)
+                if store.isFollowingSessionHost {
+                    Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             if !remoteConnectionIsHosting {
@@ -8456,7 +8473,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
             }
             Divider()
-            Text("Remote Devices").font(.subheadline.weight(.semibold))
+            Text("Clients Connected to Host").font(.subheadline.weight(.semibold))
             if let remoteControlDeviceCountsTitle {
                 Text(remoteControlDeviceCountsTitle).font(.caption).monospacedDigit()
             }
@@ -8518,6 +8535,9 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(device.name).font(.callout.weight(.medium))
+                if device.id == remoteConnectionSession?.ownerDeviceID, !isHost {
+                    Text("Owner · Client").font(.caption.weight(.semibold))
+                }
                 Text(localizedAppString(device.deviceType.title)).font(.caption).foregroundStyle(.secondary)
                 if let canControl = device.controlEnabled, !isHost {
                     Text(canControl ? "Control enabled" : "Remote Display").font(.caption).foregroundStyle(.secondary)
@@ -8540,6 +8560,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("connection.client.\(device.id)")
     }
 
     #if os(iOS)
@@ -8583,6 +8604,9 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
         ScoreboardViewBoundary {
             themeHeaderMenu(layout: layout)
+        }
+        ScoreboardViewBoundary {
+            controlBoardModeHeaderButton(layout: layout)
         }
         if store.isCompanionVisible {
             ScoreboardViewBoundary {
@@ -8671,6 +8695,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             displayControlHeaderButton(layout: layout)
             soundHeaderButton(layout: layout)
             themeHeaderMenu(layout: layout)
+            controlBoardModeHeaderButton(layout: layout)
             if store.isCompanionVisible {
                 companionHeaderButton(layout: layout)
             }
@@ -8685,6 +8710,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 displayControlHeaderButton(layout: layout)
                 soundHeaderButton(layout: layout)
                 themeHeaderMenu(layout: layout)
+                controlBoardModeHeaderButton(layout: layout)
                 if store.isCompanionVisible {
                     companionHeaderButton(layout: layout)
                 }
@@ -8704,6 +8730,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     displayControlHeaderButton(layout: layout)
                     soundHeaderButton(layout: layout)
                     themeHeaderMenu(layout: layout)
+                    controlBoardModeHeaderButton(layout: layout)
                     settingsHeaderButton(layout: layout)
 
                     if !isIPhoneInterface {
@@ -8793,6 +8820,27 @@ struct ContentView: View, ScoreboardSetupEditing {
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString("Theme"))
         .help(localizedAppString(store.theme.title))
+    }
+
+    private func openControlBoardModePicker() {
+        focusedSettingsTextFieldID = nil
+        showsControlBoardModePicker = true
+    }
+
+    private func controlBoardModeHeaderButton(layout: InterfaceLayout) -> some View {
+        Button(action: openControlBoardModePicker) {
+            headerIconButtonLabel(
+                systemImage: "slider.horizontal.3",
+                tint: themePalette.dashboardNeutralButton,
+                foreground: themePalette.dashboardNeutralButtonText,
+                layout: layout
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedAppString("Control Board Mode"))
+        .accessibilityValue(localizedAppString(controlBoardMode.title))
+        .accessibilityIdentifier("controlBoard.chooseMode")
+        .help(localizedAppString(controlBoardMode.title))
     }
 
     private func companionHeaderButton(layout: InterfaceLayout) -> some View {
@@ -8892,7 +8940,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .accessibilityLabel(localizedAppString("Show Top Bar"))
     }
 
-    private func shotClockWidget(layout: InterfaceLayout) -> some View {
+    private func shotClockWidget(layout: InterfaceLayout, isDedicatedStation: Bool = false) -> some View {
         let usesServeTimer = store.usesServeTimer
         let timerAction = usesServeTimer ? "Serve" : "Shot"
         let timerButtons: [ActionDescriptor] = usesServeTimer ? [
@@ -8915,11 +8963,12 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
         ] : [
             ActionDescriptor(
-                title: store.isShotClockRunning ? "Shot Pause" : "Shot Reset",
+                title: store.isShotClockRunning ? "Shot Pause" : (isDedicatedStation ? "Start Shot Clock" : "Shot Reset"),
                 tint: store.isShotClockRunning ? themePalette.dashboardWarningButton : themePalette.dashboardNeutralButton,
-                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardNeutralButtonText
+                foreground: store.isShotClockRunning ? themePalette.dashboardWarningButtonText : themePalette.dashboardNeutralButtonText,
+                isEnabled: !isDedicatedStation || store.pauseTimer == nil
             ) {
-                if store.isShotClockRunning {
+                if store.isShotClockRunning || isDedicatedStation {
                     store.toggleShotClock()
                 } else {
                     store.resetActiveShotClock()
@@ -8931,7 +8980,11 @@ struct ContentView: View, ScoreboardSetupEditing {
             ActionDescriptor(title: "Shot +1", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
                 store.adjustShotClock(by: 1)
             }
-        ]
+        ] + (isDedicatedStation ? [
+            ActionDescriptor(title: "Shot Reset", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
+                store.resetActiveShotClock()
+            }
+        ] : [])
 
         return VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -8949,16 +9002,17 @@ struct ContentView: View, ScoreboardSetupEditing {
                     .opacity(store.supportsPossession ? 1 : 0)
             }
 
-            if !layout.isCombinedDisplay {
+            if !layout.isCombinedDisplay || isDedicatedStation {
                 Text(store.formattedShotClock)
                     .font(.system(size: layout.metricValueSize + 8, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.4)
                     .foregroundStyle(themePalette.dashboardPrimaryText)
+                    .accessibilityIdentifier("live.shotClock")
             }
 
             buttonGrid(
-                columns: layout.isCombinedDisplay ? (usesServeTimer ? 4 : 3) : usesServeTimer ? max(2, layout.shotClockButtonColumns - 1) : max(1, layout.shotClockButtonColumns - 2),
+                columns: isDedicatedStation ? 2 : layout.isCombinedDisplay ? (usesServeTimer ? 4 : 3) : usesServeTimer ? max(2, layout.shotClockButtonColumns - 1) : max(1, layout.shotClockButtonColumns - 2),
                 buttons: timerButtons,
                 style: .compact,
                 dense: layout.denseControls,
@@ -8974,7 +9028,231 @@ struct ContentView: View, ScoreboardSetupEditing {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.shotClockControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
+    private var controlBoardCapabilities: ScoreboardControlBoardCapabilities {
+        ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)
+    }
+
+    private var controlBoardConfiguration: ScoreboardControlBoardConfiguration {
+        ScoreboardControlBoardPreferences(data: controlBoardPreferencesData).configuration(for: store.selectedSport)
+    }
+
+    private var controlBoardMode: ScoreboardControlBoardMode {
+        controlBoardConfiguration.effectiveMode(for: controlBoardCapabilities)
+    }
+
+    private var controlBoardConfigurationBinding: Binding<ScoreboardControlBoardConfiguration> {
+        Binding(get: { controlBoardConfiguration }, set: { configuration in
+            var preferences = ScoreboardControlBoardPreferences(data: controlBoardPreferencesData)
+            preferences.set(configuration, for: store.selectedSport)
+            controlBoardPreferencesData = preferences.data
+            dashboardPage = .main
+        })
+    }
+
+    private var stationSides: [TeamSide] {
+        let sides = controlBoardConfiguration.teams.sides
+        return sides.count == 2 && store.resolvedControlBoardDisplayDirection.leftSide == .guest ? sides.reversed().map { $0 } : sides
+    }
+
     private func controlPane(layout: InterfaceLayout) -> some View {
+        Group {
+            if controlBoardMode == .full || dashboardPage == .preview {
+                standardControlPane(layout: layout)
+            } else {
+                stationControlPane(layout: layout)
+            }
+        }
+    }
+
+    private func stationControlPane(layout: InterfaceLayout) -> some View {
+        let modules = controlBoardConfiguration.visibleModules(for: controlBoardCapabilities)
+        return GeometryReader { proxy in
+            let paneLayout = InterfaceLayout(size: proxy.size, isCombinedDisplay: layout.isCombinedDisplay)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: paneLayout.sectionSpacing) {
+                    stationControlColumns(modules: modules, layout: paneLayout)
+                    if modules.isEmpty {
+                        Text("Choose at least one module in Control Board Mode to add controls to this station.")
+                            .foregroundStyle(themePalette.dashboardMutedText)
+                            .padding()
+                            .accessibilityIdentifier("controlBoard.empty")
+                    }
+                }
+                .padding(.bottom, paneLayout.sectionSpacing)
+            }
+        }
+    }
+
+    private func stationControlColumns(
+        modules: [ScoreboardControlBoardModule],
+        layout: InterfaceLayout,
+        usesFullBoardControls: Bool = false
+    ) -> some View {
+        let teamModules = modules.filter { $0.hasTeamControls && ($0 != .pauses || store.supportsPauseTracking) }
+        let sharedModules = modules.filter { $0 == .matchTimer || $0 == .shotClock || ($0 == .pauses && !usesFullBoardControls) }
+        let sides = usesFullBoardControls
+            ? [store.resolvedControlBoardDisplayDirection.leftSide, store.resolvedControlBoardDisplayDirection.rightSide]
+            : stationSides
+        let hasTeams = usesFullBoardControls || !teamModules.isEmpty
+        let plan = ScoreboardControlBoardLayout(width: Double(layout.size.width), teamCount: hasTeams ? sides.count : 0,
+            showsSummary: controlBoardConfiguration.showsCenterSummary, includesRoster: teamModules.contains(.roster))
+        let summaryWidth = layout.centerStatusWidth
+        let teamWidth = max(0, (layout.size.width - summaryWidth - 2 * layout.sectionSpacing) / 2)
+        let sidebarSummary = plan.canPlaceSummaryBesideControls && !sharedModules.isEmpty
+        let sidebarWidth = min(summaryWidth, layout.size.width * 0.42)
+
+        return Group {
+            if plan.usesCenterColumn {
+                HStack(alignment: .top, spacing: layout.sectionSpacing) {
+                    stationTeamColumn(teamModules, side: sides[0], layout: controlColumnLayout(width: teamWidth, parent: layout),
+                                      usesFullBoardControls: usesFullBoardControls)
+                    VStack(spacing: layout.sectionSpacing) {
+                        controlBoardSummary(layout: controlColumnLayout(width: summaryWidth, parent: layout))
+                        stationSharedControls(sharedModules, layout: controlColumnLayout(width: summaryWidth, parent: layout),
+                                              usesFullBoardControls: usesFullBoardControls)
+                    }
+                    .frame(width: summaryWidth)
+                    stationTeamColumn(teamModules, side: sides[1], layout: controlColumnLayout(width: teamWidth, parent: layout),
+                                      usesFullBoardControls: usesFullBoardControls)
+                }
+            } else {
+                VStack(spacing: layout.sectionSpacing) {
+                    if sidebarSummary {
+                        HStack(alignment: .top, spacing: layout.sectionSpacing) {
+                            controlBoardSummary(layout: controlColumnLayout(width: sidebarWidth, parent: layout))
+                                .frame(width: sidebarWidth)
+                            stationSharedControls(sharedModules,
+                                layout: controlColumnLayout(width: max(0, layout.size.width - sidebarWidth - layout.sectionSpacing), parent: layout),
+                                usesFullBoardControls: usesFullBoardControls)
+                        }
+                    } else if controlBoardConfiguration.showsCenterSummary {
+                        controlBoardSummary(layout: layout)
+                            .frame(maxWidth: max(summaryWidth, 380))
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    if hasTeams {
+                        let count = max(1, plan.teamColumnCount)
+                        let width = max(0, (layout.size.width - CGFloat(count - 1) * layout.sectionSpacing) / CGFloat(count))
+                        let arrangement = count == 2
+                            ? AnyLayout(HStackLayout(alignment: .top, spacing: layout.sectionSpacing))
+                            : AnyLayout(VStackLayout(spacing: layout.sectionSpacing))
+                        arrangement {
+                            ForEach(sides, id: \.self) { side in
+                                stationTeamColumn(teamModules, side: side, layout: controlColumnLayout(width: width, parent: layout),
+                                                  usesFullBoardControls: usesFullBoardControls)
+                            }
+                        }
+                    }
+
+                    if !sidebarSummary {
+                        stationSharedControls(sharedModules, layout: layout, usesFullBoardControls: usesFullBoardControls)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("controlBoard.columns")
+    }
+
+    private func controlColumnLayout(width: CGFloat, parent: InterfaceLayout) -> InterfaceLayout {
+        InterfaceLayout(size: CGSize(width: width, height: parent.size.height), isCombinedDisplay: parent.isCombinedDisplay)
+    }
+
+    private func controlBoardSummary(layout: InterfaceLayout, allowsPlayerNavigation: Bool = false) -> some View {
+        centeredStatusWidget(layout: layout, allowsPlayerNavigation: allowsPlayerNavigation)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("controlBoard.summary")
+    }
+
+    private func stationSharedControls(_ modules: [ScoreboardControlBoardModule], layout: InterfaceLayout,
+                                       usesFullBoardControls: Bool) -> some View {
+        let plan = ScoreboardControlBoardLayout(width: Double(layout.size.width), teamCount: 0, showsSummary: false, includesRoster: false)
+        let count = max(1, min(modules.count, plan.sharedControlColumnCount))
+        let width = max(0, (layout.size.width - CGFloat(count - 1) * layout.sectionSpacing) / CGFloat(count))
+        let cardLayout = controlColumnLayout(width: width, parent: layout)
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: layout.sectionSpacing, alignment: .top), count: count),
+                         alignment: .leading, spacing: layout.sectionSpacing) {
+            ForEach(modules) { module in
+                Group {
+                    switch module {
+                    case .matchTimer:
+                        if usesFullBoardControls { gameControls(layout: cardLayout) }
+                        else { primaryGameControls(layout: cardLayout, includesScoreReset: false) }
+                    case .shotClock:
+                        shotClockWidget(layout: cardLayout, isDedicatedStation: !usesFullBoardControls)
+                    case .pauses: officialPauseControls(layout: cardLayout)
+                    default: EmptyView()
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("controlBoard.panel.\(module.rawValue)")
+            }
+        }
+    }
+
+    private func stationTeamColumn(_ modules: [ScoreboardControlBoardModule], side: TeamSide,
+                                   layout: InterfaceLayout, usesFullBoardControls: Bool) -> some View {
+        Group {
+            if usesFullBoardControls {
+                teamControls(title: store.sideRoleLabel(for: side), isHome: side == .home,
+                             tint: side == .home ? homeTint : guestTint, layout: layout)
+            } else {
+                VStack(alignment: .leading, spacing: layout.sectionSpacing) {
+                    if modules != [.roster] {
+                        HStack {
+                            Text(verbatim: store.sideRoleLabel(for: side)).font(.headline)
+                            Spacer(minLength: 4)
+                            Text(verbatim: side == .home ? store.homeTeamName : store.guestTeamName)
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                        }
+                        .foregroundStyle(themePalette.dashboardPrimaryText)
+                    }
+                    ForEach(modules) { module in
+                        stationTeamModule(module, side: side, layout: layout)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("station.\(module.rawValue).\(side.rawValue)")
+                    }
+                }
+                .controlCardStyle(backgroundColor: themePalette.dashboardCardBackground, borderColor: themePalette.dashboardCardBorder,
+                                  padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("station.team.\(side.rawValue)")
+    }
+
+    @ViewBuilder
+    private func stationTeamModule(_ module: ScoreboardControlBoardModule, side: TeamSide, layout: InterfaceLayout) -> some View {
+        let tint = side == .home ? homeTint : guestTint
+        switch module {
+        case .scores:
+            VStack(alignment: .leading, spacing: 12) {
+                Text(verbatim: "\(side == .home ? store.homeScore : store.guestScore)")
+                    .font(.system(size: layout.centerMetricValueSize, weight: .black, design: .rounded))
+                    .foregroundStyle(tint)
+                    .accessibilityIdentifier("station.score.\(side.rawValue)")
+                buttonGrid(columns: 2, buttons: scoreButtons(forHomeTeam: side == .home, tint: tint), dense: layout.denseControls)
+            }
+        case .shotClock: teamSecondaryTimerControls(side: side, layout: layout)
+        case .roster:
+            if store.isPlayerTrackingEnabled {
+                playerTeamPanel(side: side, layout: layout, allowsIdentityEditing: true)
+            } else {
+                Text("Player tracking is disabled. Enable it in Settings to manage the roster here.")
+                    .foregroundStyle(themePalette.dashboardMutedText).padding()
+            }
+        case .teamFouls: teamFoulControlRow(side: side, tint: tint, layout: layout)
+        case .substitutions: substitutionControlRow(side: side, tint: tint, layout: layout)
+        case .pauses: pauseControlRow(side: side, tint: tint, layout: layout)
+        case .penalties: hockeyPenaltyPanel(side: side, tint: tint, layout: layout)
+        case .prepTime: debatePrepInlinePanel(side: side, tint: tint, layout: layout)
+        default: EmptyView()
+        }
+    }
+
+    private func standardControlPane(layout: InterfaceLayout) -> some View {
         ZStack {
             switch dashboardPage {
             case .main:
@@ -9482,66 +9760,12 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func combinedDisplayControlGrid(layout: InterfaceLayout) -> some View {
-        let usesClockColumn = layout.size.width >= 960
-        let teamAreaWidth = usesClockColumn
-            ? (layout.size.width - layout.sectionSpacing) * 2 / 3
-            : layout.size.width
-        let teamAreaLayout = InterfaceLayout(
-            size: CGSize(width: teamAreaWidth, height: layout.size.height),
-            isCombinedDisplay: true
-        )
-        let clockLayout = InterfaceLayout(
-            size: CGSize(
-                width: usesClockColumn ? layout.size.width - teamAreaWidth - layout.sectionSpacing : layout.size.width,
-                height: layout.size.height
-            ),
-            isCombinedDisplay: true
-        )
-        let arrangement = usesClockColumn
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: layout.sectionSpacing))
-            : AnyLayout(VStackLayout(spacing: layout.sectionSpacing))
-
-        return arrangement {
-            VStack(spacing: layout.sectionSpacing) {
-                combinedDisplayTeamControls(layout: teamAreaLayout)
-                if store.supportsShotClock {
-                    shotClockWidget(layout: teamAreaLayout)
-                }
-            }
-            .frame(width: teamAreaWidth)
-
-            gameControls(layout: clockLayout)
-                .frame(width: clockLayout.size.width)
+        // Keep the same team cards and timer controls as the regular board.
+        // The shared column layout uses the actual Merged View control pane.
+        let modules = ScoreboardControlBoardModule.allCases.filter {
+            $0 != .roster && controlBoardCapabilities.availableModules.contains($0)
         }
-    }
-
-    private func combinedDisplayTeamControls(layout: InterfaceLayout) -> some View {
-        let columnCount = layout.size.width >= 560 ? 2 : 1
-        let cardWidth = (layout.size.width - CGFloat(columnCount - 1) * layout.sectionSpacing) / CGFloat(columnCount)
-        let cardLayout = InterfaceLayout(
-            size: CGSize(width: cardWidth, height: layout.size.height),
-            isCombinedDisplay: true
-        )
-        let leftIsHome = store.resolvedControlBoardDisplayDirection.leftSide == .home
-
-        return LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: layout.sectionSpacing, alignment: .top), count: columnCount),
-            alignment: .leading,
-            spacing: layout.sectionSpacing
-        ) {
-            teamControls(
-                title: store.sideRoleLabel(for: leftIsHome ? .home : .guest),
-                isHome: leftIsHome,
-                tint: leftIsHome ? homeTint : guestTint,
-                layout: cardLayout
-            )
-            teamControls(
-                title: store.sideRoleLabel(for: leftIsHome ? .guest : .home),
-                isHome: !leftIsHome,
-                tint: leftIsHome ? guestTint : homeTint,
-                layout: cardLayout
-            )
-        }
+        return stationControlColumns(modules: modules, layout: layout, usesFullBoardControls: true)
     }
 
     private func dashboardControlStack(layout: InterfaceLayout) -> some View {
@@ -9679,47 +9903,11 @@ struct ContentView: View, ScoreboardSetupEditing {
         let leftTitle = store.sideRoleLabel(for: leftIsHome ? .home : .guest)
         let rightTitle = store.sideRoleLabel(for: leftIsHome ? .guest : .home)
 
-        if usesDedicatedDualClockLayout {
-            if layout.topControlUsesVerticalFlow {
-                return AnyView(VStack(spacing: layout.sectionSpacing) {
-                    teamControls(
-                        title: leftTitle,
-                        isHome: leftIsHome,
-                        tint: leftIsHome ? homeTint : guestTint,
-                        layout: layout
-                    )
-
-                    teamControls(
-                        title: rightTitle,
-                        isHome: !leftIsHome,
-                        tint: leftIsHome ? guestTint : homeTint,
-                        layout: layout
-                    )
-                })
-            } else {
-                return AnyView(HStack(spacing: 16) {
-                    teamControls(
-                        title: leftTitle,
-                        isHome: leftIsHome,
-                        tint: leftIsHome ? homeTint : guestTint,
-                        layout: layout
-                    )
-                    .frame(maxWidth: .infinity)
-
-                    teamControls(
-                        title: rightTitle,
-                        isHome: !leftIsHome,
-                        tint: leftIsHome ? guestTint : homeTint,
-                        layout: layout
-                    )
-                    .frame(maxWidth: .infinity)
-                })
-            }
-        }
-
         if layout.topControlUsesVerticalFlow {
             return AnyView(VStack(spacing: layout.sectionSpacing) {
-                centeredStatusWidget(layout: layout)
+                if controlBoardConfiguration.showsCenterSummary {
+                    controlBoardSummary(layout: layout, allowsPlayerNavigation: true)
+                }
 
                 teamControls(
                     title: leftTitle,
@@ -9745,8 +9933,10 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
                 .frame(maxWidth: .infinity)
 
-                centeredStatusWidget(layout: layout)
-                    .frame(maxWidth: layout.centerStatusWidth)
+                if controlBoardConfiguration.showsCenterSummary {
+                    controlBoardSummary(layout: layout, allowsPlayerNavigation: true)
+                        .frame(maxWidth: layout.centerStatusWidth)
+                }
 
                 teamControls(
                     title: rightTitle,
@@ -9759,13 +9949,13 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
     }
 
-    private func centeredStatusWidget(layout: InterfaceLayout) -> some View {
+    private func centeredStatusWidget(layout: InterfaceLayout, allowsPlayerNavigation: Bool = true) -> some View {
         if usesDedicatedDualClockLayout {
             return AnyView(chessStatusWidget(layout: layout))
         }
 
         if store.isDebateMode {
-            return AnyView(debateStatusWidget(layout: layout))
+            return AnyView(debateStatusWidget(layout: layout, allowsPlayerNavigation: allowsPlayerNavigation))
         }
 
         let leftSide = store.resolvedControlBoardDisplayDirection.leftSide
@@ -9777,7 +9967,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         let rightScore = rightSide == .home ? store.homeScore : store.guestScore
         let rightTint = rightSide == .home ? homeTint : guestTint
 
-        return AnyView(VStack(alignment: .leading, spacing: 16) {
+        return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("Game State")
                     .font(.title3.weight(.bold))
@@ -9830,25 +10020,27 @@ struct ContentView: View, ScoreboardSetupEditing {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
-                spacing: 10
-            ) {
-                if store.supportsShotClock {
-                    gameMetricCard(title: store.secondaryTimerActionTitle, value: store.formattedShotClock, monospaced: true, animatesValue: false, layout: layout)
-                }
-                if store.supportsPeriod {
-                    gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
-                }
-                if store.activeInjuryTimeMinutes > 0 {
-                    gameMetricCard(title: "Added Time", value: localizedAppFormat("+%d min", store.activeInjuryTimeMinutes), layout: layout)
-                }
-                if store.supportsPeriodWinTracking {
-                    gameMetricCard(title: "Periods", value: "\(store.homePeriodWins)-\(store.guestPeriodWins)", layout: layout)
+            if !layout.isCombinedDisplay {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.centerMetricColumns),
+                    spacing: 10
+                ) {
+                    if store.supportsShotClock {
+                        gameMetricCard(title: store.secondaryTimerActionTitle, value: store.formattedShotClock, monospaced: true, animatesValue: false, layout: layout)
+                    }
+                    if store.supportsPeriod {
+                        gameMetricCard(title: store.periodTitle, value: "\(store.period)", layout: layout)
+                    }
+                    if store.activeInjuryTimeMinutes > 0 {
+                        gameMetricCard(title: "Added Time", value: localizedAppFormat("+%d min", store.activeInjuryTimeMinutes), layout: layout)
+                    }
+                    if store.supportsPeriodWinTracking {
+                        gameMetricCard(title: "Periods", value: "\(store.homePeriodWins)-\(store.guestPeriodWins)", layout: layout)
+                    }
                 }
             }
 
-            if store.isPlayerTrackingEnabled {
+            if store.isPlayerTrackingEnabled && allowsPlayerNavigation {
                 Button {
                     dashboardPage = .players
                 } label: {
@@ -9935,7 +10127,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func chessStatusWidget(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
             HStack {
                 Text(localizedAppFormat("%@ Clocks", localizedAppString(store.selectedSport.title)))
                     .font(.title3.weight(.bold))
@@ -10125,52 +10317,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
-            if store.supportsShotClock {
-                if store.usesServeTimer {
-                    let possessionSide: PossessionDirection = side == .home ? .home : .guest
-                    let isSelectedSide = store.possessionDirection == possessionSide
-                    buttonGrid(
-                        columns: 1,
-                        buttons: [
-                            ActionDescriptor(
-                                title: "Serve Here",
-                                tint: isSelectedSide ? tint : themePalette.dashboardNeutralButton,
-                                foreground: isSelectedSide ? tintText : themePalette.dashboardNeutralButtonText
-                            ) {
-                                store.setServeTimerSide(side)
-                            }
-                        ],
-                        dense: layout.denseControls,
-                        compactVerticalPadding: layout.advancedButtonVerticalPadding
-                    )
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                } else {
-                    let possessionSide: PossessionDirection = side == .home ? .home : .guest
-                    let isSelectedSide = store.possessionDirection == possessionSide
-                    buttonGrid(
-                        columns: 2,
-                        buttons: [
-                            ActionDescriptor(
-                                title: "Shot 24",
-                                tint: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
-                                foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tintText : themePalette.dashboardNeutralButtonText
-                            ) {
-                                store.assignShotClock(to: 24, forHomeTeam: isHome)
-                            },
-                            ActionDescriptor(
-                                title: "Shot 14",
-                                tint: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
-                                foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tintText : themePalette.dashboardNeutralButtonText
-                            ) {
-                                store.assignShotClock(to: 14, forHomeTeam: isHome)
-                            }
-                        ],
-                        dense: layout.denseControls,
-                        compactVerticalPadding: layout.advancedButtonVerticalPadding
-                    )
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
+            teamSecondaryTimerControls(side: side, layout: layout)
 
             if store.showsSubstitutionTracking {
                 substitutionControlRow(side: isHome ? .home : .guest, tint: tint, layout: layout)
@@ -10212,6 +10359,63 @@ struct ContentView: View, ScoreboardSetupEditing {
         )
     }
 
+    @ViewBuilder
+    private func teamSecondaryTimerControls(side: TeamSide, layout: InterfaceLayout) -> some View {
+        let isHome = side == .home
+        let tint = isHome ? homeTint : guestTint
+        let tintText = teamAccentText(for: side)
+        if store.supportsShotClock {
+            if store.usesServeTimer {
+                let possessionSide: PossessionDirection = side == .home ? .home : .guest
+                let isSelectedSide = store.possessionDirection == possessionSide
+                buttonGrid(
+                    columns: 1,
+                    buttons: [
+                        ActionDescriptor(
+                            title: "Serve Here",
+                            tint: isSelectedSide ? tint : themePalette.dashboardNeutralButton,
+                            foreground: isSelectedSide ? tintText : themePalette.dashboardNeutralButtonText,
+                            isEnabled: store.pauseTimer == nil
+                        ) {
+                            store.setServeTimerSide(side)
+                        }
+                    ],
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                let possessionSide: PossessionDirection = side == .home ? .home : .guest
+                let isSelectedSide = store.possessionDirection == possessionSide
+                buttonGrid(
+                    columns: 2,
+                    buttons: [
+                        ActionDescriptor(
+                            title: "Shot 24",
+                            tint: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tint : themePalette.dashboardNeutralButton,
+                            foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 24) ? tintText : themePalette.dashboardNeutralButtonText,
+                            isEnabled: store.pauseTimer == nil
+                        ) {
+                            store.assignShotClock(to: 24, forHomeTeam: isHome)
+                        },
+                        ActionDescriptor(
+                            title: "Shot 14",
+                            tint: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tint.opacity(0.82) : themePalette.dashboardNeutralButton,
+                            foreground: (isSelectedSide && store.activeShotClockPresetSeconds == 14) ? tintText : themePalette.dashboardNeutralButtonText,
+                            isEnabled: store.pauseTimer == nil
+                        ) {
+                            store.assignShotClock(to: 14, forHomeTeam: isHome)
+                        }
+                    ],
+                    dense: layout.denseControls,
+                    compactVerticalPadding: layout.advancedButtonVerticalPadding
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+
+    }
+
     private func chessTeamControls(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let isHome = side == .home
         let clockText = isHome ? store.formattedHomeChessClock : store.formattedGuestChessClock
@@ -10221,7 +10425,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            if !layout.isCombinedDisplay {
+            if !layout.isCombinedDisplay && !controlBoardConfiguration.showsCenterSummary {
                 Text(clockText)
                     .accessibilityIdentifier("live.chess.\(side.rawValue)")
                     .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
@@ -10305,15 +10509,16 @@ struct ContentView: View, ScoreboardSetupEditing {
             let leftSide: TeamSide = layout.isCombinedDisplay ? store.resolvedControlBoardDisplayDirection.leftSide : .home
             let rightSide: TeamSide = layout.isCombinedDisplay ? store.resolvedControlBoardDisplayDirection.rightSide : .guest
             let rosterWidth = max(0, layout.size.width - layout.controlCardPadding * 2 - 4)
+            let usesColumns = ScoreboardControlBoardLayout(width: Double(rosterWidth), teamCount: 2, showsSummary: false, includesRoster: true).teamColumnCount == 2
             let teamLayout = InterfaceLayout(
                 size: CGSize(
-                    width: layout.playerPanelsUseVerticalFlow ? rosterWidth : max(0, (rosterWidth - 16) / 2),
+                    width: !usesColumns ? rosterWidth : max(0, (rosterWidth - 16) / 2),
                     height: layout.size.height
                 ),
                 isCombinedDisplay: layout.isCombinedDisplay
             )
 
-            if layout.playerPanelsUseVerticalFlow {
+            if !usesColumns {
                 VStack(spacing: layout.sectionSpacing) {
                     playerTeamPanel(side: leftSide, layout: teamLayout)
                     playerTeamPanel(side: rightSide, layout: teamLayout)
@@ -10378,7 +10583,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         return parts.isEmpty ? "No reset actions" : parts.joined(separator: " • ")
     }
 
-    private func playerTeamPanel(side: TeamSide, layout: InterfaceLayout) -> some View {
+    private func playerTeamPanel(side: TeamSide, layout: InterfaceLayout, allowsIdentityEditing: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("\(store.sideRoleLabel(for: side)) Roster")
@@ -10406,9 +10611,10 @@ struct ContentView: View, ScoreboardSetupEditing {
                         supportsCards: store.supportsCards, supportsFouls: store.supportsFouls,
                         isCombinedDisplay: layout.isCombinedDisplay,
                         verticalPadding: layout.advancedButtonVerticalPadding,
+                        allowsIdentityEditing: allowsIdentityEditing,
                         storeID: ObjectIdentifier(store)
                     )) {
-                        playerControlRow(player, side: side, layout: layout)
+                        playerControlRow(player, side: side, layout: layout, allowsIdentityEditing: allowsIdentityEditing)
                     }
                     .equatable()
                 }
@@ -10416,6 +10622,28 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 2)
+    }
+
+    private func stationPlayerIdentityEditor(_ player: TrackedPlayer, side: TeamSide) -> some View {
+        HStack(spacing: 8) {
+            DeferredSettingsTextField(
+                placeholder: "No.",
+                text: Binding(get: { player.number }, set: { store.updateTrackedPlayerNumber($0, for: side, playerID: player.id) }),
+                focusID: "station-player-number-\(side.rawValue)-\(player.id.uuidString)",
+                focusedField: $focusedSettingsTextFieldID
+            )
+            .frame(width: 70)
+            DeferredSettingsTextField(
+                placeholder: "Player Name",
+                text: Binding(get: { player.name }, set: { store.updateTrackedPlayerName($0, for: side, playerID: player.id) }),
+                focusID: "station-player-name-\(side.rawValue)-\(player.id.uuidString)",
+                focusedField: $focusedSettingsTextFieldID
+            )
+            .scoreboardUppercaseEntry()
+            .autocorrectionDisabled()
+        }
+        .textFieldStyle(.roundedBorder)
+        .foregroundStyle(themePalette.dashboardPrimaryText)
     }
 
     @ViewBuilder
@@ -10464,17 +10692,24 @@ struct ContentView: View, ScoreboardSetupEditing {
         return buttons
     }
 
-    private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout) -> some View {
+    private func playerControlRow(_ player: TrackedPlayer, side: TeamSide, layout: InterfaceLayout,
+                                  allowsIdentityEditing: Bool = false) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                playerControlIdentity(player, layout: layout)
-                    .fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 0)
-                playerRowControls(player, side: side, layout: layout)
-                    .fixedSize(horizontal: true, vertical: false)
+            if !allowsIdentityEditing {
+                HStack(spacing: 10) {
+                    playerControlIdentity(player, layout: layout)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    playerRowControls(player, side: side, layout: layout)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
             VStack(alignment: .leading, spacing: 10) {
-                playerControlIdentity(player, layout: layout)
+                if allowsIdentityEditing {
+                    stationPlayerIdentityEditor(player, side: side)
+                } else {
+                    playerControlIdentity(player, layout: layout)
+                }
                 playerRowControls(player, side: side, layout: layout)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -10582,6 +10817,13 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func gameControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            officialPauseControls(layout: layout)
+            primaryGameControls(layout: layout)
+        }
+    }
+
+    private func officialPauseControls(layout: InterfaceLayout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             Menu {
                 Button { store.startPause(seconds: 0) } label: { localizedAppText("Indefinite Official Pause") }
                 Button { store.startPause(seconds: store.pauseDurationSeconds) } label: { localizedAppText("Timed Official Pause") }
@@ -10596,17 +10838,16 @@ struct ContentView: View, ScoreboardSetupEditing {
             if let pause = store.pauseTimer, pause.side == nil {
                 pauseTimerControlPanel(pause, layout: layout)
             }
-            primaryGameControls(layout: layout)
         }
     }
 
-    private func primaryGameControls(layout: InterfaceLayout) -> some View {
+    private func primaryGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
         if store.isDebateMode {
-            return AnyView(debateGameControls(layout: layout))
+            return AnyView(debateGameControls(layout: layout, includesScoreReset: includesScoreReset))
         }
 
         if store.usesChessClocks {
-            return AnyView(chessGameControls(layout: layout))
+            return AnyView(chessGameControls(layout: layout, includesScoreReset: includesScoreReset))
         }
 
         return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
@@ -10702,19 +10943,16 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
 
             buttonGrid(
-                columns: store.showsGameClock ? 2 : 1,
-                buttons: store.showsGameClock ? [
+                columns: store.showsGameClock && includesScoreReset ? 2 : 1,
+                buttons: (store.showsGameClock ? [
                     ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.resetClock)
-                    },
+                    }
+                ] : []) + (includesScoreReset ? [
                     ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                         requestGameConfirmation(.zeroScores)
                     }
-                ] : [
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
-                        requestGameConfirmation(.zeroScores)
-                    }
-                ],
+                ] : []),
                 style: .compact,
                 dense: layout.denseControls,
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
@@ -10729,7 +10967,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top))
     }
 
-    private func chessGameControls(layout: InterfaceLayout) -> some View {
+    private func chessGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(localizedAppFormat("%@ Controls", localizedAppString(store.selectedSport.title)))
@@ -10785,7 +11023,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
             }
 
-            if store.supportsScore {
+            if store.supportsScore && includesScoreReset {
                 buttonGrid(
                     columns: 1,
                     buttons: [
@@ -10808,8 +11046,8 @@ struct ContentView: View, ScoreboardSetupEditing {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
-    private func debateStatusWidget(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func debateStatusWidget(layout: InterfaceLayout, allowsPlayerNavigation: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     localizedAppText(store.currentDebatePreset.title)
@@ -10850,7 +11088,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
 
-            if store.showsDebatePrepTime {
+            if store.showsDebatePrepTime && !layout.isCombinedDisplay {
                 HStack(spacing: 10) {
                     compactDualClockBadge(
                         title: localizedAppFormat("%@ Prep", store.sideRoleLabel(for: .home)),
@@ -10897,7 +11135,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
 
-            if store.isPlayerTrackingEnabled {
+            if store.isPlayerTrackingEnabled && allowsPlayerNavigation {
                 Button {
                     dashboardPage = .players
                 } label: {
@@ -10926,7 +11164,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
-    private func debateGameControls(layout: InterfaceLayout) -> some View {
+    private func debateGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
         let segment = store.currentDebateSegment
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -11020,7 +11258,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 dense: layout.denseControls
             )
 
-            if store.supportsScore {
+            if store.supportsScore && includesScoreReset {
                 buttonGrid(
                     columns: 1,
                     buttons: [
@@ -11723,9 +11961,10 @@ struct ContentView: View, ScoreboardSetupEditing {
             addPenaltyTimer: { side, seconds in addPenaltyTimer(side: side, seconds: seconds) },
             togglePlayersPage: {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                    dashboardPage = dashboardPage == .players ? .main : .players
+                    dashboardPage = controlBoardMode == .full && dashboardPage != .players ? .players : .main
                 }
-            }
+            },
+            controlBoardConfiguration: controlBoardConfiguration
         )
         context.perform(action)
     }
@@ -11739,35 +11978,60 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func penaltyPlayerSelectionSheet(_ selection: PendingPenaltySelection) -> some View {
-        NavigationStack {
-            List(store.trackedPlayers(for: selection.side)) { player in
-                Button {
-                    store.addPenaltyTimer(for: selection.side, seconds: selection.seconds, player: player, startsRunning: true)
-                    pendingPenaltySelection = nil
-                } label: {
-                    HStack(spacing: 12) {
-                        Text("#\(player.number.isEmpty ? "--" : player.number)")
-                            .font(.headline.weight(.black))
-                            .foregroundStyle(selection.side == .home ? homeTint : guestTint)
-                            .frame(width: 54, alignment: .leading)
-
-                        Text(player.name.isEmpty ? localizedAppString("PLAYER") : player.name)
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(themePalette.dashboardPrimaryText)
-
-                        Spacer(minLength: 0)
+        let players = store.trackedPlayers(for: selection.side)
+        let teamName = selection.side == .home ? store.homeTeamName : store.guestTeamName
+        return ScoreboardControlSheet(
+            title: localizedAppFormat("Select %@ Player", localizedAppString(selection.side.title)),
+            subtitle: "\(teamName) · \(formatClock(selection.seconds))",
+            palette: themePalette,
+            accessibilityID: "penalty.playerPicker"
+        ) {
+            ScoreboardControlSheetCard(palette: themePalette) {
+                ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
+                    Button {
+                        store.addPenaltyTimer(for: selection.side, seconds: selection.seconds, player: player, startsRunning: true)
+                        pendingPenaltySelection = nil
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text("#\(player.number.isEmpty ? "--" : player.number)")
+                                .font(.headline.weight(.black))
+                                .foregroundStyle(selection.side == .home ? homeTint : guestTint)
+                                .frame(width: 54, alignment: .leading)
+                            Text(verbatim: player.name.isEmpty ? localizedAppString("PLAYER") : player.name)
+                                .font(.body.weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(themePalette.dashboardMutedText)
+                                .accessibilityHidden(true)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
+                    .disabled(store.pauseTimer != nil)
+                    .accessibilityIdentifier("penalty.player.\(player.id.uuidString)")
+                    if index < players.count - 1 {
+                        Rectangle().fill(themePalette.dashboardCardBorder).frame(height: 1).padding(.horizontal, 14)
+                    }
+                }
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                Button { pendingPenaltySelection = nil } label: {
+                    Text("Cancel")
+                        .foregroundStyle(themePalette.dashboardNeutralButtonText)
+                        .frame(minWidth: 64)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
-            }
-            .navigationTitle(localizedAppFormat("Select %@ Player", localizedAppString(selection.side.title)))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        pendingPenaltySelection = nil
-                    }
-                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("penalty.cancel")
             }
         }
     }
@@ -15391,12 +15655,11 @@ private struct InterfaceLayout {
     var topControlUsesVerticalFlow: Bool { width < 720 }
     var controlBottomUsesVerticalFlow: Bool { width < 980 || isPortraitish }
     var centerStatusWidth: CGFloat { width < 960 ? 280 : width < 1280 ? 320 : 360 }
-    var centerScoreSize: CGFloat { denseControls ? 42 : width < 1280 ? 50 : 58 }
+    var centerScoreSize: CGFloat { isCombinedDisplay ? 26 : denseControls ? 42 : width < 1280 ? 50 : 58 }
     var centerMetricValueSize: CGFloat { denseControls ? 24 : 28 }
     var centerMetricColumns: Int { width < 720 ? 1 : 3 }
     var teamButtonColumns: Int { width < 900 ? 1 : 2 }
     var playerActionButtonColumns: Int { width < 700 ? 2 : 4 }
-    var playerPanelsUseVerticalFlow: Bool { width < (isCombinedDisplay ? 640 : 1180) }
     func controlTopSectionHeight(in totalHeight: CGFloat) -> CGFloat {
         if topControlUsesVerticalFlow {
             return min(max(totalHeight * 0.58, 360), totalHeight - 140)
@@ -15823,6 +16086,7 @@ private struct ScoreboardPlayerRowInputs: Equatable {
     let supportsFouls: Bool
     let isCombinedDisplay: Bool
     let verticalPadding: CGFloat
+    let allowsIdentityEditing: Bool
     let storeID: ObjectIdentifier
 }
 

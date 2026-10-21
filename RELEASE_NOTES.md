@@ -4,6 +4,7 @@
 
 ### Feature Added
 
+- Added per-sport, device-local control board modes for dedicated match timer, shot/serve timer, roster, scoring, and penalty stations. Custom stations support module selection, ordering, and team filtering, with matching keyboard shortcut behavior. Roster stations can edit player names and numbers without opening game settings. All modes offer a clock/score box enabled by default and a Merged View switch; Display Control remains separate.
 - Added configurable timed or indefinite team and official pauses, with separate timed/infinite start buttons, inline operator pause/resume/stop controls, separate pause-count adjustments, centered pause labels with team/event logos, synchronized display overlays, remote control, Web API templates, keyboard shortcuts, Live Activities, saved state, sounds, and Companion events (including infinite pause stops).
 - Added Remote Control Board support for iPhone, iPad, and Mac, reusing the existing Control Board for scores, timers, players, sounds, and display controls across supported sports and modes, with separate control permission for each paired device.
 - Added simultaneous remote control and scoreboard display, including Merged View, local display, and external display support.
@@ -15,13 +16,15 @@
 
 ### Issue Fixed
 
+- Reworked the control board mode and hockey penalty pickers with a shared, bounded, themed layout, scrollable options, and persistent actions. Moved the mode button beside the Theme menu in all control board toolbars. Station controls reuse team columns and existing player/timer controls, including in Merged View.
+- Made connection dropdowns and device counts host-centric: a non-host owner appears as a client with its connection-to-host status and telemetry, while the host is excluded from client totals.
 - Fixed returning from Settings reloading an unchanged game and stopping timers on the owner or delegated host. Added a confirmation before opening Settings while timers are running.
 - Improved remote timer operation timing with network-delay compensation.
 - Improved pairing, discovery, reconnection, host switching, and cleanup of former hosted sessions; excluded the local device and unavailable owner/host pairing endpoints from client discovery.
 - Improved remote disconnect handling so the interface stays responsive and connection status updates when commands cannot be delivered.
 - Improved player-page responsiveness and reduced connection-badge flicker during timer operations.
 - Fixed game-name synchronization between the owner and remote devices.
-- Improved connection badges with compact layouts, theme-adaptive colors, device counts, detailed device status and latency, and separate owner connection status. Hosts show Hosting without a ping indicator.
+- Improved connection badges with compact layouts, theme-adaptive colors, device counts, and detailed client status and latency. Hosts show Hosting without a ping indicator.
 - Fixed blurred backgrounds in Background Only, Event Logo, Team View, and Player View on local and remote displays.
 - Improved Apple TV help layout and role wording, and expanded Simplified Chinese translations throughout remote display, control, hosting, and help screens.
 

@@ -33,6 +33,8 @@ not apply.
 | --- | --- |
 | `ScoringTests.swift` | Score corrections, team independence, new-game reset, timer fractions and expiry, storage isolation |
 | `RosterCSVTests.swift` | CSV escaping, Unicode, player state, and malformed rows |
+| `ControlBoardModeTests.swift` | Per-sport presets and capability changes, custom module ordering, team scope, shortcut execution, default summary visibility/persistence, pane-width column layouts, empty layouts, preference reset and legacy/future data |
+| `ConnectionStatusTests.swift` | Non-host owner as a client, host exclusion, owner link telemetry/disconnects, legacy lists, duplicate peers, consistent client counts |
 | `RemoteControlTests.swift` | All sport capability gates, command validation and retries, timer delay compensation, controller permissions, wire compatibility, mirror updates, pending commands and disconnects |
 | `PauseTimerTests.swift` | Keyboard controls, all sport pause capabilities, allowances, fractional countdowns, expiry, saved games and backups, remote projection, indefinite pauses, sounds and Companion actions |
 | `SessionAuthorityTests.swift` | Authority epochs, identity conflicts, clean disconnect rules, hosted storage, corrupt recovery, checkpoint compatibility and sport handoff encoding |
@@ -61,11 +63,13 @@ utilities.
 The **smartScoreboardUITests → an iPad simulator** scheme adds real iPad operator, display/layout,
 Companion, and remote-client workflows. See [UI tests and regression history](ui-testing.md)
 for scenarios, fixtures, and running a selected group. These UI tests are separate
-from the faster core suite above. `AllUI` is the default and enables all 53
+from the faster core suite above. `AllUI` is the default and enables all
 scenarios, including all event modes and expanded Debate/Custom
-editing combinations. `FocusedUI` selects eight cases for the recent repairs;
+editing combinations and control board station layouts. `FocusedUI` selects fourteen cases for the recent repairs and station modes;
 JSON fixtures preload repeated setup for the larger configuration matrix.
 Current repairs and preloading have not been built or run, at the user's request.
+The new control board mode and connection-status regressions have also been added
+without running tests or a build, at the user's request.
 The core setup suite also includes a parameterized regression for Debate's
 opening side and preservation of the live turn after unrelated edits.
 AirPlay, physical devices, RTC negotiation, and
