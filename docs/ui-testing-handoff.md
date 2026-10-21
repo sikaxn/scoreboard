@@ -1,5 +1,35 @@
 # UI test validation checkpoints
 
+## 2026-10-21 — Official Pause beside Added Time
+
+Official Pause now shares the Added Time row inside the game-clock card. Its
+active pause panel stays below that row, inside the same card. Other clock modes
+keep the pause control in the corresponding timer-controls row; dedicated
+stations retain their module selection.
+
+The large iPad's fixed-height board layout caused native menus inside the clock
+card to disappear during presentation. The board now uses naturally sized cards
+in its existing scroll view, which also allows the active pause panel to expand
+without overflowing a fixed row.
+
+With Xcode 27.1 and the iPad Pro 12.9-inch (6th generation), iPadOS 27.0:
+
+- **All five focused UI cases passed**, with no skips: Basketball, Chess, and
+  Debate pause/stop/restart; Soccer's shared row, Added Time selection, and
+  pause/stop/restart; and Merged View scoring, rotation, and Official Pause.
+- Soccer completed in **208.3 seconds**, including native animation idle waits;
+  the other cases completed in **29.4–74.0 seconds**.
+- Result: `/tmp/scoreboard-clock-row-layout.xcresult`.
+- An earlier isolated launch stopped at the first-run welcome screen before
+  reaching the clock controls. The final five-case run loaded its fixtures and
+  completed successfully; no fixture-loading code was changed.
+- Two station checks passed before the final row/layout adjustment: custom
+  module/team scope and the dedicated shot-clock controller.
+
+The final build and `git diff --check` passed. No full `AllUI` or Xcode Cloud run
+was performed. The temporary simulator and intermediate binary artifacts were
+removed to conserve disk space; the final result and diagnostic text were kept.
+
 ## 2026-10-21 — Xcode Cloud failures
 
 Investigation used Xcode **27.1 (`27A9275`)**, an **iPad Pro 12.9-inch

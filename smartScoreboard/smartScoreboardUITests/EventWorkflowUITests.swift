@@ -44,16 +44,52 @@ final class EventWorkflowUITests: ScoreboardUITestCase {
 
     // 4a8c137: an official pause stops play; ending it leaves play stopped.
     func testOfficialPauseLeavesPlayStoppedUntilOperatorRestarts() {
-        launch()
-        tap(action("Start Game Clock"))
-        tap(app.buttons["live.officialPause"].firstMatch)
+        checkOfficialPause(scenario: "basketball", startTitle: "Start Game Clock", runningTitle: "Pause Game Clock")
+    }
+
+    func testOfficialPauseInChessClockCardLeavesPlayStopped() {
+        checkOfficialPause(scenario: "chess", startTitle: "Start Active Clock", runningTitle: "Pause Active Clock")
+    }
+
+    func testOfficialPauseInDebateClockCardLeavesPlayStopped() {
+        checkOfficialPause(scenario: "debate", startTitle: "Start Segment Timer", runningTitle: "Pause Segment Timer")
+    }
+
+    func testOfficialPauseSharesAddedTimeRow() {
+        checkOfficialPause(scenario: "soccer", startTitle: "Start Game Clock", runningTitle: "Pause Game Clock")
+    }
+
+    private func checkOfficialPause(scenario: String, startTitle: String, runningTitle: String) {
+        launch(scenario)
+        let clockCard = mainWindow.otherElements["live.gameControls"].firstMatch
+        XCTAssertTrue(clockCard.waitForExistence(timeout: 5))
+        let start = clockCard.buttons["action.\(startTitle)"]
+        tap(start, anchor: clockCard)
+        let adjustmentRow = clockCard.otherElements["live.clockAdjustmentRow"]
+        let officialPause = adjustmentRow.buttons["live.officialPause"]
+        reveal(officialPause, anchor: clockCard)
+        XCTAssertEqual(mainWindow.buttons.matching(identifier: "live.officialPause").count, 1)
+        XCTAssertTrue(clockCard.frame.contains(officialPause.frame), "Official Pause must be inside the clock card")
+        if scenario == "soccer" {
+            let addedTime = adjustmentRow.otherElements["live.addedTime"]
+            XCTAssertTrue(addedTime.staticTexts["Added Time"].exists)
+            XCTAssertEqual(addedTime.frame.midY, officialPause.frame.midY, accuracy: 1, "Official Pause must share the Added Time row")
+            XCTAssertLessThanOrEqual(addedTime.frame.maxX, officialPause.frame.minX)
+            tap(addedTime.buttons["Set"], anchor: adjustmentRow)
+            tapMenuAction("+3 min")
+            XCTAssertTrue(addedTime.staticTexts["+3 min"].exists)
+        }
+        tap(officialPause, anchor: clockCard)
         tapMenuAction("Indefinite Official Pause")
-        XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5))
-        XCTAssertFalse(action("Start Game Clock").isEnabled)
-        tap(action("Stop Pause"))
-        XCTAssertTrue(action("Start Game Clock").isEnabled)
-        tap(action("Start Game Clock"))
-        XCTAssertTrue(action("Pause Game Clock").waitForExistence(timeout: 5))
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled)
+        let stopPause = clockCard.buttons["action.Stop Pause"]
+        reveal(stopPause, anchor: clockCard)
+        XCTAssertTrue(clockCard.frame.contains(stopPause.frame), "The active pause controls must stay inside the clock card")
+        tap(stopPause, anchor: clockCard)
+        XCTAssertTrue(start.isEnabled)
+        tap(start, anchor: clockCard)
+        XCTAssertTrue(clockCard.buttons["action.\(runningTitle)"].waitForExistence(timeout: 5))
     }
 
     // 2e8729b/57b98ea: dynamic percent text and deep Debate/Custom view trees

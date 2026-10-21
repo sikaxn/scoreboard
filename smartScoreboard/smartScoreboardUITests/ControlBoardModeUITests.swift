@@ -85,6 +85,7 @@ final class ControlBoardModeUITests: ScoreboardUITestCase {
         XCTAssertEqual(text(mainWindow.staticTexts["station.score.home"]), "1")
         XCTAssertFalse(mainWindow.otherElements["station.scores.guest"].exists)
         XCTAssertFalse(mainWindow.otherElements["controlBoard.panel.pauses"].exists)
+        XCTAssertFalse(mainWindow.buttons["live.officialPause"].exists)
         XCTAssertFalse(action("Start Game Clock").exists)
         selectMode("full")
         XCTAssertEqual(text(score("home")), "1")

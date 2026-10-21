@@ -86,9 +86,9 @@ percent signs and `%@` to exercise the earlier formatting regressions.
 | --- | --- | --- |
 | Event setup and operation | Select Basketball, enter event/team names, score independently, start and stop the real clock | Main operator workflow |
 | Running-clock settings warning | Cancel the warning, confirm it, return without edits, retain scores and the running clock | `43cdfb1` — settings warning and live-state preservation |
-| Official pause | Stop play, show an indefinite official pause, end it, restart only on operator action | `4a8c137` — pause timers and controls |
+| Official pause | Keep the menu and active pause controls inside the game-clock card in Basketball, Chess, Debate, and Soccer; place it beside Added Time in Soccer, change added time, stop play, end the pause, restart only on operator action | `4a8c137` — pause timers and controls |
 | Debate and Custom setup | Commit percent-containing event names and reopen both settings trees without crashing or corrupting text | `2e8729b`, `57b98ea` — localized formatting crashes and deep SwiftUI view trees |
-| Merged view and rotation | Rotate the actual iPad viewport between portrait and both landscape orientations; keep scoring, header controls, and clock updates usable | `57b98ea`, `f9f89bc`, `f395c74` — compact layouts and wrapping toolbar fixes |
+| Merged view and rotation | Rotate the actual iPad viewport between portrait and both landscape orientations; keep scoring, header controls, and clock updates usable, then use Official Pause inside the clock card | `57b98ea`, `f9f89bc`, `f395c74` — compact layouts and wrapping toolbar fixes |
 | Window resizing | Drag the actual iPadOS resize handle to shrink and restore the app window; retain scoring, clock updates, and settings access | Adaptive layout regressions; requires iPadOS 26+ |
 | Scrolling during play | Scroll settings in both directions and retain an advancing, running match clock | `234db78` — timer updates stopped during scrolling |
 | Full-screen display lifecycle | Show current scores and advancing clock, rotate, tap to return, score, background/foreground the app, reopen with current state | Display lifecycle and state synchronization |

@@ -9284,28 +9284,10 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func mainControlPane(layout: InterfaceLayout) -> some View {
-        Group {
-            // Custom modules can exceed the fixed top row even on a large
-            // iPad. Let their cards size naturally inside the scroll view so
-            // overflowing controls cannot cover the dashboard header.
-            if layout.requiresDashboardScroll || layout.isCombinedDisplay || store.selectedSport == .custom {
-                ScrollView(.vertical, showsIndicators: false) {
-                    dashboardControlStack(layout: layout)
-                        .padding(.bottom, layout.sectionSpacing)
-                }
-            } else {
-                GeometryReader { proxy in
-                    let topSectionHeight = layout.controlTopSectionHeight(in: proxy.size.height)
-
-                    VStack(spacing: layout.sectionSpacing) {
-                        topControlRow(layout: layout)
-                            .frame(height: topSectionHeight)
-
-                        bottomControlRow(layout: layout)
-                            .frame(height: max(proxy.size.height - topSectionHeight - layout.sectionSpacing, 0))
-                    }
-                }
-            }
+        // Let cards grow naturally for Added Time and active official pauses.
+        ScrollView(.vertical, showsIndicators: false) {
+            dashboardControlStack(layout: layout)
+                .padding(.bottom, layout.sectionSpacing)
         }
     }
 
@@ -10819,48 +10801,85 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func gameControls(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            officialPauseControls(layout: layout)
-            primaryGameControls(layout: layout)
-        }
+        primaryGameControls(layout: layout, includesOfficialPause: true)
     }
 
     private func officialPauseControls(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Menu {
-                Button { store.startPause(seconds: 0) } label: { localizedAppText("Indefinite Official Pause") }
-                Button { store.startPause(seconds: store.pauseDurationSeconds) } label: { localizedAppText("Timed Official Pause") }
-            } label: {
-                Label { localizedAppText("Official Pause") } icon: { Image(systemName: "pause.circle") }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-                    .foregroundStyle(.tint)
-                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                    .contentShape(Rectangle())
-            }
-            // Style the label instead of applying a bordered button style,
-            // which can prevent this native menu from opening on iPad.
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("live.officialPause")
-            .disabled(store.pauseTimer != nil)
+            officialPauseMenu()
             if let pause = store.pauseTimer, pause.side == nil {
                 pauseTimerControlPanel(pause, layout: layout)
             }
         }
     }
 
-    private func primaryGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
-        if store.isDebateMode {
-            return AnyView(debateGameControls(layout: layout, includesScoreReset: includesScoreReset))
+    private func officialPauseMenu() -> some View {
+        Menu {
+            Button { store.startPause(seconds: 0) } label: { localizedAppText("Indefinite Official Pause") }
+            Button { store.startPause(seconds: store.pauseDurationSeconds) } label: { localizedAppText("Timed Official Pause") }
+        } label: {
+            Label { localizedAppText("Official Pause") } icon: { Image(systemName: "pause.circle") }
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 7)
+                .foregroundStyle(.tint)
+                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
         }
+        // Style the label instead of applying a bordered button style,
+        // which can prevent this native menu from opening on iPad.
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("live.officialPause")
+        .disabled(store.pauseTimer != nil)
+    }
 
-        if store.usesChessClocks {
-            return AnyView(chessGameControls(layout: layout, includesScoreReset: includesScoreReset))
+    @ViewBuilder
+    private func clockAdjustmentControls(layout: InterfaceLayout, includesOfficialPause: Bool) -> some View {
+        if store.supportsInjuryTime || includesOfficialPause {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    if store.supportsInjuryTime {
+                        injuryTimeControl(layout: layout)
+                    }
+                    if includesOfficialPause {
+                        officialPauseMenu()
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("live.clockAdjustmentRow")
+
+                if includesOfficialPause, let pause = store.pauseTimer, pause.side == nil {
+                    pauseTimerControlPanel(pause, layout: layout)
+                }
+            }
         }
+    }
 
-        return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
+    private func primaryGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true,
+                                     includesOfficialPause: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
+            if store.isDebateMode {
+                debateGameControls(layout: layout, includesScoreReset: includesScoreReset, includesOfficialPause: includesOfficialPause)
+            } else if store.usesChessClocks {
+                chessGameControls(layout: layout, includesScoreReset: includesScoreReset, includesOfficialPause: includesOfficialPause)
+            } else {
+                standardGameControls(layout: layout, includesScoreReset: includesScoreReset, includesOfficialPause: includesOfficialPause)
+            }
+        }
+        .controlCardStyle(
+            backgroundColor: themePalette.dashboardCardBackground,
+            borderColor: themePalette.dashboardCardBorder,
+            padding: layout.controlCardPadding,
+            cornerRadius: layout.controlCardCornerRadius
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.gameControls")
+        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+    }
+
+    private func standardGameControls(layout: InterfaceLayout, includesScoreReset: Bool, includesOfficialPause: Bool) -> some View {
+        VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 16) {
             if store.showsGameClock {
                 gameSummaryRow(layout: layout)
 
@@ -10897,9 +10916,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
 
-                if store.supportsInjuryTime {
-                    injuryTimeControl(layout: layout)
-                }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Match Controls")
@@ -10917,6 +10933,8 @@ struct ContentView: View, ScoreboardSetupEditing {
 
                 liveBoardSportGuidanceTip(layout: layout)
             }
+
+            clockAdjustmentControls(layout: layout, includesOfficialPause: includesOfficialPause)
 
             buttonGrid(
                 columns: matchNavigationButtons.count,
@@ -10968,16 +10986,9 @@ struct ContentView: View, ScoreboardSetupEditing {
                 compactVerticalPadding: layout.advancedButtonVerticalPadding
             )
         }
-        .controlCardStyle(
-            backgroundColor: themePalette.dashboardCardBackground,
-            borderColor: themePalette.dashboardCardBorder,
-            padding: layout.controlCardPadding,
-            cornerRadius: layout.controlCardCornerRadius
-        )
-        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top))
     }
 
-    private func chessGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
+    private func chessGameControls(layout: InterfaceLayout, includesScoreReset: Bool, includesOfficialPause: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(localizedAppFormat("%@ Controls", localizedAppString(store.selectedSport.title)))
@@ -11010,6 +11021,8 @@ struct ContentView: View, ScoreboardSetupEditing {
             ) {
                 store.switchChessClock()
             }
+
+            clockAdjustmentControls(layout: layout, includesOfficialPause: includesOfficialPause)
 
             buttonGrid(
                 columns: 2,
@@ -11047,13 +11060,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
             }
         }
-        .controlCardStyle(
-            backgroundColor: themePalette.dashboardCardBackground,
-            borderColor: themePalette.dashboardCardBorder,
-            padding: layout.controlCardPadding,
-            cornerRadius: layout.controlCardCornerRadius
-        )
-        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateStatusWidget(layout: InterfaceLayout, allowsPlayerNavigation: Bool = true) -> some View {
@@ -11174,7 +11180,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.gameState), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
-    private func debateGameControls(layout: InterfaceLayout, includesScoreReset: Bool = true) -> some View {
+    private func debateGameControls(layout: InterfaceLayout, includesScoreReset: Bool, includesOfficialPause: Bool) -> some View {
         let segment = store.currentDebateSegment
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -11238,6 +11244,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                 }
             }
 
+            clockAdjustmentControls(layout: layout, includesOfficialPause: includesOfficialPause)
+
             buttonGrid(
                 columns: 2,
                 buttons: [
@@ -11283,16 +11291,9 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
-        .controlCardStyle(
-            backgroundColor: themePalette.dashboardCardBackground,
-            borderColor: themePalette.dashboardCardBorder,
-            padding: layout.controlCardPadding,
-            cornerRadius: layout.controlCardCornerRadius
-        )
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.supportsScore)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: store.debateSpeakingSide)
-        .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
     private func debateControlSegmentTitle(idPrefix: String) -> some View {
@@ -11511,6 +11512,8 @@ struct ContentView: View, ScoreboardSetupEditing {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.addedTime")
     }
 
     private var periodWinStatusText: String {
@@ -15661,7 +15664,6 @@ private struct InterfaceLayout {
         #endif
     }
 
-    var requiresDashboardScroll: Bool { isPortraitish || width < 760 || height < 820 }
     var topControlUsesVerticalFlow: Bool { width < 720 }
     var controlBottomUsesVerticalFlow: Bool { width < 980 || isPortraitish }
     var centerStatusWidth: CGFloat { width < 960 ? 280 : width < 1280 ? 320 : 360 }
@@ -15670,12 +15672,6 @@ private struct InterfaceLayout {
     var centerMetricColumns: Int { width < 720 ? 1 : 3 }
     var teamButtonColumns: Int { width < 900 ? 1 : 2 }
     var playerActionButtonColumns: Int { width < 700 ? 2 : 4 }
-    func controlTopSectionHeight(in totalHeight: CGFloat) -> CGFloat {
-        if topControlUsesVerticalFlow {
-            return min(max(totalHeight * 0.58, 360), totalHeight - 140)
-        }
-        return min(max(totalHeight * (isTabletSized ? 0.45 : 0.48), isTabletSized ? 250 : 280), isTabletSized ? 330 : 360)
-    }
     var advancedButtonVerticalPadding: CGFloat { denseControls ? 8 : isTabletSized ? 7 : 11 }
     var shotClockButtonColumns: Int {
         if width < 520 { return 2 }
