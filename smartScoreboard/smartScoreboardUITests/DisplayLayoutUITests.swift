@@ -30,11 +30,10 @@ final class DisplayLayoutUITests: ScoreboardUITestCase {
         }
         XCTAssertEqual(text(score()), "5")
         let clockCard = mainWindow.otherElements["controlBoard.panel.matchTimer"]
-        let officialPause = clockCard.buttons["live.officialPause"]
+        let officialPause = clockCard.otherElements["live.officialPause"]
         reveal(officialPause, anchor: clockCard)
         XCTAssertTrue(clockCard.frame.contains(officialPause.frame), "Merged View must keep Official Pause inside the clock card")
-        tap(officialPause, anchor: clockCard)
-        tapMenuAction("Indefinite Official Pause")
+        tap(officialPause.buttons["live.officialPause.indefinite"], anchor: clockCard)
         tap(clockCard.buttons["action.Stop Pause"], anchor: clockCard)
         XCTAssertTrue(action("Start Game Clock").isEnabled)
         openSettings()

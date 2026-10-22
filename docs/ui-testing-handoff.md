@@ -1,5 +1,67 @@
 # UI test validation checkpoints
 
+## 2026-10-21 — Compact active pause and minute chooser
+
+An active official pause reuses its original bar: the start actions become
+Pause/Continue and Stop, with the countdown or Indefinite status beside them.
+The separate active-pause panel is removed. State transitions animate smoothly,
+respect Reduce Motion, and leave ordinary timer ticks unanimated.
+
+Timed official and team pauses now offer a menu of **1–60 minutes**. The fixed
+Default Pause Duration setting is removed. Pause validation and saved-state
+normalization use a separate 3600-second limit so the 60-minute choice is not
+clamped to the game clock's 59:59 maximum. Existing API and keyboard fallback
+duration fields remain compatible with older saved games.
+
+Only focused checks were run:
+
+- **Three core tests passed**: 60-minute boundary/save/backup/expiry, team pause
+  lifecycle, and delayed pause compensation/persistence. Result:
+  `/tmp/scoreboard-reused-pause-core-selected.xcresult`.
+- **Three UI cases passed** in the combined run: Merged View rotation and pause,
+  Soccer's Added Time/shared row/hardware shortcuts, and chosen timed pause with
+  countdown pause/resume/stop. Bar-height checks verify that an active pause
+  reuses its existing space. Result: `/tmp/scoreboard-reused-pause.xcresult`.
+- The fourth UI case initially left the team-duration popup open after a
+  coordinate tap. Using the duration button's native XCTest tap fixed that
+  test; its isolated rerun **passed in 25.2 seconds**. Result:
+  `/tmp/scoreboard-reused-pause-team.xcresult`.
+
+The final build and `git diff --check` passed. The screenshot retained by the
+timed-pause test was inspected. The full suite and Xcode Cloud were not run.
+The temporary simulator and redundant intermediate artifacts were removed.
+
+## 2026-10-21 — Inline Official Pause actions and keyboard repair
+
+Added Time and Official Pause now share the same bar and action-button styling.
+Official Pause exposes Indefinite and Timed directly on its bar, with an Off or
+active-pause status. Narrow control panes can stack the bars and place pause
+actions below their heading. The active pause panel remains inside the clock card.
+
+The remaining Cloud failure reproduced locally: the hardware-shortcut capture
+view could summon the software keyboard over native menus. Capture now changes
+focus on activation transitions instead of every clock update and supplies an
+empty input view for its hardware-only responder. Added Time selection checks
+that the keyboard stays hidden, followed by real Space-key clock toggles.
+Native popup helpers resolve current action coordinates and verify dismissal;
+test launch terminates a prelaunched app before applying isolated fixture data.
+
+With Xcode 27.1 (`27A9275`) and iPad Pro 12.9-inch (6th generation), iPadOS 27.0:
+
+- **All eight targeted UI tests passed**, with no failures or skips, in
+  **203.1 seconds** of test execution (242.4 seconds including runner startup).
+- Coverage: Basketball, Chess, Debate, and Soccer indefinite pause/stop/restart;
+  Soccer Added Time selection and hardware shortcuts; timed pause with countdown
+  pause/resume; Merged View scoring, rotation, and pause controls; full-screen
+  display/background recovery; and running-clock Settings Cancel/confirm.
+- Result: `/tmp/scoreboard-inline-pause-verified.xcresult`.
+- The shared-row test retains a screenshot of both bars for visual review.
+
+The final build and `git diff --check` passed. Only these eight tests were
+selected using `-only-testing`; the full AllUI suite and Xcode Cloud were not run.
+Temporary simulator and intermediate result bundles were removed to conserve
+disk space. The final result, summary, and diagnostic text were retained.
+
 ## 2026-10-21 — Official Pause beside Added Time
 
 Official Pause now shares the Added Time row inside the game-clock card. Its

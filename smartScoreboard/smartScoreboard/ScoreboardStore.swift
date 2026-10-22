@@ -856,6 +856,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
 final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
     nonisolated static let maxGameClockSeconds = 59 * 60 + 59
+    nonisolated static let maxPauseDurationSeconds = 60 * 60
     nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
@@ -4446,7 +4447,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPauseDurationSeconds(_ seconds: Int) {
-        pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, seconds))
+        pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, seconds))
     }
 
     func setTeamPauseIndefinite(_ isIndefinite: Bool) {
@@ -4457,7 +4458,7 @@ final class ScoreboardStore: ObservableObject {
     func startPause(for side: TeamSide? = nil, seconds: Int? = nil) {
         let duration = seconds ?? pauseDurationSeconds
         if routeRemoteControlCommand(side == nil ? "pause.official" : "pause.start", side: side, value: duration) { return }
-        guard pauseTimer == nil, duration >= 0, duration <= Self.maxGameClockSeconds else { return }
+        guard pauseTimer == nil, duration >= 0, duration <= Self.maxPauseDurationSeconds else { return }
         if let side {
             guard supportsPauseTracking, pausesRemaining(for: side) > 0 else { return }
         }
@@ -4510,7 +4511,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func normalizedPauseTimer(_ source: ScoreboardPauseTimer?, preserveRunning: Bool) -> ScoreboardPauseTimer? {
         guard var pause = source, pause.side == nil || supportsPauseTracking else { return nil }
-        if let seconds = pause.remainingSeconds { pause.remainingSeconds = max(0, min(Self.maxGameClockSeconds, seconds)) }
+        if let seconds = pause.remainingSeconds { pause.remainingSeconds = max(0, min(Self.maxPauseDurationSeconds, seconds)) }
         pause.isRunning = preserveRunning && pause.isRunning && (pause.remainingSeconds ?? 0) > 0
         return pause
     }
@@ -4882,7 +4883,7 @@ final class ScoreboardStore: ObservableObject {
             if isDebateMode {
                 clearSubstitutionTracking()
             }
-            pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, snapshot.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, snapshot.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
             isTeamPauseIndefinite = snapshot.isTeamPauseIndefinite ?? false
             pauseTimer = normalizedPauseTimer(snapshot.pauseTimer, preserveRunning: isApplyingRemoteControlState || isApplyingSessionUpdate)
             accumulatedPauseElapsed = 0
@@ -7360,7 +7361,7 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
-            pauseDurationSeconds = max(1, min(Self.maxGameClockSeconds, persistedState.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, persistedState.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
             isTeamPauseIndefinite = persistedState.isTeamPauseIndefinite ?? false
             pauseTimer = normalizedPauseTimer(persistedState.pauseTimer, preserveRunning: false)
             accumulatedPauseElapsed = 0

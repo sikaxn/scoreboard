@@ -199,7 +199,7 @@ extension ScoreboardStore {
         case "pause.start", "pause.official":
             guard pauseTimer == nil else { return fail("conflict", "Cancel the current pause before starting another.") }
             guard let duration = command.value, duration >= 0,
-                  duration <= Self.maxGameClockSeconds else { return fail("invalidCommand", "Invalid pause duration.") }
+                  duration <= Self.maxPauseDurationSeconds else { return fail("invalidCommand", "Invalid pause duration.") }
             if command.action == "pause.start" {
                 guard supportsPauseTracking, pausesRemaining(for: side) > 0 else { return fail("conflict", "This team has no pauses remaining.") }
             }

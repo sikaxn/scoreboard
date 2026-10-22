@@ -2733,6 +2733,28 @@
         }
       }
     },
+    "Choose 1–60 minutes from the Timed pause menu on the live board." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在实时控制面板的限时暂停菜单中选择 1–60 分钟。"
+          }
+        }
+      }
+    },
+    "Choose a duration when starting a timed pause. Official pauses do not use a team allowance." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动限时暂停时选择时长。官方暂停不占用队伍的暂停次数。"
+          }
+        }
+      }
+    },
     "Choose a photo before editing placement." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2774,16 +2796,6 @@
         }
       }
     },
-    "Choose Sport" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择运动"
-          }
-        }
-      }
-    },
     "Choose modules and their order within the team and timer columns. Unavailable sport features stay hidden." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2791,6 +2803,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择模块并调整其在队伍和计时列内的顺序。当前运动不支持的功能保持隐藏。"
+          }
+        }
+      }
+    },
+    "Choose Sport" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择运动"
           }
         }
       }
@@ -2828,6 +2850,7 @@
       }
     },
     "Choose the default pause duration. Enable indefinite team pauses to offer both timed and indefinite start buttons. Official pauses do not use a team allowance." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -4676,6 +4699,7 @@
       }
     },
     "Default Pause Duration" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -7912,6 +7936,17 @@
         }
       }
     },
+    "Indefinite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不限时"
+          }
+        }
+      }
+    },
     "Indefinite Official Pause" : {
       "localizations" : {
         "zh-Hans" : {
@@ -8877,17 +8912,6 @@
         }
       }
     },
-    "Move Module Up" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上移模块"
-          }
-        }
-      }
-    },
     "Move Module Down" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8895,6 +8919,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "下移模块"
+          }
+        }
+      }
+    },
+    "Move Module Up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移模块"
           }
         }
       }
@@ -9756,22 +9791,22 @@
         }
       }
     },
-    "Open Settings While Timers Are Running?" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "计时器运行时打开设置？"
-          }
-        }
-      }
-    },
     "Open Settings and enable Local Network for Scoreboard." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开“设置”，为 Scoreboard 启用“本地网络”。"
+          }
+        }
+      }
+    },
+    "Open Settings While Timers Are Running?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器运行时打开设置？"
           }
         }
       }
@@ -9911,17 +9946,6 @@
         }
       }
     },
-    "Owner disconnected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所有者已断开连接"
-          }
-        }
-      }
-    },
     "Owner · Client" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9929,6 +9953,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所有者 · 客户端"
+          }
+        }
+      }
+    },
+    "Owner disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者已断开连接"
           }
         }
       }
@@ -14325,26 +14360,6 @@
         }
       }
     },
-    "Shot %@ %@" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "进攻计时 %1$@ %2$@"
-          }
-        }
-      }
-    },
-    "Shot +1" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "进攻 +1"
-          }
-        }
-      }
-    },
     "Shot / Serve Controller" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14363,6 +14378,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "进攻／发球计时器"
+          }
+        }
+      }
+    },
+    "Shot %@ %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻计时 %1$@ %2$@"
+          }
+        }
+      }
+    },
+    "Shot +1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻 +1"
           }
         }
       }
@@ -16006,28 +16041,6 @@
         }
       }
     },
-    "Team Tools" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "团队工具"
-          }
-        }
-      }
-    },
-    "Team View" : {
-      "comment" : "Display name for the Team View scoreboard view mode.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "队伍视图"
-          }
-        }
-      }
-    },
     "Team selection applies to team panels. Match timers remain shared." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16046,6 +16059,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "队伍选择作用于队伍面板。共享计时和显示控件仍可使用。"
+          }
+        }
+      }
+    },
+    "Team Tools" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "团队工具"
+          }
+        }
+      }
+    },
+    "Team View" : {
+      "comment" : "Display name for the Team View scoreboard view mode.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍视图"
           }
         }
       }
@@ -16861,6 +16896,17 @@
         }
       }
     },
+    "Timed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限时"
+          }
+        }
+      }
+    },
     "Timed Official Pause" : {
       "localizations" : {
         "zh-Hans" : {
@@ -17076,22 +17122,22 @@
         }
       }
     },
-    "Tip History" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "提示历史"
-          }
-        }
-      }
-    },
     "Timers will keep running while Settings is open. Changing game setup may affect the live timers. Continue?" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开设置后，计时器将继续运行。更改比赛设置可能影响正在运行的计时器。是否继续？"
+          }
+        }
+      }
+    },
+    "Tip History" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提示历史"
           }
         }
       }
@@ -17288,6 +17334,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "透明记分牌"
+          }
+        }
+      }
+    },
+    "Transport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "传输方式"
           }
         }
       }
@@ -18877,17 +18934,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "比分清零"
-          }
-        }
-      }
-    },
-    "Transport" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "传输方式"
           }
         }
       }

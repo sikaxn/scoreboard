@@ -77,6 +77,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -1726,13 +1727,8 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func settingsPauseTrackingSection() -> some View {
-        settingsSection(title: "Pauses", footer: "Choose the default pause duration. Enable indefinite team pauses to offer both timed and indefinite start buttons. Official pauses do not use a team allowance.") {
-            settingsStepperValueRow(
-                title: "Default Pause Duration",
-                value: formatClock(store.pauseDurationSeconds),
-                decrement: { store.setPauseDurationSeconds(store.pauseDurationSeconds - 5) },
-                increment: { store.setPauseDurationSeconds(store.pauseDurationSeconds + 5) }
-            )
+        settingsSection(title: "Pauses", footer: "Choose a duration when starting a timed pause. Official pauses do not use a team allowance.") {
+            settingsOptionTip("Choose 1–60 minutes from the Timed pause menu on the live board.", systemImage: "timer")
             if setupRules.showsPauseTracking {
                 settingsDivider()
                 settingsToggleRow(title: "Indefinite Team Pauses", isOn: Binding(
@@ -2151,7 +2147,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                         .foregroundStyle(settingsPalette.secondaryText)
                         .lineLimit(2)
                 }
-
                 if !usesStackedSettingsRows { Spacer(minLength: 0) }
 
                 settingsCompactIconButton(
@@ -10805,54 +10800,131 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func officialPauseControls(layout: InterfaceLayout) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            officialPauseMenu()
-            if let pause = store.pauseTimer, pause.side == nil {
-                pauseTimerControlPanel(pause, layout: layout)
+        officialPauseBar(layout: layout)
+    }
+
+    private func officialPauseBar(layout: InterfaceLayout) -> some View {
+        let pause = store.pauseTimer.flatMap { $0.side == nil ? $0 : nil }
+        let value = pause.map {
+            $0.remainingSeconds == nil ? localizedAppString("Indefinite")
+                : $0.remainingSeconds == 0 ? localizedAppString("Pause Timer Expired") : $0.formattedTime
+        }
+            ?? localizedAppString("Off")
+
+        return clockAdjustmentBar {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    clockAdjustmentHeading("Official Pause", value: value)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    officialPauseBarActions(pause: pause, layout: layout)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    clockAdjustmentHeading("Official Pause", value: value)
+                    officialPauseBarActions(pause: pause, layout: layout)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.officialPause")
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: pause != nil)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: pause?.isRunning)
+    }
+
+    @ViewBuilder
+    private func officialPauseBarActions(pause: ScoreboardPauseTimer?, layout: InterfaceLayout) -> some View {
+        if let pause {
+            HStack(spacing: 8) {
+                if (pause.remainingSeconds ?? 0) > 0 {
+                    Button { store.setPauseTimerRunning(!pause.isRunning) } label: {
+                        clockAdjustmentActionLabel(pause.isRunning ? "Pause" : "Continue",
+                                                   systemImage: pause.isRunning ? "pause.fill" : "play.fill", layout: layout)
+                    }
+                    .accessibilityLabel(localizedAppString(pause.isRunning ? "Pause Countdown" : "Continue Countdown"))
+                    .accessibilityIdentifier(pause.isRunning ? "action.Pause Countdown" : "action.Continue Countdown")
+                }
+                Button { store.cancelPause() } label: {
+                    clockAdjustmentActionLabel("Stop", systemImage: "stop.fill", layout: layout,
+                                               tint: themePalette.destructiveTint, foreground: destructiveText)
+                }
+                .accessibilityLabel(localizedAppString("Stop Pause"))
+                .accessibilityIdentifier("action.Stop Pause")
+            }
+            .buttonStyle(.plain)
+            .transition(.opacity)
+        } else {
+            officialPauseActions(layout: layout)
+                .transition(.opacity)
         }
     }
 
-    private func officialPauseMenu() -> some View {
-        Menu {
-            Button { store.startPause(seconds: 0) } label: { localizedAppText("Indefinite Official Pause") }
-            Button { store.startPause(seconds: store.pauseDurationSeconds) } label: { localizedAppText("Timed Official Pause") }
-        } label: {
-            Label { localizedAppText("Official Pause") } icon: { Image(systemName: "pause.circle") }
-                .font(.headline)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 7)
-                .foregroundStyle(.tint)
-                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(Rectangle())
+    private func officialPauseActions(layout: InterfaceLayout) -> some View {
+        HStack(spacing: 8) {
+            Button { store.startPause(seconds: 0) } label: {
+                clockAdjustmentActionLabel("Indefinite", systemImage: "infinity", layout: layout)
+            }
+            .accessibilityLabel(localizedAppString("Indefinite Official Pause"))
+            .accessibilityIdentifier("live.officialPause.indefinite")
+
+            Menu {
+                pauseDurationMenuActions()
+            } label: {
+                clockAdjustmentActionLabel("Timed", systemImage: "timer", layout: layout)
+            }
+            .accessibilityLabel(localizedAppString("Timed Official Pause"))
+            .accessibilityIdentifier("live.officialPause.timed")
         }
-        // Style the label instead of applying a bordered button style,
-        // which can prevent this native menu from opening on iPad.
         .buttonStyle(.plain)
-        .accessibilityIdentifier("live.officialPause")
         .disabled(store.pauseTimer != nil)
+        .opacity(store.pauseTimer != nil ? 0.42 : 1)
     }
 
     @ViewBuilder
     private func clockAdjustmentControls(layout: InterfaceLayout, includesOfficialPause: Bool) -> some View {
         if store.supportsInjuryTime || includesOfficialPause {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    if store.supportsInjuryTime {
-                        injuryTimeControl(layout: layout)
+                if store.supportsInjuryTime && includesOfficialPause {
+                    Group {
+                        if layout.size.width >= 760 {
+                            HStack(spacing: 12) {
+                                clockAdjustmentBars(layout: layout, includesOfficialPause: includesOfficialPause)
+                            }
+                        } else {
+                            VStack(spacing: 12) {
+                                clockAdjustmentBars(layout: layout, includesOfficialPause: includesOfficialPause)
+                            }
+                        }
                     }
-                    if includesOfficialPause {
-                        officialPauseMenu()
-                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("live.clockAdjustmentRow")
+                } else {
+                    clockAdjustmentBars(layout: layout, includesOfficialPause: includesOfficialPause)
                 }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("live.clockAdjustmentRow")
 
-                if includesOfficialPause, let pause = store.pauseTimer, pause.side == nil {
-                    pauseTimerControlPanel(pause, layout: layout)
-                }
             }
+        }
+    }
+
+    private func pauseDurationMenuActions(side: TeamSide? = nil) -> some View {
+        ForEach(1...60, id: \.self) { minutes in
+            Button(localizedAppFormat("%d min", minutes)) {
+                if side != nil { showsPauseCountControls = false }
+                store.startPause(for: side, seconds: minutes * 60)
+            }
+            .accessibilityIdentifier("live.pauseDuration.\(minutes)")
+        }
+    }
+
+    @ViewBuilder
+    private func clockAdjustmentBars(layout: InterfaceLayout, includesOfficialPause: Bool) -> some View {
+        if store.supportsInjuryTime {
+            injuryTimeControl(layout: layout)
+        }
+        if includesOfficialPause {
+            officialPauseBar(layout: layout)
         }
     }
 
@@ -11466,45 +11538,64 @@ struct ContentView: View, ScoreboardSetupEditing {
             ? localizedAppFormat("Applied +%d min", store.activeInjuryTimeMinutes)
             : pendingValue
 
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Added Time")
-                    .font(.subheadline.weight(.semibold))
-                    .singleLineFitted(minScale: 0.7)
-                    .foregroundStyle(themePalette.dashboardSubtleText)
-
-                Text(valueText)
-                    .font(.headline.weight(.black))
-                    .singleLineFitted(minScale: 0.6)
-                    .foregroundStyle(store.activeInjuryTimeMinutes > 0 ? themePalette.dashboardWarningButton : themePalette.dashboardPrimaryText)
-            }
-
-            Spacer(minLength: 0)
-
-            Menu {
-                ForEach(0...ScoreboardStore.maxInjuryTimeMinutes, id: \.self) { minutes in
-                    Button {
-                        store.setPendingInjuryTimeMinutes(minutes)
-                    } label: {
-                        Label {
-                            Text(minutes == 0 ? localizedAppString("Off") : localizedAppFormat("+%d min", minutes))
-                        } icon: {
-                            Image(systemName: store.pendingInjuryTimeMinutes == minutes ? "checkmark.circle.fill" : "plus.circle")
+        return clockAdjustmentBar {
+            HStack(spacing: 12) {
+                clockAdjustmentHeading("Added Time", value: valueText,
+                                       isHighlighted: store.activeInjuryTimeMinutes > 0)
+                Spacer(minLength: 0)
+                Menu {
+                    ForEach(0...ScoreboardStore.maxInjuryTimeMinutes, id: \.self) { minutes in
+                        Button {
+                            store.setPendingInjuryTimeMinutes(minutes)
+                        } label: {
+                            Label {
+                                Text(minutes == 0 ? localizedAppString("Off") : localizedAppFormat("+%d min", minutes))
+                            } icon: {
+                                Image(systemName: store.pendingInjuryTimeMinutes == minutes ? "checkmark.circle.fill" : "plus.circle")
+                            }
                         }
                     }
+                } label: {
+                    clockAdjustmentActionLabel("Set", systemImage: "plus.circle", layout: layout)
                 }
-            } label: {
-                Label("Set", systemImage: "plus.circle")
-                    .font(.headline.weight(.bold))
-                    .singleLineFitted(minScale: 0.62)
-                    .foregroundStyle(themePalette.dashboardNeutralButtonText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, layout.advancedButtonVerticalPadding)
-                    .background(themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .buttonStyle(.plain)
+                .disabled(isLocked)
+                .opacity(isLocked ? 0.42 : 1)
             }
-            .disabled(isLocked)
-            .opacity(isLocked ? 0.42 : 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live.addedTime")
+    }
+
+    private func clockAdjustmentHeading(_ title: String, value: String, isHighlighted: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            localizedAppText(title)
+                .font(.subheadline.weight(.semibold))
+                .singleLineFitted(minScale: 0.7)
+                .foregroundStyle(themePalette.dashboardSubtleText)
+            Text(value)
+                .font(.headline.weight(.black))
+                .monospacedDigit()
+                .singleLineFitted(minScale: 0.6)
+                .foregroundStyle(isHighlighted ? themePalette.dashboardWarningButton : themePalette.dashboardPrimaryText)
+        }
+    }
+
+    private func clockAdjustmentActionLabel(_ title: String, systemImage: String, layout: InterfaceLayout,
+                                             tint: Color? = nil, foreground: Color? = nil) -> some View {
+        Label { localizedAppText(title) } icon: { Image(systemName: systemImage) }
+            .font(.headline.weight(.bold))
+            .singleLineFitted(minScale: 0.62)
+            .foregroundStyle(foreground ?? themePalette.dashboardNeutralButtonText)
+            .padding(.horizontal, 14)
+            .padding(.vertical, layout.advancedButtonVerticalPadding)
+            .frame(minHeight: 44)
+            .background(tint ?? themePalette.dashboardNeutralButton, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func clockAdjustmentBar<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+        .frame(maxWidth: .infinity, minHeight: 44)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(themePalette.dashboardCardBackground.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -11512,8 +11603,6 @@ struct ContentView: View, ScoreboardSetupEditing {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(themePalette.dashboardCardBorder.opacity(0.75))
         )
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("live.addedTime")
     }
 
     private var periodWinStatusText: String {
@@ -11722,73 +11811,6 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
     }
 
-    private func pauseTimerControlPanel(_ pause: ScoreboardPauseTimer, layout: InterfaceLayout) -> some View {
-        let tint = pause.side.map { $0 == .home ? homeTint : guestTint } ?? themePalette.dashboardWarningButton
-        let canToggleCountdown = (pause.remainingSeconds ?? 0) > 0
-        let logoData = pause.logoData(
-            homeTeamLogoData: store.showsTeamLogos ? store.homeTeamLogoImage?.data : nil,
-            guestTeamLogoData: store.showsTeamLogos ? store.guestTeamLogoImage?.data : nil,
-            eventLogoData: store.showsEventLogo ? store.eventLogoImage?.data : nil
-        )
-
-        return VStack(alignment: .leading, spacing: 8) {
-            if pause.remainingSeconds == nil {
-                VStack(spacing: 8) {
-                    if let logoData {
-                        TeamLogoImageView(data: logoData, cornerRadius: 8)
-                            .frame(width: 56, height: 56)
-                    }
-                    Text(verbatim: store.pauseTitle ?? "")
-                        .font(.headline.weight(.bold))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(themePalette.dashboardPrimaryText)
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                HStack(alignment: .center, spacing: 8) {
-                    if let logoData {
-                        TeamLogoImageView(data: logoData, cornerRadius: 8)
-                            .frame(width: 36, height: 36)
-                    }
-                    Text(verbatim: store.pauseTitle ?? "")
-                        .font(.subheadline.weight(.bold))
-                        .singleLineFitted(minScale: 0.6)
-                        .foregroundStyle(themePalette.dashboardPrimaryText)
-                    Spacer(minLength: 0)
-                    Text(verbatim: pause.formattedTime)
-                        .font(.system(size: layout.centerMetricValueSize - 4, weight: .black, design: .rounded))
-                        .monospacedDigit()
-                        .singleLineFitted(minScale: 0.6)
-                        .foregroundStyle(tint)
-                }
-                localizedAppText(pause.remainingSeconds == 0 ? "Pause Timer Expired" : pause.isRunning ? "Running" : "Pause Timer Paused")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(themePalette.dashboardMutedText)
-            }
-
-            buttonGrid(
-                columns: canToggleCountdown ? 2 : 1,
-                buttons: (canToggleCountdown ? [
-                    ActionDescriptor(
-                        title: pause.isRunning ? "Pause Countdown" : "Continue Countdown",
-                        tint: themePalette.dashboardSuccessButton,
-                        foreground: themePalette.dashboardSuccessButtonText
-                    ) {
-                        store.setPauseTimerRunning(!pause.isRunning)
-                    }
-                ] : []) + [
-                    ActionDescriptor(title: "Stop Pause", tint: themePalette.destructiveTint, foreground: destructiveText) {
-                        store.cancelPause()
-                    }
-                ],
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
-        }
-        .padding(10)
-        .background(themePalette.dashboardCardBackground.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     private func pauseControlRow(side: TeamSide, tint: Color, layout: InterfaceLayout) -> some View {
         let tintText = teamAccentText(for: side)
         let hasActivePause = store.pauseTimer?.side == side
@@ -11855,17 +11877,26 @@ struct ContentView: View, ScoreboardSetupEditing {
                     .frame(width: countButtonWidth)
                     .accessibilityLabel(localizedAppFormat("%@ Pause -1", store.sideRoleLabel(for: side)))
 
-                    smallActionButton(
-                        hasActivePause ? "Return to Timer" : "Start Pause",
-                        tint: tint,
-                        foreground: tintText,
-                        verticalPadding: layout.advancedButtonVerticalPadding,
-                        isEnabled: hasActivePause || (store.pauseTimer == nil && store.pausesRemaining(for: side) > 0)
-                    ) {
-                        showsPauseCountControls = false
-                        if !hasActivePause {
-                            store.startPause(for: side)
+                    if hasActivePause {
+                        smallActionButton("Return to Timer", tint: tint, foreground: tintText,
+                                          verticalPadding: layout.advancedButtonVerticalPadding) {
+                            showsPauseCountControls = false
                         }
+                    } else {
+                        Menu {
+                            pauseDurationMenuActions(side: side)
+                        } label: {
+                            localizedAppText("Start Pause")
+                                .font(.headline.weight(.bold))
+                                .singleLineFitted(minScale: 0.6)
+                                .foregroundStyle(tintText)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, layout.advancedButtonVerticalPadding)
+                                .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(store.pauseTimer != nil || store.pausesRemaining(for: side) == 0)
                     }
 
                     if showsInfinitePauseStart {

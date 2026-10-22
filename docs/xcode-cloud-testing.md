@@ -66,12 +66,30 @@ outside Cloud and identified these separate causes:
 
 - **Alert snapshot errors:** an action-relative coordinate still resolves the
   alert's accessibility query at tap time. XCTest can treat the expected alert
-  as an interruption, press Cancel, and then fail to find the alert. The helper
-  now snapshots the action's frame and taps from the application coordinate.
-- **Official Pause menu:** the native menu did not open with its bordered button
-  style, even with the clock stopped or with a long press. It now uses a plain
-  menu trigger, with the button appearance drawn in its label. The workflow still
-  checks that starting an official pause stops play and ending it leaves play stopped.
+  as an interruption, press Cancel, and then fail to find the alert. Native
+  actions are resolved by label across element types. Following the keyboard
+  focus repair below, helpers tap within the native popup and verify dismissal,
+  avoiding application coordinates saved before presentation finishes.
+- **Official Pause menu:** the native menu initially failed to open with a
+  bordered button style. A later Cloud run still failed while selecting an
+  action. Official Pause now uses the same bar styling as Added Time.
+  Indefinite starts directly; Timed opens a 1–60 minute menu. Starting a pause
+  replaces those actions with countdown and stop controls inside the same bar.
+  Transitions animate only when pause state changes, respect Reduce Motion,
+  and do not animate every timer tick. Tests check duration selection, bar
+  height, countdown controls, and that ending a pause leaves play stopped.
+- **Keyboard appearing over clock menus:** a later Cloud run failed only
+  `testOfficialPauseSharesAddedTimeRow`. The hardware-keyboard capture view
+  requested first-responder status on every clock update, competing with native
+  menu focus. It now changes focus only when capture becomes active/inactive or
+  the view joins a window, rather than reclaiming it during native presentation.
+  Its empty input view suppresses the software keyboard for this hardware-only
+  responder. The regression checks that Added Time selection keeps the keyboard
+  hidden and that Space still toggles the real game clock afterward. Menu helpers resolve
+  the interactive row at tap time and require it to dismiss after selection.
+- **Fixture launch:** test launch explicitly terminates any prelaunched app
+  before setting the fixture environment and launching a fresh process. This
+  prevents an existing process without test fixtures from opening first-run Setup.
 - **Merged View scoring:** the station column replaces the team's
   `live.controls.<side>` accessibility identifier with `station.team.<side>`.
   Shared scoring helpers now accept both containers while retaining team scope.

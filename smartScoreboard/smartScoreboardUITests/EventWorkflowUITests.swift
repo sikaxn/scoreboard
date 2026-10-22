@@ -57,6 +57,11 @@ final class EventWorkflowUITests: ScoreboardUITestCase {
 
     func testOfficialPauseSharesAddedTimeRow() {
         checkOfficialPause(scenario: "soccer", startTitle: "Start Game Clock", runningTitle: "Pause Game Clock")
+        app.typeKey(" ", modifierFlags: [])
+        XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5), "Hardware shortcuts must retain focus after clock menus close")
+        app.typeKey(" ", modifierFlags: [])
+        XCTAssertTrue(action("Pause Game Clock").waitForExistence(timeout: 5))
+        assertClockControlsKeepKeyboardHidden()
     }
 
     private func checkOfficialPause(scenario: String, startTitle: String, runningTitle: String) {
@@ -65,31 +70,105 @@ final class EventWorkflowUITests: ScoreboardUITestCase {
         XCTAssertTrue(clockCard.waitForExistence(timeout: 5))
         let start = clockCard.buttons["action.\(startTitle)"]
         tap(start, anchor: clockCard)
-        let adjustmentRow = clockCard.otherElements["live.clockAdjustmentRow"]
-        let officialPause = adjustmentRow.buttons["live.officialPause"]
+        let officialPause = clockCard.otherElements["live.officialPause"]
         reveal(officialPause, anchor: clockCard)
-        XCTAssertEqual(mainWindow.buttons.matching(identifier: "live.officialPause").count, 1)
+        XCTAssertEqual(mainWindow.otherElements.matching(identifier: "live.officialPause").count, 1)
         XCTAssertTrue(clockCard.frame.contains(officialPause.frame), "Official Pause must be inside the clock card")
+        let indefinite = officialPause.buttons["live.officialPause.indefinite"]
+        let timed = officialPause.buttons["live.officialPause.timed"]
+        XCTAssertTrue(indefinite.isHittable, "Indefinite pause must be directly available on the bar")
+        XCTAssertTrue(timed.isHittable, "Timed pause must be directly available on the bar")
         if scenario == "soccer" {
+            let adjustmentRow = clockCard.otherElements["live.clockAdjustmentRow"]
             let addedTime = adjustmentRow.otherElements["live.addedTime"]
             XCTAssertTrue(addedTime.staticTexts["Added Time"].exists)
             XCTAssertEqual(addedTime.frame.midY, officialPause.frame.midY, accuracy: 1, "Official Pause must share the Added Time row")
             XCTAssertLessThanOrEqual(addedTime.frame.maxX, officialPause.frame.minX)
             tap(addedTime.buttons["Set"], anchor: adjustmentRow)
+            assertClockControlsKeepKeyboardHidden()
             tapMenuAction("+3 min")
             XCTAssertTrue(addedTime.staticTexts["+3 min"].exists)
+            assertClockControlsKeepKeyboardHidden()
+            let bars = XCTAttachment(screenshot: mainWindow.screenshot())
+            bars.name = "Added Time and Official Pause bars"
+            bars.lifetime = .keepAlways
+            add(bars)
         }
-        tap(officialPause, anchor: clockCard)
-        tapMenuAction("Indefinite Official Pause")
+        let idleBarFrame = officialPause.frame
+        tap(indefinite, anchor: clockCard)
+        assertClockControlsKeepKeyboardHidden()
         XCTAssertTrue(start.waitForExistence(timeout: 5))
         XCTAssertFalse(start.isEnabled)
-        let stopPause = clockCard.buttons["action.Stop Pause"]
+        XCTAssertFalse(indefinite.exists)
+        XCTAssertFalse(timed.exists)
+        let stopPause = officialPause.buttons["action.Stop Pause"]
         reveal(stopPause, anchor: clockCard)
         XCTAssertTrue(clockCard.frame.contains(stopPause.frame), "The active pause controls must stay inside the clock card")
+        XCTAssertTrue(officialPause.frame.contains(stopPause.frame), "Stop must reuse the existing pause bar")
+        XCTAssertEqual(officialPause.frame.height, idleBarFrame.height, accuracy: 1)
         tap(stopPause, anchor: clockCard)
         XCTAssertTrue(start.isEnabled)
+        XCTAssertTrue(indefinite.isEnabled)
+        XCTAssertTrue(timed.isEnabled)
         tap(start, anchor: clockCard)
         XCTAssertTrue(clockCard.buttons["action.\(runningTitle)"].waitForExistence(timeout: 5))
+    }
+
+    func testTimedOfficialPauseRunsCountdownAndLeavesPlayStopped() {
+        launch("soccer")
+        let clockCard = mainWindow.otherElements["live.gameControls"].firstMatch
+        tap(action("Start Game Clock"), anchor: clockCard)
+        let pauseBar = clockCard.otherElements["live.officialPause"]
+        reveal(pauseBar, anchor: clockCard)
+        let idleBarHeight = pauseBar.frame.height
+        tap(pauseBar.buttons["live.officialPause.timed"], anchor: clockCard)
+        assertClockControlsKeepKeyboardHidden()
+        tapMenuAction("2 min")
+        XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5))
+        XCTAssertFalse(action("Start Game Clock").isEnabled)
+        XCTAssertFalse(pauseBar.buttons["live.officialPause.indefinite"].exists)
+        XCTAssertFalse(pauseBar.buttons["live.officialPause.timed"].exists)
+        XCTAssertEqual(pauseBar.frame.height, idleBarHeight, accuracy: 1)
+        let countdown = pauseBar.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[0-9]+:[0-9]{2}")).firstMatch
+        XCTAssertTrue(countdown.waitForExistence(timeout: 5))
+        XCTAssertTrue(text(countdown).hasPrefix("01:"), "The chosen two-minute countdown must be running")
+        tap(pauseBar.buttons["action.Pause Countdown"], anchor: clockCard)
+        XCTAssertTrue(pauseBar.buttons["action.Continue Countdown"].waitForExistence(timeout: 5))
+        tap(pauseBar.buttons["action.Continue Countdown"], anchor: clockCard)
+        XCTAssertTrue(pauseBar.buttons["action.Pause Countdown"].waitForExistence(timeout: 5))
+        let activeBar = XCTAttachment(screenshot: mainWindow.screenshot())
+        activeBar.name = "Active official pause reuses its bar"
+        activeBar.lifetime = .keepAlways
+        add(activeBar)
+        tap(pauseBar.buttons["action.Stop Pause"], anchor: clockCard)
+        XCTAssertTrue(action("Start Game Clock").isEnabled)
+        XCTAssertFalse(action("Pause Game Clock").exists)
+        XCTAssertTrue(pauseBar.buttons["live.officialPause.indefinite"].isEnabled)
+        XCTAssertTrue(pauseBar.buttons["live.officialPause.timed"].isEnabled)
+        assertClockControlsKeepKeyboardHidden()
+    }
+
+    func testTeamPauseUsesChosenMinutes() {
+        launch()
+        tap(action("Start Game Clock"))
+        let home = mainWindow.otherElements["live.controls.home"]
+        tap(home.buttons["Start Pause"], anchor: home)
+        let duration = app.buttons["live.pauseDuration.2"].firstMatch
+        XCTAssertTrue(duration.waitForExistence(timeout: 5))
+        duration.tap()
+        XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5))
+        XCTAssertFalse(action("Start Game Clock").isEnabled)
+        let countdown = home.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[0-9]+:[0-9]{2}")).firstMatch
+        XCTAssertTrue(countdown.waitForExistence(timeout: 5))
+        XCTAssertTrue(text(countdown).hasPrefix("01:"))
+        tap(home.buttons["Stop Pause"], anchor: home)
+        XCTAssertTrue(action("Start Game Clock").isEnabled)
+    }
+
+    private func assertClockControlsKeepKeyboardHidden(file: StaticString = #filePath, line: UInt = #line) {
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertFalse(keyboard.exists && !keyboard.frame.isEmpty && keyboard.frame.intersects(mainWindow.frame),
+                       "Clock controls must not summon the software keyboard", file: file, line: line)
     }
 
     // 2e8729b/57b98ea: dynamic percent text and deep Debate/Custom view trees

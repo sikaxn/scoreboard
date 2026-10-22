@@ -1335,11 +1335,7 @@ private struct IOSKeyboardShortcutHost: UIViewRepresentable {
         context.coordinator.host = self
         uiView.coordinator = context.coordinator
 
-        if isEnabled || recordingAction != nil {
-            uiView.becomeFirstResponder()
-        } else {
-            uiView.resignFirstResponder()
-        }
+        uiView.setCaptureEnabled(isEnabled || recordingAction != nil)
     }
 
     final class Coordinator: NSObject {
@@ -1367,15 +1363,36 @@ private struct IOSKeyboardShortcutHost: UIViewRepresentable {
 
 private final class KeyboardShortcutCaptureView: UIView {
     weak var coordinator: IOSKeyboardShortcutHost.Coordinator?
+    private var isCaptureEnabled = false
+    private let shortcutInputView = UIView(frame: .zero)
+
+    // This responder receives hardware key presses, never text entry.
+    // Suppress UIKit's software keyboard when native menus restore focus.
+    override var inputView: UIView? { shortcutInputView }
 
     override var canBecomeFirstResponder: Bool {
-        true
+        isCaptureEnabled
+    }
+
+    func setCaptureEnabled(_ isEnabled: Bool) {
+        guard isCaptureEnabled != isEnabled else { return }
+        isCaptureEnabled = isEnabled
+        updateFirstResponder()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil {
+        updateFirstResponder()
+    }
+
+    private func updateFirstResponder() {
+        guard window != nil else { return }
+        // Clock updates also update this representable. Reclaiming focus on
+        // every update steals it from native menus while they are presenting.
+        if isCaptureEnabled {
             becomeFirstResponder()
+        } else if isFirstResponder {
+            resignFirstResponder()
         }
     }
 

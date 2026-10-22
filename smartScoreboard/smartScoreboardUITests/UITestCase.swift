@@ -45,6 +45,9 @@ class ScoreboardUITestCase: XCTestCase {
     }
 
     func launch(_ scenario: String = "basketball") {
+        // Xcode can prelaunch the app without the fixture environment.
+        // Start a new process so isolated preferences and event data apply.
+        app.terminate()
         app.launchEnvironment["SCOREBOARD_UI_TEST_SCENARIO"] = scenario
         app.launch()
         app.activate()
@@ -221,39 +224,28 @@ class ScoreboardUITestCase: XCTestCase {
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         // Native actions can report different types across accessibility
-        // snapshots. Resolve by label and snapshot the frame before the tap.
+        // snapshots. Resolve by label and tap within the native popup.
         let action = alert.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch
         XCTAssertTrue(action.waitForExistence(timeout: 3), "Missing alert action: \(title)")
         XCTAssertTrue(action.isEnabled)
-        tapVisibleFrame(action)
+        action.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         waitUntil("The confirmation must dismiss") { !alert.exists }
-    }
-
-    func tapVisibleFrame(_ element: XCUIElement,
-                         file: StaticString = #filePath, line: UInt = #line) {
-        let frame = element.frame
-        XCTAssertFalse(frame.isEmpty || frame.isInfinite || frame.isNull,
-                       "Control must have an on-screen frame", file: file, line: line)
-        let appFrame = app.frame
-        XCTAssertTrue(appFrame.contains(CGPoint(x: frame.midX, y: frame.midY)),
-                      "Control's center must be visible", file: file, line: line)
-        // Element-relative coordinates re-resolve their element at tap time.
-        // For native alerts this can invoke XCTest's interruption handler,
-        // which cancels the very alert the test is trying to confirm.
-        let origin = appFrame.origin
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: frame.midX - origin.x, dy: frame.midY - origin.y)).tap()
     }
 
     func tapMenuAction(_ title: String,
                        file: StaticString = #filePath, line: UInt = #line) {
         // Native menu rows may be exposed as Cell rather than Button.
         // They belong to a popup, not the board's scrollable content.
+        let actionTypes = [XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue,
+                           XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.popUpButton.rawValue]
         let item = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", title)).firstMatch
+            .matching(NSPredicate(format: "label == %@ AND elementType IN %@", title, actionTypes)).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), "Missing menu action: \(title)", file: file, line: line)
         XCTAssertTrue(item.isEnabled, file: file, line: line)
-        tapVisibleFrame(item, file: file, line: line)
+        // Native menu rows can lack an XCTest activation point on iPad.
+        // Resolve the row's current position within its popup at tap time.
+        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitUntil("The menu action must dismiss: \(title)", file: file, line: line) { !item.exists }
     }
 
     func returnToBoard() {

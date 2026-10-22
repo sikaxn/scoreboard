@@ -3,6 +3,35 @@ import Combine
 import Testing
 
 extension ScoreboardTests {
+    @Test("Sixty-minute pause limit survives saved games and backup restore")
+    func sixtyMinutePauseLimit() throws {
+        store.resetClock(to: 600)
+        store.toggleClock()
+        #expect(store.executeControlCommand(cmd("pause.official", value: 3600)).success)
+        #expect(store.pauseTimer?.remainingSeconds == 3600 && !store.isClockRunning)
+        #expect(store.pauseTimer?.formattedTime == "60:00")
+        let snapshot = try JSONDecoder().decode(ScoreboardGameSnapshot.self,
+            from: JSONEncoder().encode(store.currentGameSnapshot()))
+        let backup = try store.exportPersistedStateData()
+        store.cancelPause()
+        store.applyGameSnapshot(snapshot)
+        #expect(store.pauseTimer?.remainingSeconds == 3600 && store.pauseTimer?.isRunning == false)
+        store.cancelPause()
+        try store.restorePersistedStateData(backup)
+        #expect(store.pauseTimer?.remainingSeconds == 3600 && store.pauseTimer?.isRunning == false)
+        store.cancelPause()
+        #expect(store.executeControlCommand(cmd("pause.official", value: 3601)).error == "invalidCommand")
+        store.startPause(seconds: 3601)
+        #expect(store.pauseTimer == nil)
+        #expect(store.executeControlCommand(cmd("pause.start", side: .home, value: 3600)).success)
+        store.cancelPause()
+        store.startPause(seconds: 60)
+        #expect(store.pauseTimer?.remainingSeconds == 60)
+        store.advanceControlTestTimers(by: 60.1)
+        #expect(store.pauseTimer?.remainingSeconds == 0 && store.pauseTimer?.isRunning == false)
+        #expect(!store.isClockRunning)
+    }
+
     @Test("Pause usage counts and keyboard controls")
     func pauseKeyboardControls() throws {
         // Count changes and starting a timer are separate operator actions.
@@ -99,7 +128,7 @@ extension ScoreboardTests {
         store.cancelPause()
         store.adjustPausesUsed(for: .home, by: -1)
         #expect(store.executeControlCommand(cmd("pause.official", value: -1)).error == "invalidCommand", "negative duration rejected")
-        #expect(store.executeControlCommand(cmd("pause.official", value: 3600)).error == "invalidCommand", "oversized duration rejected")
+        #expect(store.executeControlCommand(cmd("pause.official", value: 3601)).error == "invalidCommand", "over sixty minutes rejected")
         #expect(store.executeControlCommand(cmd("pause.start", value: 30)).error == "invalidCommand", "team side required")
         let start = cmd("pause.start", side: .home, value: 2)
         #expect(store.performControlCommand(start, remote: false).success, "pause starts through shared deduplicating command path")
