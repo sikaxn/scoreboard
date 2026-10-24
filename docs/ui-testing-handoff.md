@@ -1,5 +1,51 @@
 # UI test validation checkpoints
 
+## 2026-10-24 — Settings, connection status, Chess, and Cloud follow-up
+
+Settings sidebar labels now fill their rows and define a rectangular hit area,
+including the blank area beside the text. Remote Display & Control is a separate
+page; Integration contains Web API and Bitfocus Companion. Navigation links,
+help text, localization, and UI test helpers follow the new page structure.
+
+Chess clock values fit on one line instead of wrapping in narrow control-board
+columns. Connection status uses a scrollable summary and client list, wrapping
+long values as needed. iPhone presents it in a navigation sheet with Done;
+iPad and Mac use a bounded popover. Pairing-code entry has a Done control, a
+peer-specific Pair identifier, and explicit focus dismissal.
+
+The five source warnings in the recent Xcode logs were repaired without changing
+the connection identity checks or RTC queue confinement. iOS test builds and
+the macOS app build passed with no source warnings. Xcode's separate
+App Intents metadata-skipped notice remains.
+
+The first focused iPad run passed **all four cases**, with no skips: the two
+reported Cloud failures (Timed Official Pause and remote recovery), sidebar hit
+areas/new Settings navigation, and Chess clocks across three orientations.
+Result: `/tmp/scoreboard-oct24-ipad.xcresult`. Retained Chess and status screenshots
+were inspected. Full AllUI and Xcode Cloud were not run.
+
+After the final pairing-code Done control and shared pairing helper were added,
+the complete iPad recovery case passed again in **123.7 seconds**. Result:
+`/tmp/scoreboard-oct24-ipad-recovery-final.xcresult`.
+
+The dedicated connection-status case passed on **iPhone Duo, iOS 27.1**, in
+**101.7 seconds**. It performs real pairing and state delivery, checks sheet
+bounds and the connected client, closes/reopens with Done, opens the new Remote
+Display settings page, and verifies that the score is preserved. Its screenshot
+was inspected. Result: `/tmp/scoreboard-oct24-phone-status.xcresult`.
+
+An earlier experiment running the entire recovery workflow on Duo exceeded the
+five-minute limit during repeated native Settings-menu animation waits. Status
+validation is now a separate case; the recovery case keeps all its original
+network assertions and is validated on the Cloud-like iPad destination. Full
+phone AllUI coverage was not attempted. The shared runner retains its original
+iPad-only configuration; local phone checks can build with
+`TARGETED_DEVICE_FAMILY=1,2`.
+
+Final `git diff --check` passed. Temporary simulators and failed intermediate
+result bundles were removed; successful results, screenshots, and diagnostic
+text were retained.
+
 ## 2026-10-21 — Compact active pause and minute chooser
 
 An active official pause reuses its original bar: the start actions become

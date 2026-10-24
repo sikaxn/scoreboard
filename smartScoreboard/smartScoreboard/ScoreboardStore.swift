@@ -2986,12 +2986,12 @@ final class ScoreboardStore: ObservableObject {
 
         stopTestSound()
         playingTestSoundEffect = effect
-        buzzerPlayer.play(effect) { [weak self] finishedEffect in
+        buzzerPlayer.play(effect, onFinished: { [weak self] finishedEffect in
             guard self?.playingTestSoundEffect == finishedEffect else {
                 return
             }
             self?.playingTestSoundEffect = nil
-        }
+        })
     }
 
     func stopTestSound() {

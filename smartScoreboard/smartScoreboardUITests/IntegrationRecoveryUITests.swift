@@ -53,27 +53,7 @@ final class IntegrationRecoveryUITests: ScoreboardUITestCase {
         defer { peer.stop() }
         waitUntil("Remote display advertises on Bonjour") { peer.ready }
         launch()
-        openIntegration("remoteDisplay")
-        tap(mainWindow.switches["settings.toggle.Enable Remote Display / Control Pairing"])
-        let code = mainWindow.textFields["remote.code.\(peer.id)"]
-        XCTAssertTrue(code.waitForExistence(timeout: 15), "The real browser must discover the test client")
-        enter(peer.pairingCode, in: code, submit: false)
-        // Dismiss explicitly: otherwise XCTest's Pair tap can dismiss the
-        // keyboard, move the row, and miss the button at its previous position.
-        let keyboard = app.keyboards.firstMatch
-        let hideKeyboard = keyboard.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'hide keyboard' OR label CONTAINS[c] 'dismiss keyboard'")).firstMatch
-        if hideKeyboard.exists, hideKeyboard.isHittable {
-            hideKeyboard.tap()
-        }
-        waitUntil("The keyboard must dismiss before pairing") {
-            // A hidden keyboard can remain in the accessibility hierarchy.
-            !keyboard.exists || keyboard.frame.isEmpty || !keyboard.frame.intersects(self.mainWindow.frame)
-        }
-        let row = mainWindow.otherElements["remote.peer.\(peer.id)"].firstMatch
-        tap(row.buttons["Pair"].firstMatch)
-        waitUntil("Pairing and live state must reach the client", timeout: 15) { peer.pairingCount > 0 && peer.stateCount > 0 }
-        XCTAssertTrue(row.buttons["Disconnect"].waitForExistence(timeout: 10))
-        returnToBoard()
+        let row = pairRemoteDisplay(peer)
         addScore()
         waitUntil("The public client must receive the operator's score") { peer.homeScore == 1 }
         peer.stop()
@@ -84,15 +64,81 @@ final class IntegrationRecoveryUITests: ScoreboardUITestCase {
         let oldPairings = peer.pairingCount
         try peer.start()
         waitUntil("Trusted client must reconnect without another pairing code", timeout: 20) { peer.pairingCount > oldPairings && peer.homeScore == 2 }
-        openIntegration("remoteDisplay")
-        tap(row.buttons["Disconnect"].firstMatch)
+        openRemoteDisplaySettings()
+        tap(row.buttons["Disconnect"].firstMatch, anchor: row)
         waitUntil("The operator's disconnect must reach the remote client") { peer.operatorDisconnectCount > 0 }
         waitUntil("Disconnected saved display offers Connect") { row.buttons["Connect"].exists }
-        tap(row.buttons["Connect"].firstMatch)
+        tap(row.buttons["Connect"].firstMatch, anchor: row)
         waitUntil("Explicit Connect restores the saved pairing") { row.buttons["Disconnect"].exists }
         returnToBoard()
         addScore()
         waitUntil("Reconnected client receives current event updates") { peer.homeScore == 3 }
         XCTAssertTrue(peer.errors.isEmpty, "Pairing protocol errors: \(peer.errors)")
     }
+
+    func testConnectionStatusFitsWindowAndOpensRemoteSettings() throws {
+        let peer = RemoteDisplayPeer()
+        networkDiagnostics = { peer.diagnostics }
+        try peer.start()
+        defer { peer.stop() }
+        waitUntil("Remote display advertises on Bonjour") { peer.ready }
+        launch()
+        _ = pairRemoteDisplay(peer)
+        addScore()
+        waitUntil("The connected client receives the score") { peer.homeScore == 1 }
+        checkConnectionStatus(peer)
+        XCTAssertEqual(text(score()), "1", "Status and Settings navigation must preserve the event")
+    }
+
+    private func pairRemoteDisplay(_ peer: RemoteDisplayPeer) -> XCUIElement {
+        openRemoteDisplaySettings()
+        tap(mainWindow.switches["settings.toggle.Enable Remote Display / Control Pairing"])
+        let code = mainWindow.textFields["remote.code.\(peer.id)"]
+        XCTAssertTrue(code.waitForExistence(timeout: 15), "The real browser must discover the test client")
+        enter(peer.pairingCode, in: code, submit: false)
+        // Dismiss explicitly: otherwise XCTest's Pair tap can dismiss the
+        // keyboard, move the row, and miss the button at its previous position.
+        let keyboard = app.keyboards.firstMatch
+        let doneEditing = app.buttons["settings.dismissKeyboard"]
+        let hideKeyboard = keyboard.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'hide keyboard' OR label CONTAINS[c] 'dismiss keyboard'")).firstMatch
+        if doneEditing.waitForExistence(timeout: 2) {
+            doneEditing.tap()
+        } else if hideKeyboard.exists, hideKeyboard.isHittable {
+            hideKeyboard.tap()
+        }
+        waitUntil("The keyboard must dismiss before pairing") {
+            // A hidden keyboard can remain in the accessibility hierarchy.
+            !keyboard.exists || keyboard.frame.isEmpty || !keyboard.frame.intersects(self.mainWindow.frame)
+        }
+        let row = mainWindow.otherElements["remote.peer.\(peer.id)"].firstMatch
+        tap(row.buttons["remote.pair.\(peer.id)"], anchor: row)
+        waitUntil("Pairing and live state must reach the client", timeout: 15) { peer.pairingCount > 0 && peer.stateCount > 0 }
+        XCTAssertTrue(row.buttons["Disconnect"].waitForExistence(timeout: 10))
+        returnToBoard()
+        return row
+    }
+
+    private func checkConnectionStatus(_ peer: RemoteDisplayPeer) {
+        tap(mainWindow.buttons["connection.statusButton"])
+        let status = mainWindow.scrollViews["connection.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.frame.insetBy(dx: -1, dy: -1).contains(status.frame),
+                      "Connection status must fit inside the window")
+        let client = status.descendants(matching: .any).matching(identifier: "connection.client.\(peer.id)").firstMatch
+        reveal(client, anchor: status)
+        let statusScreenshot = XCTAttachment(screenshot: mainWindow.screenshot())
+        statusScreenshot.name = "Connection status fits the device"
+        statusScreenshot.lifetime = .keepAlways
+        add(statusScreenshot)
+        let done = mainWindow.buttons["connection.done"]
+        if done.exists {
+            XCTAssertTrue(done.isHittable)
+            done.tap()
+            tap(mainWindow.buttons["connection.statusButton"])
+        }
+        tap(mainWindow.buttons["connection.settings"], anchor: status)
+        XCTAssertTrue(mainWindow.staticTexts["settings.title.remoteDisplay"].waitForExistence(timeout: 5))
+        returnToBoard()
+    }
+
 }

@@ -5,9 +5,11 @@
 ### Feature Added
 
 - Added per-sport, device-local control board modes for dedicated match timer, shot/serve timer, roster, scoring, and penalty stations. Custom stations support module selection, ordering, and team filtering, with matching keyboard shortcut behavior. Roster stations can edit player names and numbers without opening game settings. All modes offer a clock/score box enabled by default and a Merged View switch; Display Control remains separate.
-- Added configurable timed or indefinite team and official pauses, with separate timed/infinite start buttons, inline operator pause/resume/stop controls, separate pause-count adjustments, centered pause labels with team/event logos, synchronized display overlays, remote control, Web API templates, keyboard shortcuts, Live Activities, saved state, sounds, and Companion events (including infinite pause stops).
+- Added timed and indefinite team and official pauses, with a 1–60 minute duration menu replacing the fixed default duration. Official Pause shares the Added Time row inside the game-clock controls and reuses its bar for countdown, pause/resume, and stop controls, with smooth transitions.
+- Added separate pause-count adjustments, centered public pause labels with team/event logos, synchronized display overlays, remote control, Web API templates, keyboard shortcuts, Live Activities, saved state, sounds, and Companion events, including stopping indefinite pauses.
 - Added Remote Control Board support for iPhone, iPad, and Mac, reusing the existing Control Board for scores, timers, players, sounds, and display controls across supported sports and modes, with separate control permission for each paired device.
 - Added simultaneous remote control and scoreboard display, including Merged View, local display, and external display support.
+- Added a dedicated Remote Display & Control settings page for pairing, device permissions, and session hosting. Integration now groups Web API and Bitfocus Companion settings.
 - Added session host assignment to a paired Mac, iPad, or Apple TV. The owner sets up the game and keeps the match file, while the host runs game logic, timers, logs, Web API, and Bitfocus Companion.
 - Added continued play on the host and authorized control boards while the owner is offline, with match and log synchronization when the owner reconnects.
 - Added coordinated host handoff, safe-to-disconnect indicators, isolated hosted match storage, local discard controls, and owner recovery options when the host is unavailable. Host switching is blocked while any timer is running.
@@ -16,17 +18,22 @@
 
 ### Issue Fixed
 
+- Fixed Settings sidebar navigation so the entire row responds to clicks, including the space around its text, improving usability on Mac.
+- Fixed Chess clocks wrapping onto another line in narrow control-board columns and during rotation.
 - Reworked the control board mode and hockey penalty pickers with a shared, bounded, themed layout, scrollable options, and persistent actions. Moved the mode button beside the Theme menu in all control board toolbars. Station controls reuse team columns and existing player/timer controls, including in Merged View.
 - Made connection dropdowns and device counts host-centric: a non-host owner appears as a client with its connection-to-host status and telemetry, while the host is excluded from client totals.
 - Fixed returning from Settings reloading an unchanged game and stopping timers on the owner or delegated host. Added a confirmation before opening Settings while timers are running.
 - Improved remote timer operation timing with network-delay compensation.
-- Improved pairing, discovery, reconnection, host switching, and cleanup of former hosted sessions; excluded the local device and unavailable owner/host pairing endpoints from client discovery.
+- Improved pairing, discovery, reconnection, host switching, and cleanup of former hosted sessions; excluded the local device and unavailable owner/host pairing endpoints from client discovery. Pairing controls retain their width, and iPhone/iPad code entry includes Done to dismiss the keyboard before pairing.
 - Improved remote disconnect handling so the interface stays responsive and connection status updates when commands cannot be delivered.
 - Improved player-page responsiveness and reduced connection-badge flicker during timer operations.
 - Fixed game-name synchronization between the owner and remote devices.
-- Improved connection badges with compact layouts, theme-adaptive colors, device counts, and detailed client status and latency. Hosts show Hosting without a ping indicator.
+- Improved connection badges with compact layouts, theme-adaptive colors, device counts, and detailed client status and latency. Hosts show Hosting without a ping indicator. On iPhone, connection details use a scrollable sheet with Done, wrapping long names and removing the unused space below short client lists.
+- Fixed hardware-keyboard capture showing the software keyboard over live clock menus and competing with menu focus.
 - Fixed blurred backgrounds in Background Only, Event Logo, Team View, and Player View on local and remote displays.
 - Improved Apple TV help layout and role wording, and expanded Simplified Chinese translations throughout remote display, control, hosting, and help screens.
+- Resolved Swift concurrency and sound completion-handler warnings reported by Xcode.
+- Updated focused UI regressions for timed pause selection, remote pairing and recovery, Settings navigation, connection status, and Chess clock layout.
 
 ## 1.6
 

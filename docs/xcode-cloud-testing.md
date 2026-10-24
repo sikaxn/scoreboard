@@ -26,8 +26,9 @@ a navigation issue, now repaired with two focused Debate checks passing. See the
 remains the default; FocusedUI and SmokeUI provide smaller selections. Named
 configurations are bundled resources, so preloading works without runtime
 source-checkout access. A successful full Cloud UI run is still unverified.
-The new station-mode and host-centric connection changes and tests have not
-been built or run, at the user's request.
+The latest focused UI and build results are recorded in the validation handoff.
+The full suite is reserved for the next Xcode Cloud run after the changes are
+published.
 
 ## Create the workflows
 
@@ -56,6 +57,34 @@ results separately. Each test action builds and executes its own test products.
 
 Apple documents [test action configuration](https://developer.apple.com/documentation/xcode/configuring-your-xcode-cloud-workflow-s-actions)
 and [organizing tests with test plans](https://developer.apple.com/documentation/xcode/organizing-tests-to-improve-feedback).
+
+## 2026-10-24 Cloud follow-up
+
+The Timed Official Pause test now selects the duration using its stable
+`live.pauseDuration.<minutes>` identifier and native XCTest tap. The previous
+coordinate tap could leave the menu open. Countdown, pause/resume, stop, and
+unchanged bar-height assertions remain in place.
+
+Remote Display & Control has its own Settings page. Recovery tests navigate to
+that page, dismiss code entry using Done, and locate Pair by the peer-specific
+`remote.pair.<id>` identifier within the device row. Pairing controls reserve
+their width, and field focus is cleared when pairing starts. The test still
+uses real Bonjour, pairing, live-state delivery, disconnection, saved-secret
+reconnection, and operator-driven Connect/Disconnect.
+
+Additional focused cases check blank-space sidebar clicks, one-line Chess
+clocks through rotation, and connection-status bounds and navigation. The UI
+test runner retains its iPad configuration for Cloud. Local handset validation
+can override `TARGETED_DEVICE_FAMILY=1,2` to check the reported iPhone Duo form
+factor without expanding the Cloud device selection. Compact Settings menu tests use visible
+action labels because UIKit can replace the custom identifier with the symbol
+name in that menu.
+
+Five source warnings were repaired: an explicit sound-completion argument,
+immutable connection captures across MainActor tasks, and a Sendable RTC
+completion handler. Xcode still prints its App Intents metadata-skipped notice
+for targets without an AppIntents dependency; it is separate from these source
+warnings.
 
 ## UI failures after the app launches
 

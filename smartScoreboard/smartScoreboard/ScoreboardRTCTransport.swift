@@ -149,7 +149,7 @@ nonisolated final class ScoreboardRTCPeer: NSObject, @unchecked Sendable {
     private func makeDescription(offer: Bool) {
         guard let peer, !isClosed else { return }
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        let completion: (LKRTCSessionDescription?, Error?) -> Void = { [weak self] description, error in
+        let completion: @Sendable (LKRTCSessionDescription?, Error?) -> Void = { [weak self] description, error in
             Self.rtcQueue.async {
                 guard let self, !self.isClosed else { return }
                 guard let description, error == nil else { self.close(); return }

@@ -3,6 +3,44 @@ import UIKit
 
 @MainActor
 final class DisplayLayoutUITests: ScoreboardUITestCase {
+    func testSettingsNavigationRespondsOutsideItsText() {
+        launch()
+        openSettings()
+        let sidebar = mainWindow.scrollViews["settings.sidebar"]
+        if sidebar.exists {
+            let remote = mainWindow.buttons["settings.pane.remoteDisplay"]
+            reveal(remote, anchor: sidebar)
+            remote.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+            XCTAssertTrue(mainWindow.staticTexts["settings.title.remoteDisplay"].waitForExistence(timeout: 5))
+        } else {
+            selectSettingsSection("remoteDisplay")
+        }
+        XCTAssertTrue(mainWindow.buttons["Enter"].firstMatch.exists)
+        selectSettingsSection("integration")
+        XCTAssertTrue(mainWindow.buttons["settings.integration.webAPI"].exists)
+        XCTAssertTrue(mainWindow.buttons["settings.integration.bitfocusCompanion"].exists)
+        XCTAssertFalse(mainWindow.buttons["settings.integration.remoteDisplay"].exists)
+        selectSettingsSection("remoteDisplay")
+        XCTAssertFalse(mainWindow.buttons["settings.integration.webAPI"].exists)
+    }
+
+    func testChessClocksStayOnOneLineAcrossRotation() {
+        launch("chess")
+        for orientation: UIDeviceOrientation in [.landscapeLeft, .portrait, .landscapeRight] {
+            rotate(to: orientation, landscape: orientation != .portrait)
+            for side in ["home", "guest"] {
+                let clock = mainWindow.staticTexts["live.chess.\(side)"]
+                XCTAssertTrue(clock.waitForExistence(timeout: 5))
+                XCTAssertLessThan(clock.frame.height, clock.frame.width * 0.7,
+                                  "The complete clock must fit on one line")
+            }
+        }
+        let clocks = XCTAttachment(screenshot: mainWindow.screenshot())
+        clocks.name = "Chess clocks stay on one line"
+        clocks.lifetime = .keepAlways
+        add(clocks)
+    }
+
     private func rotate(to orientation: UIDeviceOrientation, landscape: Bool) {
         XCUIDevice.shared.orientation = orientation
         waitUntil("The app must adopt the requested iPad layout") {

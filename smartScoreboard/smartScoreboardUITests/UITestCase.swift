@@ -210,14 +210,14 @@ class ScoreboardUITestCase: XCTestCase {
         tap(mainWindow.buttons["Settings"].firstMatch)
         // A segment, prep, side, or secondary clock can also trigger this warning.
         let confirmation = app.alerts.firstMatch
-        let gamePane = mainWindow.buttons["settings.pane.game"]
+        let gamePane = mainWindow.staticTexts["settings.title.game"]
         waitUntil("Settings or its running-timer confirmation must appear") {
             gamePane.exists || confirmation.exists
         }
         if confirmation.exists {
             tapAlertAction("Open Settings")
         }
-        XCTAssertTrue(mainWindow.buttons["settings.pane.game"].waitForExistence(timeout: 10))
+        XCTAssertTrue(gamePane.waitForExistence(timeout: 10))
     }
 
     func tapAlertAction(_ title: String) {
@@ -252,13 +252,41 @@ class ScoreboardUITestCase: XCTestCase {
         tap(mainWindow.buttons.matching(NSPredicate(format: "label IN %@", ["Go to Control Board", "Back to Live Board"])).firstMatch)
         waitUntil("The live board must return for the selected event mode") {
             self.mainWindow.buttons["Settings"].firstMatch.exists
-                && !self.mainWindow.buttons["settings.pane.game"].exists
+                && !self.mainWindow.staticTexts["settings.title.game"].exists
         }
     }
 
     func openIntegration(_ name: String) {
         openSettings()
-        tap(mainWindow.buttons["settings.pane.integration"])
+        selectSettingsSection("integration")
         tap(mainWindow.buttons["settings.integration.\(name)"])
+    }
+
+    func selectSettingsSection(_ name: String) {
+        let item = mainWindow.buttons["settings.pane.\(name)"]
+        if mainWindow.scrollViews["settings.sidebar"].exists {
+            tap(item)
+        } else {
+            tap(mainWindow.buttons["Settings Section"])
+            // UIKit menus expose Label's symbol as the identifier on some
+            // iPhone layouts. Navigate by the user-visible action title.
+            let title: String
+            switch name {
+            case "remoteDisplay": title = "Remote Display & Control"
+            case "keyboardShortcuts": title = "Keyboard Shortcuts"
+            case "game": title = "Game Setup"
+            case "files": title = "Library"
+            default: title = name.capitalized
+            }
+            let menuItem = app.buttons[title].firstMatch
+            XCTAssertTrue(menuItem.waitForExistence(timeout: 5))
+            menuItem.tap()
+        }
+        XCTAssertTrue(mainWindow.staticTexts["settings.title.\(name)"].waitForExistence(timeout: 5))
+    }
+
+    func openRemoteDisplaySettings() {
+        openSettings()
+        selectSettingsSection("remoteDisplay")
     }
 }

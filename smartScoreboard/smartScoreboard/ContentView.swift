@@ -48,8 +48,8 @@ struct ContentView: View, ScoreboardSetupEditing {
             _setupSport = State(initialValue: screen == "players" ? .basketball : .simple)
             _showsSetup = State(initialValue: ["game", "integration", "remote-display", "players"].contains(screen))
             _selectedSettingsPane = State(initialValue: screen == "players" ? .players :
-                ["integration", "remote-display"].contains(screen) ? .integration : .game)
-            _selectedIntegrationDetail = State(initialValue: screen == "integration" ? .webAPI : .remoteDisplay)
+                screen == "remote-display" ? .remoteDisplay : screen == "integration" ? .integration : .game)
+            _selectedIntegrationDetail = State(initialValue: IntegrationSettingsDetail.webAPI)
             _dashboardPage = State(initialValue: screen == "display" ? .preview : .main)
             _showsLocalScoreboard = State(initialValue: screen == "public")
         }
@@ -115,7 +115,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     @State private var companionEventSearch = ""
     @State private var expandedSoundEventGroups: Set<ScoreboardEventGroup> = []
     @State private var expandedCompanionEventGroups: Set<ScoreboardEventGroup> = []
-    @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .remoteDisplay
+    @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .webAPI
     @State private var remoteDisplayPairingCodes: [String: String] = [:]
     @State var selectedCompanionSettingsSport: SportType = .simple
     @State var gameFileNameDraft = ""
@@ -1026,6 +1026,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                         Label(localizedAppString(pane.title), systemImage: pane.systemImage)
                     }
                     .disabled(!isSettingsPaneEnabled(pane))
+                    .accessibilityIdentifier("settings.pane.\(pane.rawValue)")
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -1112,10 +1113,12 @@ struct ContentView: View, ScoreboardSetupEditing {
             .foregroundStyle(selectedSettingsPane == pane ? settingsPalette.accentText : settingsPalette.primaryText)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 (selectedSettingsPane == pane ? settingsPalette.accent : Color.clear),
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
+            .contentShape(Rectangle())
         }
         .opacity(isEnabled ? 1 : 0.38)
         .disabled(!isEnabled)
@@ -1145,6 +1148,26 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
             .frame(width: max(0, proxy.size.width), height: max(0, proxy.size.height), alignment: .topLeading)
         }
+        #if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if focusedSettingsTextFieldID?.hasPrefix("remote.code.") == true {
+                HStack {
+                    Spacer()
+                    Button { focusedSettingsTextFieldID = nil } label: {
+                        localizedAppText("Done")
+                            .font(.body.weight(.semibold))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .padding(.horizontal, 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.dismissKeyboard")
+                }
+                .padding(.horizontal, 8)
+                .background(settingsPalette.shellBackground)
+            }
+        }
+        #endif
         .background(settingsPalette.detailBackground)
     }
 
@@ -1196,6 +1219,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 localizedAppText(selectedSettingsPane.title)
+                    .accessibilityIdentifier("settings.title.\(selectedSettingsPane.rawValue)")
                     .font(.system(size: layout.settingsHeaderTitleSize, weight: .black, design: .rounded))
                     .foregroundStyle(settingsPalette.primaryText)
                     .lineLimit(2)
@@ -1246,7 +1270,9 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .keyboardShortcuts:
             return "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open."
         case .integration:
-            return "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display & Control, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off."
+            return "Use Integration to connect Web API and Bitfocus Companion with production tools on the local network. Pair displays and control boards on the Remote Display & Control page."
+        case .remoteDisplay:
+            return "Use Remote Display & Control to pair nearby screens and control boards, manage device permissions, and choose the session host. Apple TV is display-only."
         case .about:
             return nil
         }
@@ -1467,6 +1493,13 @@ struct ContentView: View, ScoreboardSetupEditing {
             ScoreboardViewBoundary { settingsKeyboardShortcutsPane(layout: layout) }
         case .integration:
             ScoreboardViewBoundary { settingsIntegrationPane(layout: layout) }
+        case .remoteDisplay:
+            ScoreboardViewBoundary {
+                VStack(alignment: .leading, spacing: 22) {
+                    settingsLocalNetworkPermissionSection()
+                    settingsRemoteDisplayPane(layout: layout)
+                }
+            }
         case .about:
             ScoreboardViewBoundary { settingsAboutPane() }
         }
@@ -2763,8 +2796,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                     }
                 }
 
-                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display & Control.") {
-                    settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Integration.", systemImage: "arrow.left.and.right")
+                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Settings > Remote Display & Control.") {
+                    settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control.", systemImage: "arrow.left.and.right")
                     settingsDivider()
 
                     settingsPickerRow(
@@ -3527,8 +3560,6 @@ struct ContentView: View, ScoreboardSetupEditing {
             switch selectedIntegrationDetail {
             case .webAPI:
                 settingsWebAPIPane()
-            case .remoteDisplay:
-                settingsRemoteDisplayPane(layout: layout)
             case .bitfocusCompanion:
                 settingsBitfocusCompanionPane(layout: layout)
             }
@@ -3718,9 +3749,9 @@ struct ContentView: View, ScoreboardSetupEditing {
     private func settingsIntegrationConfigurationSection() -> some View {
         settingsSection(
             title: "Configure Integration",
-            footer: "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display & Control, and Bitfocus Companion are separate integrations."
+            footer: "Selecting an icon changes which settings are shown. Web API and Bitfocus Companion keep separate enabled states."
         ) {
-            settingsOptionTip("Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display & Control, and Bitfocus Companion each keep their own enabled state, connection details, and assignments.", systemImage: "arrow.left.arrow.right")
+            settingsOptionTip("Choose Web API or Bitfocus Companion. Pair screens and control boards on the Remote Display & Control page.", systemImage: "arrow.left.arrow.right")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 ForEach(IntegrationSettingsDetail.allCases) { detail in
                     settingsIntegrationConfigurationButton(detail)
@@ -4195,6 +4226,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func requestPairRemoteDisplay(_ source: ScoreboardRemoteDisplaySource, pairingCode: String) {
+        focusedSettingsTextFieldID = nil
         if source.needsTakeoverConfirmation(currentOperatorID: store.remoteDisplayHostID) {
             pendingRemoteDisplayTakeover = PendingRemoteDisplayTakeover(
                 source: source,
@@ -4367,6 +4399,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                                 text: remoteDisplayPairingCodeBinding(for: source)
                             )
                             .accessibilityIdentifier("remote.code.\(row.id)")
+                            .focused($focusedSettingsTextFieldID, equals: "remote.code.\(row.id)")
                             .font(.title3.weight(.black).monospacedDigit())
                             .multilineTextAlignment(.center)
                             .scoreboardNumberEntry()
@@ -4395,6 +4428,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                             ) {
                                 requestPairRemoteDisplay(source, pairingCode: enteredCode)
                             }
+                            .accessibilityIdentifier("remote.pair.\(row.id)")
                         }
 
                         if row.isTrusted {
@@ -4408,6 +4442,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                             }
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
 
@@ -8422,6 +8457,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel([remoteControlConnectionTitle, remoteControlDeviceCountsTitle].compactMap { $0 }.joined(separator: ", "))
+                .accessibilityIdentifier("connection.statusButton")
                 if remoteOwnerIsDisconnected {
                     Label("Owner disconnected", systemImage: "person.crop.circle.badge.exclamationmark")
                         .font(layout.headerBadgeDetailFont)
@@ -8435,89 +8471,155 @@ struct ContentView: View, ScoreboardSetupEditing {
                 }
             }
         }
-        .popover(isPresented: $showsRemoteConnectionDetails) {
+        .popover(isPresented: Binding(
+            get: { showsRemoteConnectionDetails && !isIPhoneInterface },
+            set: { showsRemoteConnectionDetails = $0 }
+        )) {
             TimelineView(.periodic(from: Date(), by: 1)) { _ in
-                remoteConnectionDetails
+                remoteConnectionDetails(showsHeading: true)
             }
+            .frame(width: 400, height: 520)
         }
+        #if os(iOS)
+        .sheet(isPresented: Binding(
+            get: { showsRemoteConnectionDetails && isIPhoneInterface },
+            set: { showsRemoteConnectionDetails = $0 }
+        )) {
+            NavigationStack {
+                TimelineView(.periodic(from: Date(), by: 1)) { _ in
+                    remoteConnectionDetails(showsHeading: false)
+                }
+                .navigationTitle(localizedAppString("Connection Status"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(localizedAppString("Done")) { showsRemoteConnectionDetails = false }
+                            .accessibilityIdentifier("connection.done")
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        #endif
     }
 
     private func remoteConnectionDetailRow(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(localizedAppString(title)).foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Text(value).multilineTextAlignment(.trailing)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                localizedAppText(title).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 4)
+                Text(value).multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                localizedAppText(title).foregroundStyle(.secondary)
+                Text(value).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .font(.callout)
     }
 
-    private var remoteConnectionDetails: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connection Status").font(.headline)
-            remoteConnectionDetailRow(remoteConnectionIsHosting ? "Connection" : "Connection to Host", value: remoteControlConnectionTitle)
-            if let session = remoteConnectionSession {
-                remoteConnectionDetailRow("Session Host", value: session.hostName)
-                remoteConnectionDetailRow("Owner", value: session.ownerName)
-                if store.isFollowingSessionHost {
-                    Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
-                        .font(.caption).foregroundStyle(.secondary)
+    private func remoteConnectionDetails(showsHeading: Bool) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if showsHeading {
+                    HStack {
+                        localizedAppText("Connection Status").font(.headline)
+                        Spacer()
+                        Button { showsRemoteConnectionDetails = false } label: {
+                            Image(systemName: "xmark").frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(localizedAppString("Close"))
+                    }
                 }
-            }
-            if !remoteConnectionIsHosting {
-                remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
-                remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
-            }
-            Divider()
-            Text("Clients Connected to Host").font(.subheadline.weight(.semibold))
-            if let remoteControlDeviceCountsTitle {
-                Text(remoteControlDeviceCountsTitle).font(.caption).monospacedDigit()
-            }
-            if !remoteConnectionIsHosting && !remoteControlReceiver.status.isLive {
-                Text("Last reported by the session host.").font(.caption).foregroundStyle(.secondary)
-            }
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
+                    remoteConnectionDetailRow(remoteConnectionIsHosting ? "Connection" : "Connection to Host", value: remoteControlConnectionTitle)
+                    if let session = remoteConnectionSession {
+                        remoteConnectionDetailRow("Session Host", value: session.hostName)
+                        remoteConnectionDetailRow("Owner", value: session.ownerName)
+                        if store.isFollowingSessionHost {
+                            localizedAppText(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if !remoteConnectionIsHosting {
+                        remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
+                        remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
+                    }
+                }
+                .padding(14)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    localizedAppText("Clients Connected to Host").font(.subheadline.weight(.semibold))
+                    if let remoteControlDeviceCountsTitle {
+                        Text(remoteControlDeviceCountsTitle).font(.caption).monospacedDigit()
+                    }
+                    if !remoteConnectionIsHosting && !remoteControlReceiver.status.isLive {
+                        localizedAppText("Last reported by the session host.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if (store.remoteSessionDevices ?? []).isEmpty {
+                        localizedAppText("No clients connected.").font(.callout).foregroundStyle(.secondary)
+                    }
                     ForEach(store.remoteSessionDevices ?? [], id: \.id) { device in
                         remoteConnectionDeviceRow(device)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                if let result = remoteControlReceiver.controlResult, !result.success {
+                    Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"),
+                          systemImage: "exclamationmark.circle")
+                        .font(.callout)
+                }
+                if store.isSessionOwner && !store.isRemoteControlProxy {
+                    Divider()
+                    Button {
+                        showsRemoteConnectionDetails = false
+                        openSettingsFromLiveBoard()
+                        selectedSettingsPane = .remoteDisplay
+                    } label: {
+                        Label(localizedAppString("Remote Display Settings"), systemImage: "tv.and.mediabox")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("connection.settings")
+                    Button(role: .destructive) {
+                        store.hostOnOwnerAndDisconnectOthers()
+                    } label: {
+                        localizedAppText("Host Here & Disconnect Others")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!store.canHostOnOwnerAndDisconnectOthers)
+                    if store.isAnyTimerRunning {
+                        localizedAppText("Stop all timers before moving the session host.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let message = store.sessionStatusMessage {
+                        Text(ScoreboardLocalization.remoteSessionMessage(message))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let returnToRemoteControl {
+                    Button(localizedAppString("Return to Remote Control")) {
+                        showsRemoteConnectionDetails = false
+                        returnToRemoteControl()
                     }
                 }
             }
-            .frame(maxHeight: 260)
-            if let result = remoteControlReceiver.controlResult, !result.success {
-                Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"),
-                      systemImage: "exclamationmark.circle")
-                    .font(.callout)
-            }
-            if store.isSessionOwner && !store.isRemoteControlProxy {
-                Divider()
-                Button("Remote Display Settings") {
-                    showsRemoteConnectionDetails = false
-                    openSettingsFromLiveBoard()
-                    selectedSettingsPane = .integration
-                    selectedIntegrationDetail = .remoteDisplay
-                }
-                Button("Host Here & Disconnect Others", role: .destructive) {
-                    store.hostOnOwnerAndDisconnectOthers()
-                }
-                .disabled(!store.canHostOnOwnerAndDisconnectOthers)
-                if store.isAnyTimerRunning {
-                    Text("Stop all timers before moving the session host.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let message = store.sessionStatusMessage {
-                    Text(ScoreboardLocalization.remoteSessionMessage(message))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if let returnToRemoteControl {
-                Button(localizedAppString("Return to Remote Control")) {
-                    showsRemoteConnectionDetails = false
-                    returnToRemoteControl()
-                }
-            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding()
-        .frame(idealWidth: 340, maxWidth: 380)
+        .accessibilityIdentifier("connection.status")
         .foregroundStyle(.primary)
     }
 
@@ -8530,6 +8632,11 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(device.name).font(.callout.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 5) {
+                    Circle().fill(device.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
+                    localizedAppText(status).font(.caption)
+                }
                 if device.id == remoteConnectionSession?.ownerDeviceID, !isHost {
                     Text("Owner · Client").font(.caption.weight(.semibold))
                 }
@@ -8548,11 +8655,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 4)
-            HStack(spacing: 5) {
-                Circle().fill(device.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
-                Text(localizedAppString(status)).font(.caption)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("connection.client.\(device.id)")
@@ -10159,7 +10262,9 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .accessibilityIdentifier("live.chess.\(side.rawValue)")
                 .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
                 .monospacedDigit()
+                .singleLineFitted(minScale: 0.35)
                 .foregroundStyle(tint)
+                .frame(maxWidth: .infinity)
 
             localizedAppText(isActive ? "ACTIVE" : "WAITING")
                 .accessibilityIdentifier("live.chess.active.\(side.rawValue)")
@@ -15408,6 +15513,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case game
     case players
     case display
+    case remoteDisplay
     case sound
     case theme
     case files
@@ -15426,6 +15532,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Players"
         case .display:
             return "Display"
+        case .remoteDisplay:
+            return "Remote Display & Control"
         case .sound:
             return "Sound"
         case .theme:
@@ -15451,6 +15559,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Configure roster size, player identities, active lineup, and foul tracking."
         case .display:
             return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
+        case .remoteDisplay:
+            return "Pair nearby displays and control boards, manage permissions, and choose the session host."
         case .sound:
             return "Control global audio and preview sport-specific timer sounds."
         case .theme:
@@ -15476,6 +15586,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "person.3"
         case .display:
             return "tv"
+        case .remoteDisplay:
+            return "tv.and.mediabox"
         case .sound:
             return "speaker.wave.2"
         case .theme:
@@ -15499,7 +15611,6 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
-    case remoteDisplay
     case webAPI
     case bitfocusCompanion
 
@@ -15509,12 +15620,6 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "Web API"
-        case .remoteDisplay:
-            #if os(tvOS)
-            return "Remote Display"
-            #else
-            return "Remote Display & Control"
-            #endif
         case .bitfocusCompanion:
             return "Bitfocus Companion"
         }
@@ -15524,8 +15629,6 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "Read live state and control the scoreboard with an API key."
-        case .remoteDisplay:
-            return "Pair nearby displays and control boards. Apple TV is display-only."
         case .bitfocusCompanion:
             return "Trigger Companion commands from scoreboard events."
         }
@@ -15535,8 +15638,6 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "Stream live state to overlays, browser sources, or scripts, and optionally enable authenticated scoreboard control."
-        case .remoteDisplay:
-            return "Use another iPhone, iPad, or Mac as a remote display or full control board. Grant control separately for each device. Apple TV can show the scoreboard but cannot control it."
         case .bitfocusCompanion:
             return "Use this when scoreboard moments should press Companion buttons for graphics, scene changes, lighting, or other production automation."
         }
@@ -15546,8 +15647,6 @@ private enum IntegrationSettingsDetail: Int, CaseIterable, Identifiable {
         switch self {
         case .webAPI:
             return "network"
-        case .remoteDisplay:
-            return "tv.and.mediabox"
         case .bitfocusCompanion:
             return "square.grid.3x3"
         }

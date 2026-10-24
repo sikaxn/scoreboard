@@ -2828,6 +2828,17 @@
         }
       }
     },
+    "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Settings > Remote Display & Control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择各个屏幕的基本左右方向。比赛中“交换两侧”仍会翻转实时布局。要更改远程显示方向，请前往“设置”>“远程显示与控制”。"
+          }
+        }
+      }
+    },
     "Choose the controls for this station and arrange their order. Unavailable sport features stay hidden." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2918,6 +2929,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "先选择运动、队伍、计时默认值、显示选项、文件和集成，再打开实时控制面板。"
+          }
+        }
+      }
+    },
+    "Choose Web API or Bitfocus Companion. Pair screens and control boards on the Remote Display & Control page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 Web API 或 Bitfocus Companion。请在“远程显示与控制”页面配对显示屏和控制面板。"
           }
         }
       }
@@ -5087,7 +5109,19 @@
         }
       }
     },
+    "Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or player area from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示方向是当前屏幕的基本左右方向。控制面板、投影仪、电视或已配对的远程显示屏可能从不同方向面向场地、舞台或选手区，因此某个屏幕设为主队在左时，另一个屏幕可能需要客队在左。“交换两侧”仍是比赛中的实时控制：它会在各屏幕的基本方向上翻转当前对阵，包括在“远程显示与控制”中单独设置方向的远程显示屏。"
+          }
+        }
+      }
+    },
     "Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Integration." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -9252,6 +9286,17 @@
         }
       }
     },
+    "No clients connected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚无已连接的客户端。"
+          }
+        }
+      }
+    },
     "No Companion command assigned." : {
       "localizations" : {
         "zh-Hans" : {
@@ -10039,6 +10084,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配对附近设备即可显示或控制记分牌，无需输入浏览器网址。所有者分别授予各设备控制权限，并可指定一台已连接设备担任比赛主机。"
+          }
+        }
+      }
+    },
+    "Pair nearby displays and control boards, manage permissions, and choose the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近的显示屏和控制面板，管理权限并选择会话主机。"
           }
         }
       }
@@ -13764,6 +13820,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所选名称"
+          }
+        }
+      }
+    },
+    "Selecting an icon changes which settings are shown. Web API and Bitfocus Companion keep separate enabled states." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择图标可切换显示的设置。Web API 和 Bitfocus Companion 分别保持各自的启用状态。"
           }
         }
       }
@@ -17854,6 +17921,17 @@
         }
       }
     },
+    "Use Integration to connect Web API and Bitfocus Companion with production tools on the local network. Pair displays and control boards on the Remote Display & Control page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用“集成”将 Web API 和 Bitfocus Companion 连接到本地网络上的制作工具。请在“远程显示与控制”页面配对显示屏和控制面板。"
+          }
+        }
+      }
+    },
     "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open." : {
       "localizations" : {
         "zh-Hans" : {
@@ -18036,6 +18114,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用预览在发送到窗口或外部显示器前检查公开记分牌布局。"
+          }
+        }
+      }
+    },
+    "Use Remote Display & Control to pair nearby screens and control boards, manage device permissions, and choose the session host. Apple TV is display-only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用“远程显示与控制”配对附近的显示屏和控制面板，管理设备权限并选择会话主机。Apple TV 仅支持显示。"
           }
         }
       }

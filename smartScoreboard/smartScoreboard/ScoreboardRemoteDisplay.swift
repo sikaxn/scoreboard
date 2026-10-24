@@ -1470,9 +1470,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             pendingTrustedDisplay: pendingTrustedDisplay
         )
         connection.stateUpdateHandler = { [weak self, weak connection] state in
+            guard let connection else { return }
             Task { @MainActor [weak self] in
-                guard let connection,
-                      self?.displayConnectionsByEndpoint[source.endpoint]?.connection === connection else { return }
+                guard self?.displayConnectionsByEndpoint[source.endpoint]?.connection === connection else { return }
                 self?.handleConnectionStateChanged(state, endpoint: source.endpoint)
             }
         }
@@ -1532,8 +1532,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             return
         }
         connection.receiveMessage { [weak self, weak connection] data, _, _, error in
+            guard let connection else { return }
             Task { @MainActor [weak self] in
-                guard let self, let connection,
+                guard let self,
                       self.displayConnectionsByEndpoint[endpoint]?.connection === connection else { return }
                 if error != nil {
                     self.handleDroppedConnection(endpoint: endpoint, error: error)

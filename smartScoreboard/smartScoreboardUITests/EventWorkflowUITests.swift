@@ -123,7 +123,11 @@ final class EventWorkflowUITests: ScoreboardUITestCase {
         let idleBarHeight = pauseBar.frame.height
         tap(pauseBar.buttons["live.officialPause.timed"], anchor: clockCard)
         assertClockControlsKeepKeyboardHidden()
-        tapMenuAction("2 min")
+        // Use the native action's hit point, as for the team-duration menu.
+        // A coordinate tap can miss while UIKit positions this long menu.
+        let duration = app.buttons["live.pauseDuration.2"].firstMatch
+        XCTAssertTrue(duration.waitForExistence(timeout: 5))
+        duration.tap()
         XCTAssertTrue(action("Start Game Clock").waitForExistence(timeout: 5))
         XCTAssertFalse(action("Start Game Clock").isEnabled)
         XCTAssertFalse(pauseBar.buttons["live.officialPause.indefinite"].exists)
