@@ -117,6 +117,11 @@ struct ContentView: View, ScoreboardSetupEditing {
     @State private var expandedCompanionEventGroups: Set<ScoreboardEventGroup> = []
     @State private var selectedIntegrationDetail: IntegrationSettingsDetail = .webAPI
     @State private var remoteDisplayPairingCodes: [String: String] = [:]
+    #if os(iOS)
+    @State private var showsRemoteDisplayScanner = false
+    @State private var scannedRemoteDisplayPairingCode: ScoreboardRemoteDisplayPairingCode?
+    @State private var remoteDisplayScanError: String?
+    #endif
     @State var selectedCompanionSettingsSport: SportType = .simple
     @State var gameFileNameDraft = ""
     @State var showsSetup = !ScoreboardStore.shared.didCompleteSetup
@@ -3838,6 +3843,23 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .sheet(isPresented: $showsRemoteSessionHelp) { RemoteSessionHelpView() }
+        #if os(iOS)
+        .sheet(isPresented: $showsRemoteDisplayScanner, onDismiss: pairScannedRemoteDisplay) {
+            RemoteDisplayPairingScanner { code in
+                if let error = remoteDisplayPairingScanError(for: code) { return error }
+                scannedRemoteDisplayPairingCode = code
+                return nil
+            }
+        }
+        .alert("Unable to Pair", isPresented: Binding(
+            get: { remoteDisplayScanError != nil },
+            set: { if !$0 { remoteDisplayScanError = nil } }
+        )) {
+            Button("OK", role: .cancel) { remoteDisplayScanError = nil }
+        } message: {
+            Text(remoteDisplayScanError ?? "")
+        }
+        #endif
         .confirmationDialog("Recover Session on This Device?", isPresented: $showsHostRecoveryConfirmation,
                             titleVisibility: .visible) {
             Button("Recover from Last Saved Copy", role: .destructive) {
@@ -4103,6 +4125,21 @@ struct ContentView: View, ScoreboardSetupEditing {
     private func settingsRemoteDisplayDisplaysSection(_ displayRows: [RemoteDisplaySettingsRow]) -> some View {
         settingsSection(title: "Displays", footer: "Connected, saved, and nearby displays appear together. Saved displays can connect without another code; new displays need the 4-digit code shown on that display.") {
             settingsOptionTip("Use Displays to see which remote screens are available, saved, connected, or waiting for a pairing code. Pair new screens from their four-digit code and reuse saved displays for faster setup at the next event.", systemImage: "display.2")
+            #if os(iOS)
+            settingsDivider()
+            settingsButtonRow(
+                title: "Pair with QR Code",
+                buttonTitle: "Scan to Pair",
+                tint: settingsPalette.accent,
+                foreground: settingsPalette.accentText,
+                isEnabled: store.isRemoteDisplayHostEnabled
+            ) {
+                focusedSettingsTextFieldID = nil
+                scannedRemoteDisplayPairingCode = nil
+                showsRemoteDisplayScanner = true
+            }
+            .accessibilityIdentifier("remote.scan")
+            #endif
             settingsOptionTip("Each saved or connected Remote Display can use its own direction because screens may be mounted on opposite sides of the court, field, room, or player area. Set the direction here for that physical display, then use Swap Sides during the game only when the teams or sides need to flip live across every output.", systemImage: "arrow.left.and.right")
             if !store.isRemoteDisplayHostEnabled {
                 settingsDivider()
@@ -4224,6 +4261,38 @@ struct ContentView: View, ScoreboardSetupEditing {
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
     }
+
+    #if os(iOS)
+    private func remoteDisplayPairingScanError(for code: ScoreboardRemoteDisplayPairingCode) -> String? {
+        guard store.isRemoteDisplayHostEnabled else {
+            return localizedAppString("Enable Remote Display Pairing first")
+        }
+        guard let source = code.discoveredSource(in: remoteDisplaySettingsRows.compactMap(\.source)) else {
+            return localizedAppString("This display is not in the nearby displays list. Keep its pairing screen open, check the network connection, then scan again.")
+        }
+        guard !store.remoteDisplayConnectedDisplays.contains(where: { $0.id == source.id }) else {
+            return localizedAppString("This display is already connected.")
+        }
+        guard source.allowsNewPairing,
+              !source.isInUseByOtherOperator(currentOperatorID: store.remoteDisplayHostID) else {
+            return localizedAppString("This display is not available for pairing. Open its pairing screen and scan the current QR code.")
+        }
+        return nil
+    }
+
+    private func pairScannedRemoteDisplay() {
+        guard let code = scannedRemoteDisplayPairingCode else { return }
+        scannedRemoteDisplayPairingCode = nil
+        // Discovery can change while the camera sheet is dismissing.
+        if let error = remoteDisplayPairingScanError(for: code) {
+            remoteDisplayScanError = error
+            return
+        }
+        guard let source = code.discoveredSource(in: remoteDisplaySettingsRows.compactMap(\.source)) else { return }
+        remoteDisplayPairingCodes[source.id] = code.pairingCode
+        requestPairRemoteDisplay(source, pairingCode: code.pairingCode)
+    }
+    #endif
 
     private func requestPairRemoteDisplay(_ source: ScoreboardRemoteDisplaySource, pairingCode: String) {
         focusedSettingsTextFieldID = nil

@@ -19026,6 +19026,176 @@
           }
         }
       }
+    },
+    "Pairing QR Code" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对二维码"
+          }
+        }
+      }
+    },
+    "Pair with QR Code" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通过二维码配对"
+          }
+        }
+      }
+    },
+    "Scan to Pair" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扫码配对"
+          }
+        }
+      }
+    },
+    "Scan Again" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新扫描"
+          }
+        }
+      }
+    },
+    "Scan the QR code on the Remote Display's pairing screen." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扫描远程显示设备配对屏幕上的二维码。"
+          }
+        }
+      }
+    },
+    "Keep the display's pairing screen open. The display must appear in the nearby displays list before it can pair." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请保持显示设备的配对屏幕打开。设备必须出现在附近显示设备列表中才能配对。"
+          }
+        }
+      }
+    },
+    "Camera access is unavailable. Allow camera access in Settings to scan a pairing code, or cancel and enter the four-digit code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法访问相机。请在系统设置中允许相机访问以扫描配对码，或取消并手动输入四位配对码。"
+          }
+        }
+      }
+    },
+    "No camera is available. Cancel and enter the four-digit pairing code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可用的相机。请取消并手动输入四位配对码。"
+          }
+        }
+      }
+    },
+    "The camera could not start. Try again, or cancel and enter the four-digit pairing code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机无法启动。请重试，或取消并手动输入四位配对码。"
+          }
+        }
+      }
+    },
+    "This is not a Scoreboard pairing QR code. Scan the QR code on the Remote Display's pairing screen." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这不是 Scoreboard 配对二维码。请扫描远程显示设备配对屏幕上的二维码。"
+          }
+        }
+      }
+    },
+    "This display is not in the nearby displays list. Keep its pairing screen open, check the network connection, then scan again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备未出现在附近显示设备列表中。请保持其配对屏幕打开，检查网络连接后重新扫描。"
+          }
+        }
+      }
+    },
+    "This display is already connected." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此显示设备已连接。"
+          }
+        }
+      }
+    },
+    "This display is not available for pairing. Open its pairing screen and scan the current QR code." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备目前无法配对。请打开其配对屏幕并扫描当前二维码。"
+          }
+        }
+      }
+    },
+    "Unable to Pair" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法配对"
+          }
+        }
+      }
+    },
+    "On iPhone or iPad, choose Scan to Pair in Remote Display & Control, or enter the four-digit code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 iPhone 或 iPad 的“远程显示与控制”中选择“扫码配对”，或手动输入四位配对码。"
+          }
+        }
+      }
+    },
+    "On the owner iPhone or iPad, open Settings > Remote Display & Control, enable pairing, then choose Scan to Pair in Displays. Scan the QR code beside the four-digit code on the remote device. The display must appear in the nearby displays list; if it is missing, check the network connection and scan again. You can also enter the code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在所有者的 iPhone 或 iPad 上打开“设置 > 远程显示与控制”，启用配对，然后在显示设备区域选择“扫码配对”。扫描远程设备上四位配对码旁的二维码。设备必须出现在附近显示设备列表中；如果未出现，请检查网络连接后重新扫描。您也可以手动输入配对码。"
+          }
+        }
+      }
+    },
+    "Camera access is restricted on this device. Cancel and enter the four-digit pairing code manually." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备上的相机访问受到限制。请取消并手动输入四位配对码。"
+          }
+        }
+      }
     }
   },
   "version" : "1.2"

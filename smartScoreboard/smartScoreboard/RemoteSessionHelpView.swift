@@ -30,6 +30,8 @@ struct RemoteSessionHelpView: View {
 
                     Text("How devices connect")
                         .font(.title2.bold())
+                    helpCard("Scan to Pair", icon: "qrcode.viewfinder", tint: .blue,
+                        text: "On the owner iPhone or iPad, open Settings > Remote Display & Control, enable pairing, then choose Scan to Pair in Displays. Scan the QR code beside the four-digit code on the remote device. The display must appear in the nearby displays list; if it is missing, check the network connection and scan again. You can also enter the code manually.")
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)],
                               alignment: .leading, spacing: 14) {
                         networkCard("LAN Only", icon: "network", path: "Device → Wi-Fi or Ethernet network → Host",

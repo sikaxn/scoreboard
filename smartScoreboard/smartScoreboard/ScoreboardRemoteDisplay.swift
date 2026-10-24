@@ -228,6 +228,53 @@ nonisolated enum ScoreboardRemoteDisplayStateVersions {
     }
 }
 
+/// Contains only the same short-lived code shown on the pairing screen. The
+/// scanned ID must resolve through discovery; a QR code never supplies an endpoint.
+nonisolated struct ScoreboardRemoteDisplayPairingCode: Equatable, Sendable {
+    let displayID: String
+    let pairingCode: String
+
+    init(displayID: String, pairingCode: String) {
+        self.displayID = displayID
+        self.pairingCode = pairingCode
+    }
+
+    init?(scannedValue: String) {
+        guard scannedValue.utf8.count <= 512,
+              let components = URLComponents(string: scannedValue),
+              components.scheme == "smartscoreboard", components.host == "pair",
+              components.path.isEmpty, components.user == nil, components.password == nil,
+              components.port == nil, components.fragment == nil,
+              let items = components.queryItems, items.count == 3,
+              Set(items.map(\.name)) == ["v", "display", "code"],
+              items.first(where: { $0.name == "v" })?.value == "1",
+              let displayID = items.first(where: { $0.name == "display" })?.value,
+              UUID(uuidString: displayID) != nil,
+              let code = items.first(where: { $0.name == "code" })?.value,
+              code.utf8.count == 4, code.utf8.allSatisfy({ (48...57).contains($0) }) else {
+            return nil
+        }
+        self.init(displayID: displayID, pairingCode: code)
+    }
+
+    var encodedValue: String {
+        var components = URLComponents()
+        components.scheme = "smartscoreboard"
+        components.host = "pair"
+        components.queryItems = [
+            URLQueryItem(name: "v", value: "1"),
+            URLQueryItem(name: "display", value: displayID),
+            URLQueryItem(name: "code", value: pairingCode)
+        ]
+        return components.string ?? ""
+    }
+
+    @MainActor
+    func discoveredSource(in sources: [ScoreboardRemoteDisplaySource]) -> ScoreboardRemoteDisplaySource? {
+        sources.first { $0.displayID?.caseInsensitiveCompare(displayID) == .orderedSame }
+    }
+}
+
 struct ScoreboardRemoteDisplaySource: Identifiable {
     let endpoint: NWEndpoint
     let discoveryInfo: [String: String]?

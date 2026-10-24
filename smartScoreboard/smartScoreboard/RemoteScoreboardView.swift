@@ -686,15 +686,7 @@ private struct RemoteDisplayConfigurationView: View {
                     if usesStackedLayout {
                         stackedConfigurationLayout(isCompact: usesCompactContent, size: proxy.size)
                     } else {
-                        HStack(alignment: .center, spacing: horizontalSpacing) {
-                            RemoteDisplayAboutHeader()
-                                .frame(maxWidth: aboutHeaderMaxWidth, alignment: .leading)
-
-                            pairingPanel(isCompact: false)
-                                .frame(width: pairingPanelWidth(in: proxy.size.width))
-                        }
-                        .padding(configurationPadding)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        wideConfigurationLayout(isCompact: usesCompactContent, size: proxy.size)
                     }
                 }
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: receiver.status)
@@ -766,13 +758,31 @@ private struct RemoteDisplayConfigurationView: View {
     }
 
     @ViewBuilder
+    private func wideConfigurationLayout(isCompact: Bool, size: CGSize) -> some View {
+        ScrollView {
+            HStack(alignment: .center, spacing: isCompact ? 24 : horizontalSpacing) {
+                RemoteDisplayAboutHeader(isCompact: isCompact)
+                    .frame(maxWidth: aboutHeaderMaxWidth, alignment: .leading)
+                pairingPanel(isCompact: isCompact)
+                    .frame(width: pairingPanelWidth(in: size.width))
+            }
+            .padding(isCompact ? 24 : configurationPadding)
+            .frame(maxWidth: .infinity, minHeight: size.height)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    @ViewBuilder
     private func stackedConfigurationLayout(isCompact: Bool, size: CGSize) -> some View {
         #if os(tvOS)
-        VStack(spacing: 24) {
-            RemoteDisplayAboutHeader()
-            pairingPanel(isCompact: false)
+        ScrollView {
+            VStack(spacing: 24) {
+                RemoteDisplayAboutHeader()
+                pairingPanel(isCompact: false)
+            }
+            .padding(configurationPadding)
+            .frame(maxWidth: .infinity, minHeight: size.height)
         }
-        .padding(configurationPadding)
         .frame(width: size.width, height: size.height)
         #else
         if isCompact {
@@ -790,11 +800,14 @@ private struct RemoteDisplayConfigurationView: View {
             .safeAreaPadding(.top, 8)
             .frame(width: size.width, height: size.height)
         } else {
-            VStack(spacing: 24) {
-                RemoteDisplayAboutHeader()
-                pairingPanel(isCompact: false)
+            ScrollView {
+                VStack(spacing: 24) {
+                    RemoteDisplayAboutHeader()
+                    pairingPanel(isCompact: false)
+                }
+                .padding(configurationPadding)
+                .frame(maxWidth: .infinity, minHeight: size.height)
             }
-            .padding(configurationPadding)
             .frame(width: size.width, height: size.height)
         }
         #endif
@@ -809,7 +822,7 @@ private struct RemoteDisplayConfigurationView: View {
     }
 
     private func pairingPanel(isCompact: Bool) -> some View {
-        VStack(spacing: isCompact ? 16 : 22) {
+        VStack(spacing: isCompact ? 14 : 18) {
             VStack(spacing: isCompact ? 8 : 10) {
                 Text(localizedRemoteDisplayReceiverStatusTitle(receiver.status))
                     .font((isCompact ? Font.title3 : Font.title2).weight(.semibold))
@@ -849,22 +862,33 @@ private struct RemoteDisplayConfigurationView: View {
                             .foregroundStyle(.white.opacity(0.62))
                     }
 
-                    Text(receiver.pairingCode)
-                        .font(.system(size: isCompact ? 62 : 82, weight: .black, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.42)
-                        .allowsTightening(true)
-                        .frame(maxWidth: .infinity)
-                        .contentTransition(.numericText())
-                        .padding(.horizontal, isCompact ? 18 : 34)
-                        .padding(.vertical, isCompact ? 14 : 18)
-                        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.white.opacity(0.18), lineWidth: 1)
+                    HStack(spacing: isCompact ? 12 : 18) {
+                        RemoteDisplayPairingQRView(
+                            displayID: receiver.displayID,
+                            pairingCode: receiver.pairingCode,
+                            size: pairingQRCodeSize(isCompact: isCompact)
                         )
+                        Text(receiver.pairingCode)
+                            .font(.system(size: isCompact ? 62 : 82, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.42)
+                            .allowsTightening(true)
+                            .frame(maxWidth: .infinity)
+                            .contentTransition(.numericText())
+                    }
+                    .padding(isCompact ? 12 : 16)
+                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(.white.opacity(0.18), lineWidth: 1)
+                    )
+
+                    Text("On iPhone or iPad, choose Scan to Pair in Remote Display & Control, or enter the four-digit code manually.")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.72))
 
                     Text(savedPairingDetail)
                         .font(.caption.weight(.bold))
@@ -895,8 +919,8 @@ private struct RemoteDisplayConfigurationView: View {
                 }
             }
         }
-        .padding(.horizontal, isCompact ? 18 : 34)
-        .padding(.vertical, isCompact ? 20 : 30)
+        .padding(.horizontal, isCompact ? 16 : 24)
+        .padding(.vertical, isCompact ? 16 : 24)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -917,6 +941,14 @@ private struct RemoteDisplayConfigurationView: View {
         }
     }
 
+    private func pairingQRCodeSize(isCompact: Bool) -> CGFloat {
+        #if os(tvOS)
+        160
+        #else
+        isCompact ? 92 : 112
+        #endif
+    }
+
     private var actionButtonColumns: [GridItem] {
         [
             GridItem(
@@ -928,17 +960,17 @@ private struct RemoteDisplayConfigurationView: View {
 
     private var actionButtonMinimumWidth: CGFloat {
         #if os(tvOS)
-        220
+        200
         #else
-        210
+        160
         #endif
     }
 
     private var actionButtonSpacing: CGFloat {
         #if os(tvOS)
-        14
-        #else
         12
+        #else
+        10
         #endif
     }
 
@@ -1013,11 +1045,10 @@ private struct RemoteDisplayConfigurationView: View {
 
     private var actionControls: some View {
         VStack(spacing: actionButtonSpacing) {
-            #if os(tvOS)
-            VStack(spacing: actionButtonSpacing) {
+            LazyVGrid(columns: actionButtonColumns, spacing: actionButtonSpacing) {
                 orderedActionButtons
             }
-
+            #if os(tvOS)
             Rectangle()
                 .fill(.white.opacity(0.12))
                 .frame(height: 1)
@@ -1025,13 +1056,6 @@ private struct RemoteDisplayConfigurationView: View {
 
             if !sessionStore.hasHostedMatchToDiscard { forgetPairedDevicesButton }
             #else
-            LazyVGrid(
-                columns: actionButtonColumns,
-                spacing: actionButtonSpacing
-            ) {
-                orderedActionButtons
-            }
-
             if !sessionStore.hasHostedMatchToDiscard {
                 forgetPairedDevicesButton
                     .frame(maxWidth: forgetButtonMaxWidth)
@@ -1594,7 +1618,7 @@ private struct RemoteDisplayControlButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .frame(width: iconWidth)
 
@@ -1611,9 +1635,9 @@ private struct RemoteDisplayControlButton: View {
 
     private var iconWidth: CGFloat {
         #if os(tvOS)
-        30
+        26
         #else
-        22
+        20
         #endif
     }
 }
@@ -1650,25 +1674,25 @@ private struct RemoteDisplayControlButtonStyle: ButtonStyle {
 
     private var buttonFont: Font {
         #if os(tvOS)
-        .system(size: 25, weight: .bold, design: .rounded)
+        .system(size: 22, weight: .bold, design: .rounded)
         #else
-        .headline.weight(.bold)
+        .subheadline.weight(.semibold)
         #endif
     }
 
     private var minHeight: CGFloat {
         #if os(tvOS)
-        76
+        60
         #else
-        50
+        44
         #endif
     }
 
     private var horizontalPadding: CGFloat {
         #if os(tvOS)
-        22
-        #else
         16
+        #else
+        12
         #endif
     }
 
