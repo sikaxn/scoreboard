@@ -1,5 +1,29 @@
 import Foundation
 
+/// A nil side is an official pause; nil remaining time means an indefinite pause.
+nonisolated struct ScoreboardPauseTimer: Codable, Equatable, Sendable {
+    var side: TeamSide?
+    var remainingSeconds: Int?
+    var isRunning: Bool
+
+    var formattedTime: String {
+        remainingSeconds.map { ScoreboardStore.formatGameClock($0) } ?? ""
+    }
+
+    func logoData(homeTeamLogoData: Data?, guestTeamLogoData: Data?, eventLogoData: Data?) -> Data? {
+        guard let side else { return eventLogoData }
+        return (side == .home ? homeTeamLogoData : guestTeamLogoData) ?? eventLogoData
+    }
+
+    func title(homeTeamName: String, guestTeamName: String) -> String {
+        guard let side else { return ScoreboardLocalization.string("Official Pause") }
+        let name = (side == .home ? homeTeamName : guestTeamName).trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = ScoreboardLocalization.string(side == .home ? "Home Team" : "Guest Team")
+        return scoreboardLocalizedFormat(ScoreboardLocalization.string("%@ Pause"), locale: Locale.current,
+                                         arguments: [name.isEmpty ? fallback : name])
+    }
+}
+
 enum MainClockMode: String, Codable, CaseIterable, Identifiable {
     case countdown
     case countUp

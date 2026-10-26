@@ -130,6 +130,7 @@ nonisolated struct ScoreboardWebAPIState: Codable, Sendable {
     let clocks: ScoreboardWebAPIClocks
     let players: ScoreboardWebAPIPlayers
     let debate: ScoreboardWebAPIDebate?
+    var control: ScoreboardControlStatus? = nil
 }
 
 nonisolated struct ScoreboardWebAPIAppInfo: Codable, Sendable {
@@ -299,6 +300,10 @@ nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
     let guestChessClockSeconds: Int
     let formattedGuestChessClock: String
     let activeChessClockSide: TeamSide?
+    var pauseTimer: ScoreboardPauseTimer? = nil
+    var pauseTitle: String? = nil
+    var pauseDurationSeconds: Int? = nil
+    var isTeamPauseIndefinite: Bool? = nil
 }
 
 nonisolated enum ScoreboardWebAPILegacyScrollDirection: String, Codable, Sendable {
@@ -365,6 +370,7 @@ nonisolated enum ScoreboardWebAPIV2ResourceName: String, CaseIterable, Codable, 
     case players
     case debate
     case audio
+    case session
 
     var path: String {
         "/api/v2/state/\(rawValue)"
@@ -587,7 +593,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
                 mode: "dualClock",
                 label: "Dual Clock",
                 value: "\(clocks.formattedHomeChessClock) / \(clocks.formattedGuestChessClock)",
-                state: clocks.activeChessClockSide == nil ? "stopped" : "running",
+                state: clocks.isGameClockRunning ? "running" : "stopped",
                 side: clocks.activeChessClockSide,
                 secondaryValue: nil
             )
@@ -785,6 +791,11 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         let clocks = state.clocks
         var insights: [ScoreboardWebAPICommentatorInsight] = []
 
+        if let pause = clocks.pauseTimer {
+            insights.append(insight(id: "active-pause", priority: "high", category: "clock",
+                title: clocks.pauseTitle ?? "Pause", detail: pause.remainingSeconds == nil ? "Indefinite Pause" : "\(pause.formattedTime) · \(pause.isRunning ? "Running" : "Stopped")"))
+        }
+
         if rules.supportsScore {
             if summary.leader == "tied" {
                 insights.append(insight(id: "score-tied", priority: "normal", category: "score", title: "Score tied", detail: "\(home.name) \(home.score)-\(guest.score) \(guest.name)"))
@@ -903,7 +914,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
                 insights.append(entryInsight(entry, priority: "high", category: "clock"))
             case .clockToggle, .clockAdjustment, .clockReset, .shotClockToggle, .shotClockAssignment, .shotClockAdjustment, .shotClockReset:
                 insights.append(entryInsight(entry, priority: "normal", category: "clock"))
-            case .playerFoulAdjustment, .teamFoulAdjustment, .playerCardSet, .playerCardReset, .teamPauseAdjustment:
+            case .playerFoulAdjustment, .teamFoulAdjustment, .playerCardSet, .playerCardReset, .teamPauseAdjustment, .pauseTimerChange:
                 insights.append(entryInsight(entry, priority: "high", category: "discipline"))
             case .substitutionsAdjustment, .lineupToggle, .playerOverlayToggle:
                 insights.append(entryInsight(entry, priority: "normal", category: "player"))
@@ -984,7 +995,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         switch kind {
         case .scoreAdjustment, .scoresReset, .volleyballSetAward, .volleyballSetUndo:
             return "score"
-        case .clockToggle, .clockExpired, .clockAdjustment, .clockReset, .shotClockAssignment, .shotClockToggle, .shotClockExpired, .shotClockAdjustment, .shotClockReset, .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset:
+        case .clockToggle, .clockExpired, .clockAdjustment, .clockReset, .shotClockAssignment, .shotClockToggle, .shotClockExpired, .shotClockAdjustment, .shotClockReset, .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset, .pauseTimerChange:
             return "clock"
         case .playerFoulAdjustment, .playerFoulReset, .playerFoulResetAll, .playerCardSet, .playerCardReset, .playerCardResetAll, .teamFoulAdjustment, .teamFoulReset, .teamFoulResetAll, .teamPauseAdjustment:
             return "discipline"
@@ -1039,6 +1050,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
             return "Swap Sides"
         case .substitutionsAdjustment:
             return "Substitution Swap"
+        case .pauseTimerChange: return "Pause Timer Change"
         case .teamPauseAdjustment:
             return "Team Pause Change"
         case .chessClockToggle:
@@ -1538,6 +1550,7 @@ nonisolated struct ScoreboardWebAPIRemoteDisplayStateV2: Codable, Sendable {
     let clocks: ScoreboardWebAPIClocks
     let players: ScoreboardWebAPIPlayers
     let debate: ScoreboardWebAPIDebate?
+    var control: ScoreboardControlStatus? = nil
 }
 
 nonisolated struct ScoreboardRemoteDisplayEncodedStates: Sendable {
@@ -1556,7 +1569,7 @@ nonisolated struct ScoreboardRemoteDisplayEncodedStates: Sendable {
 
 extension ScoreboardWebAPIState {
     var remoteDisplayPayload: ScoreboardWebAPIState {
-        let shouldIncludeFullRoster = display?.resolvedViewMode == .playerView
+        let shouldIncludeFullRoster = display?.resolvedViewMode == .playerView || control?.remoteEnabled == true
 
         return ScoreboardWebAPIState(
             schemaVersion: schemaVersion,
@@ -1571,7 +1584,8 @@ extension ScoreboardWebAPIState {
             teams: teams,
             clocks: clocks,
             players: shouldIncludeFullRoster ? players : players.remoteDisplayPayload,
-            debate: debate
+            debate: debate,
+            control: control
         )
     }
 
@@ -1588,7 +1602,8 @@ extension ScoreboardWebAPIState {
             teams: payload.teams,
             clocks: payload.clocks,
             players: payload.players,
-            debate: payload.debate
+            debate: payload.debate,
+            control: payload.control
         )
     }
 
@@ -1606,7 +1621,8 @@ extension ScoreboardWebAPIState {
             teams: teams.v2ImagePathPayload,
             clocks: clocks,
             players: players,
-            debate: debate
+            debate: debate,
+            control: control
         )
     }
 }
@@ -1626,7 +1642,8 @@ extension ScoreboardWebAPIRemoteDisplayStateV2 {
             teams: teams,
             clocks: clocks,
             players: players,
-            debate: debate
+            debate: debate,
+            control: control
         )
     }
 }
@@ -1645,7 +1662,8 @@ extension ScoreboardWebAPIV2StatePayload {
             makeResource(.clocks, value: v2State.clocks, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
             makeResource(.players, value: v2State.players, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
             makeResource(.debate, value: v2State.debate, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
-            makeResource(.audio, value: v2State.audio, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime)
+            makeResource(.audio, value: v2State.audio, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime),
+            makeResource(.session, value: v2State.control?.session, generatedAt: generatedAt, generatedAtUnixTime: generatedAtUnixTime)
         ]
         let manifest = ScoreboardWebAPIV2StateManifest(
             schemaVersion: 2,
@@ -1930,12 +1948,27 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     static let webSocketPort: UInt16 = 5517
     static let bonjourServiceType = "_smartscoreboard._tcp"
 
+    private let listeningHTTPPort: UInt16
+    private let listeningWebSocketPort: UInt16
+    private let advertisesService: Bool
+
+    init(httpPort: UInt16 = ScoreboardWebAPIService.httpPort,
+         webSocketPort: UInt16 = ScoreboardWebAPIService.webSocketPort,
+         advertisesService: Bool = true) {
+        listeningHTTPPort = httpPort
+        listeningWebSocketPort = webSocketPort
+        self.advertisesService = advertisesService
+    }
+
     private let queue = DispatchQueue(label: "com.ironmaple.smartscoreboard.webapi", qos: .utility)
+    var controlHandler: (@Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void)?
     private let maxHTTPHeaderBytes = 16 * 1024
+    private let maxHTTPBodyBytes = 16 * 1024
     private let maxWebSocketClients = 16
     private let maxWebSocketFrameBytes = 1 * 1024 * 1024
     private let minimumBroadcastInterval: TimeInterval = 0.10
 
+    private var httpConnections: [ObjectIdentifier: NWConnection] = [:]
     private var httpListener: NWListener?
     private var webSocketListener: NWListener?
     private var httpReady = false
@@ -1971,8 +2004,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             self.updateStatusLocked(.starting)
 
             guard
-                let httpPort = NWEndpoint.Port(rawValue: Self.httpPort),
-                let webSocketPort = NWEndpoint.Port(rawValue: Self.webSocketPort)
+                let httpPort = NWEndpoint.Port(rawValue: self.listeningHTTPPort),
+                let webSocketPort = NWEndpoint.Port(rawValue: self.listeningWebSocketPort)
             else {
                 self.updateStatusLocked(.failed("Invalid Web API port configuration."))
                 return
@@ -1981,12 +2014,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             do {
                 let httpListener = try NWListener(using: .tcp, on: httpPort)
                 let webSocketListener = try NWListener(using: Self.webSocketParameters(), on: webSocketPort)
-                httpListener.service = NWListener.Service(
-                    name: nil,
-                    type: Self.bonjourServiceType,
-                    domain: nil,
-                    txtRecord: nil
-                )
+                if self.advertisesService {
+                    httpListener.service = NWListener.Service(
+                        name: nil,
+                        type: Self.bonjourServiceType,
+                        domain: nil,
+                        txtRecord: nil
+                    )
+                }
                 self.configureHTTPListener(httpListener)
                 self.configureWebSocketListener(webSocketListener)
                 self.httpListener = httpListener
@@ -2135,45 +2170,64 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     }
 
     private func acceptHTTPConnection(_ connection: NWConnection) {
-        connection.stateUpdateHandler = { state in
-            if case .failed = state {
+        connection.start(queue: queue)
+        guard httpConnections.count < 32 else {
+            sendHTTPResponse(connection, statusCode: 503, reason: "Service Unavailable",
+                             contentType: "application/json; charset=utf-8",
+                             body: Data(#"{"error":"busy","message":"Too many HTTP clients. Try again shortly."}"#.utf8))
+            return
+        }
+        let id = ObjectIdentifier(connection)
+        httpConnections[id] = connection
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed:
+                self?.httpConnections.removeValue(forKey: id)
                 connection.cancel()
+            case .cancelled:
+                self?.httpConnections.removeValue(forKey: id)
+            default: break
             }
         }
-        connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + 5) { connection.cancel() }
         receiveHTTPRequest(connection, buffer: Data())
     }
 
     private func receiveHTTPRequest(_ connection: NWConnection, buffer: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: maxHTTPHeaderBytes) { data, _, _, error in
-            if error != nil {
-                connection.cancel()
-                return
+        connection.receive(minimumIncompleteLength: 1, maximumLength: maxHTTPHeaderBytes) { data, _, complete, error in
+            guard error == nil else { connection.cancel(); return }
+            var next = buffer
+            if let data { next.append(data) }
+            guard next.count <= self.maxHTTPHeaderBytes + self.maxHTTPBodyBytes else {
+                self.sendControlResponse(connection, .failure(nil, "invalidCommand", "Request too large.")); return
             }
-
-            var nextBuffer = buffer
-            if let data {
-                nextBuffer.append(data)
+            guard let end = next.range(of: Data("\r\n\r\n".utf8))?.upperBound else {
+                guard !complete, next.count <= self.maxHTTPHeaderBytes else { connection.cancel(); return }
+                self.receiveHTTPRequest(connection, buffer: next); return
             }
-
-            guard nextBuffer.count <= self.maxHTTPHeaderBytes else {
-                self.sendHTTPResponse(
-                    connection,
-                    statusCode: 431,
-                    reason: "Request Header Fields Too Large",
-                    contentType: "text/plain; charset=utf-8",
-                    body: Data("Request headers are too large.".utf8)
-                )
-                return
+            guard end <= self.maxHTTPHeaderBytes,
+                  let header = String(data: next.prefix(end), encoding: .utf8) else { connection.cancel(); return }
+            let lines = header.components(separatedBy: "\r\n").dropFirst()
+            let lengths = lines.filter { $0.lowercased().hasPrefix("content-length:") }
+            guard lengths.count <= 1, !lines.contains(where: { $0.lowercased().hasPrefix("transfer-encoding:") }) else {
+                self.sendControlResponse(connection, .failure(nil, "invalidCommand", "Invalid request framing.")); return
             }
-
-            guard self.headerEndIndex(in: nextBuffer) != nil else {
-                self.receiveHTTPRequest(connection, buffer: nextBuffer)
-                return
+            let lengthText = lengths.first?.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces) ?? "0"
+            guard let length = Int(lengthText), length >= 0, length <= self.maxHTTPBodyBytes else {
+                self.sendControlResponse(connection, .failure(nil, "invalidCommand", "Invalid Content-Length.")); return
             }
-
-            self.handleHTTPRequest(connection, data: nextBuffer)
+            if next.count < end + length {
+                guard !complete else { connection.cancel(); return }
+                self.receiveHTTPRequest(connection, buffer: next); return
+            }
+            self.handleHTTPRequest(connection, data: Data(next.prefix(end + length)))
         }
+    }
+
+    private func sendControlResponse(_ connection: NWConnection, _ result: ScoreboardControlResult) {
+        sendHTTPResponse(connection, statusCode: result.statusCode,
+                         reason: result.success ? "OK" : "Control Error",
+                         contentType: "application/json; charset=utf-8", body: result.data, apiVersion: "v2")
     }
 
     private func handleHTTPRequest(_ connection: NWConnection, data: Data) {
@@ -2207,13 +2261,33 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let target = parts[1]
         let path = target.split(separator: "?", maxSplits: 1).first.map(String.init) ?? "/"
 
+        if path == "/api/v2/control" && method == "POST" {
+            guard let end = data.range(of: Data("\r\n\r\n".utf8))?.upperBound,
+                  let command = try? JSONDecoder().decode(ScoreboardControlCommand.self, from: Data(data.dropFirst(end))) else {
+                sendControlResponse(connection, .failure(nil, "invalidCommand", "Invalid command JSON. Include id, action and sport.")); return
+            }
+            let lines = text.components(separatedBy: "\r\n")
+            let keys = lines.filter { $0.lowercased().hasPrefix("x-api-key:") }
+            guard keys.count == 1,
+                  let key = keys.first?.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces),
+                  key.count == 16, key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+                sendControlResponse(connection, .failure(command.id, "unauthorized", "Supply X-API-Key.")); return
+            }
+            guard let handler = controlHandler else {
+                sendControlResponse(connection, .failure(command.id, "disabled", "Web control is disabled.")); return
+            }
+            handler(command, key) { result in
+                self.queue.async { self.sendControlResponse(connection, result) }
+            }
+            return
+        }
         guard method == "GET" else {
             sendHTTPResponse(
                 connection,
                 statusCode: 405,
                 reason: "Method Not Allowed",
                 contentType: "application/json; charset=utf-8",
-                body: Data(#"{"error":"readOnly","message":"SmartScoreboard Web API is read only."}"#.utf8),
+                body: Data(#"{"error":"methodNotAllowed","message":"Use POST /api/v2/control for control commands; GET for state."}"#.utf8),
                 extraHeaders: ["Allow: GET"]
             )
             return
@@ -2245,6 +2319,11 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 contentType: "text/html; charset=utf-8",
                 body: Self.webAssetData(.docs)
             )
+        case "/api/v2/control/operations":
+            sendHTTPResponse(connection, statusCode: 200, reason: "OK", contentType: "application/json; charset=utf-8",
+                             body: (try? JSONEncoder().encode(ScoreboardControlOperation.all)) ?? Data(), apiVersion: "v2")
+        case "/demo/control", "/demo/control.html":
+            sendHTTPResponse(connection, statusCode: 200, reason: "OK", contentType: "text/html; charset=utf-8", body: Self.webAssetData(.control))
         case "/demo/scoreboard", "/demo/scoreboard.html":
             sendHTTPResponse(
                 connection,
@@ -2422,6 +2501,13 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             latestV2ResourcesProvider: { [weak self] in
                 self?.latestPayload.v2State.resources ?? []
             },
+            rtcControlHandler: { [weak self] command, key, completion in
+                guard let handler = self?.controlHandler else {
+                    completion(.failure(command.id, "disabled", "Web control is disabled."))
+                    return
+                }
+                handler(command, key, completion)
+            },
             onClose: { [weak self] clientID in
                 self?.queue.async {
                     self?.clients[clientID] = nil
@@ -2479,6 +2565,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         broadcastWorkItem?.cancel()
         broadcastWorkItem = nil
         lastBroadcastDate = nil
+        for connection in httpConnections.values { connection.cancel() }
+        httpConnections.removeAll()
         httpListener?.cancel()
         webSocketListener?.cancel()
         httpListener = nil
@@ -2499,8 +2587,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             return
         }
         updateStatusLocked(.running(
-            httpPort: Self.httpPort,
-            webSocketPort: Self.webSocketPort,
+            httpPort: httpListener?.port?.rawValue ?? listeningHTTPPort,
+            webSocketPort: webSocketListener?.port?.rawValue ?? listeningWebSocketPort,
             clientCount: clients.count
         ))
     }
@@ -2560,11 +2648,25 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         return message
     }
 
+    private struct SessionIdentityPayload: Decodable {
+        struct Control: Decodable {
+            let session: ScoreboardSessionDescriptor?
+        }
+        let control: Control?
+    }
+
+    private func sessionIdentityLocked() -> ScoreboardSessionDescriptor? {
+        // Read just provenance from the latest authoritative state; never consult
+        // the UI store from the service's networking queue.
+        (try? JSONDecoder().decode(SessionIdentityPayload.self, from: latestPayload.v1State))?.control?.session
+    }
+
     private func healthDataLocked() -> Data {
         let health = HealthResponse(
             schemaVersion: 1,
             service: "smartscoreboard.web_api",
             app: ScoreboardWebAPIAppInfo.current,
+            session: sessionIdentityLocked(),
             status: status.healthValue,
             httpPort: Self.httpPort,
             webSocketPort: Self.webSocketPort,
@@ -2582,6 +2684,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let status = AppStatusResponse(
             schemaVersion: 2,
             app: ScoreboardWebAPIAppInfo.current(apiVersion: "v2"),
+            session: sessionIdentityLocked(),
             generatedAt: Self.timestamp(),
             generatedAtUnixTime: Date().timeIntervalSince1970
         )
@@ -2595,6 +2698,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             service: "smartscoreboard.web_api",
             apiVersion: "v2",
             supportedAPIVersions: ["v1", "v2"],
+            session: sessionIdentityLocked(),
             status: status.healthValue,
             httpPort: Self.httpPort,
             webSocketPort: Self.webSocketPort,
@@ -2698,6 +2802,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let schemaVersion: Int
         let service: String
         let app: ScoreboardWebAPIAppInfo
+        let session: ScoreboardSessionDescriptor?
         let status: String
         let httpPort: UInt16
         let webSocketPort: UInt16
@@ -2710,6 +2815,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
     private struct AppStatusResponse: Codable {
         let schemaVersion: Int
         let app: ScoreboardWebAPIAppInfo
+        let session: ScoreboardSessionDescriptor?
         let generatedAt: String
         let generatedAtUnixTime: TimeInterval
     }
@@ -2719,6 +2825,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         let service: String
         let apiVersion: String
         let supportedAPIVersions: [String]
+        let session: ScoreboardSessionDescriptor?
         let status: String
         let httpPort: UInt16
         let webSocketPort: UInt16
@@ -2738,6 +2845,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         private let latestV2ManifestProvider: @Sendable () -> Data
         private let latestV2ResourcesProvider: @Sendable () -> [ScoreboardWebAPIV2ResourcePayload]
         private let onClose: @Sendable (UUID) -> Void
+        private let rtcControlHandler: @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void
+        private var rtcPeer: ScoreboardRTCPeer?
         private var isClosed = false
         private var pendingSends = 0
         private var initialV1WorkItem: DispatchWorkItem?
@@ -2752,6 +2861,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             latestV1EnvelopeProvider: @escaping @Sendable () -> Data,
             latestV2ManifestProvider: @escaping @Sendable () -> Data,
             latestV2ResourcesProvider: @escaping @Sendable () -> [ScoreboardWebAPIV2ResourcePayload],
+            rtcControlHandler: @escaping @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void,
             onClose: @escaping @Sendable (UUID) -> Void
         ) {
             self.id = id
@@ -2761,6 +2871,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             self.latestV1EnvelopeProvider = latestV1EnvelopeProvider
             self.latestV2ManifestProvider = latestV2ManifestProvider
             self.latestV2ResourcesProvider = latestV2ResourcesProvider
+            self.rtcControlHandler = rtcControlHandler
             self.onClose = onClose
         }
 
@@ -2837,8 +2948,15 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return
             }
 
+            if let request = try? JSONDecoder().decode(WebRTCSignalingMessage.self, from: payload), request.type == "rtcSignal" {
+                handleRTCSignal(request.signal)
+                return
+            }
             let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if isV2SubscribePayload(payload) {
+                // V2's independent resource revisions stay on their existing
+                // ordered WS stream in this first RTC version.
+                rtcPeer?.close()
                 initialV1WorkItem?.cancel()
                 initialV1WorkItem = nil
                 isSubscribedToV2 = true
@@ -2854,8 +2972,60 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     sendText(latestV1EnvelopeProvider())
                 }
             } else {
-                sendError("SmartScoreboard Web API is read only. Send {\"type\":\"subscribe\",\"apiVersion\":\"v2\"} for v2 resources or {\"type\":\"get\"} for v1 state.")
+                sendError("The WebSocket state feed is read only. Use POST /api/v2/control for commands. Send {\"type\":\"subscribe\",\"apiVersion\":\"v2\"} for v2 resources or {\"type\":\"get\"} for v1 state.")
             }
+        }
+
+        private struct WebRTCSignalingMessage: Codable {
+            var type = "rtcSignal"
+            var signal: ScoreboardRTCSignal
+        }
+
+        private struct WebRTCCommandMessage: Decodable {
+            var type: String
+            var apiKey: String
+            var command: ScoreboardControlCommand
+        }
+
+        private struct WebRTCCommandResultMessage: Encodable {
+            var type = "controlResult"
+            var result: ScoreboardControlResult
+        }
+
+        private func handleRTCSignal(_ signal: ScoreboardRTCSignal) {
+            guard !isClosed, !isSubscribedToV2 else { return }
+            if rtcPeer == nil, signal.kind == .offer {
+                rtcPeer = ScoreboardRTCPeer(negotiationID: signal.negotiationID, isOfferer: false,
+                    callbackQueue: queue, onSignal: { [weak self] signal in
+                        guard let self, !self.isClosed,
+                              let data = try? JSONEncoder().encode(WebRTCSignalingMessage(signal: signal)) else { return }
+                        self.sendText(data, allowRTC: false)
+                    }, onData: { [weak self] data in
+                        guard let self, !self.isClosed,
+                              let message = try? JSONDecoder().decode(WebRTCCommandMessage.self, from: data),
+                              message.type == "control" else { return }
+                        let key = message.apiKey
+                        guard key.count == 16, key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+                            self.sendRTCResult(.failure(message.command.id, "unauthorized", "Supply a 16-character API key."))
+                            return
+                        }
+                        // Exactly the same key, enable switch, sport validation,
+                        // command deduplication and authority checks as HTTP POST.
+                        self.rtcControlHandler(message.command, key) { [weak self] result in
+                            self?.queue.async { self?.sendRTCResult(result) }
+                        }
+                    }, onReady: { [weak self] _ in
+                        guard let self, !self.isClosed else { return }
+                        self.sendLatestState()
+                    })
+            }
+            rtcPeer?.receive(signal)
+        }
+
+        private func sendRTCResult(_ result: ScoreboardControlResult) {
+            guard let data = try? JSONEncoder().encode(WebRTCCommandResultMessage(result: result)) else { return }
+            // Keep acknowledgements on WS, independent of RTC path health.
+            sendText(data, allowRTC: false)
         }
 
         private func isV2SubscribePayload(_ payload: Data) -> Bool {
@@ -2901,8 +3071,9 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             }
         }
 
-        func sendText(_ data: Data) {
+        func sendText(_ data: Data, allowRTC: Bool = true) {
             guard !isClosed else { return }
+            if allowRTC, !isSubscribedToV2, rtcPeer?.send(data) == true { return }
             guard pendingSends < 32 else {
                 return
             }
@@ -2935,6 +3106,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         func close() {
             guard !isClosed else { return }
             isClosed = true
+            rtcPeer?.close(notifyRemote: false)
+            rtcPeer = nil
             initialV1WorkItem?.cancel()
             initialV1WorkItem = nil
             connection.cancel()
@@ -2947,6 +3120,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         case scoreboard
         case obs
         case commentator
+        case control
         case notFound
 
         var assetName: String {
@@ -2959,6 +3133,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return "WebAPIOBSDemo"
             case .commentator:
                 return "WebAPICommentator"
+            case .control:
+                return "WebAPIControlDemo"
             case .notFound:
                 return "WebAPI404"
             }
@@ -2986,14 +3162,16 @@ extension ScoreboardStore {
         return currentWebAPIState(
             displayDirection: displayDirection,
             remoteExternalDirection: externalDirection,
-            displayViewMode: remoteDisplayEffectiveViewMode(forDisplayID: displayID)
+            displayViewMode: remoteDisplayEffectiveViewMode(forDisplayID: displayID),
+            remoteControlEnabled: displayID.map { isRemoteControlAllowed(displayID: $0) } ?? false
         ).remoteDisplayPayload
     }
 
     private func currentWebAPIState(
         displayDirection: ScoreboardDisplayDirection,
         remoteExternalDirection: ScoreboardDisplayDirection?,
-        displayViewMode: ScoreboardDisplayViewMode? = nil
+        displayViewMode: ScoreboardDisplayViewMode? = nil,
+        remoteControlEnabled: Bool = false
     ) -> ScoreboardWebAPIState {
         let now = Date()
         let rules = currentRules
@@ -3057,7 +3235,7 @@ extension ScoreboardStore {
                 supportsPlayerTracking: supportsPlayerTracking,
                 supportsCards: supportsCards,
                 supportsSubstitutions: rules.showsSubstitutionTracking || showsSubstitutionTracking,
-                supportsPauses: rules.showsPauseTracking || showsPauseTracking,
+                supportsPauses: supportsPauseTracking,
                 supportsHockeyPenalties: supportsHockeyPenalties,
                 usesChessClocks: usesChessClocks,
                 supportsInjuryTime: supportsInjuryTime
@@ -3085,7 +3263,11 @@ extension ScoreboardStore {
                 formattedHomeChessClock: formattedHomeChessClock,
                 guestChessClockSeconds: guestChessClockSeconds,
                 formattedGuestChessClock: formattedGuestChessClock,
-                activeChessClockSide: activeChessClockSide
+                activeChessClockSide: activeChessClockSide,
+                pauseTimer: pauseTimer,
+                pauseTitle: pauseTitle,
+                pauseDurationSeconds: pauseDurationSeconds,
+                isTeamPauseIndefinite: isTeamPauseIndefinite
             ),
             players: ScoreboardWebAPIPlayers(
                 isPlayerTrackingEnabled: isPlayerTrackingEnabled,
@@ -3124,7 +3306,12 @@ extension ScoreboardStore {
                 playerTrackingEnabled: isDebatePlayerTrackingEnabled,
                 playerFoulsEnabled: isDebatePlayerFoulsEnabled,
                 playerCardsEnabled: isDebatePlayerCardsEnabled
-            ) : nil
+            ) : nil,
+            control: ScoreboardControlStatus(webEnabled: isWebControlEnabled, remoteEnabled: remoteControlEnabled, gameName: currentGameDisplayName, isSoundEnabled: isSoundEnabled, mainDisplayMode: publicDisplayViewMode, customDisplayControlVisible: isCustomDisplayControlVisible, customDisplayEnabledIDs: customDisplayEnabledDisplayIDs, customDisplayModes: webAPIBroadcastDisplayModesByID, session: sessionDescriptor,
+                connectedDeviceCount: remoteSessionDeviceCounts?.connected,
+                disconnectedDeviceCount: remoteSessionDeviceCounts?.disconnected,
+                ownerConnected: remoteSessionOwnerConnected,
+                devices: remoteSessionDevices)
         )
     }
 
@@ -3345,8 +3532,9 @@ extension ScoreboardStore {
     }
 
     private func webAPIAbsoluteURLs(for path: String) -> [String] {
-        let addresses = webAPILocalAddresses.isEmpty ? ScoreboardWebAPIService.localIPv4Addresses() : webAPILocalAddresses
-        let resolvedAddresses = addresses.isEmpty ? ["127.0.0.1"] : addresses
+        let addresses = isFollowingSessionHost ? sessionHostAddresses
+            : (webAPILocalAddresses.isEmpty ? ScoreboardWebAPIService.localIPv4Addresses() : webAPILocalAddresses)
+        let resolvedAddresses = addresses.isEmpty && !isFollowingSessionHost ? ["127.0.0.1"] : addresses
         return resolvedAddresses.map { address in
             "http://\(address):\(ScoreboardWebAPIService.httpPort)\(path)"
         }

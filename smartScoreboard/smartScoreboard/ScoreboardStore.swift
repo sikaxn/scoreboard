@@ -1,5 +1,11 @@
 import Combine
 import Foundation
+import OSLog
+
+private enum ExternalAutomationIntegration {
+    case companion
+    case webAPI
+}
 
 private enum ScoreboardLocalizedFormatArgumentType {
     case object
@@ -850,6 +856,7 @@ struct SetupPreset: Identifiable, Codable, Equatable {
 final class ScoreboardStore: ObservableObject {
     static let shared = ScoreboardStore()
     nonisolated static let maxGameClockSeconds = 59 * 60 + 59
+    nonisolated static let maxPauseDurationSeconds = 60 * 60
     nonisolated static let maxDebateSegmentSeconds = 999 * 60 + 59
     nonisolated static let maxShotClockSeconds = 99
     nonisolated static let maxShotClockMilliseconds = maxShotClockSeconds * 1_000
@@ -915,6 +922,12 @@ final class ScoreboardStore: ObservableObject {
         .redCardAssigned: .none,
         .substitutionUsed: .none,
         .teamPauseUsed: .none,
+        .pauseStarted: .none,
+        .officialPauseStarted: .none,
+        .pauseTimerPaused: .none,
+        .pauseTimerResumed: .none,
+        .pauseEnded: .none,
+        .pauseExpired: .softChime,
         .teamFoulApplied: .none,
         .playerFoulApplied: .none,
         .sideSwitched: .none,
@@ -991,6 +1004,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestSubstitutionsAllowed = 0
     @Published var homeSubstitutionsUsed = 0
     @Published var guestSubstitutionsUsed = 0
+    @Published var pauseDurationSeconds = 60
+    @Published var isTeamPauseIndefinite = false
+    @Published var pauseTimer: ScoreboardPauseTimer?
     @Published var homePausesAllowed = 0
     @Published var guestPausesAllowed = 0
     @Published var homePausesUsed = 0
@@ -1036,13 +1052,18 @@ final class ScoreboardStore: ObservableObject {
     @Published var guestTeamLogoImage: TeamLogoImage?
     @Published var eventLogoImage: EventLogoImage?
     @Published var isSoundEnabled = true
+    @Published var bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>] = [:]
+    @Published var bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>] = [:]
     @Published var soundAssignmentsBySport = ScoreboardStore.defaultSoundAssignmentsBySport
     @Published var playingTestSoundEffect: ScoreboardSoundEffect?
     @Published var keyboardShortcutsByAction = ScoreboardStore.defaultKeyboardShortcutsByAction
     @Published var isCompanionVisible = false
+    @Published private(set) var externalAutomationSafetyNoticeID: UUID?
+    private var pendingExternalAutomationIntegration: ExternalAutomationIntegration?
     @Published var isCompanionEnabled = false
     @Published var companionHost = ""
     @Published var companionMode: ScoreboardCompanionMode = .tcp
+    @Published var companionSyncWithSound = false
     @Published var companionPort = ScoreboardCompanionMode.tcp.defaultPort
     @Published var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]] = [:]
     @Published private(set) var companionLastError: String?
@@ -1052,10 +1073,256 @@ final class ScoreboardStore: ObservableObject {
     @Published var isShotClockRunning = false
     @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
+    @Published private(set) var currentGameDisplayName: String?
+
+    @Published private(set) var sessionDescriptor: ScoreboardSessionDescriptor?
+    @Published private(set) var sessionTransferInProgress = false
+    @Published private(set) var sessionStatusMessage: String?
+    @Published private(set) var sessionConnectionStatus = "Local"
+    @Published private(set) var sessionRoundTripSeconds: TimeInterval?
+    @Published private(set) var sessionIsConnected = true
+    @Published private(set) var sessionHostPeers: [ScoreboardSessionPeer] = []
+    private var sessionRecoveryRole: ScoreboardSessionRecovery.Role?
+    private var sessionAuthorityFenced = false
+    private var isApplyingSessionUpdate = false
+    private var sessionTransferID: UUID?
+    private var sessionTransferTargetID: String?
+    private var sessionTransferCheckpoint: ScoreboardSessionCheckpoint?
+    private var sessionTransferStartedAt: Date?
+    private var lastSessionPrepareSentAt: Date?
+    private var lastSessionCommitSentAt: Date?
+    private var sessionOwnerPairingSecret: String?
+    private var sessionOwnerReceiverAcquired = false
+    private var lastLogPageAtByPeer: [String: Date] = [:]
+    private var lastSessionPeerReportAt: Date?
+    private var lastSessionLogRequestAt: Date?
+    private var pendingLogBatchByPeer: [String: ScoreboardSessionLogBatch] = [:]
+    private var logCursorByPeer: [String: ScoreboardSessionLogCursor] = [:]
+    private var lastOwnerSettingsData: Data?
+    private var pendingOwnerSettingsSync = false
+    private var lastOwnerVisualData: Data?
+    private var pendingOwnerVisualSync = false
+    private var pendingOwnerVisualFields = Set<String>()
+    private var pendingOwnerVisualSnapshot: ScoreboardGameSnapshot?
+    private var sessionSyncRevision: UInt64 = 1
+    private var hostedCheckpointPersistedRevision: UInt64 = 0
+    private var ownerAcknowledgedRevision: UInt64 = 0
+    private var ownerAcknowledgedLogCount = -1
+    private var observedHostedLogCount = -1
+    private var pendingSnapshotSyncID: UUID?
+    private var pendingSnapshotLogCount = -1
+    private var lastSnapshotSyncSentAt: Date?
+    private var disablePairingAfterHostTransfer = false
+    private var disconnectClientsAfterOwnerTakeover = false
+    private var exitRemoteModeAfterHostTransfer = false
+    private var hostedMatchQuitCompletion: ((Bool) -> Void)?
+
+    var localSessionDeviceID: String { ScoreboardRemoteDisplayReceiver.shared.displayID }
+    var isSessionOwner: Bool { sessionDescriptor.map { $0.ownerDeviceID == localSessionDeviceID } ?? true }
+    var isDelegatedSessionHost: Bool {
+        guard let sessionDescriptor else { return false }
+        return sessionDescriptor.hostDeviceID == localSessionDeviceID && !isSessionOwner
+            && sessionRecoveryRole == .host && !sessionAuthorityFenced
+    }
+    var isFollowingSessionHost: Bool {
+        guard let sessionDescriptor else { return false }
+        return isSessionOwner && sessionDescriptor.hostDeviceID != localSessionDeviceID
+    }
+    var isSessionAuthority: Bool {
+        guard !isRemoteControlProxy, !sessionAuthorityFenced else { return false }
+        guard let sessionDescriptor else { return !isRemoteDisplayViewerModeEnabled }
+        return sessionRecoveryRole == .host && sessionDescriptor.hostDeviceID == localSessionDeviceID
+    }
+    var routesControlToSessionHost: Bool { isRemoteControlProxy || isFollowingSessionHost }
+    var canChangeSessionHost: Bool {
+        isSessionOwner && !isAnyTimerRunning && !sessionTransferInProgress && (sessionDescriptor == nil ||
+            (isSessionAuthority || sessionIsConnected))
+    }
+    var remoteSessionDeviceCounts: (connected: Int, disconnected: Int)? {
+        if let clients = remoteSessionDevices {
+            let connected = clients.filter(\.connected).count
+            return (connected, clients.count - connected)
+        }
+        if routesControlToSessionHost {
+            guard let control = remoteControlState?.control,
+                  let connected = control.connectedDeviceCount,
+                  let disconnected = control.disconnectedDeviceCount else { return nil }
+            return (connected, disconnected)
+        }
+        return nil
+    }
+    var remoteSessionOwnerConnected: Bool? {
+        if routesControlToSessionHost {
+            if isFollowingSessionHost { return sessionIsConnected }
+            return remoteControlState?.control?.ownerConnected
+        }
+        guard let descriptor = sessionDescriptor else { return nil }
+        if descriptor.ownerDeviceID == localSessionDeviceID { return true }
+        guard isSessionAuthority else { return nil }
+        return remoteDisplayConnectedDisplays.contains {
+            $0.id == descriptor.ownerDeviceID && ($0.quality == .live || $0.quality == .poor)
+        }
+    }
+    var remoteSessionDevices: [ScoreboardSessionPeer]? {
+        if routesControlToSessionHost {
+            guard let peers = remoteControlState?.control?.devices else { return nil }
+            guard let session = remoteControlState?.control?.session ?? sessionDescriptor else { return peers }
+            var clients = session.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected)
+            if isFollowingSessionHost, let index = clients.firstIndex(where: { $0.id == localSessionDeviceID }) {
+                clients[index].connected = sessionIsConnected
+                clients[index].quality = sessionIsConnected ? (clients[index].quality == .poor ? .poor : .live) : .unresponsive
+                clients[index].deviceType = .current
+                clients[index].latencyMilliseconds = sessionRoundTripSeconds.map { Int(($0 * 1_000).rounded()) }
+                clients[index].realtimeTransport = ScoreboardRemoteDisplayReceiver.shared.realtimeTransport
+            }
+            return clients
+        }
+        let hostID = sessionDescriptor?.hostDeviceID ?? localSessionDeviceID
+        var ids = Set(remoteDisplayTrustedDisplays.map(\.id))
+            .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([hostID])
+        if let ownerID = sessionDescriptor?.ownerDeviceID, ownerID != hostID { ids.insert(ownerID) }
+        let peers = ids.map { id in
+            let connection = remoteDisplayConnectedDisplays.first { $0.id == id }
+            let saved = remoteDisplayTrustedDisplays.first { $0.id == id }
+            return ScoreboardSessionPeer(
+                id: id,
+                name: connection?.name ?? saved?.name ?? id,
+                deviceType: connection?.deviceType ?? saved?.deviceType ?? .unknown,
+                connected: connection?.quality == .live || connection?.quality == .poor,
+                supportsHosting: connection?.supportsSessionHosting == true,
+                controlEnabled: id == sessionDescriptor?.ownerDeviceID || remoteControlAllowedDisplayIDs.contains(id),
+                latencyMilliseconds: connection?.latencyMilliseconds,
+                lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
+                appVersion: connection?.appVersion,
+                quality: connection?.quality,
+                realtimeTransport: connection?.realtimeTransport)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return sessionDescriptor?.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected) ?? peers
+    }
+    var canRecoverSessionHost: Bool {
+        guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
+              !sessionTransferInProgress, let descriptor = sessionDescriptor,
+              let checkpoint = sessionTransferCheckpoint else { return false }
+        return checkpoint.descriptor.sessionID == descriptor.sessionID && descriptor.epoch < UInt64.max
+    }
+    var hasHostedMatchToDiscard: Bool {
+        guard let descriptor = sessionDescriptor else { return false }
+        return descriptor.hostDeviceID == localSessionDeviceID && !isSessionOwner
+            && (sessionRecoveryRole == .host || sessionRecoveryRole == .fenced || sessionRecoveryRole == .prepared)
+    }
+    var sessionHostDisplayName: String { sessionDescriptor?.hostName ?? remoteDisplayHostName }
+    var sessionHostAddresses: [String] {
+        sessionDescriptor?.hostAddresses ?? ScoreboardWebAPIService.localIPv4Addresses()
+    }
+    var sessionHostWebAPIStatus: ScoreboardWebAPIStatus? {
+        guard isFollowingSessionHost, let value = sessionDescriptor?.hostWebAPIStatus else { return nil }
+        switch value {
+        case "running": return .running(httpPort: ScoreboardWebAPIService.httpPort,
+                                         webSocketPort: ScoreboardWebAPIService.webSocketPort, clientCount: 0)
+        case "starting": return .starting
+        case "suspended": return .suspended
+        default: return .off
+        }
+    }
+
+    var isSessionSafeToDisconnect: Bool {
+        if isDelegatedSessionHost, let descriptor = sessionDescriptor {
+            return ScoreboardSessionCleanState(
+                ownerConnected: remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID },
+                anyTimerRunning: isAnyTimerRunning, transferring: sessionTransferInProgress,
+                revision: sessionSyncRevision, persistedRevision: hostedCheckpointPersistedRevision,
+                acknowledgedRevision: ownerAcknowledgedRevision,
+                logCount: logManager.currentSessionSnapshot()?.entries.count ?? 0,
+                acknowledgedLogCount: ownerAcknowledgedLogCount).isSafeToDisconnect
+        }
+        return sessionDescriptor?.safeToDisconnect == true &&
+            (!isFollowingSessionHost || (sessionIsConnected && !pendingOwnerSettingsSync && pendingOwnerVisualFields.isEmpty))
+    }
+
+    func setCurrentGameDisplayName(_ name: String?) {
+        guard !isRemoteControlProxy, currentGameDisplayName != name else { return }
+        currentGameDisplayName = name
+        if isFollowingSessionHost && !isApplyingSessionUpdate { sendOwnerGameName(name) }
+    }
     @Published var areTipsEnabled = true
     @Published var showGettingStartedOnStartup = true
     @Published var didAutoShowGettingStarted = false
     @Published var setupPresets: [SetupPreset] = []
+    @Published var isWebControlEnabled = ScoreboardPreferences.current.bool(forKey: "scoreboard.webControlEnabled") {
+        didSet {
+            if !isDelegatedSessionHost && !isApplyingSessionUpdate {
+                ScoreboardPreferences.current.set(isWebControlEnabled, forKey: "scoreboard.webControlEnabled")
+            }
+            scheduleOwnerSettingsSync()
+        }
+    }
+    @Published private(set) var remoteControlAllowedDisplayIDs = Set(ScoreboardPreferences.current.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
+
+    func isRemoteControlAllowed(displayID: String) -> Bool {
+        if isSessionAuthority && sessionDescriptor?.ownerDeviceID == displayID { return true }
+        if isDelegatedSessionHost && displayID == localSessionDeviceID {
+            return ScoreboardRemoteDisplayDeviceType.current != .appleTV
+                && remoteControlAllowedDisplayIDs.contains(displayID)
+        }
+        guard remoteControlAllowedDisplayIDs.contains(displayID),
+              let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
+              peer.deviceType != .appleTV else { return false }
+        return true
+    }
+
+    func setRemoteControlAllowed(displayID: String, isAllowed: Bool) {
+        guard !isRemoteControlProxy else { return }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "controlPermission", displayID: displayID, enabled: isAllowed))
+            return
+        }
+        if isAllowed {
+            guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
+                  peer.deviceType != .appleTV else { return }
+            remoteControlAllowedDisplayIDs.insert(displayID)
+        } else { remoteControlAllowedDisplayIDs.remove(displayID) }
+        if !isDelegatedSessionHost {
+            ScoreboardPreferences.current.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        }
+        refreshRemoteDisplayState()
+        remoteDisplayHostService.refreshControlPermissions()
+    }
+    @Published private(set) var webControlAPIKey: String = {
+        if let key = ScoreboardPreferences.current.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
+           key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) { return key.uppercased() }
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        let key = String((0..<16).map { _ in alphabet.randomElement()! })
+        ScoreboardPreferences.current.set(key, forKey: "scoreboard.webControlAPIKey")
+        return key
+    }()
+    private var controlCommandResults: [UUID: (Data, ScoreboardControlResult, Date)] = [:]
+
+    func resetWebControlAPIKey() {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        webControlAPIKey = String((0..<16).map { _ in alphabet.randomElement()! })
+        ScoreboardPreferences.current.set(webControlAPIKey, forKey: "scoreboard.webControlAPIKey")
+        scheduleOwnerSettingsSync()
+    }
+
+    func performControlCommand(_ command: ScoreboardControlCommand, remote: Bool) -> ScoreboardControlResult {
+        controlCommandResults = controlCommandResults.filter { Date().timeIntervalSince($0.value.2) < 120 }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(command)) ?? Data()
+        if let cached = controlCommandResults[command.id] {
+            guard cached.0 == data else { return .failure(command.id, "conflict", "Command ID was reused with different parameters.") }
+            return cached.1
+        }
+        let result = executeControlCommand(command, remote: remote)
+        if controlCommandResults.count >= 512, let oldest = controlCommandResults.min(by: { $0.value.2 < $1.value.2 })?.key {
+            controlCommandResults.removeValue(forKey: oldest)
+        }
+        controlCommandResults[command.id] = (data, result, Date())
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+        return result
+    }
+
     @Published var isWebAPIEnabled = false
     @Published var webAPIUpdateMode: ScoreboardWebAPIUpdateMode = .fixedInterval
     @Published var isWebAPIBroadcastControlEnabled = false
@@ -1078,7 +1345,7 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteDisplayWarningNotice: ScoreboardRemoteDisplayWarningNotice?
 
     var remoteDisplayHostID: String {
-        remoteDisplayHostService.hostID
+        sessionDescriptor?.ownerHostID ?? remoteDisplayHostService.hostID
     }
 
     var resolvedControlBoardDisplayDirection: ScoreboardDisplayDirection {
@@ -1099,6 +1366,7 @@ final class ScoreboardStore: ObservableObject {
     private var accumulatedShotClockElapsed: TimeInterval = 0
     private var accumulatedPenaltyElapsed: TimeInterval = 0
     private var accumulatedDebatePrepElapsed: TimeInterval = 0
+    private var accumulatedPauseElapsed: TimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var isAuditLoggingSuspended = false
     private var isReconcilingTimersFromWallClock = false
@@ -1106,8 +1374,26 @@ final class ScoreboardStore: ObservableObject {
     private let primaryTimerPersistenceKey = "smartScoreboard.primaryTimerPersistence"
     private var lastPrimaryTimerPersistenceSignature: String?
     private let buzzerPlayer = BuzzerPlayer()
+    private struct QueuedEventAction {
+        let effect: ScoreboardSoundEffect
+        let triggerEvent: ScoreboardSoundEvent
+        let soundEvent: ScoreboardSoundEvent?
+        let companionEvent: ScoreboardSoundEvent?
+        let sport: SportType
+        let companionLocation: ScoreboardCompanionLocation?
+        let companionGeneration: UUID
+    }
+    private var queuedEventActions: [QueuedEventAction] = []
+    private var activeEventAction: QueuedEventAction?
+    @Published private var activeEventPlaybackID: UUID?
+    private var activeEventDidStart = false
+    private var companionCommandGeneration = UUID()
     private let logManager = ScoreboardLogManager.shared
+    #if SCOREBOARD_TESTING
+    private let webAPIService = ScoreboardWebAPIService(httpPort: 0, webSocketPort: 0, advertisesService: false)
+    #else
     private let webAPIService = ScoreboardWebAPIService()
+    #endif
     private let remoteDisplayHostService = ScoreboardRemoteDisplayHostService()
     private let companionService = ScoreboardCompanionService()
     private var isWebAPIAppLifecycleActive = true
@@ -1118,7 +1404,48 @@ final class ScoreboardStore: ObservableObject {
     private var intentionallyDisconnectedRemoteDisplayIDs = Set<String>()
     private var isStateSideEffectRefreshScheduled = false
 
-    private init() {
+    private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver?
+    private var remoteCommandSender: ((ScoreboardControlCommand) -> Void)?
+    private var isApplyingRemoteControlState = false
+    private var remoteProjectionTimer: Timer?
+    private var remoteControlGameConfiguration: ScoreboardGameSnapshot?
+    private var remoteControlState: ScoreboardWebAPIState?
+
+    var isRemoteControlProxy: Bool { remoteControlReceiver != nil }
+
+    static func makeRemoteControlStore(receiver: ScoreboardRemoteDisplayReceiver,
+                                       sendCommand: ((ScoreboardControlCommand) -> Void)? = nil) -> ScoreboardStore {
+        ScoreboardStore(remoteReceiver: receiver, sendCommand: sendCommand)
+    }
+
+    private init(remoteReceiver: ScoreboardRemoteDisplayReceiver? = nil,
+                 sendCommand: ((ScoreboardControlCommand) -> Void)? = nil) {
+        if let receiver = remoteReceiver {
+            remoteControlReceiver = receiver
+            remoteCommandSender = sendCommand ?? { [weak receiver] in receiver?.sendCommand($0) }
+            didCompleteSetup = true
+            keyboardShortcutsByAction = ScoreboardStore.shared.keyboardShortcutsByAction
+            controlBoardDisplayDirection = ScoreboardStore.shared.controlBoardDisplayDirection
+            areTipsEnabled = false
+            showGettingStartedOnStartup = false
+            receiver.$state.sink { [weak self] state in
+                if let state { self?.applyRemoteControlState(state) }
+            }.store(in: &cancellables)
+            receiver.$pendingControlCommandID.sink { [weak self] _ in
+                guard let self, let state = self.remoteControlState else { return }
+                self.applyRemoteControlState(state)
+            }.store(in: &cancellables)
+            receiver.$imageAssetsByID.sink { [weak self] _ in
+                guard let self, let state = self.remoteControlState else { return }
+                self.applyRemoteControlImages(state)
+            }.store(in: &cancellables)
+            let projectionTimer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.projectRemoteControlClocks() }
+            }
+            RunLoop.main.add(projectionTimer, forMode: .common)
+            remoteProjectionTimer = projectionTimer
+            return
+        }
         /* APP_STORE_PREVIEW_CAPTURE_BEGIN
         #if DEBUG && targetEnvironment(simulator)
         // The preview workflow supplies fixture data only to simulator Debug builds.
@@ -1129,19 +1456,82 @@ final class ScoreboardStore: ObservableObject {
             } catch {
                 fatalError("Invalid App Store preview fixture: \(error)")
             }
-            UserDefaults.standard.set(data, forKey: persistenceKey)
-            UserDefaults.standard.set(
+            ScoreboardPreferences.current.set(data, forKey: persistenceKey)
+            ScoreboardPreferences.current.set(
                 ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] == "merged",
                 forKey: "showsMergedView"
             )
         }
         #endif
         APP_STORE_PREVIEW_CAPTURE_END */
+        do {
+            let savedRecovery = try ScoreboardSessionRecovery.load()
+            if let staleClient = savedRecovery, staleClient.role == .follower,
+               staleClient.descriptor.ownerDeviceID != localSessionDeviceID {
+                // Older versions retained a dehosted remote's session record.
+                // Client pairing is stored separately; no authority copy is needed.
+                try? removeHostedSessionData(sessionID: staleClient.descriptor.sessionID)
+            }
+            if let recovery = savedRecovery,
+               recovery.role != .follower || recovery.descriptor.ownerDeviceID == localSessionDeviceID {
+                sessionDescriptor = recovery.descriptor
+                sessionRecoveryRole = recovery.role
+                sessionAuthorityFenced = recovery.role == .fenced || recovery.role == .prepared
+                sessionTransferID = recovery.transferID
+                sessionTransferCheckpoint = recovery.checkpoint
+                if recovery.role == .host,
+                   recovery.descriptor.ownerDeviceID != localSessionDeviceID,
+                   let isolated = try? ScoreboardHostedMatchStorage.load(sessionID: recovery.descriptor.sessionID),
+                   isolated.descriptor.epoch == recovery.descriptor.epoch {
+                    if let authority = sessionTransferCheckpoint, authority.capturedAt > isolated.capturedAt {
+                        if isolated.log.entries.count > authority.log.entries.count,
+                           zip(authority.log.entries, isolated.log.entries).allSatisfy({ $0.id == $1.id }) {
+                            var restored = authority
+                            restored.log = isolated.log
+                            sessionTransferCheckpoint = restored
+                        }
+                    } else {
+                        sessionTransferCheckpoint = isolated
+                    }
+                }
+                if recovery.role == .host,
+                   recovery.descriptor.ownerDeviceID != localSessionDeviceID,
+                   var restored = sessionTransferCheckpoint,
+                   let log = try? ScoreboardHostedMatchStorage.loadLog(sessionID: recovery.descriptor.sessionID),
+                   log.sessionID == restored.log.sessionID,
+                   log.entries.count > restored.log.entries.count,
+                   zip(restored.log.entries, log.entries).allSatisfy({ $0.id == $1.id }) {
+                    restored.log = log
+                    sessionTransferCheckpoint = restored
+                }
+            }
+        } catch {
+            // A damaged authority record must never restart an old clock.
+            sessionAuthorityFenced = true
+            sessionStatusMessage = "Session authority could not be restored: \(error.localizedDescription)"
+        }
         loadPersistedState()
+        #if DEBUG && !SCOREBOARD_TESTING
+        ScoreboardUITestLaunch.configure(self)
+        #endif
+        if sessionRecoveryRole == .host, let checkpoint = sessionTransferCheckpoint,
+           checkpoint.descriptor.hostDeviceID == localSessionDeviceID {
+            activateSessionCheckpoint(checkpoint, fromRecovery: true)
+        }
         remoteDisplayHostService.migrateDisplayDirectionsIfNeeded(areSidesSwapped: areSidesSwapped)
         configurePersistence()
         configureWebAPIService()
         configureRemoteDisplayService()
+        configureSessionService()
+        if sessionRecoveryRole == .fenced, let descriptor = sessionDescriptor,
+           descriptor.hostDeviceID != localSessionDeviceID,
+           let checkpoint = sessionTransferCheckpoint, sessionTransferID != nil {
+            sessionTransferTargetID = descriptor.hostDeviceID
+            sessionTransferInProgress = true
+            remoteDisplayHostService.startCommitRecovery(targetID: descriptor.hostDeviceID,
+                pairings: checkpoint.pairings, networkMode: remoteDisplayNetworkMode)
+            sessionStatusMessage = "Resuming host handoff to \(descriptor.hostName)…"
+        }
         refreshWebAPIState()
         refreshRemoteDisplayState()
     }
@@ -1203,7 +1593,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     var isAnyTimerRunning: Bool {
-        isClockRunning ||
+        pauseTimer?.isRunning == true ||
+            isClockRunning ||
             isShotClockRunning ||
             isDebatePrepClockRunning ||
             homePenaltyTimers.contains(where: \.isRunning) ||
@@ -1487,7 +1878,7 @@ final class ScoreboardStore: ObservableObject {
 
     func assignableSoundEvents(for sport: SportType) -> [ScoreboardSoundEvent] {
         if sport == .debate {
-            return uniqueSoundEvents([
+            return orderedSoundEvents(timerOutcomeSoundEvents(hasExpiration: true, supportsScore: true) + [
                 .debateSegmentStarted,
                 .debateSegmentStopped,
                 .debateSegmentExpired,
@@ -1497,7 +1888,7 @@ final class ScoreboardStore: ObservableObject {
                 .debatePrepStarted,
                 .debatePrepStopped,
                 .debatePrepExpired
-            ] + sideClockSoundEvents + debatePrepClockSoundEvents + [
+            ] + pauseSoundEvents + sideClockSoundEvents + debatePrepClockSoundEvents + [
                 .sideSwitched,
                 .periodChanged,
                 .scoreChanged,
@@ -1516,7 +1907,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func assignableSoundEvents(for rules: SportRules) -> [ScoreboardSoundEvent] {
-        var events: [ScoreboardSoundEvent] = []
+        var events: [ScoreboardSoundEvent] = pauseSoundEvents
 
         if rules.usesChessClocks {
             events.append(.chessClockExpired)
@@ -1588,7 +1979,35 @@ final class ScoreboardStore: ObservableObject {
         }
 
         events.append(.sideSwitched)
-        return uniqueSoundEvents(events)
+        events += timerOutcomeSoundEvents(
+            hasExpiration: rules.usesChessClocks || rules.mainClockMode == .countdown,
+            supportsScore: rules.supportsScore,
+            hasTimer: rules.usesChessClocks || rules.mainClockMode != .disabled
+        )
+        return orderedSoundEvents(events)
+    }
+
+    private func timerOutcomeSoundEvents(
+        hasExpiration: Bool, supportsScore: Bool, hasTimer: Bool = true
+    ) -> [ScoreboardSoundEvent] {
+        guard hasTimer else { return [] }
+        var events: [ScoreboardSoundEvent] = [.timerPaused]
+        if hasExpiration { events.append(.timerExpired) }
+        if supportsScore {
+            events += [.timerPausedHomeAhead, .timerPausedHomeBehind,
+                       .timerPausedGuestAhead, .timerPausedGuestBehind, .timerPausedTie]
+            if hasExpiration {
+                events += [.timerExpiredHomeAhead, .timerExpiredHomeBehind,
+                           .timerExpiredGuestAhead, .timerExpiredGuestBehind, .timerExpiredTie,
+                           .homeWin, .homeLose, .guestWin, .guestLose]
+            }
+        }
+        return events
+    }
+
+    private func orderedSoundEvents(_ events: [ScoreboardSoundEvent]) -> [ScoreboardSoundEvent] {
+        let includedEvents = Set(events)
+        return ScoreboardSoundEvent.executionOrder.filter { includedEvents.contains($0) }
     }
 
     private var sideClockSoundEvents: [ScoreboardSoundEvent] {
@@ -1809,6 +2228,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustScore(isHome: Bool, by delta: Int) {
+        if routeRemoteControlCommand("score.adjust", side: isHome ? .home : .guest, value: delta) { return }
         guard supportsScore else {
             recordLog(
                 kind: .scoreAdjustment,
@@ -1852,6 +2272,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setServeTimerSide(_ side: TeamSide) {
+        if routeRemoteControlCommand("serve.set", side: side) { return }
         guard usesServeTimer, supportsShotClock else {
             recordLog(
                 kind: .possessionChange,
@@ -1888,6 +2309,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func awardPeriod(to side: TeamSide) {
+        if routeRemoteControlCommand("period.award", side: side) { return }
         guard supportsPeriodWinTracking else {
             recordLog(
                 kind: .volleyballSetAward,
@@ -1948,6 +2370,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func undoLastPeriodWin() {
+        if routeRemoteControlCommand("period.undo") { return }
         guard supportsPeriodWinTracking, let result = volleyballSetResults.last else {
             recordLog(
                 kind: .volleyballSetUndo,
@@ -1978,6 +2401,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPeriod(by delta: Int) {
+        if routeRemoteControlCommand("period.adjust", value: delta) { return }
         guard supportsPeriod else {
             recordLog(
                 kind: .periodAdjustment,
@@ -2006,6 +2430,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPeriod(_ value: Int) {
+        if routeRemoteControlCommand("period.set", value: value) { return }
         let previousPeriod = period
         if supportsPeriod {
             period = max(1, min(periodUpperBound, value))
@@ -2018,6 +2443,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustClock(by delta: Int) {
+        if routeRemoteControlCommand("clock.adjust", value: delta) { return }
         reconcileRunningTimersWithWallClock()
 
         if isDebateMode {
@@ -2063,6 +2489,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustShotClock(by delta: Int) {
+        if routeRemoteControlCommand("shot.adjust", value: delta) { return }
         reconcileRunningTimersWithWallClock()
 
         guard supportsShotClock else {
@@ -2094,6 +2521,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetClock(to seconds: Int? = nil) {
+        if routeRemoteControlCommand("clock.reset", value: seconds ?? defaultClockSeconds) { return }
         if isDebateMode {
             resetDebateCurrentSegment()
             return
@@ -2134,6 +2562,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetShotClock(to seconds: Int? = nil) {
+        if routeRemoteControlCommand("shot.reset", value: seconds ?? defaultShotClockSeconds) { return }
         guard supportsShotClock else {
             shotClockMilliseconds = 0
             activeShotClockPresetSeconds = 0
@@ -2168,6 +2597,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
         if isDebateMode {
             toggleDebateSegmentClock()
             return
@@ -2192,6 +2622,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleDebateSegmentClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
         guard isDebateMode else { return }
         guard let segment = currentDebateSegment, segment.timerMode != .none else {
             recordLog(
@@ -2227,6 +2658,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setSoundEnabled(_ isEnabled: Bool) {
+        if routeRemoteControlCommand("sound.enabled", enabled: isEnabled) { return }
         guard isSoundEnabled != isEnabled else {
             if !isEnabled, playingTestSoundEffect != nil {
                 stopTestSound()
@@ -2238,6 +2670,7 @@ final class ScoreboardStore: ObservableObject {
 
         if !isSoundEnabled {
             stopTestSound()
+            interruptEventSoundPlayback()
         }
     }
 
@@ -2253,9 +2686,13 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
-        isCompanionVisible = isVisible
-        if !isVisible {
+        if isVisible {
+            pendingExternalAutomationIntegration = .companion
+            externalAutomationSafetyNoticeID = UUID()
+        } else {
+            isCompanionVisible = false
             isCompanionEnabled = false
+            invalidateQueuedCompanionCommands()
             dismissCompanionFailureNotice()
         }
     }
@@ -2267,6 +2704,7 @@ final class ScoreboardStore: ObservableObject {
         }
 
         isCompanionEnabled = resolvedEnabled
+        if !resolvedEnabled { invalidateQueuedCompanionCommands() }
     }
 
     func toggleCompanionEnabled() {
@@ -2290,6 +2728,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionHost = host
     }
 
@@ -2298,6 +2737,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionMode = mode
         companionPort = mode.defaultPort
     }
@@ -2308,6 +2748,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        invalidateQueuedCompanionCommands()
         companionPort = boundedPort
     }
 
@@ -2394,12 +2835,48 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func testCompanionCommand(for event: ScoreboardSoundEvent, sport: SportType) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "companionTest", displayID: "",
+                                            sport: sport, soundEvent: event))
+            return
+        }
+        guard !isCompanionEventBypassed(event, sport: sport) else { return }
         guard let location = companionLocation(for: event, sport: sport) else {
             handleCompanionSendResult(.failure(.invalidLocation))
             return
         }
 
         sendCompanionPress(location)
+    }
+
+    func isSoundEventBypassed(_ event: ScoreboardSoundEvent, sport: SportType) -> Bool {
+        bypassedSoundEventsBySport[sport]?.contains(event) == true
+    }
+
+    func setSoundEventBypassed(_ isBypassed: Bool, event: ScoreboardSoundEvent, sport: SportType) {
+        var events = bypassedSoundEventsBySport[sport] ?? []
+        if isBypassed { events.insert(event) } else { events.remove(event) }
+        bypassedSoundEventsBySport[sport] = events
+        if isBypassed, playingTestSoundEffect == selectedSoundEffect(for: event, sport: sport) {
+            stopTestSound()
+        }
+        if isBypassed, let action = activeEventAction, action.sport == sport,
+           action.triggerEvent == event || action.soundEvent == event {
+            interruptEventSoundPlayback()
+        }
+    }
+
+    func isCompanionEventBypassed(_ event: ScoreboardSoundEvent, sport: SportType) -> Bool {
+        bypassedCompanionEventsBySport[sport]?.contains(event) == true
+    }
+
+    func setCompanionEventBypassed(_ isBypassed: Bool, event: ScoreboardSoundEvent, sport: SportType) {
+        var events = bypassedCompanionEventsBySport[sport] ?? []
+        if isBypassed { events.insert(event) } else { events.remove(event) }
+        bypassedCompanionEventsBySport[sport] = events
+        if isBypassed {
+            companionService.cancelPendingPresses(eventKey: "\(sport.rawValue):\(event.rawValue)")
+        }
     }
 
     func selectedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
@@ -2429,6 +2906,7 @@ final class ScoreboardStore: ObservableObject {
     func resetSoundSettingsToDefaults() {
         stopTestSound()
         isSoundEnabled = true
+        bypassedSoundEventsBySport = [:]
         soundAssignmentsBySport = Self.defaultSoundAssignmentsBySport
     }
 
@@ -2472,6 +2950,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func playTestSound(_ event: ScoreboardSoundEvent, sport: SportType) {
+        guard !isSoundEventBypassed(event, sport: sport) else { return }
         toggleTestSound(selectedSoundEffect(for: event, sport: sport))
     }
 
@@ -2479,12 +2958,24 @@ final class ScoreboardStore: ObservableObject {
         toggleTestSound(effect)
     }
 
+    func playControlSound(_ effect: ScoreboardSoundEffect) {
+        if routeRemoteControlCommand("sound.play", text: effect.rawValue) { return }
+        // Use the normal event queue so the same sound reaches paired displays,
+        // while explicit sound playback never sends a Companion command.
+        guard isSoundEnabled, effect != .none else { return }
+        queuedEventActions.append(QueuedEventAction(
+            effect: effect, triggerEvent: .general, soundEvent: .general, companionEvent: nil,
+            sport: selectedSport, companionLocation: nil, companionGeneration: companionCommandGeneration
+        ))
+        playNextEventAction()
+    }
+
     func prepareTestSoundEffects() {
         buzzerPlayer.prepare(ScoreboardSoundEffect.allCases)
     }
 
     func toggleTestSound(_ effect: ScoreboardSoundEffect) {
-        guard isSoundEnabled, effect != .none else {
+        guard isSoundEnabled, effect != .none, activeEventPlaybackID == nil else {
             return
         }
 
@@ -2495,21 +2986,22 @@ final class ScoreboardStore: ObservableObject {
 
         stopTestSound()
         playingTestSoundEffect = effect
-        buzzerPlayer.play(effect) { [weak self] finishedEffect in
+        buzzerPlayer.play(effect, onFinished: { [weak self] finishedEffect in
             guard self?.playingTestSoundEffect == finishedEffect else {
                 return
             }
             self?.playingTestSoundEffect = nil
-        }
+        })
     }
 
     func stopTestSound() {
+        guard playingTestSoundEffect != nil else { return }
         playingTestSoundEffect = nil
         buzzerPlayer.stop()
     }
 
     func canTestSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
-        isSoundEnabled && effect != .none
+        isSoundEnabled && effect != .none && activeEventPlaybackID == nil
     }
 
     func isTestingSoundEffect(_ effect: ScoreboardSoundEffect) -> Bool {
@@ -2517,6 +3009,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleShotClock() {
+        if routeRemoteControlCommand("shot.toggle") { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockToggle,
@@ -2540,6 +3033,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPossessionDirection(_ direction: PossessionDirection, autoStartShotClock: Bool = false) {
+        if routeRemoteControlCommand("possession.set", text: direction.rawValue, enabled: autoStartShotClock) { return }
         guard supportsPossession else {
             possessionDirection = .none
             recordLog(
@@ -2596,6 +3090,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func assignShotClock(to seconds: Int, forHomeTeam isHome: Bool) {
+        if routeRemoteControlCommand("shot.assign", side: isHome ? .home : .guest, value: seconds) { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockAssignment,
@@ -2645,6 +3140,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetActiveShotClock() {
+        if routeRemoteControlCommand("shot.activeReset") { return }
         guard supportsShotClock else {
             recordLog(
                 kind: .shotClockReset,
@@ -2677,8 +3173,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func newGame() {
+        if routeRemoteControlCommand("game.new") { return }
         pauseClock()
         pauseShotClock()
+        clearQueuedEventActions()
         isDebatePrepClockRunning = false
         homeScore = 0
         guestScore = 0
@@ -2689,6 +3187,10 @@ final class ScoreboardStore: ObservableObject {
         gameClockSeconds = defaultClockSeconds
         resetInjuryTimeForPeriod()
         shotClockMilliseconds = defaultShotClockSeconds * 1_000
+        pauseTimer = nil
+        accumulatedPauseElapsed = 0
+        homePausesUsed = 0
+        guestPausesUsed = 0
         homeSubstitutionsUsed = 0
         guestSubstitutionsUsed = 0
         homeTeamFouls = 0
@@ -2705,10 +3207,12 @@ final class ScoreboardStore: ObservableObject {
             configureDebateSegment(index: 0, preserveRunningState: false)
         }
         resetPlayerTrackingForNewGame()
+        updateTimerState()
         requestGameClockAutosave()
     }
 
     func resetScores() {
+        if routeRemoteControlCommand("score.reset") { return }
         guard supportsScore else {
             recordLog(
                 kind: .scoresReset,
@@ -2737,6 +3241,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func swapSides() {
+        if routeRemoteControlCommand("sides.swap") { return }
         areSidesSwapped.toggle()
         recordLog(
             kind: .sideSwap,
@@ -2760,6 +3265,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func togglePlayerOverlayPaused() {
+        if routeRemoteControlCommand("player.overlay") { return }
         isPlayerOverlayPaused.toggle()
         recordLog(
             kind: .playerOverlayToggle,
@@ -2796,6 +3302,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updateTrackedPlayerNumber(_ number: String, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.number", side: side, text: number, playerID: playerID) { return }
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -2806,6 +3313,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updateTrackedPlayerName(_ name: String, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.name", side: side, text: name, playerID: playerID) { return }
         updateRoster(for: side) { roster in
             guard let index = roster.players.firstIndex(where: { $0.id == playerID }) else {
                 return
@@ -2816,6 +3324,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustFoulCount(for side: TeamSide, playerID: UUID, by delta: Int) {
+        if routeRemoteControlCommand("player.foul", side: side, value: delta, playerID: playerID) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulAdjustment,
@@ -2851,6 +3360,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.foulsReset", side: side, playerID: playerID) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulReset,
@@ -2880,6 +3390,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetFouls(for side: TeamSide) {
+        if routeRemoteControlCommand("team.playerFoulsReset", side: side) { return }
         guard supportsFouls else {
             recordLog(
                 kind: .playerFoulResetAll,
@@ -2905,11 +3416,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllPlayerFouls() {
+        if routeRemoteControlCommand("all.playerFoulsReset") { return }
         resetFouls(for: .home)
         resetFouls(for: .guest)
     }
 
     func setCardStatus(_ status: PlayerCardStatus, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.card", side: side, text: status.rawValue, playerID: playerID) { return }
         guard supportsCards else {
             recordLog(
                 kind: .playerCardSet,
@@ -2950,6 +3463,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetCards(for side: TeamSide) {
+        if routeRemoteControlCommand("team.cardsReset", side: side) { return }
         guard supportsCards else {
             recordLog(
                 kind: .playerCardReset,
@@ -2975,11 +3489,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllPlayerCards() {
+        if routeRemoteControlCommand("all.cardsReset") { return }
         resetCards(for: .home)
         resetCards(for: .guest)
     }
 
     func adjustTeamFouls(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("team.foul", side: side, value: delta) { return }
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulAdjustment,
@@ -3012,6 +3528,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetTeamFouls(for side: TeamSide) {
+        if routeRemoteControlCommand("team.foulsReset", side: side) { return }
         guard supportsTeamFouls else {
             recordLog(
                 kind: .teamFoulReset,
@@ -3038,6 +3555,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetAllTeamFouls() {
+        if routeRemoteControlCommand("all.teamFoulsReset") { return }
         resetTeamFouls(for: .home)
         resetTeamFouls(for: .guest)
     }
@@ -3165,6 +3683,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebateRound(logKind: ScoreboardLogOperationKind = .debateRoundReset, notes: String? = nil) {
+        if routeRemoteControlCommand("debate.resetRound") { return }
         guard isDebateMode else { return }
         pauseClock()
         isDebatePrepClockRunning = false
@@ -3190,6 +3709,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebateCurrentSegment() {
+        if routeRemoteControlCommand("debate.resetSegment") { return }
         guard isDebateMode else { return }
         pauseClock()
         configureDebateSegment(index: debateCurrentSegmentIndex, preserveRunningState: false)
@@ -3203,6 +3723,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func advanceDebateSegment(by delta: Int) {
+        if routeRemoteControlCommand("debate.segment", value: delta) { return }
         guard isDebateMode else { return }
         let previousIndex = debateCurrentSegmentIndex
         let boundedIndex = max(0, min(currentDebatePreset.segments.count - 1, debateCurrentSegmentIndex + delta))
@@ -3229,6 +3750,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleDebatePrepClock(for side: TeamSide) {
+        if routeRemoteControlCommand("debate.prepToggle", side: side) { return }
+        guard pauseTimer == nil else { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let target: DebateActiveTimer = side == .home ? .prepHome : .prepGuest
@@ -3276,6 +3799,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func returnToDebateSegmentTimer(resume: Bool = false) {
+        if routeRemoteControlCommand("debate.return", enabled: resume) { return }
         guard isDebateMode else { return }
         reconcileRunningTimersWithWallClock()
 
@@ -3309,6 +3833,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetDebatePrepClock(for side: TeamSide) {
+        if routeRemoteControlCommand("debate.prepReset", side: side) { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let value = currentDebatePreset.prepSecondsPerSide
@@ -3337,6 +3862,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustDebatePrepClock(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("debate.prepAdjust", side: side, value: delta) { return }
         guard isDebateMode, isDebatePrepTimeEnabled else { return }
         reconcileRunningTimersWithWallClock()
         let previousValue = side == .home ? debatePrepHomeSeconds : debatePrepGuestSeconds
@@ -3361,6 +3887,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func toggleChessClock() {
+        if routeRemoteControlCommand("clock.toggle") { return }
+        guard pauseTimer == nil else { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerToggle : .chessClockToggle,
@@ -3401,6 +3929,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func switchChessClock() {
+        if routeRemoteControlCommand("chess.switch") { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSwitch : .chessClockSwitch,
@@ -3445,6 +3974,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setActiveChessClockSide(_ side: TeamSide) {
+        if routeRemoteControlCommand("chess.side", side: side) { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateActiveSideSet : .chessClockSwitch,
@@ -3482,6 +4012,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustChessClock(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("chess.adjust", side: side, value: delta) { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateTimerAdjustment : .chessClockAdjustment,
@@ -3524,6 +4055,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetChessClocks() {
+        if routeRemoteControlCommand("chess.reset") { return }
         guard usesChessClocks else {
             recordLog(
                 kind: isDebateMode ? .debateSegmentReset : .chessClockReset,
@@ -3555,6 +4087,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func addPenaltyTimer(for side: TeamSide, seconds: Int, player: TrackedPlayer?, startsRunning: Bool) {
+        if routeRemoteControlCommand("penalty.add", side: side, value: seconds, enabled: startsRunning, playerID: player?.id) { return }
+        guard pauseTimer == nil || !startsRunning else { return }
         guard supportsHockeyPenalties else {
             recordLog(
                 kind: .hockeyPenaltyAdd,
@@ -3594,6 +4128,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.remove", side: side, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let removed: HockeyPenaltyTimer?
         switch side {
@@ -3617,6 +4152,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func togglePenaltyTimer(for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.toggle", side: side, timerID: timerID) { return }
+        guard pauseTimer == nil else { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3638,6 +4175,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPenaltyTimer(for side: TeamSide, timerID: UUID, by delta: Int) {
+        if routeRemoteControlCommand("penalty.adjust", side: side, value: delta, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3660,6 +4198,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updatePenaltyTimerPlayerNumber(_ number: String, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.number", side: side, text: number, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3677,6 +4216,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func updatePenaltyTimerPlayerName(_ name: String, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.name", side: side, text: name, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3694,6 +4234,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func assignPenaltyTimerPlayer(_ player: TrackedPlayer, for side: TeamSide, timerID: UUID) {
+        if routeRemoteControlCommand("penalty.player", side: side, playerID: player.id, timerID: timerID) { return }
         guard supportsHockeyPenalties else { return }
         let previous = penaltyTimer(for: side, timerID: timerID)
         updatePenaltyTimers(for: side) { timers in
@@ -3726,6 +4267,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPendingInjuryTimeMinutes(_ minutes: Int) {
+        if routeRemoteControlCommand("injury.set", value: minutes) { return }
         normalizeInjuryTimeState()
         guard supportsInjuryTime, !hasAppliedInjuryTimeThisPeriod else {
             return
@@ -3739,14 +4281,19 @@ final class ScoreboardStore: ObservableObject {
         shotClockWasRunning: Bool,
         debatePrepWasRunning: Bool
     ) {
-        isClockRunning = clockWasRunning && (showsGameClock || usesChessClocks)
-        isShotClockRunning = shotClockWasRunning && supportsShotClock
-        isDebatePrepClockRunning = debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
+        isClockRunning = pauseTimer == nil && clockWasRunning && (showsGameClock || usesChessClocks)
+        isShotClockRunning = pauseTimer == nil && shotClockWasRunning && supportsShotClock
+        isDebatePrepClockRunning = pauseTimer == nil && debatePrepWasRunning && isDebateMode && isDebatePrepTimeEnabled && debateActiveTimer != .segment
         normalizeInjuryTimeState()
         updateTimerState()
     }
 
     func setSelectedSport(_ sport: SportType, applyDefaults: Bool = true) {
+        if sport != selectedSport || applyDefaults {
+            clearQueuedEventActions()
+            pauseTimer = nil
+            accumulatedPauseElapsed = 0
+        }
         selectedSport = sport
         let rules = currentRules
 
@@ -3766,6 +4313,8 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = rules.defaultSubstitutionLimit
             homeSubstitutionsUsed = 0
             guestSubstitutionsUsed = 0
+            pauseDurationSeconds = sport == .volleyball ? 30 : 60
+            isTeamPauseIndefinite = false
             homePausesAllowed = rules.defaultPauseLimit
             guestPausesAllowed = rules.defaultPauseLimit
             homePausesUsed = 0
@@ -3868,6 +4417,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustSubstitutionsUsed(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("substitution.adjust", side: side, value: delta) { return }
         let previousValue = substitutionsUsed(for: side)
         switch side {
         case .home:
@@ -3888,6 +4438,84 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    private var pauseSoundEvents: [ScoreboardSoundEvent] {
+        [.pauseStarted, .officialPauseStarted, .pauseTimerPaused, .pauseTimerResumed, .pauseEnded, .pauseExpired]
+    }
+
+    var pauseTitle: String? {
+        pauseTimer?.title(homeTeamName: homeTeamName, guestTeamName: guestTeamName)
+    }
+
+    func setPauseDurationSeconds(_ seconds: Int) {
+        pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, seconds))
+    }
+
+    func setTeamPauseIndefinite(_ isIndefinite: Bool) {
+        isTeamPauseIndefinite = isIndefinite
+    }
+
+    /// Official pauses do not consume a team allowance. Zero means indefinite for either kind of pause.
+    func startPause(for side: TeamSide? = nil, seconds: Int? = nil) {
+        let duration = seconds ?? pauseDurationSeconds
+        if routeRemoteControlCommand(side == nil ? "pause.official" : "pause.start", side: side, value: duration) { return }
+        guard pauseTimer == nil, duration >= 0, duration <= Self.maxPauseDurationSeconds else { return }
+        if let side {
+            guard supportsPauseTracking, pausesRemaining(for: side) > 0 else { return }
+        }
+        reconcileRunningTimersWithWallClock()
+        var stoppedDispatches = [currentRunningClockStoppedDispatch()].compactMap { $0 }
+        if isShotClockRunning { stoppedDispatches.append(eventDispatch(.shotClockPaused)) }
+        if (homePenaltyTimers + guestPenaltyTimers).contains(where: \.isRunning) {
+            stoppedDispatches.append(eventDispatch(.hockeyPenaltyPaused))
+        }
+        isClockRunning = false
+        isShotClockRunning = false
+        isDebatePrepClockRunning = false
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices { timers[index].isRunning = false }
+            }
+        }
+        if let side { adjustPausesUsed(for: side, by: 1) }
+        accumulatedPauseElapsed = 0
+        pauseTimer = ScoreboardPauseTimer(side: side, remainingSeconds: duration == 0 ? nil : duration, isRunning: duration > 0)
+        updateTimerState()
+        refreshPrimaryTimerPersistence()
+        handleScoreboardEventDispatches(stoppedDispatches)
+        recordLog(kind: .pauseTimerChange, summary: pauseTitle ?? "", outcome: .applied, teamSide: side, value: duration)
+        handleScoreboardEvent(.pauseStarted)
+        if side == nil { handleScoreboardEvent(.officialPauseStarted) }
+    }
+
+    func setPauseTimerRunning(_ running: Bool) {
+        if routeRemoteControlCommand("pause.running", enabled: running) { return }
+        reconcileRunningTimersWithWallClock()
+        guard var pause = pauseTimer, let seconds = pause.remainingSeconds, seconds > 0,
+              pause.isRunning != running else { return }
+        pause.isRunning = running
+        pauseTimer = pause
+        updateTimerState()
+        recordLog(kind: .pauseTimerChange, summary: localizedStoreString(running ? "Pause Timer Resumed" : "Pause Timer Paused"), outcome: .applied, teamSide: pause.side, value: seconds)
+        handleScoreboardEvent(running ? .pauseTimerResumed : .pauseTimerPaused)
+    }
+
+    func cancelPause() {
+        if routeRemoteControlCommand("pause.cancel") { return }
+        guard let pause = pauseTimer else { return }
+        pauseTimer = nil
+        accumulatedPauseElapsed = 0
+        updateTimerState()
+        recordLog(kind: .pauseTimerChange, summary: localizedStoreString("Pause Ended"), outcome: .applied, teamSide: pause.side)
+        handleScoreboardEvent(.pauseEnded)
+    }
+
+    private func normalizedPauseTimer(_ source: ScoreboardPauseTimer?, preserveRunning: Bool) -> ScoreboardPauseTimer? {
+        guard var pause = source, pause.side == nil || supportsPauseTracking else { return nil }
+        if let seconds = pause.remainingSeconds { pause.remainingSeconds = max(0, min(Self.maxPauseDurationSeconds, seconds)) }
+        pause.isRunning = preserveRunning && pause.isRunning && (pause.remainingSeconds ?? 0) > 0
+        return pause
+    }
+
     func setPausesAllowed(for side: TeamSide, to value: Int) {
         let boundedValue = max(0, min(99, value))
 
@@ -3902,6 +4530,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func adjustPausesUsed(for side: TeamSide, by delta: Int) {
+        if routeRemoteControlCommand("pause.adjust", side: side, value: delta) { return }
         guard supportsPauseTracking else {
             recordLog(
                 kind: .teamPauseAdjustment,
@@ -3934,6 +4563,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setPlayerActiveLineup(_ isActive: Bool, for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.lineup", side: side, enabled: isActive, playerID: playerID) { return }
         let previousPlayer = trackedPlayers(for: side).first { $0.id == playerID }
         updateRoster(for: side) { roster in
             guard let targetIndex = roster.players.firstIndex(where: { $0.id == playerID }) else {
@@ -4089,7 +4719,10 @@ final class ScoreboardStore: ObservableObject {
             playerViewRosterScope: .fullRoster,
             homeTeamLogoImage: embeddedTeamLogoImage(for: .home),
             guestTeamLogoImage: embeddedTeamLogoImage(for: .guest),
-            eventLogoImage: embeddedEventLogoImage()
+            eventLogoImage: embeddedEventLogoImage(),
+            pauseDurationSeconds: pauseDurationSeconds,
+            pauseTimer: pauseTimer,
+            isTeamPauseIndefinite: isTeamPauseIndefinite
         )
     }
 
@@ -4185,9 +4818,16 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
+        if isFollowingSessionHost && !isApplyingSessionUpdate && !isApplyingRemoteControlState {
+            sendOwnerGameSnapshot(snapshot)
+            return
+        }
         performWithoutAuditLogging {
-            pauseClock()
-            pauseShotClock()
+            if !isRemoteControlProxy {
+                pauseClock()
+                pauseShotClock()
+                clearQueuedEventActions()
+            }
 
             let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
@@ -4243,6 +4883,10 @@ final class ScoreboardStore: ObservableObject {
             if isDebateMode {
                 clearSubstitutionTracking()
             }
+            pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, snapshot.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            isTeamPauseIndefinite = snapshot.isTeamPauseIndefinite ?? false
+            pauseTimer = normalizedPauseTimer(snapshot.pauseTimer, preserveRunning: isApplyingRemoteControlState || isApplyingSessionUpdate)
+            accumulatedPauseElapsed = 0
             homePausesAllowed = max(0, snapshot.homePausesAllowed ?? currentRules.defaultPauseLimit)
             guestPausesAllowed = max(0, snapshot.guestPausesAllowed ?? currentRules.defaultPauseLimit)
             homePausesUsed = max(0, min(homePausesAllowed, snapshot.homePausesUsed ?? 0))
@@ -4316,6 +4960,17 @@ final class ScoreboardStore: ObservableObject {
             if !showsGameClock {
                 pauseClock()
             }
+            if pauseTimer != nil {
+                isClockRunning = false
+                isShotClockRunning = false
+                isDebatePrepClockRunning = false
+                for side in TeamSide.allCases {
+                    updatePenaltyTimers(for: side) { timers in
+                        for index in timers.indices { timers[index].isRunning = false }
+                    }
+                }
+            }
+            updateTimerState()
             normalizeInjuryTimeState()
             didCompleteSetup = true
         }
@@ -4407,6 +5062,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startClock() {
+        guard pauseTimer == nil else { return }
         if usesChessClocks {
             guard activeChessClockSide != nil else {
                 activeChessClockSide = .home
@@ -4458,6 +5114,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startShotClock() {
+        guard pauseTimer == nil else { return }
         guard supportsShotClock else {
             return
         }
@@ -4509,8 +5166,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func updateTimerState() {
+        guard isSessionAuthority else {
+            timer?.invalidate(); timer = nil; lastTimerFireDate = nil
+            return
+        }
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
-        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning || pauseTimer?.isRunning == true else {
             timer?.invalidate()
             timer = nil
             lastTimerFireDate = nil
@@ -4521,6 +5182,8 @@ final class ScoreboardStore: ObservableObject {
             return
         }
 
+        #if !SCOREBOARD_TESTING
+        // Unit tests retain the reset logic above and advance tick explicitly.
         guard timer == nil else {
             return
         }
@@ -4537,6 +5200,7 @@ final class ScoreboardStore: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        #endif
     }
 
     func reconcileRunningTimersWithWallClock() {
@@ -4544,12 +5208,13 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func reconcileRunningTimersWithWallClock(now: Date) {
+        guard isSessionAuthority else { return }
         guard !isReconcilingTimersFromWallClock else {
             return
         }
 
         let hasRunningPenalty = homePenaltyTimers.contains(where: \.isRunning) || guestPenaltyTimers.contains(where: \.isRunning)
-        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning else {
+        guard isClockRunning || isShotClockRunning || hasRunningPenalty || isDebatePrepClockRunning || pauseTimer?.isRunning == true else {
             lastTimerFireDate = nil
             return
         }
@@ -4704,20 +5369,33 @@ final class ScoreboardStore: ObservableObject {
             }
         }
 
-        updateTimerState()
-
-        if let soundEvent = highestPrioritySoundEvent(from: soundEvents) {
-            let primaryDispatches = clockEventDispatches
-                .filter { $0.fallbackEvent == soundEvent }
-            if primaryDispatches.isEmpty {
-                handleScoreboardEvent(soundEvent)
-            } else {
-                handleScoreboardEventDispatches(primaryDispatches)
+        if var pause = pauseTimer, pause.isRunning, let remaining = pause.remainingSeconds {
+            accumulatedPauseElapsed += elapsed
+            let wholeSeconds = Int(accumulatedPauseElapsed)
+            if wholeSeconds > 0 {
+                accumulatedPauseElapsed -= Double(wholeSeconds)
+                pause.remainingSeconds = max(0, remaining - wholeSeconds)
+                if pause.remainingSeconds == 0 {
+                    pause.isRunning = false
+                    accumulatedPauseElapsed = 0
+                    recordLog(kind: .pauseTimerChange, summary: localizedStoreString("Pause Timer Expired"), outcome: .applied, teamSide: pause.side, value: 0)
+                    soundEvents.append(.pauseExpired)
+                }
+                pauseTimer = pause
             }
         }
+
+        updateTimerState()
+
+        let representedFallbacks = Set(clockEventDispatches.compactMap(\.fallbackEvent))
+        let remainingDispatches = soundEvents
+            .filter { !representedFallbacks.contains($0) }
+            .map { eventDispatch($0) }
+        handleScoreboardEventDispatches(clockEventDispatches + remainingDispatches)
     }
 
     deinit {
+        remoteProjectionTimer?.invalidate()
         timer?.invalidate()
     }
 
@@ -5044,69 +5722,159 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func handleScoreboardEventDispatches(_ dispatches: [ScoreboardEventDispatch]) {
-        let resolvedDispatches = uniqueScoreboardEventDispatches(dispatches)
-        playSound(for: resolvedDispatches)
-        triggerCompanionCommands(for: resolvedDispatches)
-    }
-
-    private func playSound(for event: ScoreboardSoundEvent) {
-        playSound(for: [event], fallbackEvent: nil)
-    }
-
-    private func playSound(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
-        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
-        playSound(for: dispatches)
-    }
-
-    private func playSound(for dispatches: [ScoreboardEventDispatch]) {
-        guard isSoundEnabled else {
-            return
+        guard !isRemoteControlProxy else { return }
+        guard !dispatches.isEmpty else { return }
+        let expanded = dispatches + timerOutcomeDispatches(for: dispatches)
+        let order = Dictionary(uniqueKeysWithValues: ScoreboardSoundEvent.executionOrder.enumerated().map { ($0.element, $0.offset) })
+        let ordered = uniqueScoreboardEventDispatches(expanded).sorted {
+            order[$0.event, default: 0] < order[$1.event, default: 0]
         }
-
-        guard let event = preferredSoundEvent(from: dispatches) else {
-            return
+        var soundedEvents = Set<ScoreboardSoundEvent>()
+        var commandedEvents = Set<ScoreboardSoundEvent>()
+        for dispatch in ordered {
+            let soundEvent = selectedSoundEffect(for: dispatch.event) != .none
+                ? dispatch.event : dispatch.fallbackEvent
+            let effect: ScoreboardSoundEffect
+            if !isSoundEventBypassed(dispatch.event, sport: selectedSport),
+               let soundEvent, !isSoundEventBypassed(soundEvent, sport: selectedSport),
+               soundedEvents.insert(soundEvent).inserted {
+                effect = isSoundEnabled ? selectedSoundEffect(for: soundEvent) : .none
+            } else {
+                effect = .none
+            }
+            let commandEvent = companionLocation(for: dispatch.event) != nil
+                ? dispatch.event : dispatch.fallbackEvent
+            var location: ScoreboardCompanionLocation?
+            if isCompanionVisible, isCompanionEnabled,
+               !isCompanionEventBypassed(dispatch.event, sport: selectedSport),
+               let commandEvent, !isCompanionEventBypassed(commandEvent, sport: selectedSport),
+               commandedEvents.insert(commandEvent).inserted {
+                location = companionLocation(for: commandEvent)
+            }
+            if !companionSyncWithSound, let immediateLocation = location {
+                sendCompanionPress(immediateLocation,
+                                   events: [dispatch.event] + [commandEvent].compactMap { $0 },
+                                   sport: selectedSport)
+                location = nil
+            }
+            if effect != .none || location != nil {
+                queuedEventActions.append(QueuedEventAction(
+                    effect: effect, triggerEvent: dispatch.event,
+                    soundEvent: soundEvent, companionEvent: commandEvent,
+                    sport: selectedSport, companionLocation: location,
+                    companionGeneration: companionCommandGeneration
+                ))
+            }
         }
-
-        if playingTestSoundEffect != nil {
-            stopTestSound()
-        }
-        let effect = resolvedSoundEffect(for: event)
-        guard effect != .none else {
-            return
-        }
-        buzzerPlayer.play(effect)
-        remoteDisplayHostService.sendSoundEffect(effect)
+        playNextEventAction()
     }
 
-    private func triggerCompanionCommand(for event: ScoreboardSoundEvent) {
-        triggerCompanionCommands(for: [event], fallbackEvent: nil)
-    }
-
-    private func triggerCompanionCommands(for events: [ScoreboardSoundEvent], fallbackEvent: ScoreboardSoundEvent?) {
-        let dispatches = uniqueSoundEvents(events).map { eventDispatch($0, fallbackEvent: fallbackEvent) }
-        triggerCompanionCommands(for: dispatches)
-    }
-
-    private func triggerCompanionCommands(for dispatches: [ScoreboardEventDispatch]) {
-        guard isCompanionVisible, isCompanionEnabled else {
-            return
-        }
-
-        var sentLocations = Set<ScoreboardCompanionLocation>()
-        for dispatch in dispatches {
-            if let location = companionLocation(for: dispatch.event) {
-                if sentLocations.insert(location).inserted {
-                    sendCompanionPress(location)
+    private func timerOutcomeDispatches(for dispatches: [ScoreboardEventDispatch]) -> [ScoreboardEventDispatch] {
+        let events = Set(dispatches.flatMap { [$0.event] + [$0.fallbackEvent].compactMap { $0 } })
+        let expired = !events.isDisjoint(with: [
+            .gameClockExpired, .chessClockExpired, .debateSegmentExpired,
+            .homeSideClockExpired, .guestSideClockExpired, .debateUnassignedSegmentExpired
+        ])
+        let hasTimeRemaining = usesChessClocks
+            ? (activeChessClockSide == .home ? homeChessClockSeconds : guestChessClockSeconds) > 0
+            : gameClockMode == .countUp || gameClockSeconds > 0
+        let paused = !expired && hasTimeRemaining && !events.isDisjoint(with: [
+            .gameClockPaused, .debateSegmentStopped, .homeSideClockStopped,
+            .guestSideClockStopped, .debateUnassignedSegmentStopped
+        ])
+        var outcomes: [ScoreboardSoundEvent] = []
+        if expired {
+            outcomes.append(.timerExpired)
+            if supportsScore {
+                if homeScore > guestScore {
+                    outcomes += [.timerExpiredHomeAhead, .timerExpiredGuestBehind, .homeWin, .guestLose]
+                } else if homeScore < guestScore {
+                    outcomes += [.timerExpiredHomeBehind, .timerExpiredGuestAhead, .homeLose, .guestWin]
+                } else {
+                    outcomes.append(.timerExpiredTie)
                 }
+            }
+        }
+        if paused {
+            outcomes.append(.timerPaused)
+            if supportsScore {
+                if homeScore > guestScore {
+                    outcomes += [.timerPausedHomeAhead, .timerPausedGuestBehind]
+                } else if homeScore < guestScore {
+                    outcomes += [.timerPausedHomeBehind, .timerPausedGuestAhead]
+                } else {
+                    outcomes.append(.timerPausedTie)
+                }
+            }
+        }
+        return outcomes.map { eventDispatch($0) }
+    }
+
+    private func playNextEventAction() {
+        guard isSessionAuthority else { clearQueuedEventActions(); return }
+        guard activeEventPlaybackID == nil else { return }
+        while !queuedEventActions.isEmpty {
+            let action = queuedEventActions.removeFirst()
+            guard isSoundEnabled, action.effect != .none,
+                  !isSoundEventBypassed(action.triggerEvent, sport: action.sport),
+                  !isSoundEventBypassed(action.soundEvent ?? .general, sport: action.sport) else {
+                sendQueuedCompanionCommand(for: action)
                 continue
             }
-
-            if let fallbackEvent = dispatch.fallbackEvent, let location = companionLocation(for: fallbackEvent) {
-                if sentLocations.insert(location).inserted {
-                    sendCompanionPress(location)
-                }
-            }
+            stopTestSound()
+            let playbackID = UUID()
+            activeEventPlaybackID = playbackID
+            activeEventAction = action
+            activeEventDidStart = false
+            buzzerPlayer.play(action.effect, onStarted: { [weak self] in
+                guard let self, self.activeEventPlaybackID == playbackID else { return }
+                self.activeEventDidStart = true
+                self.sendQueuedCompanionCommand(for: action)
+                self.remoteDisplayHostService.sendSoundEffect(action.effect)
+            }, onFinished: { [weak self] _ in
+                guard let self, self.activeEventPlaybackID == playbackID else { return }
+                // A missing/unplayable local sound must not drop its automation command.
+                if !self.activeEventDidStart { self.sendQueuedCompanionCommand(for: action) }
+                self.activeEventPlaybackID = nil
+                self.activeEventAction = nil
+                self.playNextEventAction()
+            })
+            return
         }
+    }
+
+    private func sendQueuedCompanionCommand(for action: QueuedEventAction) {
+        guard isCompanionVisible, isCompanionEnabled,
+              action.companionGeneration == companionCommandGeneration,
+              !isCompanionEventBypassed(action.triggerEvent, sport: action.sport),
+              !isCompanionEventBypassed(action.companionEvent ?? .general, sport: action.sport),
+              let location = action.companionLocation else { return }
+        sendCompanionPress(location,
+                           events: [action.triggerEvent] + [action.companionEvent].compactMap { $0 },
+                           sport: action.sport)
+    }
+
+    private func interruptEventSoundPlayback() {
+        if let action = activeEventAction, !activeEventDidStart {
+            sendQueuedCompanionCommand(for: action)
+        }
+        activeEventPlaybackID = nil
+        activeEventAction = nil
+        buzzerPlayer.stop()
+        playNextEventAction()
+    }
+
+    private func clearQueuedEventActions() {
+        queuedEventActions.removeAll()
+        activeEventPlaybackID = nil
+        activeEventAction = nil
+        buzzerPlayer.stop()
+        invalidateQueuedCompanionCommands()
+    }
+
+    private func invalidateQueuedCompanionCommands() {
+        companionCommandGeneration = UUID()
+        companionService.cancelPendingPresses()
     }
 
     private func companionLocation(for event: ScoreboardSoundEvent) -> ScoreboardCompanionLocation? {
@@ -5117,14 +5885,22 @@ final class ScoreboardStore: ObservableObject {
         ScoreboardCompanionLocation(rawValue: companionLocationText(for: event, sport: sport))
     }
 
-    private func sendCompanionPress(_ location: ScoreboardCompanionLocation) {
+    private func sendCompanionPress(
+        _ location: ScoreboardCompanionLocation,
+        events: [ScoreboardSoundEvent] = [], sport: SportType? = nil
+    ) {
+        guard isSessionAuthority else { return }
+        let commandGeneration = companionCommandGeneration
+        let eventSport = sport ?? selectedSport
         companionService.sendPress(
             host: companionHost,
             port: companionPort,
             mode: companionMode,
-            location: location
+            location: location,
+            eventKeys: events.map { "\(eventSport.rawValue):\($0.rawValue)" }
         ) { [weak self] result in
             Task { @MainActor [weak self] in
+                guard self?.companionCommandGeneration == commandGeneration else { return }
                 self?.handleCompanionSendResult(result)
             }
         }
@@ -5162,36 +5938,6 @@ final class ScoreboardStore: ObservableObject {
         companionFailureNotice = nil
     }
 
-    private func resolvedSoundEffect(for event: ScoreboardSoundEvent) -> ScoreboardSoundEffect {
-        selectedSoundEffect(for: event)
-    }
-
-    private func preferredSoundEvent(from dispatches: [ScoreboardEventDispatch]) -> ScoreboardSoundEvent? {
-        if let assignedDispatch = dispatches.first(where: { selectedSoundEffect(for: $0.event) != .none }) {
-            return assignedDispatch.event
-        }
-        if let fallbackEvent = dispatches
-            .compactMap(\.fallbackEvent)
-            .first(where: { selectedSoundEffect(for: $0) != .none }) {
-            return fallbackEvent
-        }
-        return dispatches.first?.event ?? dispatches.compactMap(\.fallbackEvent).first
-    }
-
-    private func highestPrioritySoundEvent(from events: [ScoreboardSoundEvent]) -> ScoreboardSoundEvent? {
-        let priorities: [ScoreboardSoundEvent] = [
-            .shotClockExpired,
-            .gameClockExpired,
-            .chessClockExpired,
-            .debateSegmentExpired,
-            .hockeyPenaltyExpired,
-            .debatePrepExpired,
-            .general
-        ]
-
-        return priorities.first { events.contains($0) }
-    }
-
     private func performWithoutAuditLogging(_ action: () -> Void) {
         let previousValue = isAuditLoggingSuspended
         isAuditLoggingSuspended = true
@@ -5210,7 +5956,7 @@ final class ScoreboardStore: ObservableObject {
         fileName: String? = nil,
         notes: String? = nil
     ) {
-        guard !isAuditLoggingSuspended else {
+        guard isSessionAuthority, !isAuditLoggingSuspended else {
             return
         }
 
@@ -5244,7 +5990,33 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setWebAPIEnabled(_ isEnabled: Bool) {
-        isWebAPIEnabled = isEnabled
+        guard isWebAPIEnabled != isEnabled else {
+            return
+        }
+
+        if isEnabled {
+            pendingExternalAutomationIntegration = .webAPI
+            externalAutomationSafetyNoticeID = UUID()
+        } else {
+            isWebAPIEnabled = false
+        }
+    }
+
+    func agreeToExternalAutomationSafetyNotice() {
+        switch pendingExternalAutomationIntegration {
+        case .companion:
+            isCompanionVisible = true
+        case .webAPI:
+            isWebAPIEnabled = true
+        case nil:
+            break
+        }
+        cancelExternalAutomationSafetyNotice()
+    }
+
+    func cancelExternalAutomationSafetyNotice() {
+        pendingExternalAutomationIntegration = nil
+        externalAutomationSafetyNoticeID = nil
     }
 
     func setWebAPIUpdateMode(_ mode: ScoreboardWebAPIUpdateMode) {
@@ -5295,6 +6067,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setWebAPIBroadcastDisplayMode(_ mode: ScoreboardWebAPIBroadcastDisplayMode, for displayID: Int) {
+        if routeRemoteControlCommand("display.broadcast", value: displayID, text: mode.rawValue) { return }
         guard Self.isWebAPIBroadcastCustomDisplayID(displayID) else {
             return
         }
@@ -5358,6 +6131,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayCustomDisplayID(displayID: String, customDisplayID: Int) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "customDisplay", displayID: displayID, number: customDisplayID))
+            return
+        }
         let normalizedDisplayID = Self.normalizedWebAPIBroadcastDisplayID(customDisplayID)
         let resolvedDisplayID = normalizedDisplayID == Self.minWebAPIBroadcastDisplayID || customDisplayEnabledDisplayIDs.contains(normalizedDisplayID)
             ? normalizedDisplayID
@@ -5426,13 +6203,94 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
+        if !isEnabled && (isFollowingSessionHost || isDelegatedSessionHost) {
+            guard !isAnyTimerRunning, !sessionTransferInProgress else {
+                sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
+                return
+            }
+            if isSessionOwner {
+                guard canHostOnOwnerAndDisconnectOthers else {
+                    sessionStatusMessage = "Reconnect to the session host before turning pairing off."
+                    return
+                }
+                disablePairingAfterHostTransfer = true
+                hostOnOwnerAndDisconnectOthers()
+                if !sessionTransferInProgress { disablePairingAfterHostTransfer = false }
+            } else {
+                guard isSessionSafeToDisconnect, let ownerID = sessionDescriptor?.ownerDeviceID else {
+                    sessionStatusMessage = "The match has not synced to its owner. Reconnect and wait, or choose Delete Local Match."
+                    return
+                }
+                disablePairingAfterHostTransfer = true
+                exitRemoteModeAfterHostTransfer = true
+                beginSessionTransfer(to: ownerID)
+                if !sessionTransferInProgress {
+                    disablePairingAfterHostTransfer = false
+                    exitRemoteModeAfterHostTransfer = false
+                }
+            }
+            return
+        }
+        if !isEnabled && sessionTransferInProgress {
+            sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
+            return
+        }
+        if !isEnabled && isSessionOwner && isSessionAuthority {
+            disconnectRemoteDisplays()
+        }
         isRemoteDisplayHostEnabled = isEnabled
+        if isEnabled && sessionDescriptor == nil { ensureOwnedSessionDescriptor() }
+        if !isEnabled && isSessionOwner && isSessionAuthority && sessionDescriptor != nil {
+            ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionTransferCheckpoint = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
         if !isEnabled {
             resetRemoteDisplayWarningState()
         }
     }
 
     func setRemoteDisplayViewerModeEnabled(_ isEnabled: Bool) {
+        if isFollowingSessionHost && isEnabled {
+            sessionStatusMessage = "This device owns the session. Keep its control board and game files open here."
+            return
+        }
+        if isDelegatedSessionHost && !isEnabled {
+            guard isSessionSafeToDisconnect, let ownerID = sessionDescriptor?.ownerDeviceID else {
+                sessionStatusMessage = "The match has not synced to its owner. Reconnect and wait, or choose Delete Local Match."
+                return
+            }
+            exitRemoteModeAfterHostTransfer = true
+            beginSessionTransfer(to: ownerID)
+            return
+        }
+        if isEnabled, isSessionOwner, isSessionAuthority, sessionDescriptor != nil {
+            guard !isAnyTimerRunning, !sessionTransferInProgress else {
+                sessionStatusMessage = "Stop all timers and finish the host handoff before entering remote mode."
+                return
+            }
+            // Entering remote mode leaves this local session's authority behind.
+            // Keep the owner's game and settings, but do not carry that session
+            // identity into the next device's authenticated pairing.
+            ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionAuthorityFenced = false
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
         #if !os(tvOS)
         if isEnabled {
             stopRemoteDisplayHostService()
@@ -5442,9 +6300,171 @@ final class ScoreboardStore: ObservableObject {
         #endif
 
         isRemoteDisplayViewerModeEnabled = isEnabled
+        if !isEnabled && !isSessionOwner {
+            sessionDescriptor = nil
+            sessionRecoveryRole = nil
+            sessionAuthorityFenced = false
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+            loadPersistedState()
+            // The personal snapshot may remember that this device was a viewer.
+            // Leaving remote mode must also update that saved preference.
+            isRemoteDisplayViewerModeEnabled = false
+            persistState()
+        }
         if isEnabled {
             resetRemoteDisplayWarningState()
         }
+    }
+
+    /// Explicit data-loss choice from the hosted display's exit confirmation.
+    @discardableResult
+    func deleteHostedMatchAndExitRemoteMode() -> Bool {
+        discardHostedMatch(leaveRemoteMode: true)
+    }
+
+    @discardableResult
+    func discardHostedMatchAndReturnToPairing() -> Bool {
+        discardHostedMatch(leaveRemoteMode: false)
+    }
+
+    private func discardHostedMatch(leaveRemoteMode: Bool) -> Bool {
+        guard hasHostedMatchToDiscard, let sessionID = sessionDescriptor?.sessionID else { return false }
+        do {
+            try removeHostedSessionData(sessionID: sessionID)
+        } catch {
+            sessionStatusMessage = "Could not delete the hosted match: \(error.localizedDescription)"
+            return false
+        }
+        sessionAuthorityFenced = true
+        stopWebAPIService()
+        stopRemoteDisplayHostService()
+        ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+        clearHostedSessionBookkeeping()
+        remoteDisplayHostService.clearSessionPairings()
+        ScoreboardRemoteDisplayReceiver.shared.forgetTrustedHosts()
+        sessionAuthorityFenced = false
+        loadPersistedState()
+        isRemoteDisplayViewerModeEnabled = !leaveRemoteMode
+        sessionStatusMessage = nil
+        persistState()
+        return true
+    }
+
+    private func removeHostedSessionData(sessionID: UUID) throws {
+        logManager.releaseHostedSession(sessionID: sessionID)
+        try ScoreboardHostedMatchStorage.remove(sessionID: sessionID)
+        if FileManager.default.fileExists(atPath: ScoreboardSessionRecovery.url.path) {
+            try FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        }
+    }
+
+    private func clearHostedSessionBookkeeping() {
+        sessionDescriptor = nil
+        sessionRecoveryRole = nil
+        sessionTransferCheckpoint = nil
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        sessionTransferInProgress = false
+        lastSessionPrepareSentAt = nil
+        lastSessionCommitSentAt = nil
+        sessionHostPeers = []
+        pendingLogBatchByPeer.removeAll()
+        logCursorByPeer.removeAll()
+        lastLogPageAtByPeer.removeAll()
+        lastSessionPeerReportAt = nil
+        lastSessionLogRequestAt = nil
+        pendingSnapshotSyncID = nil
+        pendingSnapshotLogCount = -1
+        lastSnapshotSyncSentAt = nil
+        sessionSyncRevision = 1
+        hostedCheckpointPersistedRevision = 0
+        ownerAcknowledgedRevision = 0
+        ownerAcknowledgedLogCount = -1
+        observedHostedLogCount = -1
+        exitRemoteModeAfterHostTransfer = false
+        disconnectClientsAfterOwnerTakeover = false
+        disablePairingAfterHostTransfer = false
+        remoteControlState = nil
+        remoteControlGameConfiguration = nil
+        controlCommandResults.removeAll()
+        sessionOwnerPairingSecret = nil
+        lastOwnerSettingsData = nil
+        lastOwnerVisualData = nil
+        pendingOwnerSettingsSync = false
+        pendingOwnerVisualSync = false
+        pendingOwnerVisualFields.removeAll()
+        pendingOwnerVisualSnapshot = nil
+    }
+
+    /// Take over from the last checkpoint acknowledged by this owner when its
+    /// delegated host is permanently unavailable. No unsynced host changes can
+    /// be recovered, and clocks deliberately remain stopped.
+    func recoverSessionHostOnOwner() {
+        guard canRecoverSessionHost, let descriptor = sessionDescriptor,
+              var checkpoint = sessionTransferCheckpoint else { return }
+        var recoveredDescriptor = descriptor
+        recoveredDescriptor.epoch += 1
+        recoveredDescriptor.hostDeviceID = localSessionDeviceID
+        recoveredDescriptor.hostName = remoteDisplayHostName
+        recoveredDescriptor.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        recoveredDescriptor.safeToDisconnect = nil
+        checkpoint.descriptor = recoveredDescriptor
+        checkpoint.game.pauseTimer?.isRunning = false
+        checkpoint.runtime = ScoreboardWebAPIRuntime(
+            isGameRunning: checkpoint.runtime.isGameRunning,
+            isClockRunning: false, isShotClockRunning: false,
+            isDebatePrepClockRunning: false,
+            areSidesSwapped: checkpoint.runtime.areSidesSwapped,
+            possessionDirection: checkpoint.runtime.possessionDirection)
+        do {
+            // The owner owns setup and integrations; the delegated host never
+            // replaces these settings when control returns here.
+            checkpoint.settings = try exportPersistedStateData()
+            if let localLog = logManager.currentSessionSnapshot(),
+               localLog.sessionID == checkpoint.log.sessionID,
+               localLog.startedAt.ISO8601Format() == checkpoint.log.startedAt.ISO8601Format(),
+               localLog.entries.count >= checkpoint.log.entries.count,
+               zip(checkpoint.log.entries, localLog.entries).allSatisfy({ $0.id == $1.id }) {
+                checkpoint.log = localLog
+            } else {
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+            }
+            try persistOwnerSessionFile(checkpoint)
+            try ScoreboardSessionRecovery(role: .host, descriptor: recoveredDescriptor,
+                                          checkpoint: checkpoint, transferID: nil).save()
+            if sessionOwnerReceiverAcquired {
+                ScoreboardRemoteDisplayReceiver.shared.release()
+                sessionOwnerReceiverAcquired = false
+            }
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferCheckpoint = checkpoint
+            activateSessionCheckpoint(checkpoint, fromRecovery: false)
+        } catch {
+            sessionStatusMessage = "Could not recover this session: \(error.localizedDescription)"
+        }
+    }
+
+    func handoffHostedMatchForQuit(completion: @escaping (Bool) -> Void) {
+        guard isDelegatedSessionHost, isSessionSafeToDisconnect,
+              let ownerID = sessionDescriptor?.ownerDeviceID else { completion(false); return }
+        hostedMatchQuitCompletion = completion
+        beginSessionTransfer(to: ownerID)
+        if !sessionTransferInProgress, hostedMatchQuitCompletion != nil {
+            hostedMatchQuitCompletion = nil
+            completion(false)
+        }
+    }
+
+    func prepareHostedMatchForBackground() {
+        guard isDelegatedSessionHost, isSessionSafeToDisconnect, !sessionTransferInProgress,
+              let ownerID = sessionDescriptor?.ownerDeviceID else { return }
+        beginSessionTransfer(to: ownerID)
     }
 
     func setRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
@@ -5463,6 +6483,11 @@ final class ScoreboardStore: ObservableObject {
         pairingCode: String,
         takeoverConfirmed: Bool = false
     ) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "pair", displayID: source.id,
+                                            enabled: takeoverConfirmed, text: pairingCode))
+            return
+        }
         remoteDisplayHostService.pair(
             with: source,
             pairingCode: pairingCode,
@@ -5474,6 +6499,11 @@ final class ScoreboardStore: ObservableObject {
         _ source: ScoreboardRemoteDisplaySource,
         takeoverConfirmed: Bool = false
     ) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "connect", displayID: source.id,
+                                            enabled: takeoverConfirmed))
+            return
+        }
         remoteDisplayHostService.connectTrustedDisplay(
             source,
             takeoverConfirmed: takeoverConfirmed
@@ -5481,6 +6511,15 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func removeRemoteDisplayPairing(displayID: String) {
+        guard sessionDescriptor?.hostDeviceID != displayID else {
+            sessionStatusMessage = "Move hosting to another device before removing the session host."
+            return
+        }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "remove", displayID: displayID))
+            return
+        }
+        setRemoteControlAllowed(displayID: displayID, isAllowed: false)
         if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
             intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
         }
@@ -5493,10 +6532,17 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func isTrustedRemoteDisplay(_ source: ScoreboardRemoteDisplaySource) -> Bool {
-        remoteDisplayHostService.isTrustedDisplay(source)
+        if isFollowingSessionHost {
+            return remoteDisplayTrustedDisplays.contains { $0.id == source.id && $0.pairingSecret?.isEmpty == false }
+        }
+        return remoteDisplayHostService.isTrustedDisplay(source)
     }
 
     func disconnectRemoteDisplays() {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "disconnectAll", displayID: ""))
+            return
+        }
         intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
         remoteDisplayDisconnectedDisplaysByID.removeAll()
         remoteDisplayWarningNotice = nil
@@ -5504,6 +6550,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func disconnectRemoteDisplay(displayID: String) {
+        guard sessionDescriptor?.hostDeviceID != displayID else {
+            sessionStatusMessage = "Move hosting to another device before disconnecting the session host."
+            return
+        }
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "disconnect", displayID: displayID))
+            return
+        }
         if remoteDisplayConnectedDisplays.contains(where: { $0.id == displayID }) {
             intentionallyDisconnectedRemoteDisplayIDs.insert(displayID)
         }
@@ -5515,10 +6569,18 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func sendRemoteDisplaySoundTest(displayID: String) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "soundTest", displayID: displayID))
+            return
+        }
         remoteDisplayHostService.sendSoundTest(toDisplayID: displayID)
     }
 
     func setRemoteDisplayMuted(displayID: String, isMuted: Bool) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "mute", displayID: displayID, enabled: isMuted))
+            return
+        }
         remoteDisplayHostService.setDisplayMuted(id: displayID, isMuted: isMuted)
     }
 
@@ -5543,17 +6605,31 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "direction", displayID: displayID, text: direction.rawValue))
+            return
+        }
         remoteDisplayHostService.setDisplayDirection(id: displayID, direction: direction)
         refreshRemoteDisplayState()
     }
 
     func setRemoteDisplayExternalDirection(displayID: String, direction: ScoreboardDisplayDirection) {
+        if isFollowingSessionHost {
+            sendSessionAdministration(.init(action: "externalDirection", displayID: displayID, text: direction.rawValue))
+            return
+        }
         remoteDisplayHostService.setExternalDisplayDirection(id: displayID, direction: direction)
         refreshRemoteDisplayState()
     }
 
     func refreshWebAPILocalAddresses() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        if isSessionAuthority, var descriptor = sessionDescriptor,
+           descriptor.hostAddresses != webAPILocalAddresses {
+            descriptor.hostAddresses = webAPILocalAddresses
+            sessionDescriptor = descriptor
+            refreshRemoteDisplayState()
+        }
     }
 
     func resumeWebAPIForAppLifecycle() {
@@ -5620,6 +6696,17 @@ final class ScoreboardStore: ObservableObject {
 
     private func configureWebAPIService() {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        webAPIService.controlHandler = { [weak self] command, key, completion in
+            Task { @MainActor [weak self] in
+                guard let self, self.isSessionAuthority, self.isWebAPIEnabled, self.isWebControlEnabled else {
+                    completion(.failure(command.id, "disabled", "Web control is disabled.")); return
+                }
+                guard key.uppercased() == self.webControlAPIKey else {
+                    completion(.failure(command.id, "unauthorized", "Invalid API key.")); return
+                }
+                completion(self.performControlCommand(command, remote: false))
+            }
+        }
 
         $webAPIUpdateMode
             .removeDuplicates()
@@ -5632,7 +6719,7 @@ final class ScoreboardStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] isEnabled in
                 guard let self else { return }
-                if isEnabled {
+                if isEnabled && self.isSessionAuthority {
                     if self.isWebAPIAppLifecycleActive {
                         self.startWebAPIService()
                     } else {
@@ -5652,6 +6739,16 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func configureRemoteDisplayService() {
+        remoteDisplayHostService.controlPermissionProvider = { [weak self] displayID in
+            self?.isRemoteControlAllowed(displayID: displayID) ?? false
+        }
+        remoteDisplayHostService.controlCommandHandler = { [weak self] command, displayID in
+            guard let self, self.isSessionAuthority, self.isRemoteDisplayHostEnabled,
+                  self.isRemoteControlAllowed(displayID: displayID) else {
+                return .failure(command.id, "disabled", "This device is not allowed to control the main board.")
+            }
+            return self.performControlCommand(command, remote: true)
+        }
         remoteDisplayHostService.$status
             .sink { [weak self] status in
                 self?.remoteDisplayHostStatus = status
@@ -5666,31 +6763,36 @@ final class ScoreboardStore: ObservableObject {
 
         remoteDisplayHostService.$connectedDisplays
             .sink { [weak self] connectedDisplays in
-                self?.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$trustedDisplays
             .sink { [weak self] trustedDisplays in
-                self?.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.handleRemoteDisplayTrustedDisplaysChanged(trustedDisplays)
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$mutedDisplayIDs
             .sink { [weak self] mutedDisplayIDs in
-                self?.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayMutedDisplayIDs = mutedDisplayIDs
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$displayDirectionsByID
             .sink { [weak self] displayDirectionsByID in
-                self?.remoteDisplayDirectionsByID = displayDirectionsByID
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayDirectionsByID = displayDirectionsByID
             }
             .store(in: &cancellables)
 
         remoteDisplayHostService.$customDisplayIDsByID
             .sink { [weak self] customDisplayIDsByID in
-                self?.remoteDisplayCustomDisplayIDsByDisplayID = customDisplayIDsByID
+                guard let self, !self.isFollowingSessionHost else { return }
+                self.remoteDisplayCustomDisplayIDsByDisplayID = customDisplayIDsByID
             }
             .store(in: &cancellables)
 
@@ -5708,7 +6810,9 @@ final class ScoreboardStore: ObservableObject {
         )
         .sink { [weak self] isHostEnabled, isViewerModeEnabled, _ in
             guard let self else { return }
-            if isHostEnabled && !isViewerModeEnabled {
+            if self.isFollowingSessionHost {
+                self.remoteDisplayHostService.startDiscoveryOnly(networkMode: self.remoteDisplayNetworkMode)
+            } else if self.isSessionAuthority && isHostEnabled && (!isViewerModeEnabled || self.isDelegatedSessionHost) {
                 self.startRemoteDisplayHostService()
             } else {
                 self.stopRemoteDisplayHostService()
@@ -5730,7 +6834,7 @@ final class ScoreboardStore: ObservableObject {
         let uniqueConnectedDisplays = uniqueRemoteDisplayConnections(connectedDisplays)
         remoteDisplayConnectedDisplays = uniqueConnectedDisplays
 
-        guard isRemoteDisplayHostEnabled, !isRemoteDisplayViewerModeEnabled else {
+        guard isRemoteDisplayHostEnabled, (!isRemoteDisplayViewerModeEnabled || isDelegatedSessionHost) else {
             resetRemoteDisplayWarningState(connectedDisplays: uniqueConnectedDisplays)
             return
         }
@@ -5759,6 +6863,13 @@ final class ScoreboardStore: ObservableObject {
 
     private func handleRemoteDisplayTrustedDisplaysChanged(_ trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer]) {
         remoteDisplayTrustedDisplays = trustedDisplays
+        let permitted = remoteControlAllowedDisplayIDs.intersection(Set(trustedDisplays.filter { $0.deviceType != .appleTV }.map(\.id)))
+        if permitted != remoteControlAllowedDisplayIDs {
+            remoteControlAllowedDisplayIDs = permitted
+            if !isDelegatedSessionHost {
+                ScoreboardPreferences.current.set(permitted.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            }
+        }
 
         let trustedDisplayIDs = Set(trustedDisplays.map(\.id))
         remoteDisplayDisconnectedDisplaysByID = remoteDisplayDisconnectedDisplaysByID.filter { trustedDisplayIDs.contains($0.key) }
@@ -5838,6 +6949,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startWebAPIService() {
+        guard isSessionAuthority else { return }
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
         let payloads = encodedWebAPIOutputPayloads()
@@ -5870,6 +6982,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startRemoteDisplayHostService() {
+        guard isSessionAuthority else { return }
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayStates(),
             displayName: remoteDisplayHostName,
@@ -5890,7 +7003,12 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayState() {
+        guard isSessionAuthority else { return }
         remoteDisplayHostService.updateState(encodedRemoteDisplayStates())
+        if isDelegatedSessionHost {
+            ScoreboardRemoteDisplayReceiver.shared.updateHostedState(state: currentRemoteDisplayState(forDisplayID: localSessionDeviceID),
+                images: currentWebAPIImageResponses())
+        }
     }
 
     private func encodedWebAPIPayload() -> ScoreboardWebAPIPayload {
@@ -5981,6 +7099,9 @@ final class ScoreboardStore: ObservableObject {
             $guestSubstitutionsAllowed.map { _ in () }.eraseToAnyPublisher(),
             $homeSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
             $guestSubstitutionsUsed.map { _ in () }.eraseToAnyPublisher(),
+            $pauseTimer.map { _ in () }.eraseToAnyPublisher(),
+            $pauseDurationSeconds.map { _ in () }.eraseToAnyPublisher(),
+            $isTeamPauseIndefinite.map { _ in () }.eraseToAnyPublisher(),
             $homePausesAllowed.map { _ in () }.eraseToAnyPublisher(),
             $guestPausesAllowed.map { _ in () }.eraseToAnyPublisher(),
             $homePausesUsed.map { _ in () }.eraseToAnyPublisher(),
@@ -6028,22 +7149,28 @@ final class ScoreboardStore: ObservableObject {
             $guestTeamLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $eventLogoImage.map { _ in () }.eraseToAnyPublisher(),
             $isSoundEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $bypassedSoundEventsBySport.map { _ in () }.eraseToAnyPublisher(),
+            $bypassedCompanionEventsBySport.map { _ in () }.eraseToAnyPublisher(),
             $soundAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $keyboardShortcutsByAction.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionVisible.map { _ in () }.eraseToAnyPublisher(),
             $isCompanionEnabled.map { _ in () }.eraseToAnyPublisher(),
             $companionHost.map { _ in () }.eraseToAnyPublisher(),
             $companionMode.map { _ in () }.eraseToAnyPublisher(),
+            $companionSyncWithSound.map { _ in () }.eraseToAnyPublisher(),
             $companionPort.map { _ in () }.eraseToAnyPublisher(),
             $companionAssignmentsBySport.map { _ in () }.eraseToAnyPublisher(),
             $isClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $isShotClockRunning.map { _ in () }.eraseToAnyPublisher(),
             $didCompleteSetup.map { _ in () }.eraseToAnyPublisher(),
+            $currentGameDisplayName.map { _ in () }.eraseToAnyPublisher(),
             $areTipsEnabled.map { _ in () }.eraseToAnyPublisher(),
             $showGettingStartedOnStartup.map { _ in () }.eraseToAnyPublisher(),
             $didAutoShowGettingStarted.map { _ in () }.eraseToAnyPublisher(),
             $setupPresets.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $isWebControlEnabled.map { _ in () }.eraseToAnyPublisher(),
+            $remoteControlAllowedDisplayIDs.map { _ in () }.eraseToAnyPublisher(),
             $webAPIUpdateMode.map { _ in () }.eraseToAnyPublisher(),
             $isWebAPIBroadcastControlEnabled.map { _ in () }.eraseToAnyPublisher(),
             $webAPIBroadcastEnabledDisplayCount.map { _ in () }.eraseToAnyPublisher(),
@@ -6060,6 +7187,9 @@ final class ScoreboardStore: ObservableObject {
 
         stateChanges
             .sink { [weak self] _ in
+                if self?.isDelegatedSessionHost == true, self?.isApplyingSessionUpdate == false {
+                    self?.sessionSyncRevision &+= 1
+                }
                 self?.scheduleStateSideEffectRefresh()
             }
             .store(in: &cancellables)
@@ -6108,9 +7238,22 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetToFactoryDefaults() {
+        sessionDescriptor = nil
+        sessionRecoveryRole = nil
+        sessionAuthorityFenced = false
+        sessionTransferCheckpoint = nil
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
         clearPrimaryTimerPersistence()
         applyPersistedState(.factoryDefault)
-        UserDefaults.standard.removeObject(forKey: persistenceKey)
+        isWebControlEnabled = false
+        remoteControlAllowedDisplayIDs.removeAll()
+        ScoreboardPreferences.current.removeObject(forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+        ScoreboardPreferences.current.removeObject(forKey: ScoreboardControlBoardPreferences.storageKey)
+        resetWebControlAPIKey()
+        controlCommandResults.removeAll()
+        ScoreboardPreferences.current.removeObject(forKey: persistenceKey)
         persistState()
     }
 
@@ -6142,7 +7285,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func loadPersistedState() {
         guard
-            let data = UserDefaults.standard.data(forKey: persistenceKey),
+            let data = ScoreboardPreferences.current.data(forKey: persistenceKey),
             let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data)
         else {
             clearPrimaryTimerPersistence()
@@ -6158,6 +7301,7 @@ final class ScoreboardStore: ObservableObject {
             pauseClock()
             pauseShotClock()
             stopTestSound()
+            clearQueuedEventActions()
             dismissCompanionFailureNotice()
             resetRemoteDisplayWarningState()
             companionLastError = nil
@@ -6217,6 +7361,10 @@ final class ScoreboardStore: ObservableObject {
             guestSubstitutionsAllowed = max(0, persistedState.guestSubstitutionsAllowed)
             homeSubstitutionsUsed = max(0, min(homeSubstitutionsAllowed, persistedState.homeSubstitutionsUsed))
             guestSubstitutionsUsed = max(0, min(guestSubstitutionsAllowed, persistedState.guestSubstitutionsUsed))
+            pauseDurationSeconds = max(1, min(Self.maxPauseDurationSeconds, persistedState.pauseDurationSeconds ?? (selectedSport == .volleyball ? 30 : 60)))
+            isTeamPauseIndefinite = persistedState.isTeamPauseIndefinite ?? false
+            pauseTimer = normalizedPauseTimer(persistedState.pauseTimer, preserveRunning: false)
+            accumulatedPauseElapsed = 0
             homePausesAllowed = max(0, persistedState.homePausesAllowed)
             guestPausesAllowed = max(0, persistedState.guestPausesAllowed)
             homePausesUsed = max(0, min(homePausesAllowed, persistedState.homePausesUsed))
@@ -6267,10 +7415,13 @@ final class ScoreboardStore: ObservableObject {
             eventLogoImage = nil
             externalDisplayBackgroundMode = persistedState.externalDisplayBackgroundMode == .image || persistedState.externalDisplayBackgroundMode == .animatedLogo ? .blurred : persistedState.externalDisplayBackgroundMode
             isSoundEnabled = persistedState.isSoundEnabled
+            bypassedSoundEventsBySport = persistedState.bypassedSoundEventsBySport
+            bypassedCompanionEventsBySport = persistedState.bypassedCompanionEventsBySport
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             keyboardShortcutsByAction = Self.normalizedKeyboardShortcuts(persistedState.keyboardShortcutsByAction)
             isCompanionVisible = persistedState.isCompanionVisible
             isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
+            companionSyncWithSound = persistedState.companionSyncWithSound
             companionHost = persistedState.companionHost
             companionMode = persistedState.companionMode
             companionPort = persistedState.companionPort == 0 ? persistedState.companionMode.defaultPort : persistedState.companionPort
@@ -6319,14 +7470,31 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func persistState() {
+        guard !isRemoteControlProxy else { return }
+        if isSessionAuthority, !isApplyingSessionUpdate, let descriptor = sessionDescriptor {
+            do {
+                let checkpoint = try makeSessionCheckpoint(descriptor: descriptor)
+                if isDelegatedSessionHost {
+                    try ScoreboardHostedMatchStorage.save(checkpoint)
+                    hostedCheckpointPersistedRevision = sessionSyncRevision
+                }
+                try ScoreboardSessionRecovery(role: .host, descriptor: descriptor,
+                                              checkpoint: checkpoint, transferID: nil).save()
+                sessionTransferCheckpoint = checkpoint
+            } catch {
+                sessionStatusMessage = "Session recovery could not be saved: \(error.localizedDescription)"
+            }
+        }
+        guard !isDelegatedSessionHost else { return }
         guard let data = try? encodedPersistedStateData() else {
             return
         }
 
-        UserDefaults.standard.set(data, forKey: persistenceKey)
+        ScoreboardPreferences.current.set(data, forKey: persistenceKey)
     }
 
     private func refreshPrimaryTimerPersistence() {
+        guard isSessionAuthority, !isDelegatedSessionHost else { return }
         guard let snapshot = currentPrimaryTimerPersistenceSnapshot(now: Date()) else {
             clearPrimaryTimerPersistence()
             return
@@ -6337,19 +7505,22 @@ final class ScoreboardStore: ObservableObject {
         }
 
         if let data = try? JSONEncoder().encode(snapshot) {
-            UserDefaults.standard.set(data, forKey: primaryTimerPersistenceKey)
+            ScoreboardPreferences.current.set(data, forKey: primaryTimerPersistenceKey)
             lastPrimaryTimerPersistenceSignature = snapshot.signature
         }
     }
 
     private func clearPrimaryTimerPersistence() {
-        UserDefaults.standard.removeObject(forKey: primaryTimerPersistenceKey)
+        guard !isRemoteControlProxy, !isDelegatedSessionHost else { return }
+        ScoreboardPreferences.current.removeObject(forKey: primaryTimerPersistenceKey)
         lastPrimaryTimerPersistenceSignature = nil
     }
 
     private func restorePrimaryTimerPersistenceIfNeeded() {
+        guard sessionDescriptor == nil else { return }
+        guard pauseTimer == nil else { clearPrimaryTimerPersistence(); return }
         guard
-            let data = UserDefaults.standard.data(forKey: primaryTimerPersistenceKey),
+            let data = ScoreboardPreferences.current.data(forKey: primaryTimerPersistenceKey),
             let snapshot = try? JSONDecoder().decode(PrimaryTimerPersistenceSnapshot.self, from: data)
         else {
             return
@@ -6591,12 +7762,15 @@ final class ScoreboardStore: ObservableObject {
             showsTeamLogos: showsTeamLogos,
             showsEventLogo: showsEventLogo,
             isSoundEnabled: isSoundEnabled,
+            bypassedSoundEventsBySport: bypassedSoundEventsBySport,
+            bypassedCompanionEventsBySport: bypassedCompanionEventsBySport,
             soundAssignmentsBySport: soundAssignmentsBySport,
             keyboardShortcutsByAction: keyboardShortcutsByAction,
             isCompanionVisible: isCompanionVisible,
             isCompanionEnabled: isCompanionEnabled,
             companionHost: companionHost,
             companionMode: companionMode,
+            companionSyncWithSound: companionSyncWithSound,
             companionPort: companionPort,
             companionAssignmentsBySport: companionAssignmentsBySport,
             didCompleteSetup: didCompleteSetup,
@@ -6613,7 +7787,10 @@ final class ScoreboardStore: ObservableObject {
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
             isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
             isRemoteDisplayIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
-            remoteDisplayNetworkMode: remoteDisplayNetworkMode
+            remoteDisplayNetworkMode: remoteDisplayNetworkMode,
+            pauseDurationSeconds: pauseDurationSeconds,
+            pauseTimer: pauseTimer,
+            isTeamPauseIndefinite: isTeamPauseIndefinite
         )
     }
 
@@ -6883,12 +8060,15 @@ private struct PersistedState: Codable {
     var showsTeamLogos: Bool
     var showsEventLogo: Bool
     var isSoundEnabled: Bool
+    var bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>]
+    var bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>]
     var soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]
     var keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut]
     var isCompanionVisible: Bool
     var isCompanionEnabled: Bool
     var companionHost: String
     var companionMode: ScoreboardCompanionMode
+    var companionSyncWithSound: Bool
     var companionPort: UInt16
     var companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]]
     var didCompleteSetup: Bool
@@ -6906,6 +8086,9 @@ private struct PersistedState: Codable {
     var isRemoteDisplayViewerModeEnabled: Bool
     var isRemoteDisplayIndividualControlEnabled: Bool
     var remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
+    var pauseDurationSeconds: Int?
+    var pauseTimer: ScoreboardPauseTimer?
+    var isTeamPauseIndefinite: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case homeTeamName
@@ -6996,12 +8179,15 @@ private struct PersistedState: Codable {
         case showsEventLogo
         case isSoundEnabled
         case soundAssignments
+        case bypassedSoundEventsBySport
+        case bypassedCompanionEventsBySport
         case soundAssignmentsBySport
         case keyboardShortcutsByAction
         case isCompanionVisible
         case isCompanionEnabled
         case companionHost
         case companionMode
+        case companionSyncWithSound
         case companionPort
         case companionAssignments
         case companionAssignmentsBySport
@@ -7020,6 +8206,9 @@ private struct PersistedState: Codable {
         case isRemoteDisplayViewerModeEnabled
         case isRemoteDisplayIndividualControlEnabled
         case remoteDisplayNetworkMode
+        case pauseDurationSeconds
+        case pauseTimer
+        case isTeamPauseIndefinite
     }
 
     init(
@@ -7108,12 +8297,15 @@ private struct PersistedState: Codable {
         showsTeamLogos: Bool,
         showsEventLogo: Bool,
         isSoundEnabled: Bool,
+        bypassedSoundEventsBySport: [SportType: Set<ScoreboardSoundEvent>],
+        bypassedCompanionEventsBySport: [SportType: Set<ScoreboardSoundEvent>],
         soundAssignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]],
         keyboardShortcutsByAction: [ScoreboardKeyboardShortcutAction: ScoreboardKeyboardShortcut],
         isCompanionVisible: Bool,
         isCompanionEnabled: Bool,
         companionHost: String,
         companionMode: ScoreboardCompanionMode,
+        companionSyncWithSound: Bool,
         companionPort: UInt16,
         companionAssignmentsBySport: [SportType: [ScoreboardSoundEvent: String]],
         didCompleteSetup: Bool,
@@ -7130,7 +8322,10 @@ private struct PersistedState: Codable {
         isRemoteDisplayHostEnabled: Bool,
         isRemoteDisplayViewerModeEnabled: Bool,
         isRemoteDisplayIndividualControlEnabled: Bool,
-        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode
+        remoteDisplayNetworkMode: ScoreboardRemoteDisplayNetworkMode,
+        pauseDurationSeconds: Int? = nil,
+        pauseTimer: ScoreboardPauseTimer? = nil,
+        isTeamPauseIndefinite: Bool? = nil
     ) {
         self.selectedSport = selectedSport
         self.customSportConfig = customSportConfig
@@ -7217,12 +8412,15 @@ private struct PersistedState: Codable {
         self.showsTeamLogos = showsTeamLogos
         self.showsEventLogo = showsEventLogo
         self.isSoundEnabled = isSoundEnabled
+        self.bypassedSoundEventsBySport = bypassedSoundEventsBySport
+        self.bypassedCompanionEventsBySport = bypassedCompanionEventsBySport
         self.soundAssignmentsBySport = soundAssignmentsBySport
         self.keyboardShortcutsByAction = ScoreboardStore.normalizedKeyboardShortcuts(keyboardShortcutsByAction)
         self.isCompanionVisible = isCompanionVisible
         self.isCompanionEnabled = isCompanionEnabled
         self.companionHost = companionHost
         self.companionMode = companionMode
+        self.companionSyncWithSound = companionSyncWithSound
         self.companionPort = companionPort
         self.companionAssignmentsBySport = companionAssignmentsBySport
         self.didCompleteSetup = didCompleteSetup
@@ -7240,6 +8438,9 @@ private struct PersistedState: Codable {
         self.isRemoteDisplayViewerModeEnabled = isRemoteDisplayViewerModeEnabled
         self.isRemoteDisplayIndividualControlEnabled = isRemoteDisplayIndividualControlEnabled
         self.remoteDisplayNetworkMode = remoteDisplayNetworkMode
+        self.pauseDurationSeconds = pauseDurationSeconds
+        self.pauseTimer = pauseTimer
+        self.isTeamPauseIndefinite = isTeamPauseIndefinite
     }
 
     init(from decoder: Decoder) throws {
@@ -7353,6 +8554,8 @@ private struct PersistedState: Codable {
         showsTeamLogos = try container.decodeIfPresent(Bool.self, forKey: .showsTeamLogos) ?? true
         showsEventLogo = try container.decodeIfPresent(Bool.self, forKey: .showsEventLogo) ?? true
         isSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSoundEnabled) ?? true
+        bypassedSoundEventsBySport = try container.decodeIfPresent([SportType: Set<ScoreboardSoundEvent>].self, forKey: .bypassedSoundEventsBySport) ?? [:]
+        bypassedCompanionEventsBySport = try container.decodeIfPresent([SportType: Set<ScoreboardSoundEvent>].self, forKey: .bypassedCompanionEventsBySport) ?? [:]
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]].self, forKey: .soundAssignmentsBySport) {
             soundAssignmentsBySport = assignmentsBySport
         } else if let legacyAssignments = try container.decodeIfPresent([ScoreboardSoundEvent: ScoreboardSoundEffect].self, forKey: .soundAssignments) {
@@ -7371,6 +8574,7 @@ private struct PersistedState: Codable {
         isCompanionEnabled = isCompanionVisible && decodedCompanionEnabled
         companionHost = try container.decodeIfPresent(String.self, forKey: .companionHost) ?? ""
         companionMode = try container.decodeIfPresent(ScoreboardCompanionMode.self, forKey: .companionMode) ?? .tcp
+        companionSyncWithSound = try container.decodeIfPresent(Bool.self, forKey: .companionSyncWithSound) ?? false
         companionPort = try container.decodeIfPresent(UInt16.self, forKey: .companionPort) ?? companionMode.defaultPort
         if let assignmentsBySport = try container.decodeIfPresent([SportType: [ScoreboardSoundEvent: String]].self, forKey: .companionAssignmentsBySport) {
             companionAssignmentsBySport = assignmentsBySport
@@ -7402,6 +8606,9 @@ private struct PersistedState: Codable {
         isRemoteDisplayViewerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayViewerModeEnabled) ?? false
         isRemoteDisplayIndividualControlEnabled = try container.decodeIfPresent(Bool.self, forKey: .isRemoteDisplayIndividualControlEnabled) ?? false
         remoteDisplayNetworkMode = try container.decodeIfPresent(ScoreboardRemoteDisplayNetworkMode.self, forKey: .remoteDisplayNetworkMode) ?? .nearbyAndLocalNetwork
+        pauseDurationSeconds = try container.decodeIfPresent(Int.self, forKey: .pauseDurationSeconds)
+        pauseTimer = try container.decodeIfPresent(ScoreboardPauseTimer.self, forKey: .pauseTimer)
+        isTeamPauseIndefinite = try container.decodeIfPresent(Bool.self, forKey: .isTeamPauseIndefinite)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -7492,12 +8699,15 @@ private struct PersistedState: Codable {
         try container.encode(showsTeamLogos, forKey: .showsTeamLogos)
         try container.encode(showsEventLogo, forKey: .showsEventLogo)
         try container.encode(isSoundEnabled, forKey: .isSoundEnabled)
+        try container.encode(bypassedSoundEventsBySport, forKey: .bypassedSoundEventsBySport)
+        try container.encode(bypassedCompanionEventsBySport, forKey: .bypassedCompanionEventsBySport)
         try container.encode(soundAssignmentsBySport, forKey: .soundAssignmentsBySport)
         try container.encode(keyboardShortcutsByAction, forKey: .keyboardShortcutsByAction)
         try container.encode(isCompanionVisible, forKey: .isCompanionVisible)
         try container.encode(isCompanionEnabled, forKey: .isCompanionEnabled)
         try container.encode(companionHost, forKey: .companionHost)
         try container.encode(companionMode, forKey: .companionMode)
+        try container.encode(companionSyncWithSound, forKey: .companionSyncWithSound)
         try container.encode(companionPort, forKey: .companionPort)
         try container.encode(companionAssignmentsBySport, forKey: .companionAssignmentsBySport)
         try container.encode(didCompleteSetup, forKey: .didCompleteSetup)
@@ -7515,6 +8725,9 @@ private struct PersistedState: Codable {
         try container.encode(isRemoteDisplayViewerModeEnabled, forKey: .isRemoteDisplayViewerModeEnabled)
         try container.encode(isRemoteDisplayIndividualControlEnabled, forKey: .isRemoteDisplayIndividualControlEnabled)
         try container.encode(remoteDisplayNetworkMode, forKey: .remoteDisplayNetworkMode)
+        try container.encodeIfPresent(pauseDurationSeconds, forKey: .pauseDurationSeconds)
+        try container.encodeIfPresent(pauseTimer, forKey: .pauseTimer)
+        try container.encodeIfPresent(isTeamPauseIndefinite, forKey: .isTeamPauseIndefinite)
     }
 }
 
@@ -7614,12 +8827,15 @@ private extension PersistedState {
             showsTeamLogos: true,
             showsEventLogo: true,
             isSoundEnabled: true,
+            bypassedSoundEventsBySport: [:],
+            bypassedCompanionEventsBySport: [:],
             soundAssignmentsBySport: ScoreboardStore.defaultSoundAssignmentsBySport,
             keyboardShortcutsByAction: ScoreboardStore.defaultKeyboardShortcutsByAction,
             isCompanionVisible: false,
             isCompanionEnabled: false,
             companionHost: "",
             companionMode: .tcp,
+            companionSyncWithSound: false,
             companionPort: ScoreboardCompanionMode.tcp.defaultPort,
             companionAssignmentsBySport: [:],
             didCompleteSetup: false,
@@ -7654,3 +8870,1566 @@ final class PublicBoardState: ObservableObject {
         fullscreenRequestID = UUID()
     }
 }
+
+// Only the clock(s) touched by a remote operation are moved back to the tap time.
+// The existing timer engine then advances them through the command's travel time,
+// preserving its expiration, sound, and Companion behavior on this main device.
+
+@MainActor
+extension ScoreboardStore {
+    private static let sessionLogger = Logger(subsystem: "IronMaple.smartScoreboard", category: "SessionHandoff")
+
+    private func canAcceptIncomingSession(_ incoming: ScoreboardSessionDescriptor) -> Bool {
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        guard receiver.authenticatedSessionOwnerHostID == incoming.ownerHostID else { return false }
+        guard let current = sessionDescriptor else { return true }
+        if current.accepts(incoming) { return true }
+        // Pairing authorizes an idle display/controller to join a new match.
+        // Epoch checks still apply within the same match; a live or unresolved
+        // host must finish its handoff or explicitly discard its working copy.
+        return current.sessionID != incoming.sessionID && !hasHostedMatchToDiscard
+            && sessionRecoveryRole != .prepared && !sessionTransferInProgress
+            && (isRemoteDisplayViewerModeEnabled || !isSessionOwner ||
+                ScoreboardRemoteDisplayDeviceType.current == .appleTV)
+    }
+
+    private func configureSessionService() {
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        remoteDisplayHostService.sessionMessageHandler = { [weak self] data, senderID in
+            self?.receiveSessionMessage(data, senderID: senderID, fromHost: false)
+        }
+        remoteDisplayHostService.commandSessionValidator = { [weak self] id, epoch in
+            guard let self, self.isSessionAuthority else { return false }
+            guard let descriptor = self.sessionDescriptor else { return id == nil && epoch == nil }
+            if descriptor.epoch == 0 && id == nil && epoch == nil { return true }
+            return descriptor.sessionID == id && descriptor.epoch == epoch
+        }
+        remoteDisplayHostService.maintenanceHandler = { [weak self] in self?.maintainSession() }
+        receiver.sessionMessageHandler = { [weak self] data in
+            self?.receiveSessionMessage(data, senderID: nil, fromHost: true)
+        }
+        receiver.commandSessionProvider = { [weak receiver] in
+            guard let descriptor = receiver?.state?.control?.session else { return nil }
+            return (descriptor.sessionID, descriptor.epoch)
+        }
+        receiver.$state.sink { [weak self] state in
+            guard let self, let state else { return }
+            if let incoming = state.control?.session {
+                // Locally published hosted state is already authoritative.
+                if !receiver.isHostingSession && !self.canAcceptIncomingSession(incoming) { return }
+                if !receiver.isHostingSession, self.sessionDescriptor?.sessionID != incoming.sessionID {
+                    self.sessionRecoveryRole = .follower
+                    self.sessionAuthorityFenced = true
+                    self.sessionTransferCheckpoint = nil
+                    self.sessionTransferID = nil
+                    self.sessionTransferTargetID = nil
+                    // Ordinary remote clients keep their active session only
+                    // in memory. Only the owner needs a durable recovery copy.
+                    if incoming.ownerDeviceID == self.localSessionDeviceID {
+                        try? ScoreboardSessionRecovery(role: .follower, descriptor: incoming,
+                                                       checkpoint: nil, transferID: nil).save()
+                    }
+                    Self.sessionLogger.notice("Adopted the authenticated paired session")
+                }
+                if self.sessionRecoveryRole == .fenced,
+                   incoming.hostDeviceID == self.sessionTransferTargetID,
+                   incoming.epoch == self.sessionDescriptor?.epoch {
+                    self.completeSessionTransfer(incoming)
+                }
+                if self.sessionDescriptor == nil || self.sessionDescriptor != incoming {
+                    self.sessionDescriptor = incoming
+                    if incoming.ownerDeviceID == self.localSessionDeviceID && incoming.hostDeviceID != self.localSessionDeviceID {
+                        self.sessionRecoveryRole = .follower
+                        try? ScoreboardSessionRecovery(role: .follower, descriptor: incoming,
+                                                       checkpoint: self.sessionTransferCheckpoint, transferID: nil).save()
+                    }
+                }
+                self.requestSessionLogsIfNeeded()
+            }
+            if self.isFollowingSessionHost { self.applyRemoteControlState(state) }
+        }.store(in: &cancellables)
+        receiver.$status.sink { [weak self] status in
+            guard let self, self.isFollowingSessionHost else { return }
+            self.sessionConnectionStatus = status.isLive ? "Connected" : "Disconnected"
+            self.sessionIsConnected = status.isLive
+            self.sessionRoundTripSeconds = status.isLive ? receiver.roundTripSeconds : nil
+            let message = self.sessionStatusMessage
+            if !self.sessionTransferInProgress,
+               message == nil || message?.hasPrefix("Waiting for ") == true || message?.hasPrefix("Connected to ") == true {
+                self.sessionStatusMessage = status.isLive
+                    ? "Connected to \(self.sessionHostDisplayName)."
+                    : "Waiting for \(self.sessionHostDisplayName) to connect…"
+            }
+            if status.isLive {
+                self.scheduleOwnerSettingsSync()
+                if !self.pendingOwnerVisualFields.isEmpty { self.scheduleOwnerVisualSync() }
+            }
+        }.store(in: &cancellables)
+        receiver.$roundTripSeconds.sink { [weak self] latency in
+            guard let self, self.isFollowingSessionHost else { return }
+            self.sessionRoundTripSeconds = latency
+        }.store(in: &cancellables)
+        receiver.$imageAssetsByID.sink { [weak self] _ in
+            guard let self, self.isFollowingSessionHost,
+                  let state = self.remoteControlState else { return }
+            self.isApplyingSessionUpdate = true
+            self.applyRemoteControlImages(state)
+            self.isApplyingSessionUpdate = false
+        }.store(in: &cancellables)
+        $webAPIStatus.sink { [weak self] status in
+            guard let self, self.isSessionAuthority, var descriptor = self.sessionDescriptor else { return }
+            let value = status.healthValue
+            if descriptor.hostWebAPIStatus != value {
+                descriptor.hostWebAPIStatus = value
+                self.sessionDescriptor = descriptor
+                self.refreshRemoteDisplayState()
+            }
+        }.store(in: &cancellables)
+        objectWillChange.sink { [weak self] _ in
+            self?.scheduleOwnerSettingsSync()
+        }.store(in: &cancellables)
+        let visualChanges: [AnyPublisher<String, Never>] = [
+            $externalDisplayBackgroundMode.dropFirst().map { _ in "backgroundMode" }.eraseToAnyPublisher(),
+            $externalDisplayBackgroundImage.dropFirst().map { _ in "backgroundImage" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoStyle.dropFirst().map { _ in "logoStyle" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoBackgroundColor.dropFirst().map { _ in "logoColor" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSpeed.dropFirst().map { _ in "logoSpeed" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoSize.dropFirst().map { _ in "logoSize" }.eraseToAnyPublisher(),
+            $externalDisplayAnimatedLogoOpacity.dropFirst().map { _ in "logoOpacity" }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTime.dropFirst().map { _ in "dateTime" }.eraseToAnyPublisher(),
+            $externalDisplayDateTimeFormat.dropFirst().map { _ in "dateTimeFormat" }.eraseToAnyPublisher(),
+            $showsExternalDisplayDateTimeSeconds.dropFirst().map { _ in "dateTimeSeconds" }.eraseToAnyPublisher(),
+            $showsTeamLogos.dropFirst().map { _ in "teamLogosVisible" }.eraseToAnyPublisher(),
+            $showsEventLogo.dropFirst().map { _ in "eventLogoVisible" }.eraseToAnyPublisher(),
+            $homeTeamLogoImage.dropFirst().map { _ in "homeLogo" }.eraseToAnyPublisher(),
+            $guestTeamLogoImage.dropFirst().map { _ in "guestLogo" }.eraseToAnyPublisher(),
+            $eventLogoImage.dropFirst().map { _ in "eventLogo" }.eraseToAnyPublisher()
+        ]
+        Publishers.MergeMany(visualChanges).sink { [weak self] field in
+            guard let self, !self.isApplyingRemoteControlState, !self.isApplyingSessionUpdate else { return }
+            self.scheduleOwnerVisualSync(field: field)
+        }.store(in: &cancellables)
+        let sessionTimer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.isFollowingSessionHost { self.projectRemoteControlClocks() }
+                self.maintainSession()
+            }
+        }
+        RunLoop.main.add(sessionTimer, forMode: .common)
+        if isFollowingSessionHost { attachOwnerReceiver() }
+        else if isRemoteDisplayHostEnabled && sessionDescriptor == nil { ensureOwnedSessionDescriptor() }
+    }
+
+    private func ensureOwnedSessionDescriptor() {
+        guard sessionDescriptor == nil, isSessionAuthority, !isRemoteControlProxy else { return }
+        let descriptor = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 0,
+            ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,
+            ownerName: remoteDisplayHostName, hostDeviceID: localSessionDeviceID,
+            hostName: remoteDisplayHostName,
+            hostAddresses: ScoreboardWebAPIService.localIPv4Addresses(),
+            hostWebAPIStatus: webAPIStatus.healthValue, hostCompanionEnabled: isCompanionEnabled,
+            logSessionID: logManager.currentSessionSnapshot()?.sessionID)
+        sessionDescriptor = descriptor
+        sessionRecoveryRole = .host
+        do {
+            let checkpoint = try makeSessionCheckpoint(descriptor: descriptor)
+            try ScoreboardSessionRecovery(role: .host, descriptor: descriptor,
+                                          checkpoint: checkpoint, transferID: nil).save()
+            sessionTransferCheckpoint = checkpoint
+        } catch {
+            sessionStatusMessage = "Session recovery could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    private func attachOwnerReceiver() {
+        guard isSessionOwner, let descriptor = sessionDescriptor,
+              let checkpoint = sessionTransferCheckpoint,
+              let peer = checkpoint.pairings.peers.first(where: { $0.id == localSessionDeviceID }),
+              let secret = peer.pairingSecret else { return }
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        if !sessionOwnerReceiverAcquired {
+            receiver.acquire(networkMode: remoteDisplayNetworkMode)
+            sessionOwnerReceiverAcquired = true
+        }
+        receiver.trustSessionHost(ownerHostID: descriptor.ownerHostID,
+                                  ownerName: descriptor.ownerName, pairingSecret: secret, isOwner: true)
+        sessionOwnerPairingSecret = secret
+        lastOwnerSettingsData = nil
+        lastOwnerVisualData = nil
+    }
+
+    private func sendSession(_ message: ScoreboardSessionMessage, to displayID: String? = nil,
+                             lowPriority: Bool = false) -> Bool {
+        guard let data = try? JSONEncoder().encode(message) else { return false }
+        if let displayID { return remoteDisplayHostService.sendSessionMessage(data, toDisplayID: displayID,
+                                                                               lowPriority: lowPriority) }
+        return ScoreboardRemoteDisplayReceiver.shared.sendSessionMessage(data)
+    }
+
+    private func recordSessionFailure(_ message: String) {
+        Self.sessionLogger.error("Host handoff failed: \(message, privacy: .public)")
+        sessionStatusMessage = message
+        sessionTransferInProgress = false
+        sessionTransferID = nil
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        lastSessionPrepareSentAt = nil
+        disconnectClientsAfterOwnerTakeover = false
+        disablePairingAfterHostTransfer = false
+        exitRemoteModeAfterHostTransfer = false
+        let completion = hostedMatchQuitCompletion
+        hostedMatchQuitCompletion = nil
+        completion?(false)
+    }
+
+    private func resumeAfterRejectedHostCommit(_ detail: String) {
+        guard sessionRecoveryRole == .fenced, let checkpoint = sessionTransferCheckpoint,
+              checkpoint.descriptor.epoch < UInt64.max else {
+            sessionStatusMessage = detail
+            return
+        }
+        var restored = checkpoint
+        restored.descriptor.epoch += 1
+        restored.descriptor.hostDeviceID = localSessionDeviceID
+        restored.descriptor.hostName = remoteDisplayHostName
+        restored.descriptor.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        restored.descriptor.safeToDisconnect = nil
+        do {
+            try ScoreboardSessionRecovery(role: .host, descriptor: restored.descriptor,
+                                          checkpoint: restored, transferID: nil).save()
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferStartedAt = nil
+            lastSessionCommitSentAt = nil
+            sessionTransferCheckpoint = restored
+            activateSessionCheckpoint(restored, fromRecovery: false)
+            if isSessionAuthority {
+                sessionStatusMessage = "Host transfer failed; this device is still hosting. \(detail)"
+            }
+        } catch {
+            sessionStatusMessage = "Could not resume the previous host: \(error.localizedDescription)"
+        }
+    }
+
+    private func makeSessionCheckpoint(descriptor: ScoreboardSessionDescriptor) throws -> ScoreboardSessionCheckpoint {
+        var pairings = remoteDisplayHostService.exportSessionPairings()
+        if descriptor.ownerDeviceID == localSessionDeviceID,
+           !pairings.peers.contains(where: { $0.id == localSessionDeviceID }) {
+            let secret = sessionOwnerPairingSecret ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            sessionOwnerPairingSecret = secret
+            pairings.peers.append(.init(id: localSessionDeviceID, name: descriptor.ownerName,
+                                        deviceType: ScoreboardRemoteDisplayDeviceType.current,
+                                        pairingSecret: secret))
+        }
+        return ScoreboardSessionCheckpoint(
+            descriptor: descriptor, settings: try exportPersistedStateData(), game: currentGameSnapshot(),
+            runtime: currentWebAPIState().runtime, gameName: currentGameDisplayName,
+            ownerGameFilename: isSessionOwner
+                ? ScoreboardPreferences.current.string(forKey: "scoreboard.workingGameFilename")
+                : sessionTransferCheckpoint?.ownerGameFilename,
+            mainDisplayMode: publicDisplayViewMode, pairings: pairings,
+            allowedControllers: remoteControlAllowedDisplayIDs,
+            webControlEnabled: isWebControlEnabled, webControlKey: webControlAPIKey,
+            log: logManager.currentSessionSnapshot() ?? ScoreboardLogSession(),
+            capturedAt: Date().timeIntervalSince1970,
+            gameElapsed: accumulatedGameClockElapsed, shotElapsed: accumulatedShotClockElapsed,
+            penaltyElapsed: accumulatedPenaltyElapsed, prepElapsed: accumulatedDebatePrepElapsed,
+            pauseElapsed: accumulatedPauseElapsed)
+    }
+
+    private func persistOwnerSessionFile(_ checkpoint: ScoreboardSessionCheckpoint) throws {
+        guard checkpoint.descriptor.ownerDeviceID == localSessionDeviceID else { return }
+        let directory = try ScoreboardFileStorage.storedGamesDirectory()
+        let proposed = checkpoint.ownerGameFilename ?? ""
+        let isSafeFilename = !proposed.isEmpty && proposed == URL(fileURLWithPath: proposed).lastPathComponent
+            && URL(fileURLWithPath: proposed).pathExtension.lowercased() == "scoreboardgame"
+        let filename = isSafeFilename ? proposed : "Recovered-\(checkpoint.descriptor.sessionID.uuidString).scoreboardgame"
+        let url = directory.appendingPathComponent(filename)
+        try JSONEncoder().encode(checkpoint.game).write(to: url, options: .atomic)
+        ScoreboardPreferences.current.set(filename, forKey: "scoreboard.workingGameFilename")
+    }
+
+    var canHostOnOwnerAndDisconnectOthers: Bool {
+        isSessionOwner && !isRemoteControlProxy && !isAnyTimerRunning && !sessionTransferInProgress &&
+            (isSessionAuthority || canChangeSessionHost)
+    }
+
+    func hostOnOwnerAndDisconnectOthers() {
+        guard canHostOnOwnerAndDisconnectOthers else { return }
+        if isSessionAuthority {
+            if !isRemoteDisplayHostEnabled { setRemoteDisplayHostEnabled(true) }
+            disconnectClientsAfterOwnerTakeover = true
+            finishOwnerTakeoverDisconnect()
+        } else {
+            // Keep the current host and clients connected until the final match
+            // and logs have been persisted and authority has transferred here.
+            disconnectClientsAfterOwnerTakeover = true
+            assignSessionHost(displayID: localSessionDeviceID)
+            if !sessionTransferInProgress { disconnectClientsAfterOwnerTakeover = false }
+        }
+    }
+
+    private func finishOwnerTakeoverDisconnect() {
+        guard disconnectClientsAfterOwnerTakeover, isSessionOwner, isSessionAuthority else { return }
+        disconnectClientsAfterOwnerTakeover = false
+        intentionallyDisconnectedRemoteDisplayIDs.formUnion(remoteDisplayConnectedDisplays.map(\.id))
+        remoteDisplayDisconnectedDisplaysByID.removeAll()
+        remoteDisplayWarningNotice = nil
+        remoteDisplayHostService.disconnectDisplays(includingSavedDisplays: true)
+        sessionStatusMessage = "Hosting on this device. Other devices disconnected."
+    }
+
+    func assignSessionHost(displayID: String) {
+        guard !isAnyTimerRunning else {
+            sessionStatusMessage = "Stop all timers before moving the session host."
+            return
+        }
+        guard canChangeSessionHost else {
+            recordSessionFailure("Connect to the current host before moving the session.")
+            return
+        }
+        if isFollowingSessionHost {
+            guard let descriptor = sessionDescriptor else { return }
+            let request = ScoreboardSessionMessage(kind: .requestHost, descriptor: descriptor, targetID: displayID)
+            if sendSession(request) {
+                sessionTransferInProgress = true
+                sessionTransferStartedAt = Date()
+                sessionStatusMessage = "Preparing host transfer…"
+            }
+            else { recordSessionFailure("The current host is disconnected. Reconnect before moving the session.") }
+            return
+        }
+        beginSessionTransfer(to: displayID)
+    }
+
+    private func rejectHostTransferForRunningTimers() {
+        let detail = "Stop all timers before moving the session host."
+        recordSessionFailure(detail)
+        if isDelegatedSessionHost, let descriptor = sessionDescriptor {
+            _ = sendSession(.init(kind: .error, descriptor: descriptor, detail: detail),
+                            to: descriptor.ownerDeviceID)
+        }
+    }
+
+    private func beginSessionTransfer(to targetID: String) {
+        guard isSessionAuthority, !sessionTransferInProgress else { return }
+        guard !isAnyTimerRunning else {
+            rejectHostTransferForRunningTimers()
+            return
+        }
+        guard targetID != localSessionDeviceID,
+              let target = remoteDisplayConnectedDisplays.first(where: { $0.id == targetID && $0.supportsSessionHosting }) else {
+            recordSessionFailure("The selected device must be connected and support session hosting.")
+            return
+        }
+        let old: ScoreboardSessionDescriptor
+        if let sessionDescriptor { old = sessionDescriptor }
+        else {
+            old = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 0,
+                ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,
+                ownerName: remoteDisplayHostName, hostDeviceID: localSessionDeviceID,
+                hostName: remoteDisplayHostName,
+                hostAddresses: ScoreboardWebAPIService.localIPv4Addresses(),
+                hostWebAPIStatus: webAPIStatus.healthValue, hostCompanionEnabled: isCompanionEnabled,
+                logSessionID: logManager.currentSessionSnapshot()?.sessionID)
+            sessionDescriptor = old
+            sessionRecoveryRole = .host
+            if let checkpoint = try? makeSessionCheckpoint(descriptor: old) {
+                sessionTransferCheckpoint = checkpoint
+                try? ScoreboardSessionRecovery(role: .host, descriptor: old,
+                                               checkpoint: checkpoint, transferID: nil).save()
+            }
+        }
+        guard old.epoch < UInt64.max else { recordSessionFailure("Session version limit reached."); return }
+        var next = old
+        next.epoch += 1
+        next.hostDeviceID = targetID
+        next.hostName = target.name
+        next.hostAddresses = []
+        next.hostWebAPIStatus = "starting"
+        let transferID = UUID()
+        do {
+            let checkpoint = try makeSessionCheckpoint(descriptor: next)
+            let prepare = ScoreboardSessionMessage(kind: .prepare, id: transferID,
+                                                   descriptor: next, targetID: targetID, checkpoint: checkpoint)
+            guard sendSession(prepare, to: targetID) else {
+                recordSessionFailure("The selected host stopped responding before transfer.")
+                return
+            }
+            sessionTransferID = transferID
+            sessionTransferTargetID = targetID
+            sessionTransferCheckpoint = checkpoint
+            sessionTransferStartedAt = Date()
+            lastSessionPrepareSentAt = Date()
+            sessionTransferInProgress = true
+            sessionStatusMessage = "Preparing \(target.name)…"
+            Self.sessionLogger.notice("Sent host preparation; waiting for acknowledgement")
+        } catch { recordSessionFailure("Could not prepare the session: \(error.localizedDescription)") }
+    }
+
+    private func receiveSessionMessage(_ data: Data, senderID: String?, fromHost: Bool) {
+        guard data.count <= ScoreboardSessionTransport.maximumMessageBytes,
+              let message = try? JSONDecoder().decode(ScoreboardSessionMessage.self, from: data) else {
+            Self.sessionLogger.error("Rejected an unreadable session message")
+            return
+        }
+        if let current = sessionDescriptor,
+           current.sessionID != message.descriptor.sessionID && message.kind != .prepare { return }
+        switch message.kind {
+        case .requestHost:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID,
+                  let current = sessionDescriptor, current.accepts(message.descriptor),
+                  message.descriptor.epoch == current.epoch, let target = message.targetID else { return }
+            if target == localSessionDeviceID {
+                let error = ScoreboardSessionMessage(kind: .error, id: message.id,
+                    descriptor: message.descriptor, detail: "This device is already the host.")
+                _ = sendSession(error, to: senderID)
+            } else { beginSessionTransfer(to: target) }
+        case .prepare:
+            guard fromHost, message.targetID == localSessionDeviceID else { return }
+            Self.sessionLogger.notice("Received host preparation")
+            guard let checkpoint = message.checkpoint,
+                  checkpoint.descriptor == message.descriptor,
+                  message.descriptor.epoch > 0,
+                  canAcceptIncomingSession(message.descriptor) else {
+                let detail: String
+                if hasHostedMatchToDiscard || sessionRecoveryRole == .prepared {
+                    detail = "This device still holds a hosted match or unfinished handoff. Finish that handoff, or discard its local match from the device's pairing screen before trying again."
+                } else {
+                    detail = "The proposed host session does not match this device's authenticated pairing or session version. Reconnect it to the current owner and retry."
+                }
+                sessionStatusMessage = detail
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
+                Self.sessionLogger.error("Rejected host preparation: local session \(self.sessionDescriptor?.sessionID.uuidString ?? "none", privacy: .public), epoch \(self.sessionDescriptor?.epoch ?? 0); proposed session \(message.descriptor.sessionID.uuidString, privacy: .public), epoch \(message.descriptor.epoch)")
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+                return
+            }
+            if sessionRecoveryRole == .host && sessionDescriptor?.epoch == message.descriptor.epoch { return }
+            do {
+                if message.descriptor.ownerDeviceID != localSessionDeviceID {
+                    try validatePersistedStateData(checkpoint.settings)
+                }
+                try ScoreboardSessionRecovery(role: .prepared, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: message.id).save()
+                sessionDescriptor = message.descriptor
+                sessionRecoveryRole = .prepared
+                sessionAuthorityFenced = true
+                sessionTransferID = message.id
+                sessionTransferCheckpoint = checkpoint
+                sessionStatusMessage = "Waiting for host handoff…"
+                Self.sessionLogger.notice("Saved incoming host preparation; sending acknowledgement")
+                _ = sendSession(.init(kind: .prepared, id: message.id, descriptor: message.descriptor))
+            } catch {
+                let detail = "Cannot save incoming host handoff: \(error.localizedDescription)"
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
+                sessionStatusMessage = detail
+                Self.sessionLogger.error("\(detail, privacy: .public)")
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+            }
+        case .prepared:
+            guard !fromHost, senderID == sessionTransferTargetID,
+                  message.id == sessionTransferID, sessionTransferInProgress,
+                  isSessionAuthority, let targetID = sessionTransferTargetID else { return }
+            guard !isAnyTimerRunning else {
+                _ = sendSession(.init(kind: .abort, id: message.id, descriptor: message.descriptor), to: targetID)
+                rejectHostTransferForRunningTimers()
+                return
+            }
+            lastSessionPrepareSentAt = nil
+            Self.sessionLogger.notice("Received host preparation acknowledgement; fencing local authority")
+            do {
+                reconcileRunningTimersWithWallClock()
+                let final = try makeSessionCheckpoint(descriptor: message.descriptor)
+                // The durable fence precedes the commit packet. A lost ACK must
+                // never restart this clock or trigger duplicate Companion actions.
+                try ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                              checkpoint: final, transferID: message.id).save()
+                sessionAuthorityFenced = true
+                sessionRecoveryRole = .fenced
+                sessionDescriptor = message.descriptor
+                sessionTransferCheckpoint = final
+                timer?.invalidate(); timer = nil; lastTimerFireDate = nil
+                clearQueuedEventActions()
+                stopWebAPIService()
+                remoteDisplayHostService.fenceSessionTraffic(to: targetID)
+                let commit = ScoreboardSessionMessage(kind: .commit, id: message.id,
+                    descriptor: message.descriptor, targetID: targetID, checkpoint: final)
+                guard sendSession(commit, to: targetID) else {
+                    sessionStatusMessage = "Handoff is fenced; waiting to retry delivery to \(message.descriptor.hostName)."
+                    return
+                }
+                lastSessionCommitSentAt = Date()
+                sessionStatusMessage = "Activating \(message.descriptor.hostName)…"
+            } catch { recordSessionFailure("Could not fence old host: \(error.localizedDescription)") }
+        case .commit:
+            guard fromHost, message.targetID == localSessionDeviceID,
+                  let checkpoint = message.checkpoint,
+                  checkpoint.descriptor == message.descriptor,
+                  sessionTransferID == message.id,
+                  sessionRecoveryRole == .prepared || sessionRecoveryRole == .host else { return }
+            if isSessionAuthority, let current = sessionDescriptor,
+               current.sessionID == message.descriptor.sessionID,
+               current.epoch == message.descriptor.epoch,
+               current.hostDeviceID == message.descriptor.hostDeviceID {
+                // Addresses and sync status can change immediately after
+                // activation. A retried commit acknowledges that authority;
+                // it must never reapply the old game checkpoint.
+                _ = sendSession(.init(kind: .committed, id: message.id, descriptor: current))
+                return
+            }
+            do {
+                if message.descriptor.ownerDeviceID == localSessionDeviceID {
+                    try persistOwnerSessionFile(checkpoint)
+                    try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+                    logManager.flushPendingWrites()
+                } else {
+                    try ScoreboardHostedMatchStorage.save(checkpoint)
+                    try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName,
+                        storageURL: ScoreboardHostedMatchStorage.logURL(for: message.descriptor.sessionID))
+                }
+                try ScoreboardSessionRecovery(role: .host, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: message.id).save()
+                sessionTransferCheckpoint = checkpoint
+                activateSessionCheckpoint(checkpoint, fromRecovery: false)
+                if isSessionAuthority {
+                    _ = sendSession(.init(kind: .committed, id: message.id,
+                                          descriptor: sessionDescriptor ?? message.descriptor))
+                } else {
+                    disconnectClientsAfterOwnerTakeover = false
+                    disablePairingAfterHostTransfer = false
+                    try? ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                                   checkpoint: checkpoint, transferID: message.id).save()
+                    _ = sendSession(.init(kind: .error, id: message.id,
+                        descriptor: message.descriptor,
+                        detail: sessionStatusMessage ?? "The new host could not activate the match."))
+                }
+            } catch {
+                let detail = "Cannot activate host: \(error.localizedDescription)"
+                disconnectClientsAfterOwnerTakeover = false
+                disablePairingAfterHostTransfer = false
+                sessionStatusMessage = detail
+                sessionRecoveryRole = .fenced
+                sessionAuthorityFenced = true
+                try? ScoreboardSessionRecovery(role: .fenced, descriptor: message.descriptor,
+                                               checkpoint: checkpoint, transferID: message.id).save()
+                _ = sendSession(.init(kind: .error, id: message.id,
+                                      descriptor: message.descriptor, detail: detail))
+            }
+        case .committed:
+            if fromHost, disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority,
+               message.id == sessionTransferID,
+               message.descriptor.sessionID == sessionDescriptor?.sessionID,
+               message.descriptor.epoch == sessionDescriptor?.epoch {
+                finishDisablingOwnerPairing()
+                return
+            }
+            guard !fromHost, senderID == sessionTransferTargetID,
+                  message.id == sessionTransferID, sessionRecoveryRole == .fenced,
+                  message.descriptor.sessionID == sessionDescriptor?.sessionID,
+                  message.descriptor.epoch == sessionDescriptor?.epoch else { return }
+            // Confirm receipt before dropping the old host transport. An owner
+            // ending pairing waits for this before closing its receiver.
+            _ = sendSession(.init(kind: .committed, id: message.id, descriptor: message.descriptor),
+                            to: senderID)
+            completeSessionTransfer(message.descriptor)
+        case .abort:
+            guard fromHost, sessionRecoveryRole == .prepared, message.id == sessionTransferID else { return }
+            disconnectClientsAfterOwnerTakeover = false
+            disablePairingAfterHostTransfer = false
+            sessionTransferCheckpoint = nil
+            sessionTransferID = nil
+            sessionRecoveryRole = nil
+            sessionAuthorityFenced = false
+            sessionDescriptor = nil
+            try? FileManager.default.removeItem(at: ScoreboardSessionRecovery.url)
+        case .settings:
+            if fromHost { return }
+            guard senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch else { return }
+            if let settings = message.integrationSettings { applySessionIntegrationSettings(settings) }
+            if let visual = message.game, let fields = message.visualFields {
+                applySessionVisualSnapshot(visual, fields: fields)
+            }
+            if let name = message.gameName { currentGameDisplayName = name; logManager.setCurrentGameDisplayName(name) }
+        case .game:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch,
+                  let snapshot = message.game else { return }
+            isApplyingSessionUpdate = true
+            applyGameSnapshot(snapshot)
+            if let name = message.gameName { currentGameDisplayName = name; logManager.setCurrentGameDisplayName(name) }
+            isApplyingSessionUpdate = false
+        case .administration:
+            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+                  message.descriptor.epoch == sessionDescriptor?.epoch,
+                  let admin = message.administration else { return }
+            applySessionAdministration(admin)
+        case .peers:
+            guard fromHost, isSessionOwner, isFollowingSessionHost,
+                  sessionDescriptor?.accepts(message.descriptor) == true else { return }
+            if let peers = message.peers { sessionHostPeers = peers }
+            if let pairings = message.pairingConfiguration {
+                remoteDisplayTrustedDisplays = pairings.peers.filter { $0.id != localSessionDeviceID }
+                remoteDisplayMutedDisplayIDs = pairings.mutedDisplayIDs
+                remoteDisplayDirectionsByID = pairings.displayDirectionsByID
+                remoteDisplayCustomDisplayIDsByDisplayID = pairings.customDisplayIDsByID
+                ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(remoteDisplayTrustedDisplays)
+                ScoreboardRemoteDisplayPairingStore.saveMutedDisplayIDs(pairings.mutedDisplayIDs)
+                ScoreboardRemoteDisplayPairingStore.saveDisplayDirectionsByID(pairings.displayDirectionsByID)
+                ScoreboardRemoteDisplayPairingStore.saveCustomDisplayIDsByID(pairings.customDisplayIDsByID)
+            }
+            if let peers = message.peers {
+                remoteDisplayConnectedDisplays = peers.filter { $0.connected && $0.id != localSessionDeviceID }.map { peer in
+                    ScoreboardRemoteDisplayConnection(id: peer.id, name: peer.name, quality: peer.quality ?? .live,
+                        latencyMilliseconds: peer.latencyMilliseconds,
+                        lastHandshakeAgeSeconds: peer.lastHandshakeAgeSeconds, appVersion: peer.appVersion,
+                        deviceType: peer.deviceType,
+                        isMuted: remoteDisplayMutedDisplayIDs.contains(peer.id),
+                        supportsSessionHosting: peer.supportsHosting)
+                }
+            }
+            if let allowed = message.allowedControllers {
+                remoteControlAllowedDisplayIDs = allowed
+                ScoreboardPreferences.current.set(allowed.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
+            }
+        case .logRequest:
+            guard !fromHost, isSessionAuthority, let senderID,
+                  remoteDisplayConnectedDisplays.contains(where: { $0.id == senderID }) else { return }
+            if let cursor = message.cursor { logCursorByPeer[senderID] = cursor }
+            else { logCursorByPeer.removeValue(forKey: senderID) }
+            pendingLogBatchByPeer.removeValue(forKey: senderID)
+            sendNextLogPage(to: senderID)
+        case .logBatch:
+            guard fromHost, let batch = message.batch,
+                  sessionDescriptor?.accepts(message.descriptor) == true else { return }
+            do {
+                let cursor = try logManager.mergeReplicatedLogBatch(batch)
+                _ = sendSession(.init(kind: .logAck, descriptor: message.descriptor, cursor: cursor))
+            } catch { sessionStatusMessage = "Log synchronization will retry: \(error.localizedDescription)" }
+        case .logAck:
+            guard !fromHost, isSessionAuthority, let senderID, let cursor = message.cursor,
+                  let pending = pendingLogBatchByPeer[senderID], cursor.sessionID == pending.sessionID,
+                  cursor.nextIndex >= pending.nextCursor.nextIndex else { return }
+            logCursorByPeer[senderID] = cursor
+            pendingLogBatchByPeer.removeValue(forKey: senderID)
+        case .snapshot:
+            guard fromHost, isFollowingSessionHost,
+                  sessionDescriptor?.accepts(message.descriptor) == true,
+                  let checkpoint = message.checkpoint,
+                  checkpoint.descriptor.sessionID == message.descriptor.sessionID,
+                  checkpoint.descriptor.epoch == message.descriptor.epoch,
+                  let revision = message.syncRevision else { return }
+            do {
+                try persistOwnerSessionFile(checkpoint)
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName)
+                logManager.flushPendingWrites()
+                try ScoreboardSessionRecovery(role: .follower, descriptor: message.descriptor,
+                                              checkpoint: checkpoint, transferID: nil).save()
+                sessionTransferCheckpoint = checkpoint
+                _ = sendSession(.init(kind: .snapshotAck, id: message.id,
+                                      descriptor: message.descriptor, syncRevision: revision))
+            } catch {
+                sessionStatusMessage = "Could not save the host's match copy: \(error.localizedDescription)"
+            }
+        case .snapshotAck:
+            guard !fromHost, isDelegatedSessionHost,
+                  senderID == sessionDescriptor?.ownerDeviceID,
+                  message.id == pendingSnapshotSyncID,
+                  message.syncRevision == sessionSyncRevision else { return }
+            ownerAcknowledgedRevision = sessionSyncRevision
+            ownerAcknowledgedLogCount = pendingSnapshotLogCount
+            pendingSnapshotSyncID = nil
+            updateSessionSafeDisconnectStatus()
+        case .error:
+            if fromHost {
+                recordSessionFailure(message.detail ?? "Host transfer failed.")
+            } else if senderID == sessionTransferTargetID,
+                      message.id == sessionTransferID, sessionTransferInProgress {
+                let detail = message.detail ?? "The selected host could not activate the match."
+                if sessionRecoveryRole == .fenced { resumeAfterRejectedHostCommit(detail) }
+                else if sessionRecoveryRole == .host { recordSessionFailure(detail) }
+            }
+        }
+    }
+
+    private func activateSessionCheckpoint(_ checkpoint: ScoreboardSessionCheckpoint, fromRecovery: Bool) {
+        let descriptor = checkpoint.descriptor
+        guard descriptor.hostDeviceID == localSessionDeviceID else { return }
+        let wasRemoteViewer = isRemoteDisplayViewerModeEnabled
+        isApplyingSessionUpdate = true
+        sessionDescriptor = descriptor
+        sessionRecoveryRole = .host
+        sessionAuthorityFenced = false
+        do {
+            if fromRecovery && descriptor.ownerDeviceID != localSessionDeviceID {
+                try logManager.adoptAuthoritativeSession(checkpoint.log, gameDisplayName: checkpoint.gameName,
+                    storageURL: ScoreboardHostedMatchStorage.logURL(for: descriptor.sessionID))
+            }
+            if descriptor.ownerDeviceID != localSessionDeviceID {
+                try restorePersistedStateData(checkpoint.settings)
+            }
+        } catch {
+            sessionAuthorityFenced = true
+            sessionRecoveryRole = .fenced
+            sessionStatusMessage = "Host recovery failed: \(error.localizedDescription)"
+            Self.sessionLogger.error("Host recovery failed: \(error.localizedDescription, privacy: .public)")
+            try? ScoreboardSessionRecovery(role: .fenced, descriptor: descriptor,
+                                           checkpoint: checkpoint, transferID: sessionTransferID).save()
+            isApplyingSessionUpdate = false
+            return
+        }
+        if descriptor.ownerDeviceID != localSessionDeviceID {
+            isRemoteDisplayViewerModeEnabled = wasRemoteViewer
+        }
+        applyGameSnapshot(checkpoint.game)
+        currentGameDisplayName = checkpoint.gameName
+        publicDisplayViewMode = checkpoint.mainDisplayMode
+        areSidesSwapped = checkpoint.runtime.areSidesSwapped
+        possessionDirection = checkpoint.runtime.possessionDirection
+        isClockRunning = checkpoint.runtime.isClockRunning
+        isShotClockRunning = checkpoint.runtime.isShotClockRunning
+        isDebatePrepClockRunning = checkpoint.runtime.isDebatePrepClockRunning
+        accumulatedGameClockElapsed = checkpoint.gameElapsed
+        accumulatedShotClockElapsed = checkpoint.shotElapsed
+        accumulatedPenaltyElapsed = checkpoint.penaltyElapsed
+        accumulatedDebatePrepElapsed = checkpoint.prepElapsed
+        accumulatedPauseElapsed = checkpoint.pauseElapsed ?? 0
+        remoteDisplayHostService.installSessionPairings(checkpoint.pairings)
+        remoteControlAllowedDisplayIDs = checkpoint.allowedControllers
+        isWebControlEnabled = checkpoint.webControlEnabled
+        webControlAPIKey = checkpoint.webControlKey
+        isRemoteDisplayHostEnabled = true
+        isApplyingSessionUpdate = false
+        if descriptor.ownerDeviceID != localSessionDeviceID {
+            sessionSyncRevision = 1
+            hostedCheckpointPersistedRevision = 1
+            ownerAcknowledgedRevision = 0
+            ownerAcknowledgedLogCount = -1
+            observedHostedLogCount = checkpoint.log.entries.count
+        }
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        receiver.hostedControlCommandHandler = { [weak self] command in
+            guard let self, self.isSessionAuthority,
+                  self.isRemoteControlAllowed(displayID: self.localSessionDeviceID) else {
+                return .failure(command.id, "disabled", "This device is no longer the session host.")
+            }
+            // This command originated on the host itself; there is no network
+            // timestamp or transit delay to validate or compensate.
+            return self.performControlCommand(command, remote: false)
+        }
+        let previousHostOffset = receiver.masterClockOffset ?? 0
+        receiver.updateHostedState(state: currentRemoteDisplayState(forDisplayID: localSessionDeviceID),
+                                   images: currentWebAPIImageResponses())
+        updateTimerState()
+        // The packet timestamp is in the old host's wall clock. Clock sync turns
+        // it into this device's time; a bounded gap covers the handoff network hop.
+        let gap = max(0, min(10, Date().timeIntervalSince1970 - (checkpoint.capturedAt - previousHostOffset)))
+        if timer != nil {
+            lastTimerFireDate = Date().addingTimeInterval(-gap)
+            reconcileRunningTimersWithWallClock()
+        }
+        startRemoteDisplayHostService()
+        if isWebAPIEnabled { startWebAPIService() }
+        var updated = descriptor
+        updated.hostAddresses = ScoreboardWebAPIService.localIPv4Addresses()
+        updated.hostWebAPIStatus = webAPIStatus.healthValue
+        updated.hostCompanionEnabled = isCompanionEnabled
+        sessionDescriptor = updated
+        sessionTransferInProgress = false
+        sessionTransferStartedAt = nil
+        sessionStatusMessage = "Hosting this session."
+        sessionConnectionStatus = "Hosting"
+        sessionIsConnected = true
+        refreshRemoteDisplayState()
+        finishOwnerTakeoverDisconnect()
+    }
+
+    private func completeSessionTransfer(_ descriptor: ScoreboardSessionDescriptor) {
+        let wasOwner = isSessionOwner
+        // The outgoing host is already fenced, so isDelegatedSessionHost is
+        // false here even though it still owns an isolated working copy.
+        let hostedSessionID = wasOwner ? nil : sessionDescriptor?.sessionID
+        let followerPairing = sessionTransferCheckpoint?.pairings.peers.first { $0.id == localSessionDeviceID }
+        let shouldExitRemoteMode = exitRemoteModeAfterHostTransfer
+        let shouldDisablePairing = disablePairingAfterHostTransfer
+        Self.sessionLogger.notice("Host handoff completed at epoch \(descriptor.epoch); restoring client pairing")
+        sessionTransferInProgress = false
+        sessionTransferTargetID = nil
+        sessionTransferStartedAt = nil
+        lastSessionPrepareSentAt = nil
+        lastSessionCommitSentAt = nil
+        sessionRecoveryRole = .follower
+        sessionAuthorityFenced = true
+        sessionDescriptor = descriptor
+        stopRemoteDisplayHostService()
+        remoteDisplayHostService.clearSessionPairings()
+        ScoreboardRemoteDisplayReceiver.shared.stopHostingSession()
+        let quitCompletion = hostedMatchQuitCompletion
+        hostedMatchQuitCompletion = nil
+        if wasOwner {
+            try? ScoreboardSessionRecovery(role: .follower, descriptor: descriptor,
+                                           checkpoint: sessionTransferCheckpoint, transferID: nil).save()
+            attachOwnerReceiver()
+            remoteDisplayHostService.startDiscoveryOnly(networkMode: remoteDisplayNetworkMode)
+            sessionStatusMessage = "Waiting for \(descriptor.hostName) to connect…"
+            sessionConnectionStatus = "Connecting"
+            sessionIsConnected = false
+        } else {
+            // A completed handoff clears the same isolated data as Discard.
+            // Retain only receiver pairing so the new host can reconnect it.
+            var cleanupError: String?
+            if let hostedSessionID {
+                do { try removeHostedSessionData(sessionID: hostedSessionID) }
+                catch {
+                    cleanupError = "Could not remove the old host's match copy: \(error.localizedDescription)"
+                    // If deletion failed, replace any authority record with a
+                    // non-host marker so a restart cannot revive the old host.
+                    try? ScoreboardSessionRecovery(role: .follower, descriptor: descriptor,
+                                                   checkpoint: nil, transferID: nil).save()
+                }
+            }
+            clearHostedSessionBookkeeping()
+            isApplyingSessionUpdate = true
+            loadPersistedState()
+            isRemoteDisplayViewerModeEnabled = true
+            isApplyingSessionUpdate = false
+            sessionConnectionStatus = "Connecting"
+            sessionIsConnected = false
+            sessionRoundTripSeconds = nil
+            if let secret = followerPairing?.pairingSecret, !secret.isEmpty {
+                ScoreboardRemoteDisplayReceiver.shared.trustSessionHost(
+                    ownerHostID: descriptor.ownerHostID, ownerName: descriptor.hostName,
+                    pairingSecret: secret)
+            }
+            sessionStatusMessage = cleanupError ?? "Waiting for \(descriptor.hostName) to connect…"
+            if shouldExitRemoteMode {
+                sessionAuthorityFenced = false
+                setRemoteDisplayViewerModeEnabled(false)
+            }
+            persistState()
+        }
+        if shouldDisablePairing && !wasOwner {
+            disablePairingAfterHostTransfer = false
+            setRemoteDisplayHostEnabled(false)
+        }
+        quitCompletion?(true)
+    }
+
+    private func finishDisablingOwnerPairing() {
+        guard disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority else { return }
+        disablePairingAfterHostTransfer = false
+        setRemoteDisplayHostEnabled(false)
+        sessionStatusMessage = "Remote Display / Control Pairing is off."
+    }
+
+    private func maintainSession() {
+        if disablePairingAfterHostTransfer, isSessionOwner, isSessionAuthority,
+           !ScoreboardRemoteDisplayReceiver.shared.hasSessionConnection {
+            finishDisablingOwnerPairing()
+        }
+        guard let descriptor = sessionDescriptor else { return }
+        if isFollowingSessionHost, sessionTransferInProgress,
+           let started = sessionTransferStartedAt, Date().timeIntervalSince(started) > 12 {
+            sessionTransferInProgress = false
+            sessionTransferStartedAt = nil
+            disconnectClientsAfterOwnerTakeover = false
+            disablePairingAfterHostTransfer = false
+            sessionStatusMessage = "Host transfer did not complete. Reconnect to the host or recover from the owner's last saved copy."
+        }
+        if sessionTransferInProgress, sessionRecoveryRole == .host,
+           let targetID = sessionTransferTargetID,
+           let transferID = sessionTransferID,
+           let checkpoint = sessionTransferCheckpoint,
+           let lastSent = lastSessionPrepareSentAt,
+           Date().timeIntervalSince(lastSent) > 2 {
+            let prepare = ScoreboardSessionMessage(kind: .prepare, id: transferID,
+                descriptor: checkpoint.descriptor, targetID: targetID, checkpoint: checkpoint)
+            lastSessionPrepareSentAt = Date()
+            if sendSession(prepare, to: targetID) {
+                Self.sessionLogger.notice("Retried host preparation")
+            } else {
+                Self.sessionLogger.warning("Could not retry host preparation; waiting for the display connection")
+            }
+        }
+        if sessionRecoveryRole == .fenced,
+           let targetID = sessionTransferTargetID,
+           let transferID = sessionTransferID,
+           let checkpoint = sessionTransferCheckpoint,
+           lastSessionCommitSentAt.map({ Date().timeIntervalSince($0) > 2 }) ?? true {
+            let commit = ScoreboardSessionMessage(kind: .commit, id: transferID,
+                descriptor: descriptor, targetID: targetID, checkpoint: checkpoint)
+            if sendSession(commit, to: targetID) { lastSessionCommitSentAt = Date() }
+        }
+        if sessionTransferInProgress, sessionRecoveryRole == .host,
+           let started = sessionTransferStartedAt, Date().timeIntervalSince(started) > 12 {
+            if let target = sessionTransferTargetID, let id = sessionTransferID {
+                _ = sendSession(.init(kind: .abort, id: id, descriptor: descriptor), to: target)
+            }
+            sessionTransferInProgress = false
+            sessionTransferID = nil
+            sessionTransferTargetID = nil
+            sessionTransferStartedAt = nil
+            lastSessionPrepareSentAt = nil
+            exitRemoteModeAfterHostTransfer = false
+            disablePairingAfterHostTransfer = false
+            sessionStatusMessage = "Host preparation timed out; the current host is still active. Keep Scoreboard open on the selected display and retry."
+            Self.sessionLogger.error("Host preparation timed out; local authority remains active")
+            let completion = hostedMatchQuitCompletion
+            hostedMatchQuitCompletion = nil
+            completion?(false)
+        }
+        if isSessionAuthority {
+            if isDelegatedSessionHost {
+                let logCount = logManager.currentSessionSnapshot()?.entries.count ?? 0
+                if observedHostedLogCount != logCount {
+                    observedHostedLogCount = logCount
+                    sessionSyncRevision &+= 1
+                }
+                let ownerConnected = remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID }
+                if ownerConnected && !isAnyTimerRunning && !sessionTransferInProgress {
+                    if hostedCheckpointPersistedRevision != sessionSyncRevision { persistState() }
+                    if hostedCheckpointPersistedRevision == sessionSyncRevision,
+                       ownerAcknowledgedRevision != sessionSyncRevision,
+                       lastSnapshotSyncSentAt.map({ Date().timeIntervalSince($0) > 3 }) ?? true,
+                       let checkpoint = try? makeSessionCheckpoint(descriptor: descriptor) {
+                        let message = ScoreboardSessionMessage(kind: .snapshot, descriptor: descriptor,
+                            checkpoint: checkpoint, syncRevision: sessionSyncRevision)
+                        if sendSession(message, to: descriptor.ownerDeviceID, lowPriority: true) {
+                            pendingSnapshotSyncID = message.id
+                            pendingSnapshotLogCount = checkpoint.log.entries.count
+                            lastSnapshotSyncSentAt = Date()
+                        }
+                    }
+                }
+                updateSessionSafeDisconnectStatus()
+            }
+            if lastSessionPeerReportAt.map({ Date().timeIntervalSince($0) > 1 }) ?? true {
+                lastSessionPeerReportAt = Date()
+                let peers = remoteDisplayHostService.exportSessionPairings()
+                let connected = Set(remoteDisplayConnectedDisplays.map(\.id))
+                let rows = peers.peers.map { peer in
+                    let connection = remoteDisplayConnectedDisplays.first { $0.id == peer.id }
+                    return ScoreboardSessionPeer(id: peer.id, name: peer.name,
+                        deviceType: peer.deviceType ?? .unknown,
+                        connected: connected.contains(peer.id) || peer.id == localSessionDeviceID,
+                        supportsHosting: peer.id == localSessionDeviceID ||
+                            connection?.supportsSessionHosting == true,
+                        latencyMilliseconds: connection?.latencyMilliseconds,
+                        lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
+                        appVersion: connection?.appVersion ?? (peer.id == localSessionDeviceID ? .current : nil),
+                        quality: connection?.quality,
+                        realtimeTransport: connection?.realtimeTransport)
+                }
+                let report = ScoreboardSessionMessage(kind: .peers, descriptor: descriptor,
+                    peers: rows, pairingConfiguration: peers,
+                    allowedControllers: remoteControlAllowedDisplayIDs)
+                if descriptor.ownerDeviceID != localSessionDeviceID {
+                    _ = sendSession(report, to: descriptor.ownerDeviceID, lowPriority: true)
+                }
+            }
+            for peer in remoteDisplayConnectedDisplays where peer.supportsSessionHosting {
+                sendNextLogPage(to: peer.id)
+            }
+        } else if !ScoreboardRemoteDisplayReceiver.shared.isHostingSession {
+            requestSessionLogsIfNeeded()
+        }
+    }
+
+    private func updateSessionSafeDisconnectStatus() {
+        guard isDelegatedSessionHost, var descriptor = sessionDescriptor else { return }
+        let ownerConnected = remoteDisplayConnectedDisplays.contains { $0.id == descriptor.ownerDeviceID }
+        let logCount = logManager.currentSessionSnapshot()?.entries.count ?? 0
+        let clean = ScoreboardSessionCleanState(ownerConnected: ownerConnected,
+            anyTimerRunning: isAnyTimerRunning, transferring: sessionTransferInProgress,
+            revision: sessionSyncRevision, persistedRevision: hostedCheckpointPersistedRevision,
+            acknowledgedRevision: ownerAcknowledgedRevision, logCount: logCount,
+            acknowledgedLogCount: ownerAcknowledgedLogCount).isSafeToDisconnect
+        if descriptor.safeToDisconnect != clean {
+            descriptor.safeToDisconnect = clean
+            sessionDescriptor = descriptor
+            refreshRemoteDisplayState()
+        }
+    }
+
+    private func requestSessionLogsIfNeeded() {
+        guard !isSessionAuthority, let descriptor = sessionDescriptor,
+              ScoreboardRemoteDisplayReceiver.shared.status.isLive,
+              lastSessionLogRequestAt.map({ Date().timeIntervalSince($0) > 3 }) ?? true else { return }
+        let cursor = logManager.receivedLogCursor(for: descriptor.logSessionID ?? UUID())
+        if sendSession(.init(kind: .logRequest, descriptor: descriptor, cursor: cursor)) {
+            lastSessionLogRequestAt = Date()
+        }
+    }
+
+    private func sendNextLogPage(to peerID: String) {
+        guard isSessionAuthority, !sessionTransferInProgress, let descriptor = sessionDescriptor,
+              lastLogPageAtByPeer[peerID].map({ Date().timeIntervalSince($0) > 1 }) ?? true else { return }
+        if let pending = pendingLogBatchByPeer[peerID] {
+            guard lastLogPageAtByPeer[peerID].map({ Date().timeIntervalSince($0) > 3 }) ?? true else { return }
+            let resend = ScoreboardSessionMessage(kind: .logBatch, descriptor: descriptor, batch: pending)
+            if sendSession(resend, to: peerID, lowPriority: true) { lastLogPageAtByPeer[peerID] = Date() }
+            return
+        }
+        guard let batch = try? logManager.sessionLogBatch(after: logCursorByPeer[peerID]) else { return }
+        let message = ScoreboardSessionMessage(kind: .logBatch, descriptor: descriptor, batch: batch)
+        if sendSession(message, to: peerID, lowPriority: true) {
+            pendingLogBatchByPeer[peerID] = batch
+            lastLogPageAtByPeer[peerID] = Date()
+        }
+    }
+
+    private func currentSessionIntegrationSettings() -> ScoreboardSessionIntegrationSettings {
+        .init(webAPIEnabled: isWebAPIEnabled, webControlEnabled: isWebControlEnabled,
+              webControlKey: webControlAPIKey, webUpdateMode: webAPIUpdateMode,
+              companionEnabled: isCompanionEnabled, companionHost: companionHost,
+              companionMode: companionMode, companionPort: companionPort,
+              companionSyncWithSound: companionSyncWithSound,
+              companionAssignments: companionAssignmentsBySport,
+              soundEnabled: isSoundEnabled, soundAssignments: soundAssignmentsBySport,
+              bypassedSoundEvents: bypassedSoundEventsBySport,
+              bypassedCompanionEvents: bypassedCompanionEventsBySport,
+              broadcastControlEnabled: isWebAPIBroadcastControlEnabled,
+              broadcastDisplayCount: webAPIBroadcastEnabledDisplayCount,
+              broadcastModes: webAPIBroadcastDisplayModesByID,
+              customDisplayTitles: customDisplayModeTitlesByMode,
+              remoteIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
+              remoteNetworkMode: remoteDisplayNetworkMode)
+    }
+
+    private func applySessionIntegrationSettings(_ settings: ScoreboardSessionIntegrationSettings) {
+        guard isSessionAuthority else { return }
+        isApplyingSessionUpdate = true
+        isWebAPIEnabled = settings.webAPIEnabled
+        isWebControlEnabled = settings.webControlEnabled
+        webControlAPIKey = settings.webControlKey
+        webAPIUpdateMode = settings.webUpdateMode
+        isCompanionEnabled = settings.companionEnabled
+        companionHost = settings.companionHost
+        companionMode = settings.companionMode
+        companionPort = settings.companionPort
+        companionSyncWithSound = settings.companionSyncWithSound
+        companionAssignmentsBySport = settings.companionAssignments
+        isSoundEnabled = settings.soundEnabled
+        soundAssignmentsBySport = settings.soundAssignments
+        bypassedSoundEventsBySport = settings.bypassedSoundEvents
+        bypassedCompanionEventsBySport = settings.bypassedCompanionEvents
+        isWebAPIBroadcastControlEnabled = settings.broadcastControlEnabled
+        webAPIBroadcastEnabledDisplayCount = settings.broadcastDisplayCount
+        webAPIBroadcastDisplayModesByID = settings.broadcastModes
+        customDisplayModeTitlesByMode = settings.customDisplayTitles
+        isRemoteDisplayIndividualControlEnabled = settings.remoteIndividualControlEnabled
+        remoteDisplayNetworkMode = settings.remoteNetworkMode
+        isApplyingSessionUpdate = false
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+    }
+
+    private func scheduleOwnerSettingsSync() {
+        guard isFollowingSessionHost, !isApplyingSessionUpdate, !pendingOwnerSettingsSync else { return }
+        pendingOwnerSettingsSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.pendingOwnerSettingsSync = false
+            guard self.isFollowingSessionHost, self.sessionIsConnected,
+                  let descriptor = self.sessionDescriptor else { return }
+            let settings = self.currentSessionIntegrationSettings()
+            guard let data = try? JSONEncoder().encode(settings), data != self.lastOwnerSettingsData else { return }
+            if self.sendSession(.init(kind: .settings, descriptor: descriptor, integrationSettings: settings)) {
+                self.lastOwnerSettingsData = data
+            }
+        }
+    }
+
+    private func currentSessionVisualSnapshot() -> ScoreboardGameSnapshot {
+        let current = currentGameSnapshot()
+        var visual = ScoreboardGameSnapshot.empty
+        visual.externalDisplayBackgroundMode = current.externalDisplayBackgroundMode
+        visual.externalDisplayBackgroundImage = current.externalDisplayBackgroundImage
+        visual.externalDisplayAnimatedLogoStyle = current.externalDisplayAnimatedLogoStyle
+        visual.externalDisplayAnimatedLogoBackgroundColor = current.externalDisplayAnimatedLogoBackgroundColor
+        visual.externalDisplayAnimatedLogoSpeed = current.externalDisplayAnimatedLogoSpeed
+        visual.externalDisplayAnimatedLogoSize = current.externalDisplayAnimatedLogoSize
+        visual.externalDisplayAnimatedLogoOpacity = current.externalDisplayAnimatedLogoOpacity
+        visual.showsExternalDisplayDateTime = current.showsExternalDisplayDateTime
+        visual.externalDisplayDateTimeFormat = current.externalDisplayDateTimeFormat
+        visual.showsExternalDisplayDateTimeSeconds = current.showsExternalDisplayDateTimeSeconds
+        visual.showsTeamLogos = current.showsTeamLogos
+        visual.showsEventLogo = current.showsEventLogo
+        visual.homeTeamLogoImage = current.homeTeamLogoImage
+        visual.guestTeamLogoImage = current.guestTeamLogoImage
+        visual.eventLogoImage = current.eventLogoImage
+        return visual
+    }
+
+    private func scheduleOwnerVisualSync(field: String? = nil) {
+        guard isFollowingSessionHost, !isApplyingRemoteControlState,
+              !isApplyingSessionUpdate else { return }
+        if let field {
+            pendingOwnerVisualFields.insert(field)
+            // @Published emits before storage changes. Capture on the next main
+            // turn so reconnects cannot replace an offline owner edit.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isFollowingSessionHost else { return }
+                self.pendingOwnerVisualSnapshot = self.currentSessionVisualSnapshot()
+            }
+        }
+        guard !pendingOwnerVisualSync else { return }
+        pendingOwnerVisualSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.pendingOwnerVisualSync = false
+            guard self.isFollowingSessionHost, let descriptor = self.sessionDescriptor else { return }
+            guard self.sessionIsConnected else {
+                self.sessionStatusMessage = "Visual settings will sync when the session host reconnects."
+                return
+            }
+            let visual = self.pendingOwnerVisualSnapshot ?? self.currentSessionVisualSnapshot()
+            let fields = self.pendingOwnerVisualFields
+            guard !fields.isEmpty else { return }
+            if self.sendSession(.init(kind: .settings, descriptor: descriptor,
+                                      game: visual, visualFields: fields)) {
+                self.pendingOwnerVisualFields.subtract(fields)
+                if self.pendingOwnerVisualFields.isEmpty { self.pendingOwnerVisualSnapshot = nil }
+                self.lastOwnerVisualData = try? JSONEncoder().encode(visual)
+            }
+        }
+    }
+
+    private func applySessionVisualSnapshot(_ visual: ScoreboardGameSnapshot, fields: Set<String>) {
+        guard isSessionAuthority else { return }
+        isApplyingSessionUpdate = true
+        if fields.contains("backgroundImage") {
+            externalDisplayBackgroundImage = visual.externalDisplayBackgroundImage.flatMap(ExternalDisplayBackgroundImage.init(embeddedImage:))
+        }
+        if fields.contains("backgroundMode") { externalDisplayBackgroundMode = visual.externalDisplayBackgroundMode ?? .blurred }
+        if fields.contains("logoStyle") { externalDisplayAnimatedLogoStyle = visual.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee }
+        if fields.contains("logoColor") { externalDisplayAnimatedLogoBackgroundColor = visual.externalDisplayAnimatedLogoBackgroundColor ?? .themeBackground }
+        if fields.contains("logoSpeed") { setExternalDisplayAnimatedLogoSpeed(visual.externalDisplayAnimatedLogoSpeed ?? Self.defaultAnimatedLogoSpeed) }
+        if fields.contains("logoSize") { setExternalDisplayAnimatedLogoSize(visual.externalDisplayAnimatedLogoSize ?? Self.defaultAnimatedLogoSize) }
+        if fields.contains("logoOpacity") { setExternalDisplayAnimatedLogoOpacity(visual.externalDisplayAnimatedLogoOpacity ?? Self.defaultAnimatedLogoOpacity) }
+        if fields.contains("dateTime") { showsExternalDisplayDateTime = visual.showsExternalDisplayDateTime ?? false }
+        if fields.contains("dateTimeFormat") { externalDisplayDateTimeFormat = visual.externalDisplayDateTimeFormat ?? .time24Hour }
+        if fields.contains("dateTimeSeconds") { showsExternalDisplayDateTimeSeconds = visual.showsExternalDisplayDateTimeSeconds ?? true }
+        if fields.contains("teamLogosVisible") { showsTeamLogos = visual.showsTeamLogos ?? true }
+        if fields.contains("eventLogoVisible") { showsEventLogo = visual.showsEventLogo ?? true }
+        if fields.contains("homeLogo") { homeTeamLogoImage = visual.homeTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:)) }
+        if fields.contains("guestLogo") { guestTeamLogoImage = visual.guestTeamLogoImage.flatMap(TeamLogoImage.init(embeddedImage:)) }
+        if fields.contains("eventLogo") { eventLogoImage = visual.eventLogoImage.flatMap(EventLogoImage.init(embeddedImage:)) }
+        isApplyingSessionUpdate = false
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+    }
+
+    private func sendOwnerGameName(_ name: String?) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else { return }
+        _ = sendSession(.init(kind: .settings, descriptor: descriptor, gameName: name ?? ""))
+    }
+
+    private func sendOwnerGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else {
+            sessionStatusMessage = "Connect to the session host before changing game setup."
+            return
+        }
+        if !sendSession(.init(kind: .game, descriptor: descriptor, game: snapshot,
+                              gameName: currentGameDisplayName)) {
+            sessionStatusMessage = "Game setup was not sent. Reconnect and retry."
+        }
+    }
+
+    private func sendSessionAdministration(_ admin: ScoreboardSessionAdministration) {
+        guard let descriptor = sessionDescriptor, sessionIsConnected else {
+            sessionStatusMessage = "Connect to the session host before changing paired devices."
+            return
+        }
+        if !sendSession(.init(kind: .administration, descriptor: descriptor, administration: admin)) {
+            sessionStatusMessage = "Device change was not sent. Reconnect and retry."
+        }
+    }
+
+    private func applySessionAdministration(_ admin: ScoreboardSessionAdministration) {
+        switch admin.action {
+        case "controlPermission": setRemoteControlAllowed(displayID: admin.displayID, isAllowed: admin.enabled == true)
+        case "pair":
+            if let source = remoteDisplaySources.first(where: { $0.id == admin.displayID }), let code = admin.text {
+                pairRemoteDisplay(source, pairingCode: code, takeoverConfirmed: admin.enabled == true)
+            }
+        case "connect":
+            if let source = remoteDisplaySources.first(where: { $0.id == admin.displayID }) {
+                connectTrustedRemoteDisplay(source, takeoverConfirmed: admin.enabled == true)
+            }
+        case "remove": removeRemoteDisplayPairing(displayID: admin.displayID)
+        case "disconnect": disconnectRemoteDisplay(displayID: admin.displayID)
+        case "disconnectAll": disconnectRemoteDisplays()
+        case "soundTest": sendRemoteDisplaySoundTest(displayID: admin.displayID)
+        case "mute": setRemoteDisplayMuted(displayID: admin.displayID, isMuted: admin.enabled == true)
+        case "direction":
+            if let value = admin.text.flatMap(ScoreboardDisplayDirection.init(rawValue:)) {
+                setRemoteDisplayDirection(displayID: admin.displayID, direction: value)
+            }
+        case "externalDirection":
+            if let value = admin.text.flatMap(ScoreboardDisplayDirection.init(rawValue:)) {
+                setRemoteDisplayExternalDirection(displayID: admin.displayID, direction: value)
+            }
+        case "customDisplay":
+            if let value = admin.number { setRemoteDisplayCustomDisplayID(displayID: admin.displayID, customDisplayID: value) }
+        case "companionTest":
+            if let event = admin.soundEvent, let sport = admin.sport { testCompanionCommand(for: event, sport: sport) }
+        default: break
+        }
+    }
+}
+
+struct ScoreboardRemoteTimerOperation {
+    var primary = false
+    var shot = false
+    var prep = false
+    var pause = false
+    var allPenalties = false
+    var penaltyID: UUID?
+}
+
+@MainActor
+extension ScoreboardStore {
+    func beginRemoteTimerOperation(_ command: ScoreboardControlCommand, delay: TimeInterval) -> ScoreboardRemoteTimerOperation {
+        var scope = ScoreboardRemoteTimerOperation()
+        guard delay > 0 else { return scope }
+        scope.pause = command.action.hasPrefix("pause.") && command.action != "pause.adjust"
+        let startsPause = command.action == "pause.start" || command.action == "pause.official"
+        scope.allPenalties = startsPause
+        scope.primary = startsPause || command.action.hasPrefix("clock.") || command.action.hasPrefix("chess.") || command.action.hasPrefix("debate.")
+        scope.prep = startsPause || command.action.hasPrefix("debate.") || (isDebateMode && command.action.hasPrefix("clock."))
+        scope.shot = startsPause || command.action.hasPrefix("shot.") || command.action == "serve.set" || command.action == "possession.set"
+        scope.penaltyID = command.action.hasPrefix("penalty.") ? command.timerID : nil
+        func rewind(_ seconds: inout Int, fraction: inout TimeInterval, countdown: Bool) {
+            let exact = countdown ? Double(seconds) - fraction + delay : Double(seconds) + fraction - delay
+            if countdown {
+                seconds = max(0, Int(ceil(exact)))
+                fraction = max(0, Double(seconds) - exact)
+            } else {
+                seconds = max(0, Int(floor(exact)))
+                fraction = max(0, exact - Double(seconds))
+            }
+        }
+        if scope.pause, var pause = pauseTimer, pause.isRunning, var seconds = pause.remainingSeconds {
+            rewind(&seconds, fraction: &accumulatedPauseElapsed, countdown: true)
+            pause.remainingSeconds = seconds
+            pauseTimer = pause
+        }
+        if scope.primary && isClockRunning {
+            if usesChessClocks {
+                if activeChessClockSide == .home { rewind(&homeChessClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: true) }
+                else { rewind(&guestChessClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: true) }
+            } else { rewind(&gameClockSeconds, fraction: &accumulatedGameClockElapsed, countdown: gameClockMode == .countdown) }
+        }
+        if scope.shot && isShotClockRunning {
+            shotClockMilliseconds += Int(delay * 1000)
+        }
+        if scope.prep && isDebatePrepClockRunning {
+            if debateActiveTimer == .prepHome { rewind(&debatePrepHomeSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
+            else { rewind(&debatePrepGuestSeconds, fraction: &accumulatedDebatePrepElapsed, countdown: true) }
+        }
+        if scope.allPenalties || scope.penaltyID != nil {
+            for side in TeamSide.allCases {
+                updatePenaltyTimers(for: side) { timers in
+                    for index in timers.indices where timers[index].isRunning && (scope.allPenalties || timers[index].id == scope.penaltyID) {
+                        timers[index].remainingSeconds += Int(ceil(delay - accumulatedPenaltyElapsed))
+                    }
+                }
+            }
+        }
+        return scope
+    }
+
+    func finishRemoteTimerOperation(_ scope: ScoreboardRemoteTimerOperation, delay: TimeInterval) {
+        guard delay > 0 else { return }
+        let savedPause = pauseTimer
+        let pauseFraction = accumulatedPauseElapsed
+        if !scope.pause { pauseTimer?.isRunning = false }
+        let primaryRunning = isClockRunning
+        let shotRunning = isShotClockRunning
+        let prepRunning = isDebatePrepClockRunning
+        let primaryFraction = accumulatedGameClockElapsed
+        let shotFraction = accumulatedShotClockElapsed
+        let prepFraction = accumulatedDebatePrepElapsed
+        let penaltyFraction = accumulatedPenaltyElapsed
+        let unrelatedPenalties = (homePenaltyTimers + guestPenaltyTimers).filter { !scope.allPenalties && $0.id != scope.penaltyID && $0.isRunning }.map(\.id)
+        if !scope.primary { isClockRunning = false }
+        if !scope.shot { isShotClockRunning = false }
+        if !scope.prep { isDebatePrepClockRunning = false }
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices where unrelatedPenalties.contains(timers[index].id) { timers[index].isRunning = false }
+            }
+        }
+        tick(elapsed: delay)
+        if !scope.pause { pauseTimer = savedPause; accumulatedPauseElapsed = pauseFraction }
+        if !scope.primary { isClockRunning = primaryRunning; accumulatedGameClockElapsed = primaryFraction }
+        if !scope.shot { isShotClockRunning = shotRunning; accumulatedShotClockElapsed = shotFraction }
+        if !scope.prep { isDebatePrepClockRunning = prepRunning; accumulatedDebatePrepElapsed = prepFraction }
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices where unrelatedPenalties.contains(timers[index].id) { timers[index].isRunning = true }
+            }
+        }
+        accumulatedPenaltyElapsed = penaltyFraction
+        updateTimerState()
+        if timer != nil { lastTimerFireDate = Date() }
+        refreshPrimaryTimerPersistence()
+    }
+}
+
+@MainActor
+extension ScoreboardStore {
+    @discardableResult
+    func routeRemoteControlCommand(_ action: String, side: TeamSide? = nil, value: Int? = nil,
+                                   text: String? = nil, enabled: Bool? = nil,
+                                   playerID: UUID? = nil, timerID: UUID? = nil) -> Bool {
+        if sessionAuthorityFenced && !routesControlToSessionHost {
+            sessionStatusMessage = "Session authority is unavailable. Reconnect to the host before controlling."
+            return true
+        }
+        guard routesControlToSessionHost, !isApplyingRemoteControlState, !isApplyingSessionUpdate else { return false }
+        var command = ScoreboardControlCommand(action: action, sport: selectedSport, side: side,
+            value: value, text: text, enabled: enabled, playerID: playerID, timerID: timerID)
+        // Running-state commands allow quick start/pause taps without interpreting
+        // a second tap using a scoreboard snapshot still in transit.
+        if action == "clock.toggle" {
+            command.action = "clock.running"
+            command.enabled = !isClockRunning
+            command.expectedRunning = isClockRunning
+        } else if action == "shot.toggle" {
+            command.action = "shot.running"
+            command.enabled = !isShotClockRunning
+            command.expectedRunning = isShotClockRunning
+        }
+        if let remoteCommandSender { remoteCommandSender(command) }
+        else { ScoreboardRemoteDisplayReceiver.shared.sendCommand(command) }
+        return true
+    }
+
+    func setPublicDisplayViewMode(_ mode: ScoreboardDisplayViewMode) {
+        if routeRemoteControlCommand("display.mode", text: mode.rawValue) { return }
+        publicDisplayViewMode = mode
+    }
+
+    func setTheme(_ theme: ScoreboardTheme) {
+        if routeRemoteControlCommand("display.theme", text: theme.rawValue) { return }
+        self.theme = theme
+    }
+
+    func turnDebateClockHere(_ side: TeamSide) {
+        if routeRemoteControlCommand("debate.turn", side: side) { return }
+        if debateActiveTimer != .segment { returnToDebateSegmentTimer() }
+        if activeChessClockSide == side { toggleChessClock() }
+        else {
+            setActiveChessClockSide(side)
+            if !isClockRunning { toggleChessClock() }
+        }
+    }
+
+    func clearTrackedPlayerState(for side: TeamSide, playerID: UUID) {
+        if routeRemoteControlCommand("player.clear", side: side, playerID: playerID) { return }
+        if supportsCards { setCardStatus(.none, for: side, playerID: playerID) }
+        if supportsFouls { resetFouls(for: side, playerID: playerID) }
+    }
+
+    private func assignRemoteValue<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<ScoreboardStore, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    func applyRemoteControlState(_ state: ScoreboardWebAPIState) {
+        guard isRemoteControlProxy || isFollowingSessionHost else { return }
+        isApplyingRemoteControlState = true
+        defer { isApplyingRemoteControlState = false }
+        if remoteControlState?.control?.connectedDeviceCount != state.control?.connectedDeviceCount ||
+            remoteControlState?.control?.disconnectedDeviceCount != state.control?.disconnectedDeviceCount ||
+            remoteControlState?.control?.ownerConnected != state.control?.ownerConnected {
+            objectWillChange.send()
+        }
+        remoteControlState = state
+        assignRemoteValue(\.currentGameDisplayName, state.control?.gameName)
+        var snapshot = state.game
+        snapshot.homeRoster = state.players.homeRoster
+        snapshot.guestRoster = state.players.guestRoster
+        let pendingCommands = remoteControlReceiver?.pendingCommandsForDisplay ?? []
+        // Overlay text in the value snapshot before publishing. Incoming packets
+        // must not briefly replace in-flight edits with older roster text.
+        for command in pendingCommands where command.action == "player.name" || command.action == "player.number" {
+            guard let side = command.side, let id = command.playerID, let text = command.text else { continue }
+            var roster = side == .home ? snapshot.homeRoster! : snapshot.guestRoster!
+            if let index = roster.players.firstIndex(where: { $0.id == id }) {
+                if command.action == "player.name" { roster.players[index].name = text }
+                else { roster.players[index].number = text }
+            }
+            if side == .home { snapshot.homeRoster = roster }
+            else { snapshot.guestRoster = roster }
+        }
+        var configuration = snapshot
+        // Timer values change much more often than game/roster configuration.
+        configuration.gameClockSeconds = 0
+        configuration.shotClockMilliseconds = 0
+        configuration.homeChessClockSeconds = nil
+        configuration.guestChessClockSeconds = nil
+        configuration.debatePrepHomeSeconds = nil
+        configuration.debatePrepGuestSeconds = nil
+        configuration.isDebatePrepClockRunning = nil
+        configuration.pauseTimer = nil
+        configuration.homePenaltyTimers = nil
+        configuration.guestPenaltyTimers = nil
+        configuration.homeRoster = nil
+        configuration.guestRoster = nil
+        if remoteControlGameConfiguration != configuration {
+            applyGameSnapshot(snapshot)
+            remoteControlGameConfiguration = configuration
+        } else {
+            assignRemoteValue(\.gameClockSeconds, snapshot.gameClockSeconds)
+            assignRemoteValue(\.shotClockMilliseconds, snapshot.shotClockMilliseconds)
+            assignRemoteValue(\.homeChessClockSeconds, snapshot.homeChessClockSeconds ?? snapshot.defaultClockSeconds)
+            assignRemoteValue(\.guestChessClockSeconds, snapshot.guestChessClockSeconds ?? snapshot.defaultClockSeconds)
+            assignRemoteValue(\.debatePrepHomeSeconds, snapshot.debatePrepHomeSeconds ?? 0)
+            assignRemoteValue(\.debatePrepGuestSeconds, snapshot.debatePrepGuestSeconds ?? 0)
+            assignRemoteValue(\.homePenaltyTimers, snapshot.homePenaltyTimers ?? [])
+            assignRemoteValue(\.guestPenaltyTimers, snapshot.guestPenaltyTimers ?? [])
+        }
+        assignRemoteValue(\.pauseTimer, snapshot.pauseTimer)
+        // The display payload may be assigned to this device's external screen;
+        // operator buttons always show the main board's display control mode.
+        assignRemoteValue(\.publicDisplayViewMode, state.control?.mainDisplayMode ?? state.display?.viewMode ?? .scoreboard)
+        assignRemoteValue(\.theme, state.display?.theme ?? theme)
+        assignRemoteValue(\.isSoundEnabled, state.control?.isSoundEnabled ?? true)
+        assignRemoteValue(\.isClockRunning, state.runtime.isClockRunning)
+        assignRemoteValue(\.isShotClockRunning, state.runtime.isShotClockRunning)
+        assignRemoteValue(\.isDebatePrepClockRunning, state.runtime.isDebatePrepClockRunning)
+        assignRemoteValue(\.areSidesSwapped, state.runtime.areSidesSwapped)
+        assignRemoteValue(\.possessionDirection, state.runtime.possessionDirection)
+        assignRemoteValue(\.homeRoster, normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam))
+        assignRemoteValue(\.guestRoster, normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam))
+        if isRemoteControlProxy {
+            assignRemoteValue(\.isCompanionVisible, false)
+            assignRemoteValue(\.isCompanionEnabled, false)
+        }
+        if let display = state.display {
+            assignRemoteValue(\.isWebAPIBroadcastControlEnabled, display.broadcastControl?.isEnabled == true)
+            assignRemoteValue(\.isRemoteDisplayIndividualControlEnabled, state.control?.customDisplayControlVisible == true && !isWebAPIBroadcastControlEnabled)
+            assignRemoteValue(\.webAPIBroadcastEnabledDisplayCount, state.control?.customDisplayEnabledIDs?.last ?? display.broadcastControl?.enabledDisplayIDs.last ?? 0)
+            assignRemoteValue(\.webAPIBroadcastDisplayModesByID, state.control?.customDisplayModes ?? Dictionary(uniqueKeysWithValues:
+                (display.broadcastControl?.assignments ?? []).filter { $0.displayID > 0 }.map { ($0.displayID, $0.assignedMode) }))
+            // The payload direction is resolved with the current side swap.
+            assignRemoteValue(\.externalDisplayDirection, (display.remoteExternalDirection ?? display.direction ?? .homeLeft).applyingSideSwap(areSidesSwapped))
+            assignRemoteValue(\.showsExternalDisplayDateTime, display.showsDateTime ?? false)
+            assignRemoteValue(\.showsExternalDisplayDateTimeSeconds, display.showsDateTimeSeconds ?? true)
+        }
+        // Pending absolute values are safe to display over older snapshots. They
+        // are discarded at acknowledgement/disconnect and never run game logic.
+        for command in pendingCommands {
+            switch command.action {
+            case "clock.running": isClockRunning = command.enabled ?? isClockRunning
+            case "shot.running": isShotClockRunning = command.enabled ?? isShotClockRunning
+            case "penalty.name", "penalty.number":
+                if let side = command.side, let id = command.timerID, let text = command.text {
+                    updatePenaltyTimers(for: side) { timers in
+                        if let index = timers.firstIndex(where: { $0.id == id }) {
+                            if command.action == "penalty.name" { timers[index].playerName = text }
+                            else { timers[index].playerNumber = text }
+                        }
+                    }
+                }
+            default: break
+            }
+        }
+        applyRemoteControlImages(state)
+    }
+
+    private func applyRemoteControlImages(_ state: ScoreboardWebAPIState) {
+        guard let receiver = remoteControlReceiver ?? (isFollowingSessionHost ? ScoreboardRemoteDisplayReceiver.shared : nil) else { return }
+        if let metadata = state.display?.backgroundImage, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.externalDisplayBackgroundImage, ExternalDisplayBackgroundImage(id: metadata.id, sourceName: nil,
+                mimeType: metadata.mimeType, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight,
+                byteCount: metadata.byteCount, updatedAtUnixTime: metadata.updatedAtUnixTime,
+                scale: metadata.placement.scale, offsetX: metadata.placement.offsetX, offsetY: metadata.placement.offsetY, data: data))
+        } else { assignRemoteValue(\.externalDisplayBackgroundImage, nil) }
+        if let metadata = state.teams.home.logo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.homeTeamLogoImage, TeamLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.homeTeamLogoImage, nil) }
+        if let metadata = state.teams.guest.logo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.guestTeamLogoImage, TeamLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.guestTeamLogoImage, nil) }
+        if let metadata = state.display?.eventLogo, let data = receiver.imageData(for: metadata.id) {
+            assignRemoteValue(\.eventLogoImage, EventLogoImage(id: metadata.id, sourceName: nil, mimeType: metadata.mimeType,
+                pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight, byteCount: metadata.byteCount,
+                updatedAtUnixTime: metadata.updatedAtUnixTime, data: data))
+        } else { assignRemoteValue(\.eventLogoImage, nil) }
+        assignRemoteValue(\.externalDisplayBackgroundMode, state.display?.backgroundMode ?? .blurred)
+    }
+
+    private func projectRemoteControlClocks() {
+        guard let receiver = remoteControlReceiver ?? (isFollowingSessionHost ? ScoreboardRemoteDisplayReceiver.shared : nil),
+              receiver.status.isLive,
+              let state = remoteControlState else { return }
+        let projection = RemoteScoreboardProjection(state: state, lastReceivedAt: receiver.lastReceivedAt,
+            masterClockOffset: receiver.masterClockOffset, now: Date())
+        if gameClockSeconds != projection.gameClockSeconds { gameClockSeconds = projection.gameClockSeconds }
+        if shotClockMilliseconds != projection.shotClockMilliseconds { shotClockMilliseconds = projection.shotClockMilliseconds }
+        if homeChessClockSeconds != projection.homeChessClockSeconds { homeChessClockSeconds = projection.homeChessClockSeconds }
+        if guestChessClockSeconds != projection.guestChessClockSeconds { guestChessClockSeconds = projection.guestChessClockSeconds }
+        if debatePrepHomeSeconds != projection.projectedDebatePrepSeconds(for: .home) { debatePrepHomeSeconds = projection.projectedDebatePrepSeconds(for: .home) }
+        if debatePrepGuestSeconds != projection.projectedDebatePrepSeconds(for: .guest) { debatePrepGuestSeconds = projection.projectedDebatePrepSeconds(for: .guest) }
+        if pauseTimer != projection.pauseTimer { pauseTimer = projection.pauseTimer }
+        if homePenaltyTimers != projection.homePenaltyTimers { homePenaltyTimers = projection.homePenaltyTimers }
+        if guestPenaltyTimers != projection.guestPenaltyTimers { guestPenaltyTimers = projection.guestPenaltyTimers }
+        // Projection is visual only. Expiry events and automation remain on the main board.
+    }
+}
+
+#if SCOREBOARD_TESTING
+// Private-state fixtures are compiled only into the hostless unit test bundle.
+
+@MainActor
+extension ScoreboardStore {
+    func withControlTestFollowingSessionHost(_ action: () -> Void) {
+        let previousDescriptor = sessionDescriptor
+        let previousRole = sessionRecoveryRole
+        let previousConnection = sessionIsConnected
+        defer {
+            sessionDescriptor = previousDescriptor
+            sessionRecoveryRole = previousRole
+            sessionIsConnected = previousConnection
+        }
+        sessionDescriptor = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 1,
+            ownerDeviceID: localSessionDeviceID, ownerHostID: "test-owner", ownerName: "Owner",
+            hostDeviceID: "test-delegated-host", hostName: "Host", hostAddresses: [])
+        sessionRecoveryRole = .follower
+        sessionIsConnected = false
+        action()
+    }
+    // Hold playback as if another sound is active, then inspect the real event
+    // queue without playing audio or contacting a Companion server.
+    func captureControlTestEventActions(_ action: () -> Void)
+        -> [(event: ScoreboardSoundEvent, effect: ScoreboardSoundEffect, location: String?)] {
+        clearQueuedEventActions()
+        activeEventPlaybackID = UUID()
+        action()
+        let actions = queuedEventActions.map { ($0.triggerEvent, $0.effect, $0.companionLocation?.rawValue) }
+        clearQueuedEventActions()
+        return actions
+    }
+    func advanceControlTestTimers(by elapsed: TimeInterval) {
+        tick(elapsed: elapsed)
+        lastTimerFireDate = Date()
+    }
+    func refreshControlTestTrustedDisplay(_ peer: ScoreboardRemoteDisplayTrustedPeer) {
+        remoteDisplayHostService.refreshControlTestTrustedDisplay(peer)
+    }
+}
+
+#endif

@@ -20,3 +20,9 @@ DerivedData/
 # App/package exports
 *.ipa
 *.app
+
+# Browser test dependencies
+tests/web/node_modules/
+
+# Locally rendered demo footage, audio, and isolated capture builds
+/DemoVideo/

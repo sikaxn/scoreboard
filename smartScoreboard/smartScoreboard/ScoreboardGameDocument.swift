@@ -20,7 +20,7 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
     var data: Data
 }
 
-struct ScoreboardGameSnapshot: Sendable {
+struct ScoreboardGameSnapshot: Equatable, Sendable {
     var fileVersion = 12
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
@@ -106,6 +106,9 @@ struct ScoreboardGameSnapshot: Sendable {
     var homeTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
     var guestTeamLogoImage: ScoreboardGameEmbeddedImage? = nil
     var eventLogoImage: ScoreboardGameEmbeddedImage? = nil
+    var pauseDurationSeconds: Int? = nil
+    var pauseTimer: ScoreboardPauseTimer? = nil
+    var isTeamPauseIndefinite: Bool? = nil
 
     static let empty = ScoreboardGameSnapshot(
         sport: .simple,
@@ -282,6 +285,9 @@ extension ScoreboardGameSnapshot: Codable {
         case homeTeamLogoImage
         case guestTeamLogoImage
         case eventLogoImage
+        case pauseDurationSeconds
+        case pauseTimer
+        case isTeamPauseIndefinite
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -371,6 +377,9 @@ extension ScoreboardGameSnapshot: Codable {
         homeTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .homeTeamLogoImage)
         guestTeamLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .guestTeamLogoImage)
         eventLogoImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .eventLogoImage)
+        pauseDurationSeconds = try container.decodeIfPresent(Int.self, forKey: .pauseDurationSeconds)
+        pauseTimer = try container.decodeIfPresent(ScoreboardPauseTimer.self, forKey: .pauseTimer)
+        isTeamPauseIndefinite = try container.decodeIfPresent(Bool.self, forKey: .isTeamPauseIndefinite)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -460,6 +469,9 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(homeTeamLogoImage, forKey: .homeTeamLogoImage)
         try container.encodeIfPresent(guestTeamLogoImage, forKey: .guestTeamLogoImage)
         try container.encodeIfPresent(eventLogoImage, forKey: .eventLogoImage)
+        try container.encodeIfPresent(pauseDurationSeconds, forKey: .pauseDurationSeconds)
+        try container.encodeIfPresent(pauseTimer, forKey: .pauseTimer)
+        try container.encodeIfPresent(isTeamPauseIndefinite, forKey: .isTeamPauseIndefinite)
     }
 }
 

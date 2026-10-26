@@ -194,6 +194,11 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
     case homeSubstitutionPlus
     case guestSubstitutionMinus
     case guestSubstitutionPlus
+    case startHomePause
+    case startGuestPause
+    case startOfficialPause
+    case togglePauseTimer
+    case cancelPause
     case homePauseMinus
     case homePausePlus
     case guestPauseMinus
@@ -246,6 +251,7 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
              .guestPrepMinusFifteen, .guestPrepPlusFifteen:
             return .chessAndDebate
         case .homeSubstitutionMinus, .homeSubstitutionPlus, .guestSubstitutionMinus, .guestSubstitutionPlus,
+             .startHomePause, .startGuestPause, .startOfficialPause, .togglePauseTimer, .cancelPause,
              .homePauseMinus, .homePausePlus, .guestPauseMinus, .guestPausePlus,
              .homeTeamFoulMinus, .homeTeamFoulPlus, .guestTeamFoulMinus, .guestTeamFoulPlus:
             return .teamTools
@@ -365,6 +371,11 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
             return localizedKeyboardFormat("%@ Substitution -1", store.sideRoleLabel(for: .guest))
         case .guestSubstitutionPlus:
             return localizedKeyboardFormat("%@ Substitution +1", store.sideRoleLabel(for: .guest))
+        case .startHomePause: return localizedKeyboardFormat("Start %@ Pause", store.sideRoleLabel(for: .home))
+        case .startGuestPause: return localizedKeyboardFormat("Start %@ Pause", store.sideRoleLabel(for: .guest))
+        case .startOfficialPause: return localizedKeyboardString("Official Pause")
+        case .togglePauseTimer: return localizedKeyboardString("Pause / Continue Countdown")
+        case .cancelPause: return localizedKeyboardString("Stop Pause")
         case .homePauseMinus:
             return localizedKeyboardFormat("%@ Pause -1", store.sideRoleLabel(for: .home))
         case .homePausePlus:
@@ -425,7 +436,22 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
         isResetInterlockActive: Bool,
         isGameClockResetInterlockActive: Bool
     ) -> Bool {
+        if store.pauseTimer != nil {
+            switch self {
+            case .togglePrimaryTimer, .secondaryTimerPrimary, .homeSecondaryPrimary, .homeSecondaryAlternate,
+                 .guestSecondaryPrimary, .guestSecondaryAlternate, .homeTurnHere, .guestTurnHere,
+                 .toggleHomePrep, .toggleGuestPrep, .homePenaltyTwoMinutes, .homePenaltyFourMinutes,
+                 .homePenaltyFiveMinutes, .guestPenaltyTwoMinutes, .guestPenaltyFourMinutes, .guestPenaltyFiveMinutes:
+                return false
+            default: break
+            }
+        }
         switch self {
+        case .startHomePause: return store.pauseTimer == nil && store.supportsPauseTracking && store.pausesRemaining(for: .home) > 0
+        case .startGuestPause: return store.pauseTimer == nil && store.supportsPauseTracking && store.pausesRemaining(for: .guest) > 0
+        case .startOfficialPause: return store.pauseTimer == nil
+        case .togglePauseTimer: return (store.pauseTimer?.remainingSeconds ?? 0) > 0
+        case .cancelPause: return store.pauseTimer != nil
         case .homeScorePrimary, .guestScorePrimary:
             return shortcutScoreStep(store: store, slot: 0) != nil
         case .homeScoreSecondary, .guestScoreSecondary:
@@ -466,8 +492,12 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
             return store.showsDebatePrepTime
         case .homeSubstitutionMinus, .homeSubstitutionPlus, .guestSubstitutionMinus, .guestSubstitutionPlus:
             return store.showsSubstitutionTracking
-        case .homePauseMinus, .homePausePlus, .guestPauseMinus, .guestPausePlus:
-            return store.showsPauseTracking
+        case .homePauseMinus, .guestPauseMinus:
+            return store.supportsPauseTracking && store.showsPauseTracking
+        case .homePausePlus:
+            return store.supportsPauseTracking && store.pausesRemaining(for: .home) > 0
+        case .guestPausePlus:
+            return store.supportsPauseTracking && store.pausesRemaining(for: .guest) > 0
         case .homeTeamFoulMinus, .homeTeamFoulPlus, .guestTeamFoulMinus, .guestTeamFoulPlus:
             return store.supportsTeamFouls
         case .togglePlayersPage:
@@ -521,8 +551,13 @@ struct ScoreboardKeyboardShortcutExecutionContext {
     let handleDebateTurnHere: (TeamSide) -> Void
     let addPenaltyTimer: (TeamSide, Int) -> Void
     let togglePlayersPage: () -> Void
+    var controlBoardConfiguration: ScoreboardControlBoardConfiguration? = nil
 
     func perform(_ action: ScoreboardKeyboardShortcutAction) {
+        if let controlBoardConfiguration {
+            let capabilities = ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)
+            guard controlBoardConfiguration.allows(action, capabilities: capabilities) else { return }
+        }
         guard action.isAvailable(
             store: store,
             isResetInterlockActive: isResetInterlockActive,
@@ -532,6 +567,11 @@ struct ScoreboardKeyboardShortcutExecutionContext {
         }
 
         switch action {
+        case .startHomePause: store.startPause(for: .home)
+        case .startGuestPause: store.startPause(for: .guest)
+        case .startOfficialPause: store.startPause(seconds: 0)
+        case .togglePauseTimer: store.setPauseTimerRunning(store.pauseTimer?.isRunning != true)
+        case .cancelPause: store.cancelPause()
         case .homeScorePrimary:
             adjustShortcutScore(for: .home, slot: 0)
         case .homeScoreSecondary:
@@ -717,7 +757,10 @@ struct ScoreboardKeyboardShortcutExecutionContext {
             return
         }
 
-        if store.usesServeTimer || store.isShotClockRunning {
+        let stationMode = controlBoardConfiguration.map {
+            $0.effectiveMode(for: ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)) != .full
+        } ?? false
+        if store.usesServeTimer || store.isShotClockRunning || stationMode {
             store.toggleShotClock()
         } else {
             store.resetActiveShotClock()
@@ -1292,11 +1335,7 @@ private struct IOSKeyboardShortcutHost: UIViewRepresentable {
         context.coordinator.host = self
         uiView.coordinator = context.coordinator
 
-        if isEnabled || recordingAction != nil {
-            uiView.becomeFirstResponder()
-        } else {
-            uiView.resignFirstResponder()
-        }
+        uiView.setCaptureEnabled(isEnabled || recordingAction != nil)
     }
 
     final class Coordinator: NSObject {
@@ -1324,15 +1363,36 @@ private struct IOSKeyboardShortcutHost: UIViewRepresentable {
 
 private final class KeyboardShortcutCaptureView: UIView {
     weak var coordinator: IOSKeyboardShortcutHost.Coordinator?
+    private var isCaptureEnabled = false
+    private let shortcutInputView = UIView(frame: .zero)
+
+    // This responder receives hardware key presses, never text entry.
+    // Suppress UIKit's software keyboard when native menus restore focus.
+    override var inputView: UIView? { shortcutInputView }
 
     override var canBecomeFirstResponder: Bool {
-        true
+        isCaptureEnabled
+    }
+
+    func setCaptureEnabled(_ isEnabled: Bool) {
+        guard isCaptureEnabled != isEnabled else { return }
+        isCaptureEnabled = isEnabled
+        updateFirstResponder()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil {
+        updateFirstResponder()
+    }
+
+    private func updateFirstResponder() {
+        guard window != nil else { return }
+        // Clock updates also update this representable. Reclaiming focus on
+        // every update steals it from native menus while they are presenting.
+        if isCaptureEnabled {
             becomeFirstResponder()
+        } else if isFirstResponder {
+            resignFirstResponder()
         }
     }
 

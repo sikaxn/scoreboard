@@ -138,6 +138,17 @@ nonisolated final class ScoreboardCompanionService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.ironmaple.smartscoreboard.companion", qos: .utility)
     private let timeout: TimeInterval = 3
     private let urlSession: URLSession
+    private struct PendingPress: Sendable {
+        let host: String
+        let port: UInt16
+        let mode: ScoreboardCompanionMode
+        let location: ScoreboardCompanionLocation
+        let eventKeys: [String]
+        let completion: @Sendable (Result<Void, ScoreboardCompanionSendError>) -> Void
+    }
+    // All transport requests share a FIFO, including commands from separate operations.
+    private var pendingPresses: [PendingPress] = []
+    private var isSendingPress = false
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -151,6 +162,7 @@ nonisolated final class ScoreboardCompanionService: @unchecked Sendable {
         port: UInt16,
         mode: ScoreboardCompanionMode,
         location: ScoreboardCompanionLocation,
+        eventKeys: [String] = [],
         completion: @escaping @Sendable (Result<Void, ScoreboardCompanionSendError>) -> Void
     ) {
         let host = Self.normalizedHost(rawHost)
@@ -163,15 +175,42 @@ nonisolated final class ScoreboardCompanionService: @unchecked Sendable {
             return
         }
 
-        switch mode {
+        queue.async {
+            self.pendingPresses.append(PendingPress(
+                host: host, port: port, mode: mode, location: location, eventKeys: eventKeys, completion: completion
+            ))
+            self.sendNextPress()
+        }
+    }
+
+    func cancelPendingPresses(eventKey: String? = nil) {
+        queue.async {
+            if let eventKey {
+                self.pendingPresses.removeAll { $0.eventKeys.contains(eventKey) }
+            } else {
+                self.pendingPresses.removeAll()
+            }
+        }
+    }
+
+    private func sendNextPress() {
+        guard !isSendingPress, !pendingPresses.isEmpty else { return }
+        isSendingPress = true
+        let press = pendingPresses.removeFirst()
+        let completion: @Sendable (Result<Void, ScoreboardCompanionSendError>) -> Void = { result in
+            self.queue.async {
+                press.completion(result)
+                self.isSendingPress = false
+                self.sendNextPress()
+            }
+        }
+        switch press.mode {
         case .tcp, .udp:
-            queue.async {
-                self.sendNetworkPress(host: host, port: port, mode: mode, location: location, completion: completion)
-            }
+            sendNetworkPress(host: press.host, port: press.port, mode: press.mode,
+                             location: press.location, completion: completion)
         case .http:
-            queue.async {
-                self.sendHTTPPress(host: host, port: port, location: location, completion: completion)
-            }
+            sendHTTPPress(host: press.host, port: press.port,
+                          location: press.location, completion: completion)
         }
     }
 

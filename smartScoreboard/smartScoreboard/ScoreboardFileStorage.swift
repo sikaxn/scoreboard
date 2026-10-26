@@ -40,6 +40,11 @@ nonisolated enum ScoreboardFileStorage {
     static func migrateLegacyFilesToUserVisibleStorage(
         progress: (@MainActor @Sendable (ScoreboardFileMigrationProgress) -> Void)? = nil
     ) async throws -> ScoreboardFileMigrationResult {
+        #if DEBUG && !SCOREBOARD_TESTING
+        if ScoreboardUITestLaunch.isEnabled {
+            return ScoreboardFileMigrationResult(migratedFiles: 0, failedFiles: 0, totalFiles: 0)
+        }
+        #endif
         #if os(iOS)
         return try await migrateLegacyFilesToUserVisibleStorageInBackground(progress: progress)
         #else
@@ -53,8 +58,17 @@ nonisolated enum ScoreboardFileStorage {
         create: Bool
     ) throws -> URL {
         let fileManager = FileManager.default
+        #if DEBUG && !SCOREBOARD_TESTING
+        if let root = ScoreboardUITestLaunch.storageRoot {
+            let directory = root.appendingPathComponent(visibleDirectoryName, isDirectory: true)
+            if create { try fileManager.createDirectory(at: directory, withIntermediateDirectories: true) }
+            return directory
+        }
+        #endif
 
-        #if os(iOS)
+        #if SCOREBOARD_TESTING
+        let directoryURL = ScoreboardTestEnvironment.root.appendingPathComponent(fallbackDirectoryName, isDirectory: true)
+        #elseif os(iOS)
         let baseDirectory = try fileManager.url(
             for: .documentDirectory,
             in: .userDomainMask,

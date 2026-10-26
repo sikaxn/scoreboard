@@ -399,6 +399,18 @@
         font-size: 12px;
       }
     }
+    .pause-overlay { position:absolute; left:40px; top:40px; width:min(760px,calc(100vw - 80px)); z-index:20; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px 24px; padding:18px 24px; border-radius:8px; border:1px solid rgba(255,255,255,.18); background:rgba(8,13,24,.92); color:white; pointer-events:none; }
+    .pause-overlay[hidden], .pause-overlay [hidden] { display:none !important; }
+    .pause-logo { width:clamp(48px,18vh,180px); height:clamp(48px,18vh,180px); object-fit:contain; }
+    .pause-overlay.indefinite { text-align:center; }
+    .pause-overlay strong { font-size:clamp(18px,3vw,32px); overflow-wrap:anywhere; }
+    .pause-overlay .pause-time { font:900 clamp(32px,5vw,64px) ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    .pause-overlay.has-logo { grid-template-columns:64px minmax(0,1fr) auto; }
+    .pause-overlay .pause-logo { width:64px; height:64px; }
+    .pause-overlay.indefinite { display:flex; flex-direction:column; justify-content:center; align-items:center; }
+    #pauseStatus { grid-column:1 / -1; color:rgba(255,255,255,.8); }
+    #pauseStatus:empty { display:none; }
+    @media(max-width:800px) { .pause-overlay { left:20px; top:20px; width:calc(100vw - 40px); } }
   </style>
 </head>
 <body class="disconnected" data-disconnected-label="WebSocket disconnected">
@@ -456,6 +468,7 @@
     </section>
   </main>
 
+  <div id="pauseOverlay" class="pause-overlay" role="status" hidden><img id="pauseLogo" class="pause-logo hidden" alt=""><strong id="pauseTitle"></strong><span id="pauseTime" class="pause-time"></span><span id="pauseStatus"></span></div>
   <script>
     const translations = {
       en: {
@@ -684,6 +697,26 @@
       el('guestPause').textContent = `${t('pauseShort')} ${text(guest.pausesRemaining, 0)}`;
     }
 
+    function applyPauseTimer(clocks, teams, display, hidden) {
+      const pause = clocks.pauseTimer;
+      el('pauseOverlay').hidden = !pause || hidden;
+      if (!pause) return;
+      const zh = document.documentElement.lang.startsWith('zh');
+      const name = pause.side ? ((teams[pause.side] || {}).name || (pause.side === 'home' ? (zh ? '主队' : 'Home Team') : (zh ? '客队' : 'Guest Team'))) : '';
+      el('pauseTitle').textContent = pause.side ? `${name}${zh ? '暂停' : ' Pause'}` : (zh ? '官方暂停' : 'Official Pause');
+      const teamLogo = pause.side && display.showsTeamLogos !== false ? (teams[pause.side] || {}).logo : null;
+      const eventLogo = display.showsEventLogo !== false ? display.eventLogo : null;
+      const logo = logoURL(teamLogo) ? teamLogo : eventLogo;
+      applyImage('pauseLogo', logo);
+      el('pauseOverlay').classList.toggle('has-logo', Boolean(logoURL(logo)));
+      const seconds = pause.remainingSeconds;
+      el('pauseOverlay').classList.toggle('indefinite', seconds == null);
+      el('pauseTime').hidden = seconds == null;
+      el('pauseStatus').hidden = seconds == null;
+      el('pauseTime').textContent = seconds == null ? '' : `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
+      el('pauseStatus').textContent = seconds == null ? '' : seconds === 0 ? (zh ? '暂停时间到' : 'Pause Timer Expired') : !pause.isRunning ? (zh ? '暂停计时已暂停' : 'Pause Timer Paused') : '';
+    }
+
     function applyState(state) {
       if (!state || !state.teams || !state.clocks) return;
 
@@ -697,6 +730,7 @@
       const mode = displayMode(display);
       const isBlackoutMode = mode === 'blackScreen' || mode === 'backgroundOnly';
       document.body.classList.toggle('blackout', isBlackoutMode);
+      applyPauseTimer(clocks, state.teams, display, isBlackoutMode);
       if (isBlackoutMode) return;
 
       const supportedMode = mode === 'eventLogo' || mode === 'teamView' || mode === 'playerView' ? mode : 'scoreboard';

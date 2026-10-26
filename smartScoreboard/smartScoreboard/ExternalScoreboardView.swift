@@ -89,7 +89,8 @@ struct ExternalScoreboardView: View {
             homeDisplayedPlayers: store.displayedHomePlayers,
             guestDisplayedPlayers: store.displayedGuestPlayers,
             homeRosterPlayers: store.homeRoster.players,
-            guestRosterPlayers: store.guestRoster.players
+            guestRosterPlayers: store.guestRoster.players,
+            pauseTimer: store.pauseTimer
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
@@ -264,6 +265,7 @@ struct PublicScoreboardDisplayView: View {
     let guestDisplayedPlayers: [TrackedPlayer]
     let homeRosterPlayers: [TrackedPlayer]
     let guestRosterPlayers: [TrackedPlayer]
+    var pauseTimer: ScoreboardPauseTimer? = nil
     var compactBoardOverride: Bool? = nil
     var animatesAnimatedLogoBackground = true
     @State private var foregroundViewMode: ScoreboardDisplayViewMode = .scoreboard
@@ -308,6 +310,13 @@ struct PublicScoreboardDisplayView: View {
                     .transition(modeTransition)
                     .opacity(displayedForegroundVisible ? 1 : 0)
                     .scaleEffect(displayedForegroundVisible ? 1 : 0.94)
+
+                if let pauseTimer, displayedForegroundVisible {
+                    ScoreboardPauseOverlay(pause: pauseTimer,
+                        title: pauseTimer.title(homeTeamName: homeTeamName, guestTeamName: guestTeamName),
+                        logoData: pauseTimer.logoData(homeTeamLogoData: homeTeamLogoData, guestTeamLogoData: guestTeamLogoData, eventLogoData: eventLogoData))
+                        .allowsHitTesting(false)
+                }
 
                 Color.black
                     .opacity(displayedBlackoutVisible ? 1 : 0)
@@ -586,7 +595,11 @@ struct PublicScoreboardDisplayView: View {
     private func stableBackgroundView() -> some View {
         switch backgroundMode.resolvedForRendering {
         case .blurred:
-            palette.externalDisplayBackground
+            ScoreboardBlurredBackgroundView(
+                palette: palette,
+                leftAccent: accentColor(for: displayDirection.leftSide),
+                rightAccent: accentColor(for: displayDirection.rightSide)
+            )
         case .clear, .clearUnderBoard:
             HStack(spacing: 0) {
                 accentColor(for: displayDirection.leftSide)
@@ -1156,7 +1169,7 @@ private struct PublicScoreboardTeamDisplayData {
 }
 
 #if os(macOS)
-private struct PublicBoardWindowConfigurator: NSViewRepresentable {
+struct PublicBoardWindowConfigurator: NSViewRepresentable {
     let backgroundMode: ExternalDisplayBackgroundMode
     let displayViewMode: ScoreboardDisplayViewMode
     let fullscreenRequestID: UUID
@@ -1266,3 +1279,48 @@ private struct PublicBoardWindowConfigurator: NSViewRepresentable {
     }
 }
 #endif
+
+/// Public pause notice for local and remote scoreboard displays.
+struct ScoreboardPauseOverlay: View {
+    let pause: ScoreboardPauseTimer
+    let title: String
+    var logoData: Data? = nil
+
+    var body: some View {
+        GeometryReader { proxy in
+            let base = min(proxy.size.width, proxy.size.height)
+            ZStack {
+                Color.black.opacity(0.64)
+                VStack(spacing: max(10, min(24, base * 0.035))) {
+                    if let logoData {
+                        TeamLogoImageView(data: logoData, cornerRadius: 12)
+                            .frame(width: min(180, base * 0.26), height: min(180, base * 0.26))
+                    }
+                    Text(verbatim: title)
+                        .font(.system(size: max(20, min(48, base * 0.07)), weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.6)
+                    if pause.remainingSeconds != nil {
+                        Text(verbatim: pause.formattedTime)
+                            .font(.system(size: max(48, min(140, base * 0.22)), weight: .black, design: .monospaced))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                        if !pause.isRunning {
+                            Text(verbatim: ScoreboardLocalization.string(pause.remainingSeconds == 0 ? "Pause Timer Expired" : "Pause Timer Paused"))
+                        }
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(max(16, min(40, base * 0.05)))
+                .frame(maxWidth: 680)
+                .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 24))
+                .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.25)))
+                .padding(max(12, min(32, base * 0.04)))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}

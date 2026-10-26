@@ -130,14 +130,16 @@ extension ScoreboardStore {
     func syncLiveActivityForCurrentState() {
         let now = Date()
         ScoreboardLiveActivityController.shared.sync(
-            isGameRunning: isGameRunning && showsLiveActivityWhenTimerRunning,
+            isGameRunning: (isGameRunning || pauseTimer != nil) && showsLiveActivityWhenTimerRunning,
             state: liveActivityContentState(now: now)
         )
     }
 
     var nextPrimaryTimerMaintenanceDate: Date? {
         let seconds: Int?
-        if isDebatePrepClockRunning {
+        if let pause = pauseTimer, pause.isRunning {
+            seconds = pause.remainingSeconds
+        } else if isDebatePrepClockRunning {
             switch debateActiveTimer {
             case .prepHome:
                 seconds = debatePrepHomeSeconds
@@ -172,7 +174,7 @@ extension ScoreboardStore {
     private func liveActivityContentState(now: Date) -> ScoreboardLiveActivityAttributes.ContentState {
         let timerState = liveActivityTimerState(now: now)
         return ScoreboardLiveActivityAttributes.ContentState(
-            statusText: NSLocalizedString(isGameRunning ? "Game Running" : "Game Stopped", comment: ""),
+            statusText: pauseTitle ?? NSLocalizedString(isGameRunning ? "Game Running" : "Game Stopped", comment: ""),
             sportTitle: liveActivitySportTitle,
             homeTeamName: liveActivityTeamName(homeTeamName, fallback: "HOME"),
             guestTeamName: liveActivityTeamName(guestTeamName, fallback: "GUEST"),
@@ -214,6 +216,17 @@ extension ScoreboardStore {
         secondary: ScoreboardLiveActivityTimer?,
         staleDate: Date?
     ) {
+        if let pause = pauseTimer {
+            let title = pauseTitle ?? ScoreboardLocalization.string("Pause Timer")
+            if let seconds = pause.remainingSeconds {
+                let timer = liveActivityCountdownTimer(title: title, seconds: seconds, now: now,
+                    isActive: pause.isRunning, side: pause.side.map { $0 == .home ? .home : .guest })
+                return (timer, nil, timer.rangeEndDate)
+            }
+            let timer = ScoreboardLiveActivityTimer(title: title, valueText: ScoreboardLocalization.string("Pause"), mode: .staticValue,
+                rangeStartDate: nil, rangeEndDate: nil, isActive: false, side: nil)
+            return (timer, nil, nil)
+        }
         if isDebatePrepClockRunning {
             switch debateActiveTimer {
             case .prepHome:

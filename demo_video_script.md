@@ -2,6 +2,12 @@
 
 Target length: about 3 minutes
 
+Updated for the current 1.7 working tree on October 20, 2026. Record the current
+app labels, including Remote Display & Control and the control-board mode picker.
+The reference capture uses an operator iPad simulator, an Apple TV simulator for
+the audience scoreboard, and a second iPad for remote control. AirPlay, a physical TV/projector, and offline host handoff need
+separate hardware footage and are not demonstrated by these simulator clips.
+
 Style: simple launch-demo pacing. The viewer should understand the app even if they only know how to use an iPad or computer. Use short sentences. Show one clear action at a time. Avoid developer words unless the app screen itself shows that label.
 
 Main idea: one person uses the app to control the game, while everyone else sees a clean scoreboard on a TV, projector, Apple TV, iPad, or Mac.
@@ -35,7 +41,7 @@ Show on video:
 
 Narration:
 
-> This is Smart Scoreboard. Use your iPad or Mac to run the game. The TV shows the scoreboard. Tap the score, start the clock, and the big screen updates right away.
+> This is Smart Scoreboard. Run the game on your iPad or Mac. A second screen shows the scoreboard. Tap the score, start the clock, and the audience screen updates right away.
 
 On-screen text:
 
@@ -46,7 +52,7 @@ Show the scoreboard on the big screen.
 15-second ending:
 
 - End on the score and clock changing on both screens.
-- Fade out after the line: "The big screen updates right away."
+- Fade out after the line: "The audience screen updates right away."
 
 ## Scene 2 - Choose The Game
 
@@ -90,7 +96,7 @@ Show on video:
 
 Narration:
 
-> The control board gives you the buttons you need during the game. Score points. Start or pause the clock. Reset the shot clock. Change possession. Move to the next period.
+> Run the game from one control board. Score points. Start or pause the clock. Reset the shot clock and change possession. Then move to the next period.
 
 On-screen text:
 
@@ -119,7 +125,7 @@ Show on video:
 
 Narration:
 
-> You also choose what people see on the big screen. Show the full scoreboard, a team view, a player view, an event logo, or a black screen. Only the person running the game sees the buttons.
+> Choose what the audience sees. Show the scoreboard, a player view, a team view, an event logo, or a black screen. The game controls stay on your device.
 
 On-screen text:
 
@@ -130,9 +136,9 @@ Only you see the buttons.
 60-second ending:
 
 - End on the full scoreboard view.
-- Fade out after the line: "Only the person running the game sees the buttons."
+- Fade out after the line: "The game controls stay on your device."
 
-## Scene 5 - Players And Team Details
+## Scene 5 - Players And Dedicated Control Stations
 
 Time: 1:00-1:25
 
@@ -147,10 +153,13 @@ Show on video:
 - Open Players from the live board.
 - Add a foul or card to one player.
 - Show the player detail on the big scoreboard.
+- Open the mode picker beside Theme.
+- Show Roster Station and Shot / Serve Controller.
+- Return to Full Control Board. Switching modes keeps the same live game.
 
 Narration:
 
-> For games with player tracking, add the roster before the game. During the game, manage the active lineup, fouls, cards, and substitutions without leaving the scoreboard.
+> Add the roster before the game. Manage the active lineup, fouls, cards, and substitutions during play. Need a focused workspace? Choose a roster station, scoring station, or timer controller. Hide the controls you do not need, and keep the score and clock in view. Each view works with the same live game.
 
 On-screen text:
 
@@ -161,6 +170,8 @@ Lineups.
 Fouls and cards.
 
 Substitutions.
+
+Dedicated control stations.
 
 ## Scene 6 - More Than One Sport
 
@@ -178,7 +189,7 @@ Show on video:
 
 Narration:
 
-> Smart Scoreboard supports many kinds of events. Use a ready-made setup for common sports, chess, and debate. Or create a custom game by turning on only the parts you need.
+> Smart Scoreboard supports many kinds of events. Track soccer player cards and hockey penalty timers. Use separate clocks for chess, or speech segments and prep time for debate. Start with a ready-made setup. Or create a custom game by turning on only the parts you need.
 
 On-screen text:
 
@@ -190,7 +201,7 @@ Debate.
 
 Custom games.
 
-## Scene 7 - Show The Scoreboard On Other Devices
+## Scene 7 - Pair Displays And Control Boards
 
 Time: 1:50-2:15
 
@@ -198,17 +209,20 @@ Show on video:
 
 - Open Settings.
 - Open Integration.
-- Open Remote Display.
-- Turn on Operator Broadcast, the switch that sends the scoreboard to other screens.
-- Show a second device waiting in Remote Display mode.
+- Open Remote Display & Control.
+- Turn on Enable Remote Display / Control Pairing.
+- Show the Apple TV simulator waiting in Remote Display mode.
 - Show the four-digit pairing code.
 - Pair the second screen.
 - Change the score on the main device.
 - Show the second device updating.
+- Pair an additional iPad, then show Allow This Device to Control. Enable it for an
+  operator device. Apple TV remains display-only.
+- Score once from the authorized remote iPad and show the Apple TV updating.
 
 Narration:
 
-> You can also send the scoreboard to another Apple device nearby. Pair an Apple TV, iPad, or Mac. The main device runs the game. The other device shows the scoreboard.
+> Pair another Apple device with its four-digit code. Use it as an audience screen, or give an iPhone, iPad, or Mac permission to control the game. Choose access separately for each device. A second operator can then score the same live game. Apple TV shows the scoreboard.
 
 On-screen text:
 
@@ -217,6 +231,12 @@ Pair another screen.
 One device controls the game.
 
 Other devices show the score.
+
+Grant control per device.
+
+Editing note: session host assignment and continued play while the owner is
+offline are additional 1.7 features. Do not claim they are demonstrated unless
+the final cut includes a tested host handoff and reconnection recording.
 
 ## Scene 8 - Optional Livestream Tools
 
@@ -228,12 +248,13 @@ Show on video:
 - Open the screen labeled Web API.
 - Show the built-in demo scoreboard page.
 - Show the small score graphic for livestreams.
+- Optionally show the control demo and commentator dashboard as extra assets.
 - Open the screen labeled Bitfocus Companion.
 - Show one game action set to press one Companion button.
 
 Narration:
 
-> For livestreams, Smart Scoreboard can share the live score with score graphics and video tools. It can also press a Companion button when a game action happens.
+> For livestreams, share the live score with browser graphics and video tools. The built-in pages include a scoreboard, a compact overlay, and a commentator dashboard. You can also link game events to Companion buttons for production control.
 
 On-screen text:
 
@@ -260,13 +281,13 @@ Show on video:
 - Show team logos.
 - Show event logo.
 - Show clock alert colors.
-- Show date and time on the big screen.
+- In Theme, enable Show Date/Time and show it on the audience screen.
 - Open Sound.
 - Preview one sound.
 
 Narration:
 
-> Match the scoreboard to the room. Choose a theme. Add team logos. Add an event logo. Show clock warnings. Turn sounds on or off.
+> Match the scoreboard to your event. Choose a theme, add team and event logos, set clock warnings, and preview sounds before the game.
 
 On-screen text:
 
@@ -295,7 +316,7 @@ Show on video:
 
 Narration:
 
-> Save game setups for next time. Export logs after the event. Back up the app when you need to move to another device. Smart Scoreboard keeps the game easy to run and easy to show.
+> Save games for next time. Review and export the game log. Back up your setup when you move devices. Smart Scoreboard makes the game easy to run and easy to show.
 
 On-screen text:
 
@@ -326,7 +347,7 @@ Smart Scoreboard
 
 ### 15-Second Script
 
-> This is Smart Scoreboard. Use your iPad or Mac to run the game. The TV shows the scoreboard. Tap the score, start the clock, and the big screen updates right away.
+> This is Smart Scoreboard. Run the game on your iPad or Mac. A second screen shows the scoreboard. Tap the score, start the clock, and the audience screen updates right away.
 
 Show:
 
@@ -338,13 +359,13 @@ Show:
 
 ### 60-Second Script
 
-> This is Smart Scoreboard. Use your iPad or Mac to run the game. The TV shows the scoreboard. Tap the score, start the clock, and the big screen updates right away.
+> This is Smart Scoreboard. Run the game on your iPad or Mac. A second screen shows the scoreboard. Tap the score, start the clock, and the audience screen updates right away.
 >
 > To begin, choose the game type. Add the event name. Add the two teams. Check the starting clock. Then go to the control board.
 >
-> The control board gives you the buttons you need during the game. Score points. Start or pause the clock. Reset the shot clock. Change possession. Move to the next period.
+> Run the game from one control board. Score points. Start or pause the clock. Reset the shot clock and change possession. Then move to the next period.
 >
-> You also choose what people see on the big screen. Show the full scoreboard, a team view, a player view, an event logo, or a black screen. Only the person running the game sees the buttons.
+> Choose what the audience sees. Show the scoreboard, a player view, a team view, an event logo, or a black screen. The game controls stay on your device.
 
 Show:
 

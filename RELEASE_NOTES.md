@@ -1,5 +1,28 @@
 # Release Notes
 
+## 1.7
+
+### Feature Added
+
+- Added Remote Control Board for iPhone, iPad, and Mac to operate scores, timers, players, sounds, and displays, with control access granted separately to each device. Use remote control alongside Merged View, local scoreboards, or external displays.
+- Added Web API remote control with a dedicated enable switch, a copyable and resettable 16-character API key, a control demo, and API documentation.
+- Added session hosting on a paired Mac, iPad, or Apple TV to run game logic, timers, logs, Web API, and Bitfocus Companion while the owner manages game setup and keeps the match file. The host and authorized control boards can continue the match while the owner is offline, with match data and logs synced on reconnection.
+- Added dedicated control board modes mainly for Remote Control Board operators: match timers, shot/serve timers, rosters, scoring, and penalties. Each device saves its mode selection per sport. Custom stations support module selection and ordering, team filtering, and matching keyboard shortcuts. Roster stations allow direct editing of player names and numbers. Station layouts include a clock/score box and Merged View switch.
+- Added coordinated host handoff, safe-to-disconnect indicators, separate hosted match storage, local discard controls, and owner recovery if the host becomes unavailable. All timers must be stopped before switching hosts.
+- Added Remote Display & Control settings for pairing, device permissions, and hosting, with an illustrated guide to device roles, networking, and court layouts. Web API and Companion settings are grouped under Integration.
+- Added pause clocks for timed and indefinite team and official pauses, with a 1–60 minute duration menu, countdown, pause/resume, and stop controls. Pause counts can be adjusted separately. Public pause labels support team/event logos and synchronized displays. Pauses work with remote control, Web API, keyboard shortcuts, Live Activities, saved games, sounds, and Companion events.
+
+### Issue Fixed
+
+- Fixed Settings sidebar clicks and prevented unchanged games from reloading or stopping timers when returning from Settings. Opening Settings with running timers now asks for confirmation.
+- Fixed Chess clock wrapping in narrow columns and during rotation. Improved control board mode and hockey penalty pickers with themed, scrollable layouts and persistent actions. The mode button now sits beside Theme.
+- Improved remote timer accuracy with network-delay compensation, player-page responsiveness, and connection-badge stability. Fixed game-name sync between owner and remote devices.
+- Improved pairing, discovery, reconnection, host switching, session cleanup, and disconnect handling. Discovery excludes local and unavailable pairing endpoints. iPhone/iPad pairing includes Done to dismiss the keyboard.
+- Improved connection badges and details with compact layouts, theme-aware colors, device counts, client status, and latency. Counts reflect clients connected to the host, including a non-host owner. iPhone details scroll and wrap long names.
+- Fixed hardware keyboards triggering the software keyboard over clock menus or interfering with menu focus.
+- Fixed blurred backgrounds in Background Only, Event Logo, Team View, and Player View on local and remote scoreboards.
+- Improved Apple TV help and expanded Simplified Chinese translations for remote display, control, hosting, and help screens.
+
 ## 1.6
 
 ### Feature Added

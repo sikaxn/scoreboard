@@ -182,7 +182,7 @@
     <header>
       <div>
         <h1 data-i18n="heading">SmartScoreboard Web API</h1>
-        <p class="note" data-i18n="tagline">Read-only LAN feed for broadcast and production apps.</p>
+        <p class="note" data-i18n="tagline">LAN state feed and optional authenticated board control.</p>
       </div>
     </header>
 
@@ -228,7 +228,7 @@
         <tr><td><code>GET /api/v2/status/api</code></td><td data-i18n="apiStatusUse">Web API service status only: API version, supported versions, ports, update mode, status, client count, and generated time.</td></tr>
         <tr><td><code>GET /api/v2/status/app</code></td><td data-i18n="appStatusUse">App identity/status only: app name, version, build, API version marker, and generated time.</td></tr>
         <tr><td><code>GET /api/v2/state</code></td><td data-i18n="stateUse">Lightweight v2 manifest listing resource names, hrefs, revisions, and generated time.</td></tr>
-        <tr><td><code>GET /api/v2/state/{game|runtime|display|rules|teams|clocks|players|debate|audio}</code></td><td data-i18n="resourceUse">One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate.</td></tr>
+        <tr><td><code>GET /api/v2/state/{game|runtime|display|rules|teams|clocks|players|debate|audio|session}</code></td><td data-i18n="resourceUse">One v2 resource envelope: schemaVersion, resource, revision, generatedAt, and data. debate returns null when the selected sport is not Debate.</td></tr>
         <tr><td><code>GET /api/v2/commentator?limit=120</code></td><td data-i18n="commentatorAPIUse">Current in-memory log session and mode-aware commentator summaries. The HTTP handler serves cached data and does not read log files.</td></tr>
         <tr><td><code>GET /api/v2/display/background-image</code></td><td data-i18n="backgroundImageUse">Current external display background image binary. v1 image paths remain valid aliases.</td></tr>
         <tr><td><code>GET /api/v2/display/event-logo</code></td><td data-i18n="eventLogoUse">Current event logo binary with alpha preserved. v1 image paths remain valid aliases.</td></tr>
@@ -253,6 +253,111 @@
         <tr><td><code>/demo/scoreboard?displayId=1</code><br><code>/demo/obs?displayId=2</code></td><td data-i18n="broadcastDemoUse">The reference scoreboard defaults to ID 1 and the OBS source defaults to ID 2. Add displayId=0...8 to override either demo.</td></tr>
       </table>
     </section>
+
+    <section class="card" id="webrtc">
+      <h2 data-i18n="rtcTitle">Optional WebRTC transport</h2>
+      <p data-i18n="rtcBody">The control demo can upgrade v1 state updates and control commands to a reliable, ordered WebRTC data channel. HTTP and WebSocket remain available. WebRTC runs on the session host, including Apple TV, with direct local connections and no external signaling, STUN, or TURN server.</p>
+      <p data-i18n="rtcFallback">Keep the existing WebSocket open for signaling and command acknowledgements. V2 resource subscriptions remain on WebSocket. Images, logs, pairing, host handoff, and native clock synchronization retain their existing transports. Commands use the same API key and enable switch as HTTP.</p>
+      <pre>WS send: {"type":"rtcSignal","signal":{"kind":"offer","negotiationID":"UUID","sdp":"SDP offer"}}
+WS receive: {"type":"rtcSignal","signal":{"kind":"answer","negotiationID":"UUID","sdp":"SDP answer"}}
+ICE (both directions): {"type":"rtcSignal","signal":{"kind":"candidate","negotiationID":"UUID","sdp":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
+Data channel: scoreboard.reliable.v1 (ordered, reliable; no media tracks)
+RTC send: {"type":"control","apiKey":"YOUR16CHARAPIKEY0","command":{"id":"UUID","action":"score.adjust","sport":"basketball","side":"home","value":1}}
+WS receive: {"type":"controlResult","result":{"id":"UUID","success":true}}
+State: existing scoreboard.state envelope, with the full v1 state in payload.
+Close: {"type":"rtcSignal","signal":{"kind":"close","negotiationID":"UUID"}}</pre>
+      <p data-i18n="rtcLimits">Limit RTC messages to 48 KiB and buffered output to 256 KiB; larger state updates use WebSocket. Buffer ICE candidates until the remote description is applied. Discard stale state by session ID, host epoch, and generatedAtUnixTime. If RTC negotiation or delivery fails, fall back to WebSocket/HTTP. When retrying a command, keep its UUID and parameters unchanged to prevent duplicate actions. Reconnect and renegotiate with the new host after a handoff.</p>
+    </section>
+
+    <section class="card" id="remote-control">
+      <h2>Remote Control and Web Control</h2>
+      <p>The session owner can choose <strong>Make Session Host</strong> for a connected device in Remote Display &amp; Control settings. The host runs game logic, Web API, and Companion; the owner retains game files and settings. Point integrations at the host IP shown in the app. <code>GET /api/v2/state/session</code> returns the session ID, owner, host, host addresses, and transfer epoch. The same identity appears as <code>control.session</code> in v1 state and <code>session</code> in API/app status and health responses. It is null when no shared session exists.</p>
+      <p>A delegated host keeps an isolated match copy and log while the owner is offline. <code>control.session.safeToDisconnect</code> becomes true only when all timers stop and the owner has acknowledged the latest saved match and log. The owner control board and connected display show this status. A clean exit hands hosting back to the owner and removes the host's working copy. The in-app <strong>How Remote Sessions Work</strong> guide diagrams owner, host, control boards, screens, LAN, and nearby peer-to-peer paths.</p>
+      <p><code>control.devices</code>, <code>control.connectedDeviceCount</code>, and <code>control.disconnectedDeviceCount</code> describe clients of the current host. The host is excluded; the owner is included when it runs on another device. Each row reports that client's connection to the host, with available latency, connection quality, and transport details. Native control board station layouts are saved separately on each device and do not change the API command catalog or control permissions.</p>
+      <p><a class="button" href="/demo/control">Open Control Demo</a></p>
+      <p>On the main board, enable Settings → Integration → Web API → Web Control. Copy the 16-character API key. Keys contain letters and digits, are case-insensitive, and persist on this device. Reset API Key immediately revokes the previous key. State endpoints do not require a key. Keep the session host running and use a trusted LAN; HTTP does not encrypt the key.</p>
+      <p><code>POST /api/v2/control</code> accepts one JSON command with <code>X-API-Key</code> and <code>Content-Type: application/json</code> headers. Setup, sport changes, pairing, and integration configuration are excluded. Web commands apply on receipt and do not use clock synchronization.</p>
+      <pre>curl -X POST http://BOARD:5516/api/v2/control \
+  -H 'X-API-Key: A1B2C3D4E5F6G7H8' \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ab6eab5a-21d1-4ba3-aefc-8d8a65e5b402","action":"score.adjust","sport":"basketball","side":"home","value":1}'</pre>
+      <p>Required fields: <code>id</code> (a new UUID for each action), <code>action</code>, and <code>sport</code> from current state. Additional parameters appear below. <code>side</code> is home or guest; <code>value</code> is an integer (seconds for timers, a signed delta for adjustments); <code>enabled</code> is a boolean. Player and penalty IDs come from the current roster and penalty arrays. Reset commands affect the main game.</p>
+      <p><code>GET /api/v2/control/operations</code> returns the shared operation catalog, parameter names, textChoices, and sport capability flags. Read <code>GET /api/v1/state</code> for the current rules, game, runtime, players, and control.webEnabled/control.remoteEnabled flags. V2 state resources are also available. Do not send operations whose current capability flag is false.</p>
+      <p>Success: <code>{"id":"…","success":true}</code>. Errors return <code>success:false</code>, <code>error</code>, and <code>message</code>: 400 invalidCommand, 401 unauthorized, 403 disabled, 409 unsupported/conflict/stale. Commands are deduplicated by ID for two minutes (up to 512 recent commands). An ID reused with different parameters returns conflict. A timed-out command may have applied; check authoritative state, or retry the exact same ID and payload within this window. Never automatically repeat a toggle using a new ID.</p>
+      <p>Pair an iPhone, iPad, or Mac in Remote Display Mode. On the main board, enable Allow This Device to Control in that specific device’s settings row. The approved device automatically uses the regular app control board, including Merged View and Local Display. Its external screen can continue showing the scoreboard. Each device has independent permission. Apple TV supports remote display and session hosting; control boards run on iPhone, iPad, or Mac. The pairing connection authenticates remote board commands; it does not need the web key. Game events and Companion commands run on the session host; sounds are relayed to paired devices.</p>
+      <p>Paired boards estimate clock offset from each heartbeat round trip. Timer commands carry the tap time in the host clock's time base; the host offsets only the affected timer for travel time. Synchronization must be less than five seconds old. Commands more than two seconds old or over 100 ms in the future are rejected. Controls disable while disconnected or unsynchronized; requests are bounded while awaiting acknowledgement; commands are not queued for reconnection. Existing state remains visible until updates resume.</p>
+      <div style="overflow-x:auto"><table><thead><tr><th>Action</th><th>Operation</th><th>Parameters</th><th>Capability</th></tr></thead><tbody>
+<tr><td><code>score.adjust</code></td><td>Score</td><td><code>side, value</code></td><td>supportsScore</td></tr>
+<tr><td><code>score.reset</code></td><td>Reset scores</td><td><code>—</code></td><td>supportsScore</td></tr>
+<tr><td><code>period.adjust</code></td><td>Period</td><td><code>value</code></td><td>supportsPeriod</td></tr>
+<tr><td><code>period.set</code></td><td>Set period</td><td><code>value</code></td><td>supportsPeriod</td></tr>
+<tr><td><code>period.award</code></td><td>Award period</td><td><code>side</code></td><td>supportsPeriodWins</td></tr>
+<tr><td><code>period.undo</code></td><td>Undo period win</td><td><code>—</code></td><td>supportsPeriodWins</td></tr>
+<tr><td><code>clock.toggle</code></td><td>Start / pause clock</td><td><code>—</code></td><td>clock</td></tr>
+<tr><td><code>clock.running</code></td><td>Set clock running</td><td><code>enabled</code></td><td>clock</td></tr>
+<tr><td><code>clock.adjust</code></td><td>Adjust clock seconds</td><td><code>value</code></td><td>masterClock</td></tr>
+<tr><td><code>clock.reset</code></td><td>Reset clock</td><td><code>value</code></td><td>gameClock</td></tr>
+<tr><td><code>shot.toggle</code></td><td>Start / pause shot clock</td><td><code>—</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.running</code></td><td>Set shot clock running</td><td><code>enabled</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.adjust</code></td><td>Adjust shot seconds</td><td><code>value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.reset</code></td><td>Reset shot clock</td><td><code>value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.activeReset</code></td><td>Reset active shot clock</td><td><code>—</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>shot.assign</code></td><td>Assign shot clock</td><td><code>side, value</code></td><td>supportsShotClock</td></tr>
+<tr><td><code>possession.set</code></td><td>Possession</td><td><code>text</code></td><td>supportsPossession</td></tr>
+<tr><td><code>serve.set</code></td><td>Serving side</td><td><code>side</code></td><td>usesServeTimer</td></tr>
+<tr><td><code>sides.swap</code></td><td>Swap sides</td><td><code>—</code></td><td>All games</td></tr>
+<tr><td><code>player.number</code></td><td>Player number</td><td><code>side, playerID, text</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.name</code></td><td>Player name</td><td><code>side, playerID, text</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.lineup</code></td><td>Active lineup</td><td><code>side, playerID, enabled</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.overlay</code></td><td>Pause player overlay</td><td><code>—</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>player.foul</code></td><td>Player fouls</td><td><code>side, playerID, value</code></td><td>supportsFouls</td></tr>
+<tr><td><code>player.foulsReset</code></td><td>Reset player fouls</td><td><code>side, playerID</code></td><td>supportsFouls</td></tr>
+<tr><td><code>team.playerFoulsReset</code></td><td>Reset team player fouls</td><td><code>side</code></td><td>supportsFouls</td></tr>
+<tr><td><code>all.playerFoulsReset</code></td><td>Reset all player fouls</td><td><code>—</code></td><td>supportsFouls</td></tr>
+<tr><td><code>player.card</code></td><td>Player card</td><td><code>side, playerID, text</code></td><td>supportsCards</td></tr>
+<tr><td><code>team.cardsReset</code></td><td>Reset team cards</td><td><code>side</code></td><td>supportsCards</td></tr>
+<tr><td><code>all.cardsReset</code></td><td>Reset all cards</td><td><code>—</code></td><td>supportsCards</td></tr>
+<tr><td><code>team.foul</code></td><td>Team fouls</td><td><code>side, value</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>team.foulsReset</code></td><td>Reset team fouls</td><td><code>side</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>all.teamFoulsReset</code></td><td>Reset all team fouls</td><td><code>—</code></td><td>supportsTeamFouls</td></tr>
+<tr><td><code>substitution.adjust</code></td><td>Substitutions used</td><td><code>side, value</code></td><td>supportsSubstitutions</td></tr>
+<tr><td><code>pause.adjust</code></td><td>Pauses used</td><td><code>side, value</code></td><td>supportsPauses</td></tr>
+<tr><td><code>pause.start</code></td><td>Start team pause</td><td><code>side, value</code> (0–3599 seconds; 0 = indefinite)</td><td>supportsPauses</td></tr>
+<tr><td><code>pause.official</code></td><td>Start official pause</td><td><code>value</code> (0–3599 seconds; 0 = indefinite)</td><td>All games</td></tr>
+<tr><td><code>pause.running</code></td><td>Pause / continue pause countdown</td><td><code>enabled</code></td><td>activePause</td></tr>
+<tr><td><code>pause.cancel</code></td><td>Stop pause</td><td>—</td><td>activePause</td></tr>
+<tr><td><code>chess.switch</code></td><td>Switch chess clock</td><td><code>—</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.side</code></td><td>Active chess side</td><td><code>side</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.adjust</code></td><td>Adjust chess seconds</td><td><code>side, value</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>chess.reset</code></td><td>Reset chess clocks</td><td><code>—</code></td><td>usesChessClocks</td></tr>
+<tr><td><code>debate.segment</code></td><td>Change debate segment</td><td><code>value</code></td><td>debate</td></tr>
+<tr><td><code>debate.resetSegment</code></td><td>Reset debate segment</td><td><code>—</code></td><td>debate</td></tr>
+<tr><td><code>debate.resetRound</code></td><td>Reset debate round</td><td><code>—</code></td><td>debate</td></tr>
+<tr><td><code>debate.prepToggle</code></td><td>Start / pause prep</td><td><code>side</code></td><td>prep</td></tr>
+<tr><td><code>debate.prepReset</code></td><td>Reset prep</td><td><code>side</code></td><td>prep</td></tr>
+<tr><td><code>debate.prepAdjust</code></td><td>Adjust prep seconds</td><td><code>side, value</code></td><td>prep</td></tr>
+<tr><td><code>debate.return</code></td><td>Return to segment</td><td><code>enabled</code></td><td>debate</td></tr>
+<tr><td><code>injury.set</code></td><td>Injury time minutes</td><td><code>value</code></td><td>supportsInjuryTime</td></tr>
+<tr><td><code>penalty.add</code></td><td>Add penalty</td><td><code>side, value, enabled</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.remove</code></td><td>Remove penalty</td><td><code>side, timerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.toggle</code></td><td>Start / pause penalty</td><td><code>side, timerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.adjust</code></td><td>Adjust penalty seconds</td><td><code>side, timerID, value</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.number</code></td><td>Penalty player number</td><td><code>side, timerID, text</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.name</code></td><td>Penalty player name</td><td><code>side, timerID, text</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>penalty.player</code></td><td>Assign penalty player</td><td><code>side, timerID, playerID</code></td><td>supportsHockeyPenalties</td></tr>
+<tr><td><code>player.clear</code></td><td>Clear player cards and fouls</td><td><code>side, playerID</code></td><td>supportsPlayerTracking</td></tr>
+<tr><td><code>debate.turn</code></td><td>Debate turn here (atomic)</td><td><code>side</code></td><td>debateDualClock</td></tr>
+<tr><td><code>display.theme</code></td><td>Theme</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.mode</code></td><td>Display mode</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.direction</code></td><td>External display direction</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>display.broadcast</code></td><td>Broadcast display mode</td><td><code>value, text</code></td><td>All games</td></tr>
+<tr><td><code>sound.enabled</code></td><td>Sound enabled</td><td><code>enabled</code></td><td>All games</td></tr>
+<tr><td><code>sound.play</code></td><td>Play sound effect</td><td><code>text</code></td><td>All games</td></tr>
+<tr><td><code>game.new</code></td><td>New game</td><td><code>—</code></td><td>All games</td></tr></tbody></table></div>
+      <p>Pause state is available as <code>clocks.pauseTimer</code> in v1 and <code>GET /api/v2/state/clocks</code>. It contains <code>side</code> (home/guest, omitted for officials), <code>remainingSeconds</code> (omitted for any indefinite pause), and <code>isRunning</code>. <code>clocks.pauseTitle</code> is the resolved team/official label; <code>clocks.pauseDurationSeconds</code> is the default countdown duration, and <code>clocks.isTeamPauseIndefinite</code> adds a separate Start Inf Pause option while Start Pause keeps using the saved countdown duration. Explicit <code>pause.start</code> commands can set value to 0 for an indefinite team pause. Indefinite pauses show centered team/official pause text without a clock value. A team pause uses that team’s logo (falling back to the event logo); an official pause uses the event logo. Logo visibility follows the display settings. The same state is saved under <code>game.pauseTimer</code>. <code>activePause</code> means a pauseTimer exists. Starting a team pause consumes one allowance and stops game, shot, prep, and penalty timers. Officials do not consume an allowance. Countdown expiry retains the overlay at 00:00 and fires pauseExpired once. Stop Pause (<code>pause.cancel</code>) dismisses timed or indefinite pauses and keeps play stopped; it does not refund the allowance. pause.adjust only changes usage counts and never starts or changes a timer. Native control boards use inline timer controls with pause/continue/stop controls, and the web controller provides separate Pause +/−, Start Pause, and optional Start Inf Pause buttons. Public scoreboard displays retain the pause overlay. The pauseStarted, officialPauseStarted, pauseTimerPaused, pauseTimerResumed, pauseEnded, and pauseExpired events support sound and Companion assignments on the session host. Stopping an indefinite team or official pause fires pauseEnded once, including its configured sound and Companion action; it never fires pauseExpired.</p>
+      <p>暂停状态位于 <code>clocks.pauseTimer</code>：side 为主队/客队，官方暂停省略 side；无限时队伍或官方暂停省略 remainingSeconds，界面只居中显示暂停文字及对应队伍或赛事标志，不显示计时数值。设置中的 isTeamPauseIndefinite 会额外显示开始不限时暂停按钮，普通开始暂停仍使用默认倒计时时长。队伍暂停扣除一次额度并停止比赛、进攻、准备和罚时计时。官方暂停不扣额度。计时结束后覆盖层保留在 00:00，停止暂停后需手动重新开始比赛计时。停止限时或不限时暂停均触发一次 pauseEnded 声音与 Companion 操作，不限时暂停不触发 pauseExpired。<code>pause.adjust</code> 仅修正已用次数。</p>
+      <p>Text choices: possession.set = none/home/guest; player.card = none/yellow/red; display.direction = homeLeft/guestLeft; display.mode = blackScreen/backgroundOnly/eventLogo/teamView/playerView/scoreboard. display.broadcast also accepts followDisplayControl/custom1/custom2/custom3 with value = an enabled display ID. sound.play and display.theme choices are listed by the operation catalog. penalty.add optionally accepts playerID; possession.set optionally accepts enabled to auto-start the shot clock.</p>
+    </section>
   </main>
 
   <script>
@@ -260,7 +365,7 @@
       en: {
         title: 'SmartScoreboard Web API',
         heading: 'SmartScoreboard Web API',
-        tagline: 'Read-only LAN feed for broadcast and production apps.',
+        tagline: 'LAN state feed and optional authenticated board control.',
         scoreboardTitle: 'Reference Demo Scoreboard',
         scoreboardBody: 'This demo is for API testing and reference only. Build production scoreboard graphics in your broadcast or overlay system.',
         openScoreboard: 'Open Scoreboard',
@@ -271,7 +376,11 @@
         commentatorBody: 'Live score, clock, timeline, roster alerts, and deterministic talking points for commentators on the local network.',
         openCommentator: 'Open Commentator',
         endpointsTitle: 'Endpoints',
-        endpointsBody: 'The demo pages are reference implementations only and use WebSocket. HTTP remains available for generic polling clients. WebSocket delivery follows the Update Mode selected in the app settings.',
+        endpointsBody: 'The demo pages are reference implementations. Display demos use WebSocket; the control demo also offers WebRTC with fallback. HTTP remains available for polling clients. Push delivery follows the Update Mode selected in the app settings.',
+        rtcTitle: 'Optional WebRTC transport',
+        rtcBody: 'The control demo can upgrade v1 state updates and control commands to a reliable, ordered WebRTC data channel. HTTP and WebSocket remain available. WebRTC runs on the session host, including Apple TV, with direct local connections and no external signaling, STUN, or TURN server.',
+        rtcFallback: 'Keep the existing WebSocket open for signaling and command acknowledgements. V2 resource subscriptions remain on WebSocket. Images, logs, pairing, host handoff, and native clock synchronization retain their existing transports. Commands use the same API key and enable switch as HTTP.',
+        rtcLimits: 'Limit RTC messages to 48 KiB and buffered output to 256 KiB; larger state updates use WebSocket. Buffer ICE candidates until the remote description is applied. Discard stale state by session ID, host epoch, and generatedAtUnixTime. If RTC negotiation or delivery fails, fall back to WebSocket/HTTP. When retrying a command, keep its UUID and parameters unchanged to prevent duplicate actions. Reconnect and renegotiate with the new host after a handoff.',
         httpState: 'HTTP state manifest',
         apiStatus: 'API status',
         appStatus: 'App status',
@@ -316,7 +425,11 @@
         commentatorBody: '为局域网内解说席提供实时比分、计时、事件线、球员提醒和确定性解说提示。',
         openCommentator: '打开解说面板',
         endpointsTitle: '端点',
-        endpointsBody: '演示页面只是参考实现，并且仅使用 WebSocket。HTTP 仍可供通用轮询客户端使用。WebSocket 发送方式遵循 App 设置中的更新模式。',
+        endpointsBody: '演示页面仅供参考。显示演示使用 WebSocket；控制演示还提供可自动回退的 WebRTC。HTTP 仍可用于轮询。推送方式遵循 App 设置中的更新模式。',
+        rtcTitle: '可选的 WebRTC 传输',
+        rtcBody: '控制演示可将 v1 状态更新和控制命令升级到可靠、有序的 WebRTC 数据通道，同时保留 HTTP 和 WebSocket。WebRTC 由会话主机提供，包括 Apple TV，使用本地直连，无需外部信令、STUN 或 TURN 服务器。',
+        rtcFallback: '请保持 WebSocket 连接以交换信令并接收命令确认。V2 资源订阅继续使用 WebSocket。图片、日志、配对、主机切换及原生设备时钟同步继续使用现有传输。控制命令使用与 HTTP 相同的 API 密钥和启用开关。',
+        rtcLimits: 'RTC 单条消息上限为 48 KiB，输出缓冲上限为 256 KiB；更大的状态更新使用 WebSocket。请先缓存 ICE 候选项，待远端描述应用后再添加。根据会话 ID、主机版本和 generatedAtUnixTime 丢弃过期状态。RTC 协商或传输失败时回退到 WebSocket／HTTP。重试命令时必须保留原 UUID 和参数，以防重复操作。主机切换后需连接新主机并重新协商。',
         httpState: 'HTTP 状态清单',
         apiStatus: 'API 状态',
         appStatus: 'App 状态',

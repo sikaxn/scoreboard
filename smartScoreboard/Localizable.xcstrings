@@ -357,6 +357,16 @@
         }
       }
     },
+    "%@ Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 暂停"
+          }
+        }
+      }
+    },
     "%@ Pause -1" : {
       "localizations" : {
         "zh-Hans" : {
@@ -368,6 +378,7 @@
       }
     },
     "%@ Pause +1" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -759,6 +770,23 @@
         }
       }
     },
+    "%@, %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，%@"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "en" : {
@@ -781,6 +809,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$d 台已连接"
+          }
+        }
+      }
+    },
+    "%d connected · %d disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 台已连接 · %d 台已断开"
           }
         }
       }
@@ -894,6 +933,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld. %2$@"
+          }
+        }
+      }
+    },
+    "%lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld/%2$lld"
           }
         }
       }
@@ -1226,6 +1275,16 @@
         }
       }
     },
+    "A team or official pause starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍或官方暂停开始"
+          }
+        }
+      }
+    },
     "A team pause count is used" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1287,11 +1346,34 @@
       }
     },
     "About Remote Display" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于远程显示"
+          }
+        }
+      }
+    },
+    "About Remote Display & Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于远程显示与控制"
+          }
+        }
+      }
+    },
+    "Activating %@…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在启用 %@…"
           }
         }
       }
@@ -1546,6 +1628,26 @@
         }
       }
     },
+    "Agree" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同意"
+          }
+        }
+      }
+    },
+    "Agree (%lld)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同意（%lld）"
+          }
+        }
+      }
+    },
     "Alarm Pulse" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1586,12 +1688,55 @@
         }
       }
     },
+    "Allow Scoreboard Local Network access in device Settings, then reopen Remote Display." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在设备设置中允许 Scoreboard 访问本地网络，然后重新打开远程显示。"
+          }
+        }
+      }
+    },
     "Allow Side Switching" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "允许切换方"
+          }
+        }
+      }
+    },
+    "Allows Apple's direct nearby Wi-Fi path as well as the LAN. It can work without a separate router, but range and interference still matter." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持局域网以及 Apple 的附近设备直连 Wi-Fi。无需独立路由器也可使用，但仍需考虑距离和无线干扰。"
+          }
+        }
+      }
+    },
+    "An approved iPhone, iPad, or Mac uses the normal control board, including players and display controls. It can also show a remote display. Apple TV can display and host, but has no control board." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获得授权的 iPhone、iPad 或 Mac 可使用常规控制面板，包括球员管理和显示控制，同时也可显示远程记分牌。Apple TV 可以显示记分牌并担任主机，但不提供控制面板。"
+          }
+        }
+      }
+    },
+    "An official pause starts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "官方暂停开始"
           }
         }
       }
@@ -1687,8 +1832,33 @@
         }
       }
     },
+    "Apple TV can display the scoreboard and host the session, including timers, Web API, and Companion. Pair it from the owner device and choose Make Session Host. The control board, game files, and setup remain on iPhone, iPad, or Mac." : {
+      "comment" : "A description of the functionality of the Apple TV.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple TV 可以显示记分牌并担任会话主机，运行计时器、Web API 和 Companion。请在所有者设备上与其配对，然后选择“设为会话主机”。控制面板、比赛文件和比赛设置仍由 iPhone、iPad 或 Mac 管理。"
+          }
+        }
+      }
+    },
+    "Apple TV can display the scoreboard and run game logic as the session host. Use iPhone, iPad, or Mac for the control board, game files, and setup." : {
+      "comment" : "A description of how to use an Apple TV with a scoreboard.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple TV 可以显示记分牌，并作为会话主机运行比赛逻辑。请使用 iPhone、iPad 或 Mac 操作控制面板、管理比赛文件和设置比赛。"
+          }
+        }
+      }
+    },
     "Apple TV can only act as a Remote Display. It requires the full Smart Scoreboard app on macOS or iPad to pair, control, and run the scoreboard." : {
       "comment" : "A description of the limitations of Apple TVs as remote displays.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -1701,6 +1871,7 @@
     },
     "Apple TV can only act as a Remote Display. Use the full Smart Scoreboard app on macOS or iPad to pair this Apple TV, control the scoreboard, and send live updates." : {
       "comment" : "A description of how to use the scoreboard on an Apple TV.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -1792,6 +1963,7 @@
       }
     },
     "Assign a Companion location to each supported event for the selected sport. Empty assignments do not send commands." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1833,6 +2005,7 @@
       }
     },
     "Assign one available sound to each supported event for the selected sport." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2086,6 +2259,18 @@
         }
       }
     },
+    "Basketball court diagram: left basket, master, and right basket screens, the owner tablet, and a separate control board all connect to the Ethernet Apple TV host. Web API and Companion run on the host." : {
+      "comment" : "A description of the setup and functionality of a remote display and control system.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "篮球场示意图：左侧篮筐屏幕、主屏幕、右侧篮筐屏幕、所有者平板和独立控制面板均连接到通过以太网联网的 Apple TV 主机。Web API 和 Companion 在主机上运行。"
+          }
+        }
+      }
+    },
     "Basketball Setup" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2239,6 +2424,28 @@
         }
       }
     },
+    "Both come from the host, at the host IP shown in Integration settings. Browser clients should use that IP. Companion commands fire once from the host, even if several control boards are connected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "两者均由主机提供，地址为集成设置中显示的主机 IP。浏览器客户端应使用该 IP。即使连接了多个控制面板，Companion 命令也只由主机触发一次。"
+          }
+        }
+      }
+    },
+    "Both Teams" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "双方队伍"
+          }
+        }
+      }
+    },
     "Bottom to Top" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2311,6 +2518,16 @@
         }
       }
     },
+    "Bypass" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旁路"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "comment" : "A button that cancels the current action.",
       "isCommentAutoGenerated" : true,
@@ -2323,12 +2540,44 @@
         }
       }
     },
+    "Cannot activate host: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法启用主机：%@"
+          }
+        }
+      }
+    },
+    "Cannot save incoming host handoff: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存传入的主机转移数据：%@"
+          }
+        }
+      }
+    },
     "Cards" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "红黄牌"
+          }
+        }
+      }
+    },
+    "Cards and Fouls" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "罚牌与犯规"
           }
         }
       }
@@ -2484,6 +2733,28 @@
         }
       }
     },
+    "Choose 1–60 minutes from the Timed pause menu on the live board." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在实时控制面板的限时暂停菜单中选择 1–60 分钟。"
+          }
+        }
+      }
+    },
+    "Choose a duration when starting a timed pause. Official pauses do not use a team allowance." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动限时暂停时选择时长。官方暂停不占用队伍的暂停次数。"
+          }
+        }
+      }
+    },
     "Choose a photo before editing placement." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2504,12 +2775,34 @@
         }
       }
     },
+    "Choose at least one module in Control Board Mode to add controls to this station." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在“控制面板模式”中至少选择一个模块，以向此工作台添加控制功能。"
+          }
+        }
+      }
+    },
     "Choose between a shared game clock and chess-style side clocks." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择共用比赛计时或棋钟式双方计时。"
+          }
+        }
+      }
+    },
+    "Choose modules and their order within the team and timer columns. Unavailable sport features stay hidden." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择模块并调整其在队伍和计时列内的顺序。当前运动不支持的功能保持隐藏。"
           }
         }
       }
@@ -2525,11 +2818,34 @@
       }
     },
     "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Integration > Remote Display." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择每个屏幕的基础左右方向。比赛中“交换双方”仍会翻转实时布局。若要更改远程显示方向，请前往“集成”>“远程显示”。"
+          }
+        }
+      }
+    },
+    "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Settings > Remote Display & Control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择各个屏幕的基本左右方向。比赛中“交换两侧”仍会翻转实时布局。要更改远程显示方向，请前往“设置”>“远程显示与控制”。"
+          }
+        }
+      }
+    },
+    "Choose the controls for this station and arrange their order. Unavailable sport features stay hidden." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择此工作台的控制模块并调整顺序。当前运动不支持的功能会保持隐藏。"
           }
         }
       }
@@ -2540,6 +2856,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择辩论赛制、回合标题、双方标签以及是否跟踪比分。"
+          }
+        }
+      }
+    },
+    "Choose the default pause duration. Enable indefinite team pauses to offer both timed and indefinite start buttons. Official pauses do not use a team allowance." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择默认暂停时长。启用不限时队伍暂停后，可分别选择开始限时暂停或不限时暂停。官方暂停不占用队伍暂停额度。"
           }
         }
       }
@@ -2606,7 +2933,19 @@
         }
       }
     },
+    "Choose Web API or Bitfocus Companion. Pair screens and control boards on the Remote Display & Control page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 Web API 或 Bitfocus Companion。请在“远程显示与控制”页面配对显示屏和控制面板。"
+          }
+        }
+      }
+    },
     "Choose which integration settings to edit. This selector is only navigation: Web API, Remote Display, and Bitfocus Companion each keep their own enabled state, connection details, and assignments." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2746,6 +3085,16 @@
         }
       }
     },
+    "Clear search" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除搜索"
+          }
+        }
+      }
+    },
     "Clear this %@ penalty timer?" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2766,12 +3115,13 @@
         }
       }
     },
-    "Close" : {
+    "Clients Connected to Host" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭"
+            "value" : "连接到主机的客户端"
           }
         }
       }
@@ -2876,6 +3226,16 @@
         }
       }
     },
+    "Close" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "Coalesces fast changes and sends at most 10 updates per second." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2892,6 +3252,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "代码"
+          }
+        }
+      }
+    },
+    "Command failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令执行失败"
           }
         }
       }
@@ -3279,12 +3650,67 @@
         }
       }
     },
+    "Connect to the current host before moving the session." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转移会话前，请先连接当前主机。"
+          }
+        }
+      }
+    },
+    "Connect to the session host before changing game setup." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改比赛设置前，请先连接会话主机。"
+          }
+        }
+      }
+    },
+    "Connect to the session host before changing paired devices." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改已配对设备前，请先连接会话主机。"
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接"
+          }
+        }
+      }
+    },
     "Connected Displays" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "已连接显示设备"
+          }
+        }
+      }
+    },
+    "Connected to %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接到 %@。"
           }
         }
       }
@@ -3329,6 +3755,28 @@
         }
       }
     },
+    "Connection Status" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接状态"
+          }
+        }
+      }
+    },
+    "Connection to Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "到主机的连接"
+          }
+        }
+      }
+    },
     "Constructive" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3349,12 +3797,77 @@
         }
       }
     },
+    "Continue" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续"
+          }
+        }
+      }
+    },
+    "Continue Countdown" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续倒计时"
+          }
+        }
+      }
+    },
+    "Continue Hosting" : {
+      "comment" : "The label of a button that lets the user continue hosting a match.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续担任主机"
+          }
+        }
+      }
+    },
+    "Control board" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制面板"
+          }
+        }
+      }
+    },
     "Control Board" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "控制记分牌"
+          }
+        }
+      }
+    },
+    "Control Board Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制面板模式"
+          }
+        }
+      }
+    },
+    "Control enabled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已启用控制"
           }
         }
       }
@@ -3399,12 +3912,99 @@
         }
       }
     },
+    "Copy API Key" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制 API 密钥"
+          }
+        }
+      }
+    },
     "Core custom sport identity and scoring behavior." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义项目的名称和计分行为。"
+          }
+        }
+      }
+    },
+    "Could not delete the hosted match: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法删除主机上的比赛：%@"
+          }
+        }
+      }
+    },
+    "Could not fence old host: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法暂停原主机的控制权：%@"
+          }
+        }
+      }
+    },
+    "Could not prepare the session: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法准备会话：%@"
+          }
+        }
+      }
+    },
+    "Could not recover this session: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复此会话：%@"
+          }
+        }
+      }
+    },
+    "Could not remove the old host's match copy: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法删除原主机上的比赛副本：%@"
+          }
+        }
+      }
+    },
+    "Could not resume the previous host: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复原主机：%@"
+          }
+        }
+      }
+    },
+    "Could not save the host's match copy: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存主机上的比赛副本：%@"
           }
         }
       }
@@ -3467,6 +4067,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "CSV"
+          }
+        }
+      }
+    },
+    "Current Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前主机"
           }
         }
       }
@@ -3683,6 +4294,17 @@
         }
       }
     },
+    "Custom Modules" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义模块"
+          }
+        }
+      }
+    },
     "Custom Player Tools" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3720,6 +4342,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义项目配置"
+          }
+        }
+      }
+    },
+    "Custom Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义工作台"
           }
         }
       }
@@ -4087,6 +4720,17 @@
         }
       }
     },
+    "Default Pause Duration" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认暂停时长"
+          }
+        }
+      }
+    },
     "Default scoreboard sound" : {
       "localizations" : {
         "zh-Hans" : {
@@ -4125,6 +4769,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除比赛文件"
+          }
+        }
+      }
+    },
+    "Delete Local Match and Leave" : {
+      "comment" : "The text on a button that deletes a hosted match and exits remote display mode.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除本地比赛并退出"
+          }
+        }
+      }
+    },
+    "Delete Local Match and Quit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除本地比赛并退出应用"
           }
         }
       }
@@ -4221,6 +4888,39 @@
         }
       }
     },
+    "Device → Wi-Fi or Ethernet network → Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备 → Wi-Fi 或以太网 → 主机"
+          }
+        }
+      }
+    },
+    "Device ↔ nearby Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备 ↔ 附近的主机"
+          }
+        }
+      }
+    },
+    "Device change was not sent. Reconnect and retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备更改未发送。请重新连接后重试。"
+          }
+        }
+      }
+    },
     "Diagonal Marquee" : {
       "localizations" : {
         "zh-Hans" : {
@@ -4241,12 +4941,58 @@
         }
       }
     },
+    "Discard Hosted Match?" : {
+      "comment" : "A confirmation dialog that lets the user discard a hosted match and return to pairing mode.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "丢弃主机上的比赛？"
+          }
+        }
+      }
+    },
+    "Discard Match & Stop Hosting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "丢弃比赛并停止担任主机"
+          }
+        }
+      }
+    },
+    "Discard Match and Stop Hosting" : {
+      "comment" : "The text of a button that discards a hosted match and stops hosting.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "丢弃比赛并停止担任主机"
+          }
+        }
+      }
+    },
     "Disconnect" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "断开连接"
+          }
+        }
+      }
+    },
+    "Disconnect status" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "断开连接状态"
           }
         }
       }
@@ -4363,7 +5109,19 @@
         }
       }
     },
+    "Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or player area from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示方向是当前屏幕的基本左右方向。控制面板、投影仪、电视或已配对的远程显示屏可能从不同方向面向场地、舞台或选手区，因此某个屏幕设为主队在左时，另一个屏幕可能需要客队在左。“交换两侧”仍是比赛中的实时控制：它会在各屏幕的基本方向上翻转当前对阵，包括在“远程显示与控制”中单独设置方向的远程显示屏。"
+          }
+        }
+      }
+    },
     "Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Integration." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -4410,6 +5168,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示预览"
+          }
+        }
+      }
+    },
+    "Display Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示工作台"
           }
         }
       }
@@ -4791,7 +5560,19 @@
         }
       }
     },
+    "Enable Remote Display / Control Pairing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用远程显示／控制配对"
+          }
+        }
+      }
+    },
     "Enable Remote Display Pairing" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -4922,7 +5703,19 @@
         }
       }
     },
+    "Enter Remote Display / Control Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进入远程显示／控制模式"
+          }
+        }
+      }
+    },
     "Enter Remote Display Mode" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -4971,6 +5764,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请在操作设备上输入此代码。等待配对时，代码会自动刷新。"
+          }
+        }
+      }
+    },
+    "Enter this pairing code from Settings > Integration > Remote Display & Control on the main device. Enable Allow This Device to Control there to use this device as a control board." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在主设备的“设置 > 集成 > 远程显示与控制”中输入此配对码。在那里启用“允许此设备控制”，即可将此设备用作控制台。"
           }
         }
       }
@@ -5057,6 +5861,29 @@
         }
       }
     },
+    "Exactly one paired device runs scores, clocks, sounds, logs, Web API, and Bitfocus Companion. An Ethernet-connected Apple TV or Mac is a useful choice. The host keeps an isolated working copy until the owner saves the match or another host accepts the handoff." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅有一台已配对设备负责运行比分、计时器、声音、日志、Web API 和 Bitfocus Companion。通过以太网连接的 Apple TV 或 Mac 是合适的选择。主机保留独立的工作副本，直到所有者保存比赛，或另一台主机接收转移。"
+          }
+        }
+      }
+    },
+    "Example: a basketball game with three public screens" : {
+      "comment" : "A description of a remote display setup.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "示例：使用三个公开显示屏的篮球比赛"
+          }
+        }
+      }
+    },
     "Exit Display Mode" : {
       "comment" : "A button that exits remote display mode.",
       "isCommentAutoGenerated" : true,
@@ -5111,6 +5938,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "导出 JSON"
+          }
+        }
+      }
+    },
+    "External Automation Safety Notice" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外部自动化安全提示"
           }
         }
       }
@@ -5625,6 +6462,17 @@
         }
       }
     },
+    "Full Control Board" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整控制面板"
+          }
+        }
+      }
+    },
     "Full Roster" : {
       "comment" : "Title of a player view roster scope that shows all players in the game.",
       "isCommentAutoGenerated" : true,
@@ -5653,6 +6501,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "比赛"
+          }
+        }
+      }
+    },
+    "Game Actions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛操作"
           }
         }
       }
@@ -5873,6 +6731,17 @@
         }
       }
     },
+    "Game setup was not sent. Reconnect and retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛设置未发送。请重新连接后重试。"
+          }
+        }
+      }
+    },
     "Game State" : {
       "comment" : "A label displayed above the game state score columns.",
       "isCommentAutoGenerated" : true,
@@ -6067,6 +6936,66 @@
         }
       }
     },
+    "Guest has the higher score when the timer expires" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时客队比分高于对方"
+          }
+        }
+      }
+    },
+    "Guest has the higher score when the timer expires; this is not a confirmed match result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时客队比分高于对方；这不代表已确认的比赛结果"
+          }
+        }
+      }
+    },
+    "Guest has the higher score when the timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停时客队比分高于对方"
+          }
+        }
+      }
+    },
+    "Guest has the lower score when the timer expires" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时客队比分低于对方"
+          }
+        }
+      }
+    },
+    "Guest has the lower score when the timer expires; this is not a confirmed match result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时客队比分低于对方；这不代表已确认的比赛结果"
+          }
+        }
+      }
+    },
+    "Guest has the lower score when the timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停时客队比分低于对方"
+          }
+        }
+      }
+    },
     "Guest Left" : {
       "comment" : "Title of a scoreboard display direction where the guest team is on the left.",
       "isCommentAutoGenerated" : true,
@@ -6075,6 +7004,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "客队在左"
+          }
+        }
+      }
+    },
+    "Guest Lose" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队失利"
           }
         }
       }
@@ -6149,6 +7088,16 @@
         }
       }
     },
+    "Guest Win" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客队获胜"
+          }
+        }
+      }
+    },
     "Guest Wins Period" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6215,6 +7164,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "半场和阵容牌"
+          }
+        }
+      }
+    },
+    "Handoff is fenced; waiting to retry delivery to %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原主机已暂停控制，正在等待重新向 %@ 发送转移数据。"
           }
         }
       }
@@ -6490,6 +7450,66 @@
         }
       }
     },
+    "Home has the higher score when the timer expires" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时主队比分高于对方"
+          }
+        }
+      }
+    },
+    "Home has the higher score when the timer expires; this is not a confirmed match result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时主队比分高于对方；这不代表已确认的比赛结果"
+          }
+        }
+      }
+    },
+    "Home has the higher score when the timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停时主队比分高于对方"
+          }
+        }
+      }
+    },
+    "Home has the lower score when the timer expires" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时主队比分低于对方"
+          }
+        }
+      }
+    },
+    "Home has the lower score when the timer expires; this is not a confirmed match result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时主队比分低于对方；这不代表已确认的比赛结果"
+          }
+        }
+      }
+    },
+    "Home has the lower score when the timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停时主队比分低于对方"
+          }
+        }
+      }
+    },
     "Home Left" : {
       "comment" : "Title of a scoreboard display direction where the home team is on the left.",
       "isCommentAutoGenerated" : true,
@@ -6498,6 +7518,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "主队在左"
+          }
+        }
+      }
+    },
+    "Home Lose" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队失利"
           }
         }
       }
@@ -6582,6 +7612,16 @@
         }
       }
     },
+    "Home Win" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主队获胜"
+          }
+        }
+      }
+    },
     "Home Wins Period" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6642,6 +7682,183 @@
         }
       }
     },
+    "Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机"
+          }
+        }
+      }
+    },
+    "Host Here & Disconnect Others" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在本机担任主机并断开其他设备"
+          }
+        }
+      }
+    },
+    "Host IP" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机 IP"
+          }
+        }
+      }
+    },
+    "Host on This Device" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由此设备担任主机"
+          }
+        }
+      }
+    },
+    "Host preparation timed out; the current host is still active. Keep Scoreboard open on the selected display and retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机准备超时；当前主机仍在运行。请在选定显示设备上保持 Scoreboard 打开，然后重试。"
+          }
+        }
+      }
+    },
+    "Host recovery failed: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机恢复失败：%@"
+          }
+        }
+      }
+    },
+    "Host transfer did not complete. Reconnect to the host or recover from the owner's last saved copy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机转移未完成。请重新连接主机，或从所有者最后保存的副本恢复。"
+          }
+        }
+      }
+    },
+    "Host transfer failed; this device is still hosting. %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机转移失败；此设备仍担任主机。%@"
+          }
+        }
+      }
+    },
+    "Host transfer failed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机转移失败。"
+          }
+        }
+      }
+    },
+    "Host Unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机不可用"
+          }
+        }
+      }
+    },
+    "Hosting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在担任主机"
+          }
+        }
+      }
+    },
+    "Hosting on this device. Other devices disconnected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在本机运行会话。其他设备已断开连接。"
+          }
+        }
+      }
+    },
+    "Hosting Session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在运行会话"
+          }
+        }
+      }
+    },
+    "Hosting this session." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在担任本次会话的主机。"
+          }
+        }
+      }
+    },
+    "How devices connect" : {
+      "comment" : "A heading for the section that describes how devices connect to each other.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备如何连接"
+          }
+        }
+      }
+    },
+    "How Remote Sessions Work" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "了解远程会话"
+          }
+        }
+      }
+    },
     "HTTP" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6658,6 +7875,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "HTTP %1$@，WebSocket %2$@，已连接 %3$@ 个 WS 客户端。"
+          }
+        }
+      }
+    },
+    "If the host is gone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机无法使用时"
           }
         }
       }
@@ -6742,6 +7970,47 @@
         }
       }
     },
+    "Indefinite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不限时"
+          }
+        }
+      }
+    },
+    "Indefinite Official Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无限时官方暂停"
+          }
+        }
+      }
+    },
+    "Indefinite Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无限时暂停"
+          }
+        }
+      }
+    },
+    "Indefinite Team Pauses" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍暂停不限时"
+          }
+        }
+      }
+    },
     "Integration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6822,12 +8091,45 @@
         }
       }
     },
+    "iPhone can display or control a paired scoreboard. The main device grants control with Allow This Device to Control. A connected external display can show the remote scoreboard at the same time." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 可显示或控制已配对的记分牌。主设备通过“允许此设备控制”授予控制权限。连接的外接显示器可同时显示远程记分牌。"
+          }
+        }
+      }
+    },
     "iPhone can enter Remote Display Mode. In portrait, keep this screen available for the pairing code; if an external display is connected, it will show the remote scoreboard output." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "iPhone 可以进入远程显示模式。竖屏时，请保留此屏幕用于显示配对码；如果连接了外接显示器，它会显示远程记分牌输出。"
+          }
+        }
+      }
+    },
+    "iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display and session hosting. Scores, timers, players, display settings, and sounds stay synchronized with the session host." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone、iPad 和 Mac 可以使用完整的远程控制面板，同时显示记分牌。Apple TV 支持远程显示和担任会话主机。比分、计时器、球员、显示设置和声音均与会话主机保持同步。"
+          }
+        }
+      }
+    },
+    "iPhone, iPad, and Mac can use the full remote control board and display the scoreboard at the same time. Apple TV supports remote display only. Scores, timers, players, display settings, and sounds stay synchronized with the main device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone、iPad 和 Mac 可使用完整远程控制台并同时显示记分牌。Apple TV 仅支持远程显示。比分、计时器、球员、显示设置和声音与主设备保持同步。"
           }
         }
       }
@@ -6850,6 +8152,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保留兔兔"
+          }
+        }
+      }
+    },
+    "Keep Hosting and Sync" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续担任主机并同步"
+          }
+        }
+      }
+    },
+    "Keep Scoreboard open, reconnect the owner, and wait for Safe to Disconnect. Deleting the local match now can lose unsynced scores and logs." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请保持 Scoreboard 打开，重新连接所有者，并等待显示“可以安全断开”。现在删除本地比赛可能导致未同步的比分和日志丢失。"
           }
         }
       }
@@ -6904,6 +8228,27 @@
         }
       }
     },
+    "Last reported by the session host." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以上为会话主机最后报告的状态。"
+          }
+        }
+      }
+    },
+    "Last response %d s ago" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次响应在 %d 秒前"
+          }
+        }
+      }
+    },
     "Last update" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6920,6 +8265,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最后更新"
+          }
+        }
+      }
+    },
+    "Latency" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "延迟"
+          }
+        }
+      }
+    },
+    "Leave Hosted Match?" : {
+      "comment" : "A confirmation dialog that asks the user to leave a hosted match.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出主机上的比赛？"
           }
         }
       }
@@ -7130,6 +8498,17 @@
         }
       }
     },
+    "Local Network permission" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地网络权限"
+          }
+        }
+      }
+    },
     "Local Network Permission" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7166,6 +8545,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本机记分牌正在显示。将 iPhone 旋转至横屏即可在此屏幕上显示记分牌。"
+          }
+        }
+      }
+    },
+    "Log synchronization will retry: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日志同步将重试：%@"
           }
         }
       }
@@ -7292,6 +8682,37 @@
         }
       }
     },
+    "Main, chess, or debate timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主计时器、棋类时钟或辩论计时器暂停"
+          }
+        }
+      }
+    },
+    "Main, chess, or debate timer reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主计时器、棋类时钟或辩论计时器归零"
+          }
+        }
+      }
+    },
+    "Make Session Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设为会话主机"
+          }
+        }
+      }
+    },
     "Manage local game files for both reusable setups and live games." : {
       "localizations" : {
         "zh-Hans" : {
@@ -7337,6 +8758,39 @@
         }
       }
     },
+    "Match & Timer Controls" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛与计时控制"
+          }
+        }
+      }
+    },
+    "Match active or sync pending" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛进行中或等待同步"
+          }
+        }
+      }
+    },
+    "Match active or sync pending — keep this host running until the owner reconnects and saves the match." : {
+      "comment" : "A description of the state of a remote display when a match is active or when the display is syncing.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛进行中或等待同步——请保持此主机运行，直到所有者重新连接并保存比赛。"
+          }
+        }
+      }
+    },
     "Match already has a winner" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7369,6 +8823,26 @@
         }
       }
     },
+    "Matching events run from top to bottom across groups. Empty assignments send no commands. Bypass skips an event without changing its saved assignment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匹配的事件按分组从上到下执行。空白分配不会发送命令。旁路会跳过事件，但保留已保存的分配。"
+          }
+        }
+      }
+    },
+    "Matching events run from top to bottom across groups. Sounds play one after another. Bypass skips an event without changing its saved assignment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匹配的事件按分组从上到下执行。声音依次播放。旁路会跳过事件，但保留已保存的分配。"
+          }
+        }
+      }
+    },
     "Matchup" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7385,6 +8859,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "菜单标签"
+          }
+        }
+      }
+    },
+    "Merged View (Beta)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合并视图（测试版）"
           }
         }
       }
@@ -7429,6 +8913,83 @@
         }
       }
     },
+    "Move Host Here" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将主机转移到此设备"
+          }
+        }
+      }
+    },
+    "Move hosting to another device before disconnecting the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "断开会话主机前，请先将主机转移到另一台设备。"
+          }
+        }
+      }
+    },
+    "Move hosting to another device before removing the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除会话主机前，请先将主机转移到另一台设备。"
+          }
+        }
+      }
+    },
+    "Move Module Down" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下移模块"
+          }
+        }
+      }
+    },
+    "Move Module Up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移模块"
+          }
+        }
+      }
+    },
+    "Move the session host back here before ending remote pairing." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "结束远程配对前，请先将会话主机转移回此设备。"
+          }
+        }
+      }
+    },
+    "Move the session host before ending remote pairing." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "结束远程配对前，请先转移会话主机。"
+          }
+        }
+      }
+    },
     "Moved %lld of %lld files." : {
       "localizations" : {
         "zh-Hans" : {
@@ -7455,6 +9016,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在将文件移入“文件”App"
+          }
+        }
+      }
+    },
+    "Moving session host…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在转移会话主机…"
           }
         }
       }
@@ -7495,6 +9067,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当公开记分牌需要显示赛事、场馆、轮次或转播信息时填写赛事名称。留空则记分牌更简洁，只突出队伍和实时状态。"
+          }
+        }
+      }
+    },
+    "Nearby / peer-to-peer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "附近／点对点"
           }
         }
       }
@@ -7703,6 +9286,17 @@
         }
       }
     },
+    "No clients connected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚无已连接的客户端。"
+          }
+        }
+      }
+    },
     "No Companion command assigned." : {
       "localizations" : {
         "zh-Hans" : {
@@ -7769,6 +9363,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "还没有日志会话。开始操作记分牌即可创建第一条运行日志。"
+          }
+        }
+      }
+    },
+    "No matching events" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的事件"
           }
         }
       }
@@ -7967,6 +9571,26 @@
         }
       }
     },
+    "Official Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "官方暂停"
+          }
+        }
+      }
+    },
+    "Official Pause Started" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "官方暂停开始"
+          }
+        }
+      }
+    },
     "Offline" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7995,6 +9619,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "确定"
+          }
+        }
+      }
+    },
+    "On iPhone, iPad, or Apple TV, the system may ask for Local Network access when Remote Display starts. Allow it for pairing and discovery. If pairing stays empty after denying it, enable Scoreboard's Local Network permission in the device's Settings, then return to the app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 iPhone、iPad 或 Apple TV 上启动远程显示时，系统可能请求本地网络权限。请允许访问，以便配对和发现设备。如果拒绝后配对列表一直为空，请在设备设置中启用 Scoreboard 的本地网络权限，然后返回应用。"
           }
         }
       }
@@ -8059,6 +9694,17 @@
         }
       }
     },
+    "On the owner's Remote Display & Control settings, Recover Here starts hosting from the last match copy the owner saved. Changes made after that copy may be lost, and all timers restart paused. If the old host returns, discard its local match before reconnecting it. A delegated host can discard its isolated match and log from its pairing screen." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在所有者的“远程显示与控制”设置中，选择“在此设备上恢复”，即可从所有者最后保存的比赛副本开始担任主机。该副本之后的更改可能丢失，所有计时器将处于暂停状态。如果旧主机恢复可用，请先丢弃其本地比赛，再重新连接。受委派的主机可在其配对页面丢弃独立的比赛副本和日志。"
+          }
+        }
+      }
+    },
     "Open" : {
       "comment" : "A button that opens a stored game file.",
       "isCommentAutoGenerated" : true,
@@ -8097,6 +9743,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请打开 Finder，并在下方文件夹中编辑 index.html 和资源文件。Web API 只提供这些文件，不允许远程上传、删除或编辑。"
+          }
+        }
+      }
+    },
+    "Open Guide" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开指南"
           }
         }
       }
@@ -8169,12 +9826,32 @@
         }
       }
     },
+    "Open Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开设置"
+          }
+        }
+      }
+    },
     "Open Settings and enable Local Network for Scoreboard." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开“设置”，为 Scoreboard 启用“本地网络”。"
+          }
+        }
+      }
+    },
+    "Open Settings While Timers Are Running?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器运行时打开设置？"
           }
         }
       }
@@ -8303,6 +9980,39 @@
         }
       }
     },
+    "Owner" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者"
+          }
+        }
+      }
+    },
+    "Owner · Client" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者 · 客户端"
+          }
+        }
+      }
+    },
+    "Owner disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者已断开连接"
+          }
+        }
+      }
+    },
     "P" : {
       "localizations" : {
         "zh-Hans" : {
@@ -8346,11 +10056,56 @@
       }
     },
     "Pair nearby Apple TV, iPad, or Mac display devices." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "配对附近的 Apple TV、iPad 或 Mac 显示设备。"
+          }
+        }
+      }
+    },
+    "Pair nearby devices to display or control the scoreboard without browser URLs. The main device remains the source of live updates and grants control to each device separately." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近设备即可显示或控制记分牌，无需浏览器网址。主设备提供实时更新，并为每台设备单独授予控制权限。"
+          }
+        }
+      }
+    },
+    "Pair nearby devices to display or control the scoreboard without browser URLs. The owner grants control to each device separately and can assign one connected device to host the game." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近设备即可显示或控制记分牌，无需输入浏览器网址。所有者分别授予各设备控制权限，并可指定一台已连接设备担任比赛主机。"
+          }
+        }
+      }
+    },
+    "Pair nearby displays and control boards, manage permissions, and choose the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近的显示屏和控制面板，管理权限并选择会话主机。"
+          }
+        }
+      }
+    },
+    "Pair nearby displays and control boards. Apple TV is display-only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对附近的显示器和控制台。Apple TV 仅支持显示。"
           }
         }
       }
@@ -8361,6 +10116,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配对屏幕已打开。替换 %1$@ 需要确认。"
+          }
+        }
+      }
+    },
+    "Pair this device to a main scoreboard for remote display or control. When the main device enables Allow This Device to Control, the regular control board opens with Merged View and Local Display available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将此设备与主记分牌配对以进行远程显示或控制。主设备启用“允许此设备控制”后，将打开常规控制台，可使用合并视图和本地显示。"
           }
         }
       }
@@ -8410,6 +10176,18 @@
         }
       }
     },
+    "Pairing is managed by the session owner." : {
+      "comment" : "A description of the pairing process when the session owner is also the device owner.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对由会话所有者管理。"
+          }
+        }
+      }
+    },
     "Pairing is paused while this device is in Remote Display Mode." : {
       "localizations" : {
         "zh-Hans" : {
@@ -8441,11 +10219,22 @@
       }
     },
     "Pause -" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂停 -"
+          }
+        }
+      }
+    },
+    "Pause / Continue Countdown" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停 / 继续倒计时"
           }
         }
       }
@@ -8461,6 +10250,7 @@
       }
     },
     "Pause +" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -8502,12 +10292,43 @@
         }
       }
     },
+    "Pause Countdown" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停倒计时"
+          }
+        }
+      }
+    },
     "Pause debate timer" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂停辩论计时"
+          }
+        }
+      }
+    },
+    "Pause Duration" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停时长"
+          }
+        }
+      }
+    },
+    "Pause Ended" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停结束"
           }
         }
       }
@@ -8600,6 +10421,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂停环节计时"
+          }
+        }
+      }
+    },
+    "Pause Started" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停开始"
+          }
+        }
+      }
+    },
+    "Pause Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停计时"
+          }
+        }
+      }
+    },
+    "Pause Timer Change" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停计时变更"
+          }
+        }
+      }
+    },
+    "Pause Timer Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停时间到"
+          }
+        }
+      }
+    },
+    "Pause Timer Paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停计时已暂停"
+          }
+        }
+      }
+    },
+    "Pause Timer Resumed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停计时已继续"
           }
         }
       }
@@ -8724,6 +10605,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "罚时开始"
+          }
+        }
+      }
+    },
+    "Penalty Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "罚时工作台"
           }
         }
       }
@@ -8958,6 +10850,17 @@
         }
       }
     },
+    "Ping unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "延迟不可用"
+          }
+        }
+      }
+    },
     "Pinging" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9187,6 +11090,17 @@
         }
       }
     },
+    "Player tracking is disabled. Enable it in Settings to manage the roster here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员跟踪已关闭。请在设置中启用，以在此处管理球员名单。"
+          }
+        }
+      }
+    },
     "Player View" : {
       "comment" : "Title of a scoreboard display view mode that shows a single player's stats.",
       "isCommentAutoGenerated" : true,
@@ -9388,6 +11302,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按双方跟踪准备时间，并显示在实时面板和显示端。"
+          }
+        }
+      }
+    },
+    "Prep Timers" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备时间计时器"
+          }
+        }
+      }
+    },
+    "Preparing %@…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在准备 %@…"
+          }
+        }
+      }
+    },
+    "Preparing host transfer…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在准备转移主机…"
           }
         }
       }
@@ -9689,6 +11635,18 @@
         }
       }
     },
+    "Quick setup: enable Remote Display / Control pairing on the owner, allow Local Network access on each device, enter each device's pairing code, grant control per device, then choose Make Session Host. Watch the connection and sync status before powering anything down." : {
+      "comment" : "A description of the setup process for a remote display and control system.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快速设置：在所有者设备上启用远程显示／控制配对，允许每台设备访问本地网络，输入各设备的配对码，分别授予控制权限，然后选择“设为会话主机”。关闭设备前，请先检查连接和同步状态。"
+          }
+        }
+      }
+    },
     "Quiet UI click" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9719,7 +11677,19 @@
         }
       }
     },
+    "Read live state and control the scoreboard with an API key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取实时状态，并使用 API 密钥控制记分牌。"
+          }
+        }
+      }
+    },
     "Read scoreboard state with HTTP and WebSocket." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -9811,6 +11781,17 @@
         }
       }
     },
+    "Reconnect to the session host before turning pairing off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭配对前，请重新连接会话主机。"
+          }
+        }
+      }
+    },
     "Record" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9827,6 +11808,37 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在录制快捷键"
+          }
+        }
+      }
+    },
+    "Recover from Last Saved Copy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从最后保存的副本恢复"
+          }
+        }
+      }
+    },
+    "Recover Here" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此设备上恢复"
+          }
+        }
+      }
+    },
+    "Recover Session on This Device?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此设备上恢复会话？"
           }
         }
       }
@@ -9851,6 +11863,41 @@
         }
       }
     },
+    "Remote Control Board" : {
+      "comment" : "A button that opens a sheet for controlling a remote display.",
+      "extractionState" : "stale",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程控制面板"
+          }
+        }
+      }
+    },
+    "Remote control is disabled." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程控制已关闭。"
+          }
+        }
+      }
+    },
+    "Remote Devices" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程设备"
+          }
+        }
+      }
+    },
     "Remote Direction" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9869,6 +11916,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "远程显示"
+          }
+        }
+      }
+    },
+    "Remote Display / Control Mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示／控制模式"
+          }
+        }
+      }
+    },
+    "Remote Display / Control Pairing is off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示／控制配对已关闭。"
+          }
+        }
+      }
+    },
+    "Remote Display & Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示与控制"
+          }
+        }
+      }
+    },
+    "Remote Display & Control Guide" : {
+      "comment" : "A heading for a guide to remote display and control.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示与控制指南"
+          }
+        }
+      }
+    },
+    "Remote Display & Session Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示与会话主机"
           }
         }
       }
@@ -9925,6 +12028,7 @@
       }
     },
     "Remote Display Mode replaces the operator interface on this device until you exit from the Remote Display configuration screen." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -9935,6 +12039,7 @@
       }
     },
     "Remote Display Mode replaces the operator interface. On iPhone, portrait can show the pairing code while a connected external display shows the scoreboard." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -9974,6 +12079,17 @@
         }
       }
     },
+    "Remote Display Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示设置"
+          }
+        }
+      }
+    },
     "Remote Display stopped." : {
       "localizations" : {
         "zh-Hans" : {
@@ -9985,6 +12101,7 @@
       }
     },
     "Remote Display uses nearby device pairing to send the public scoreboard to Apple TV, iPad, or Mac without IP addresses or the Web API. The operator device stays in control and paired displays receive live scoreboard, theme, and sound settings." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10002,6 +12119,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "远程显示、Web API 和 Companion 是相互独立的集成。选择其中一项只会更改显示的设置。"
+          }
+        }
+      }
+    },
+    "Remote displays" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程显示设备"
           }
         }
       }
@@ -10230,7 +12358,6 @@
       }
     },
     "Reset active shot clock" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -10296,6 +12423,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置双方所有全队犯规？"
+          }
+        }
+      }
+    },
+    "Reset API Key" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置 API 密钥"
           }
         }
       }
@@ -10625,6 +12762,17 @@
         }
       }
     },
+    "Reset This Sport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置此运动的配置"
+          }
+        }
+      }
+    },
     "Reset Tips" : {
       "localizations" : {
         "zh-Hans" : {
@@ -10721,6 +12869,28 @@
         }
       }
     },
+    "Resuming host handoff to %@…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在继续向 %@ 转移主机…"
+          }
+        }
+      }
+    },
+    "Return to Control Board" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回控制台"
+          }
+        }
+      }
+    },
     "Return to Live" : {
       "comment" : "A button that returns a live display to the user.",
       "isCommentAutoGenerated" : true,
@@ -10729,6 +12899,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "返回实时画面"
+          }
+        }
+      }
+    },
+    "Return to Remote Control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回远程控制"
           }
         }
       }
@@ -10773,6 +12954,16 @@
         }
       }
     },
+    "Return to Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回计时器"
+          }
+        }
+      }
+    },
     "Reuse files and review logs" : {
       "comment" : "A label displayed above the game files and logs tips.",
       "isCommentAutoGenerated" : true,
@@ -10796,11 +12987,23 @@
       }
     },
     "Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices and does not expose controls for changing scores, clocks, rosters, files, or settings." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "在共享或陌生网络上启用网络集成前，请先查看安全说明。Web API 面向可信的本地制作设备，不提供更改比分、计时、名单、文件或设置的控制。"
+          }
+        }
+      }
+    },
+    "Review Security before enabling network integrations on shared or unfamiliar networks. The Web API is intended for trusted local production devices. Web Control allows authenticated game operations; files and setup remain on the session owner." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在共享或不熟悉的网络上启用网络集成前，请先查看安全说明。Web API 面向可信的本地现场设备。网页控制允许经过身份验证的比赛操作；文件和比赛设置仍由会话所有者负责。"
           }
         }
       }
@@ -10855,12 +13058,34 @@
         }
       }
     },
+    "Roster Management" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员名单管理"
+          }
+        }
+      }
+    },
     "Roster Size" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "名单人数"
+          }
+        }
+      }
+    },
+    "Roster Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "球员名单工作台"
           }
         }
       }
@@ -11002,6 +13227,17 @@
         }
       }
     },
+    "Running this session on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备正在运行本次会话。"
+          }
+        }
+      }
+    },
     "S" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11023,6 +13259,38 @@
         }
       }
     },
+    "Safe to Disconnect" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可以安全断开"
+          }
+        }
+      }
+    },
+    "Safe to Disconnect — the owner has saved this match and all timers are stopped." : {
+      "comment" : "A description of a remote display that is safe to disconnect.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可以安全断开——所有者已保存比赛，且所有计时器均已停止。"
+          }
+        }
+      }
+    },
+    "Samples" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "示例"
+          }
+        }
+      }
+    },
     "Save to File" : {
       "localizations" : {
         "zh-Hans" : {
@@ -11039,6 +13307,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已保存"
+          }
+        }
+      }
+    },
+    "Saved for this sport on this device. Changing station mode keeps the match and timers running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置按运动保存在此设备上。切换工作台模式时，比赛和计时器会继续运行。"
           }
         }
       }
@@ -11208,12 +13487,22 @@
         }
       }
     },
-    "Merged View (Beta)" : {
+    "Scores are equal when the timer expires" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "合并视图（测试版）"
+            "value" : "计时器到期时双方比分相同"
+          }
+        }
+      }
+    },
+    "Scores are equal when the timer is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停时双方比分相同"
           }
         }
       }
@@ -11224,6 +13513,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "得分"
+          }
+        }
+      }
+    },
+    "Scoring Station" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计分工作台"
           }
         }
       }
@@ -11292,6 +13592,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "向上循环滚动"
+          }
+        }
+      }
+    },
+    "Search events" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索事件"
           }
         }
       }
@@ -11514,6 +13824,17 @@
         }
       }
     },
+    "Selecting an icon changes which settings are shown. Web API and Bitfocus Companion keep separate enabled states." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择图标可切换显示的设置。Web API 和 Bitfocus Companion 分别保持各自的启用状态。"
+          }
+        }
+      }
+    },
     "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API and Bitfocus Companion are separate integrations and can run at the same time when enabled." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11526,6 +13847,7 @@
       }
     },
     "Selecting an icon only changes which settings are shown; it does not turn other integrations off. Web API, Remote Display, and Bitfocus Companion are separate integrations." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -11692,12 +14014,78 @@
         }
       }
     },
+    "Session authority could not be restored: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复会话控制权：%@"
+          }
+        }
+      }
+    },
+    "Session authority is unavailable. Reconnect to the host before controlling." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话控制权不可用。请重新连接主机后再操作。"
+          }
+        }
+      }
+    },
+    "Session Host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话主机"
+          }
+        }
+      }
+    },
+    "Session Host: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话主机：%@"
+          }
+        }
+      }
+    },
+    "Session recovery could not be saved: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存会话恢复数据：%@"
+          }
+        }
+      }
+    },
     "Session Start" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "会话开始"
+          }
+        }
+      }
+    },
+    "Session version limit reached." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已达到会话版本上限。"
           }
         }
       }
@@ -11773,6 +14161,7 @@
       }
     },
     "Set how many team pauses each side can use during the match." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -11828,6 +14217,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "比赛前设置换人次数限制，实时控制面板即可统计双方剩余换人次数。这些限制会随当前比赛设置保存，主队和客队可以不同。"
+          }
+        }
+      }
+    },
+    "Set team pause allowances and the countdown duration. Official pauses do not use a team allowance." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置队伍暂停次数和倒计时时长。官方暂停不占用队伍额度。"
           }
         }
       }
@@ -12023,6 +14423,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "进攻 -1"
+          }
+        }
+      }
+    },
+    "Shot / Serve Controller" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻／发球计时控制台"
+          }
+        }
+      }
+    },
+    "Shot / Serve Timer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻／发球计时器"
           }
         }
       }
@@ -12231,6 +14653,16 @@
         }
       }
     },
+    "Shot Timer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进攻计时器"
+          }
+        }
+      }
+    },
     "Shot timer is reset" : {
       "localizations" : {
         "zh-Hans" : {
@@ -12317,6 +14749,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "计时器运行时显示实时活动"
+          }
+        }
+      }
+    },
+    "Show Clock & Score Box" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示计时与比分框"
           }
         }
       }
@@ -12648,6 +15091,16 @@
         }
       }
     },
+    "Smart Scoreboard is not a safety-rated control system.\nSoftware crashes, unexpected triggers, incorrect scores, communication errors, and service interruptions may occur.\nNever design physical equipment so that a Smart Scoreboard malfunction can, by itself, cause injury or death.\nConnected equipment must have appropriate independent safeguards. The event organizer and equipment operator are responsible for its safe operation." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Scoreboard 不是经过安全等级认证的控制系统。\n可能发生软件崩溃、意外触发、比分错误、通信错误和服务中断。\n切勿将实体设备设计成仅因 Smart Scoreboard 故障就可能导致人身伤害或死亡。\n连接的设备必须配备适当的独立安全防护措施。赛事组织者和设备操作员对其安全运行负责。"
+          }
+        }
+      }
+    },
     "Soccer" : {
       "localizations" : {
         "zh-Hans" : {
@@ -12931,6 +15384,16 @@
         }
       }
     },
+    "Start %@ Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始%@暂停"
+          }
+        }
+      }
+    },
     "Start Active Clock" : {
       "localizations" : {
         "zh-Hans" : {
@@ -12991,6 +15454,26 @@
         }
       }
     },
+    "Start Inf Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始无限时暂停"
+          }
+        }
+      }
+    },
+    "Start Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始暂停"
+          }
+        }
+      }
+    },
     "Start Paused" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13028,6 +15511,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "为%1$@启动发球计时器"
+          }
+        }
+      }
+    },
+    "Start Shot Clock" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始进攻计时"
           }
         }
       }
@@ -13146,6 +15640,48 @@
         }
       }
     },
+    "Stop all timers and finish the host handoff before entering remote mode." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进入远程模式前，请停止所有计时器并完成主机转移。"
+          }
+        }
+      }
+    },
+    "Stop all timers and finish the host handoff before turning pairing off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭配对前，请停止所有计时器并完成主机切换。"
+          }
+        }
+      }
+    },
+    "Stop all timers before moving the session host." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转移会话主机前，请停止所有计时器。"
+          }
+        }
+      }
+    },
+    "Stop Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止暂停"
+          }
+        }
+      }
+    },
     "Stopped" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13162,6 +15698,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已停止"
+          }
+        }
+      }
+    },
+    "Stream live state to overlays, browser sources, or scripts, and optionally enable authenticated scoreboard control." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将实时状态传输到叠加层、浏览器来源或脚本，并可选择启用经过身份验证的记分牌控制。"
           }
         }
       }
@@ -13316,6 +15863,18 @@
         }
       }
     },
+    "Switch chess clock" : {
+      "comment" : "A button that switches between chess clocks.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换国际象棋计时器"
+          }
+        }
+      }
+    },
     "Switch debate active side" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13342,6 +15901,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切换回合"
+          }
+        }
+      }
+    },
+    "Sync with Sound" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与声音同步"
           }
         }
       }
@@ -13539,6 +16108,28 @@
         }
       }
     },
+    "Team selection applies to team panels. Match timers remain shared." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍选择作用于队伍面板，比赛计时器仍由双方共用。"
+          }
+        }
+      }
+    },
+    "Team selection applies to team panels. Shared timer and display controls remain available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队伍选择作用于队伍面板。共享计时和显示控件仍可使用。"
+          }
+        }
+      }
+    },
     "Team Tools" : {
       "localizations" : {
         "zh-Hans" : {
@@ -13613,6 +16204,17 @@
         }
       }
     },
+    "The basket screens and master screen show the same live match. They reconnect to the selected host after a handoff; each screen can keep its own display direction and layout." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "篮筐旁的屏幕和主屏幕显示同一场实时比赛。主机转移后，它们会重新连接到选定主机；每个屏幕可以保留各自的显示方向和布局。"
+          }
+        }
+      }
+    },
     "The center card mirrors the public scoreboard with scores, active timers, periods, and sport-specific status." : {
       "comment" : "A tip that explains what the live game state card represents.",
       "isCommentAutoGenerated" : true,
@@ -13645,6 +16247,17 @@
         }
       }
     },
+    "The current host is disconnected. Reconnect before moving the session." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前主机已断开。请重新连接后再转移会话。"
+          }
+        }
+      }
+    },
     "The current sport uses score, clock, and substitution controls only." : {
       "localizations" : {
         "zh-Hans" : {
@@ -13665,12 +16278,108 @@
         }
       }
     },
+    "The host runs game logic, timers, Web API, and Companion. Game files and setup stay on the owner. Other connected devices can keep operating when the owner disconnects." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主机负责运行比赛逻辑、计时器、Web API 和 Companion。比赛文件和比赛设置由所有者管理。所有者断开后，其他已连接设备仍可继续操作。"
+          }
+        }
+      }
+    },
     "The logo pattern travels on a slight slope." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "标志图案会沿轻微斜坡移动。"
+          }
+        }
+      }
+    },
+    "The match has not synced to its owner. Reconnect and wait, or choose Delete Local Match." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比赛尚未同步到所有者。请重新连接并等待同步，或选择“删除本地比赛”。"
+          }
+        }
+      }
+    },
+    "The new host could not activate the match." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新主机无法启用比赛。"
+          }
+        }
+      }
+    },
+    "The owner has not confirmed a saved copy, or a timer is still running. Reconnect to the owner and wait for Safe to Disconnect before leaving without deleting this match." : {
+      "comment" : "The message displayed when the user tries to leave a hosted match while the match is not ready to be left.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者尚未确认已保存副本，或仍有计时器运行。如果希望保留比赛后退出，请重新连接所有者，并等待显示“可以安全断开”。"
+          }
+        }
+      }
+    },
+    "The owner sets up the game and starts pairing. It keeps the match file and integration settings, grants control to each paired device, and chooses the session host. It can go offline after assigning a host; the host and other control boards keep the game running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有者负责设置比赛并发起配对。它保留比赛文件和集成设置，分别授予各设备控制权限，并选择会话主机。指定主机后，所有者可以离线；主机和其他控制面板仍可继续运行比赛。"
+          }
+        }
+      }
+    },
+    "The pause countdown continues" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停倒计时继续"
+          }
+        }
+      }
+    },
+    "The pause countdown is paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停倒计时已暂停"
+          }
+        }
+      }
+    },
+    "The pause countdown reaches zero" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停倒计时结束"
+          }
+        }
+      }
+    },
+    "The pause is stopped (timed or indefinite)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止限时或不限时暂停"
           }
         }
       }
@@ -13691,6 +16400,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "预览会根据当前比赛状态、主题、显示方向、背景、标志和球员设置渲染。请把它视为操作员对所选公开模式的检查，而不是对每个已连接屏幕像素级一致性的保证。"
+          }
+        }
+      }
+    },
+    "The proposed host session does not match this device's authenticated pairing or session version. Reconnect it to the current owner and retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拟转移的会话与此设备已验证的配对或会话版本不一致。请将此设备重新连接到当前所有者后重试。"
+          }
+        }
+      }
+    },
+    "The selected device must be connected and support session hosting." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选定设备必须已连接，并支持担任会话主机。"
+          }
+        }
+      }
+    },
+    "The selected host could not activate the match." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选定主机无法启用比赛。"
+          }
+        }
+      }
+    },
+    "The selected host stopped responding before transfer." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选定主机在转移前停止响应。"
           }
         }
       }
@@ -13721,6 +16474,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法读取所选图像。"
+          }
+        }
+      }
+    },
+    "The session host changed. Wait for synchronization before retrying." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话主机已更换。请等待同步完成后重试。"
+          }
+        }
+      }
+    },
+    "The session host publishes live game data on the local network. Game operations require Web Control and the API key. File and setup changes remain on the session owner." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话主机在本地网络上发布实时比赛数据。操作比赛需要启用网页控制并提供 API 密钥。文件管理和比赛设置仍由会话所有者负责。"
           }
         }
       }
@@ -13796,6 +16570,7 @@
       }
     },
     "This API publishes scoreboard state to the trusted local network only. Connected devices can read live game data, but the service rejects score, clock, roster, file, and settings changes." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -13813,6 +16588,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本应用不会收集任何数据，也不会连接任何第三方服务器。"
+          }
+        }
+      }
+    },
+    "This appears on the owner's control board and connected display when every timer is stopped and the owner has confirmed that the latest match file and log were saved. If it says sync pending, keep the host open or reconnect the owner. Leaving a host while unsynced offers an explicit delete choice. Apple TV can lose its local working copy after Scoreboard closes, so reconnect the owner and wait for Safe to Disconnect before leaving the app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有计时器停止，且所有者确认已保存最新比赛文件和日志后，所有者的控制面板及已连接显示屏会显示此状态。如果仍在等待同步，请保持主机运行或重新连接所有者。未同步时退出主机模式，会提供明确的删除选项。Apple TV 上的本地工作副本可能在 Scoreboard 关闭后丢失，因此退出应用前，请重新连接所有者并等待显示“可以安全断开”。"
+          }
+        }
+      }
+    },
+    "This Apple TV can display and host a session. Enter this pairing code from Settings > Integration > Remote Display & Control on the owner device, then choose Make Session Host there if needed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Apple TV 可以显示记分牌并担任会话主机。请在所有者设备的“设置 > 集成 > 远程显示与控制”中输入此配对码，然后按需选择“设为会话主机”。"
+          }
+        }
+      }
+    },
+    "This Apple TV is a remote display only. Enter this pairing code from Settings > Integration > Remote Display & Control on the main device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Apple TV 仅支持远程显示。在主设备的“设置 > 集成 > 远程显示与控制”中输入此配对码。"
           }
         }
       }
@@ -13857,6 +16665,18 @@
         }
       }
     },
+    "This deletes the match and log stored only on this device. Any changes the owner has not saved will be lost. This device will return to pairing mode." : {
+      "comment" : "A description of the confirmation dialog that appears when the user tries to discard a hosted match.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此操作将删除仅存储在此设备上的比赛和日志。所有者尚未保存的更改将会丢失，此设备将返回配对模式。"
+          }
+        }
+      }
+    },
     "This Device" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -13869,6 +16689,7 @@
       }
     },
     "This device is a Remote Display. Enter this pairing code from Settings > Integration > Remote Display on the operator device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -13880,6 +16701,7 @@
     },
     "This device is a Remote Display. On the tablet or computer running Smart Scoreboard, go to Settings > Integration > Remote Display, then enter the code below." : {
       "comment" : "A description of how to connect a remote display to a tablet or computer.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -13899,6 +16721,107 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备是远程显示。请在平板电脑或电脑上打开 Smart Scoreboard，启用远程显示配对，然后从该操作设备输入下方代码。"
+          }
+        }
+      }
+    },
+    "This device is already the host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备已是主机。"
+          }
+        }
+      }
+    },
+    "This device is no longer the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备已不再是会话主机。"
+          }
+        }
+      }
+    },
+    "This device is not allowed to control the session." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备未获准控制本次会话。"
+          }
+        }
+      }
+    },
+    "This device is not the session host." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备不是会话主机。"
+          }
+        }
+      }
+    },
+    "This device owns the session. Keep its control board and game files open here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备是会话所有者。请在此设备上保留控制面板和比赛文件。"
+          }
+        }
+      }
+    },
+    "This device still holds a hosted match or unfinished handoff. Finish that handoff, or discard its local match from the device's pairing screen before trying again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备仍保留主机上的比赛或未完成的主机转移。请先完成转移，或在该设备的配对页面中丢弃本地比赛，然后重试。"
+          }
+        }
+      }
+    },
+    "This device still holds a hosted match. Discard it before pairing again." : {
+      "comment" : "A description of a warning that a user should discard a hosted match before pairing again.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备仍保留着主机上的比赛。请先丢弃该比赛，再重新配对。"
+          }
+        }
+      }
+    },
+    "This hosted match has not synced to its owner" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此主机上的比赛尚未同步到所有者"
+          }
+        }
+      }
+    },
+    "This is one possible setup. Remote Display & Control works with every supported sport and different numbers of screens and control boards. In this basketball example, one screen sits behind each basket and a master screen sits at midcourt. The owner starts the match, then chooses a reliable paired device as the host. Every screen and control board follows that host." : {
+      "comment" : "A description of how to set up a remote display and control system.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这只是其中一种配置方式。远程显示与控制适用于所有受支持的运动，并可搭配不同数量的显示屏和控制面板。在此篮球示例中，两侧篮筐后方各设一个显示屏，中场另设主屏幕。所有者启动比赛，再选择一台可靠的已配对设备作为主机。所有显示屏和控制面板均与该主机同步。"
           }
         }
       }
@@ -13940,6 +16863,7 @@
       }
     },
     "This screen mirrors the Remote Display output. On the main Smart Scoreboard window, go to Settings > Integration > Remote Display to pair." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14039,12 +16963,44 @@
         }
       }
     },
+    "Timed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限时"
+          }
+        }
+      }
+    },
+    "Timed Official Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限时官方暂停"
+          }
+        }
+      }
+    },
     "Timer" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "计时器"
+          }
+        }
+      }
+    },
+    "Timer Controller" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时控制台"
           }
         }
       }
@@ -14061,6 +17017,76 @@
         }
       }
     },
+    "Timer Expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期"
+          }
+        }
+      }
+    },
+    "Timer Expired: Game Tie" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期：比分平局"
+          }
+        }
+      }
+    },
+    "Timer Expired: Guest Ahead" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期：客队领先"
+          }
+        }
+      }
+    },
+    "Timer Expired: Guest Behind" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期：客队落后"
+          }
+        }
+      }
+    },
+    "Timer Expired: Home Ahead" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期：主队领先"
+          }
+        }
+      }
+    },
+    "Timer Expired: Home Behind" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期：主队落后"
+          }
+        }
+      }
+    },
+    "Timer Expiry" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期"
+          }
+        }
+      }
+    },
     "Timer Off" : {
       "comment" : "A label displayed in the game state view.",
       "isCommentAutoGenerated" : true,
@@ -14073,12 +17099,102 @@
         }
       }
     },
+    "Timer Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停"
+          }
+        }
+      }
+    },
+    "Timer Paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停"
+          }
+        }
+      }
+    },
+    "Timer Paused: Game Tie" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停：比分平局"
+          }
+        }
+      }
+    },
+    "Timer Paused: Guest Ahead" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停：客队领先"
+          }
+        }
+      }
+    },
+    "Timer Paused: Guest Behind" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停：客队落后"
+          }
+        }
+      }
+    },
+    "Timer Paused: Home Ahead" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停：主队领先"
+          }
+        }
+      }
+    },
+    "Timer Paused: Home Behind" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器暂停：主队落后"
+          }
+        }
+      }
+    },
+    "Timer Start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器启动"
+          }
+        }
+      }
+    },
     "Timer Type" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "计时器类型"
+          }
+        }
+      }
+    },
+    "Timers will keep running while Settings is open. Changing game setup may affect the live timers. Continue?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开设置后，计时器将继续运行。更改比赛设置可能影响正在运行的计时器。是否继续？"
           }
         }
       }
@@ -14289,6 +17405,17 @@
         }
       }
     },
+    "Transport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "传输方式"
+          }
+        }
+      }
+    },
     "Trigger Companion commands from scoreboard events." : {
       "localizations" : {
         "zh-Hans" : {
@@ -14340,11 +17467,23 @@
       }
     },
     "Turn on Operator Broadcast from the device that will run the game. Nearby Remote Display devices can then pair, reconnect if saved, receive live scoreboard state, and stay in sync with theme and sound settings." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "从将运行比赛的设备开启“操作员广播”。附近的远程显示设备随后可以配对、在已保存时重新连接、接收实时记分牌状态，并与主题和声音设置保持同步。"
+          }
+        }
+      }
+    },
+    "Turn on Operator Broadcast to pair nearby devices. The session owner keeps game files and settings and can assign a paired device to run the game as host. Devices reconnect to the selected host automatically." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用操作端广播即可配对附近设备。会话所有者保留比赛文件和设置，并可指定一台已配对设备担任主机来运行比赛。设备会自动重新连接到选定的主机。"
           }
         }
       }
@@ -14391,6 +17530,17 @@
         }
       }
     },
+    "Turn this on from the main device. Nearby devices in Remote Display / Control Mode appear by device name." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在主设备上启用此功能。处于远程显示／控制模式的附近设备将按设备名称显示。"
+          }
+        }
+      }
+    },
     "Turn this on from the operator device. Nearby displays in Remote Display Mode appear below by device name." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14403,6 +17553,7 @@
       }
     },
     "Turn this on from the operator device. Nearby displays in Remote Display Mode appear by device name." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14542,6 +17693,17 @@
         }
       }
     },
+    "Unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知"
+          }
+        }
+      }
+    },
     "Unmute" : {
       "localizations" : {
         "zh-Hans" : {
@@ -14626,6 +17788,17 @@
         }
       }
     },
+    "Use another iPhone, iPad, or Mac as a remote display or full control board. Grant control separately for each device. Apple TV can show the scoreboard but cannot control it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将另一台 iPhone、iPad 或 Mac 用作远程显示器或完整控制台。为每台设备单独授予控制权限。Apple TV 可显示记分牌，但无法控制。"
+          }
+        }
+      }
+    },
     "Use Bitfocus Companion settings to send PRESS commands to a Companion instance on the local network. Show Companion controls whether operators see the live-board toggle, while Enable Companion controls whether event commands are sent." : {
       "localizations" : {
         "zh-Hans" : {
@@ -14687,6 +17860,7 @@
       }
     },
     "Use Event Commands to map scoreboard moments to Companion page, row, and column locations. Empty assignments are ignored, so you can automate only the events that matter for the selected sport." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14737,11 +17911,23 @@
       }
     },
     "Use Integration to connect Scoreboard with trusted production tools on the local network. Remote Display, Web API, and Bitfocus Companion are configured independently, so enabling one integration does not turn another one off." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用“集成”将 Scoreboard 连接到本地网络中可信的制作工具。远程显示、Web API 和 Bitfocus Companion 独立配置，因此启用一个集成不会关闭另一个。"
+          }
+        }
+      }
+    },
+    "Use Integration to connect Web API and Bitfocus Companion with production tools on the local network. Pair displays and control boards on the Remote Display & Control page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用“集成”将 Web API 和 Bitfocus Companion 连接到本地网络上的制作工具。请在“远程显示与控制”页面配对显示屏和控制面板。"
           }
         }
       }
@@ -14932,7 +18118,19 @@
         }
       }
     },
+    "Use Remote Display & Control to pair nearby screens and control boards, manage device permissions, and choose the session host. Apple TV is display-only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用“远程显示与控制”配对附近的显示屏和控制面板，管理设备权限并选择会话主机。Apple TV 仅支持显示。"
+          }
+        }
+      }
+    },
     "Use Remote Display for Apple TV, iPad, or Mac displays that should mirror the public scoreboard without browser URLs or a Web API client. Pairing happens nearby and the operator device remains the source of live updates." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14943,6 +18141,7 @@
       }
     },
     "Use Remote Display Mode on iPhone when the phone should show the pairing code or drive a connected external display. For the phone screen itself, landscape still gives the scoreboard more room." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -14953,6 +18152,7 @@
       }
     },
     "Use Remote Display Mode when the current iPad or Mac should stop acting as an operator board and become a public remote display. On Mac you can also open a separate scoreboard window while keeping the operator controls available." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15085,8 +18285,21 @@
         }
       }
     },
+    "Use the primary screen: Settings > Integration > Remote Display & Control." : {
+      "comment" : "A description of how to configure the remote display.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在主屏幕中打开：设置 > 集成 > 远程显示与控制。"
+          }
+        }
+      }
+    },
     "Use the primary screen: Settings > Integration > Remote Display." : {
       "comment" : "A description of how to use the remote display.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "zh-Hans" : {
@@ -15153,7 +18366,40 @@
         }
       }
     },
+    "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display and session hosting." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用此模式显示或控制在其他设备上运行的比赛。请在主记分牌上分别为每台已配对设备授予控制权限。Apple TV 支持远程显示和担任会话主机。"
+          }
+        }
+      }
+    },
+    "Use this mode to display or control a game running on another device. Control permission is granted separately for each paired device on the main scoreboard. Apple TV supports remote display only." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用此模式显示或控制另一台设备上的比赛。主记分牌为每台配对设备单独授予控制权限。Apple TV 仅支持远程显示。"
+          }
+        }
+      }
+    },
+    "Use this only if the current host is gone. Changes made on that host after the owner's last saved copy cannot be recovered. Timers will be stopped. If the old host returns, discard its local hosted match before reconnecting it." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在当前主机已无法使用时执行此操作。所有者最后保存副本之后在该主机上进行的更改无法恢复。所有计时器将停止。如果旧主机恢复可用，请先丢弃其本地比赛，再重新连接。"
+          }
+        }
+      }
+    },
     "Use this when another Apple device should show the public scoreboard while the operator keeps private controls on the main device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15164,6 +18410,7 @@
       }
     },
     "Use this when local overlays, browser sources, or scripts need a read-only stream of live scoreboard state from the operator device." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -15184,11 +18431,23 @@
       }
     },
     "Use Web API when local overlays, browser sources, custom dashboards, or production scripts need to read live scoreboard state. The API is read-only for game operations and publishes current state over HTTP and WebSocket ports." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "当本地叠层、浏览器源、自定义仪表板或制作脚本需要读取实时记分牌状态时，使用 Web API。该 API 对比赛操作只读，并通过 HTTP 和 WebSocket 端口发布当前状态。"
+          }
+        }
+      }
+    },
+    "Use when all devices share the same local network. An Ethernet host can serve wireless screens and control boards on that LAN." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "适用于所有设备处于同一本地网络的情况。通过以太网连接的主机也可为该局域网中的无线显示屏和控制面板提供服务。"
           }
         }
       }
@@ -15317,6 +18576,17 @@
         }
       }
     },
+    "Visual settings will sync when the session host reconnects." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话主机重新连接后将同步显示设置。"
+          }
+        }
+      }
+    },
     "Volleyball" : {
       "localizations" : {
         "zh-Hans" : {
@@ -15382,6 +18652,17 @@
         }
       }
     },
+    "Waiting for %@ to connect…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待 %@ 连接…"
+          }
+        }
+      }
+    },
     "Waiting for %@ to reconnect." : {
       "localizations" : {
         "zh-Hans" : {
@@ -15398,6 +18679,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在等待 %1$@ 重新连接。替换它需要确认。"
+          }
+        }
+      }
+    },
+    "Waiting for host handoff…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待主机转移…"
+          }
+        }
+      }
+    },
+    "Waiting for main device…" : {
+      "comment" : "A placeholder text that appears when the user is waiting for the main device to respond to their command.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待主设备…"
           }
         }
       }
@@ -15440,6 +18744,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在等待记分牌数据"
+          }
+        }
+      }
+    },
+    "Waiting for session host address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待会话主机地址"
+          }
+        }
+      }
+    },
+    "Waiting for session host…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待会话主机…"
+          }
+        }
+      }
+    },
+    "Waiting for the session host to reconnect." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待会话主机重新连接。"
           }
         }
       }
@@ -15494,6 +18831,28 @@
         }
       }
     },
+    "Web API and Companion" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web API 与 Companion"
+          }
+        }
+      }
+    },
+    "Web API and Companion run on the host shown here. Integration settings are managed on the session owner." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web API 和 Companion 在此处显示的主机上运行。集成设置由会话所有者管理。"
+          }
+        }
+      }
+    },
     "Web API is disabled." : {
       "localizations" : {
         "zh-Hans" : {
@@ -15520,6 +18879,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "欢迎使用 Smart Scoreboard"
+          }
+        }
+      }
+    },
+    "When enabled, each Companion command is queued when its matching sound starts. Events without sound still send commands in order. When disabled, commands are queued immediately in event-list order." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，每条 Companion 命令会在对应声音开始播放时加入发送队列。没有声音的事件仍会按顺序发送命令。关闭后，命令会立即按事件列表顺序加入发送队列。"
           }
         }
       }
@@ -15572,6 +18941,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "白色"
+          }
+        }
+      }
+    },
+    "Win / Lose at Timer Expiry" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时器到期时的胜负"
           }
         }
       }

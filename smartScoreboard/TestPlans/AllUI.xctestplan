@@ -1,0 +1,26 @@
+{
+  "configurations" : [
+    {
+      "id" : "F9D733CB-CD3B-4B9D-806D-111E6CB47EB0",
+      "name" : "iPad",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "defaultTestExecutionTimeAllowance" : 300,
+    "maximumTestExecutionTimeAllowance" : 360,
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:smartScoreboard.xcodeproj",
+        "identifier" : "75C74EB93A284F618E736C09",
+        "name" : "smartScoreboardUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

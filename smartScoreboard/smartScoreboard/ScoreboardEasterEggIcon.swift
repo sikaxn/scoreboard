@@ -18,7 +18,7 @@ enum ScoreboardEasterEggIcon {
 
     @MainActor
     static func applyPersistedSystemIcon() {
-        applySystemIcon(isBunnyEnabled: UserDefaults.standard.bool(forKey: userDefaultsKey))
+        applySystemIcon(isBunnyEnabled: ScoreboardPreferences.current.bool(forKey: userDefaultsKey))
     }
 
     @MainActor

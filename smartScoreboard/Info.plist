@@ -60,8 +60,10 @@
 		<string>_smartscoreboard._tcp</string>
 		<string>_scorebrd-tv._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scoreboard uses a communication library that includes camera support. This version of Scoreboard does not access the camera or capture photos or video.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Scoreboard uses the local network to pair Remote Display devices, let trusted production tools read live scoreboard status with Web API, and trigger Bitfocus Companion commands when those integrations are enabled.</string>
+	<string>Scoreboard uses the local network to pair Remote Displays and control boards, keep a hosted match in sync, serve the Web API, and send Bitfocus Companion commands when enabled.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Scoreboard lets you choose photos for public display backgrounds and team logos.</string>
 	<key>NSSupportsLiveActivities</key>

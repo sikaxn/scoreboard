@@ -7,17 +7,52 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00D647BF6B4145F7B2D1F3D3 /* ScoreboardControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4948F6C37E144C06AE06F694 /* ScoreboardControl.swift */; };
+		022E8E5D10AC4A0297CD7795 /* ScoreboardKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56F3A2354B24C098A385C30 /* ScoreboardKeyboardShortcuts.swift */; };
+		07266CBFD3C0440381F7E0F7 /* ScoreboardFileStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8AB58B6A454601B1281A55 /* ScoreboardFileStorage.swift */; };
+		1B968D16C2294C439970A6B5 /* ScoreboardRemoteClockProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1301060371314E3DABE34353 /* ScoreboardRemoteClockProjection.swift */; };
+		2A20A7B8126C411EA1086444 /* ScoreboardPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5901BF521044B119386D971 /* ScoreboardPreferences.swift */; };
+		32BA5C3C899E40D1A75F91F2 /* ScoreboardWebAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948229225F864FE0A5217BF6 /* ScoreboardWebAPI.swift */; };
+		34DC61FC774E493D9971D9D0 /* ScoreboardTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3659B386A20C4546B71DED0C /* ScoreboardTheme.swift */; };
 		384309A8966F4E4C94D7CB55 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
 		3E754FB72FFB444CA8F5874E /* ScoreboardLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4317E555A8B44A05A82A643D /* GameConfirmationAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7381D4F78EF8495DBBFA7CC0 /* GameConfirmationAction.swift */; };
+		6753133FB1964784AAF7E203 /* ScoreboardRemoteDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6152FF3079A74B8DBC614C46 /* ScoreboardRemoteDisplay.swift */; };
+		67DA0A22D75F4C02A86EBB40 /* DebateModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A43479316DC3446980D4B514 /* DebateModels.swift */; };
 		73B2C908E4E64768A32359F7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F5EB3F233F174EF38BB12216 /* Assets.xcassets */; };
+		79DA8C47D2304B3F8004FA69 /* ScoreboardLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D906B2DA9734D21B740ECA0 /* ScoreboardLocalization.swift */; };
+		7CEAB6E2EDCC4757A2543E2A /* ScoreboardLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9948CA3CC0FE432C99E7CD13 /* ScoreboardLogging.swift */; };
 		8F1F456D06AC403F8DD5D7FA /* ScoreboardLiveActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */; };
+		94E6089F2CAA4225BCF19776 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = E60117000000000000000002 /* LiveKitWebRTC */; };
+		99E9B42BEBCE4C17AFC05D15 /* SportType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BEE280A5AAC4C73A7AD5D7D /* SportType.swift */; };
 		9B3507C64C2445B0B3E8BDA6 /* zh-Hans.lproj/InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4B25B34E35EC4696A58D6B3D /* zh-Hans.lproj/InfoPlist.strings */; };
+		9D5565EB64524E53B413456E /* ScoreboardRosterCSV.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5EFFFDFA3E45818D42D70B /* ScoreboardRosterCSV.swift */; };
+		A1A19C84F1BB44E7A1920001 /* Localizable.xcstrings in Copy Localization Test Input */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
+		A1A19C84F1BB44E7A1920010 /* Built App Info.plist in Copy App Test Metadata */ = {isa = PBXBuildFile; fileRef = A1A19C84F1BB44E7A1920011 /* Built App Info.plist */; };
+		A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */; };
+		B01BBAF70C4E491AA1CA35ED /* ScoreboardCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */; };
+		CD4E06D9E13C4CD6B5D31141 /* BuzzerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234AF4FAD681442891669A6A /* BuzzerPlayer.swift */; };
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
+		CF5A3886A2574F4B815256FD /* ScoreboardAppBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E0AF73BBA648169650BB74 /* ScoreboardAppBackup.swift */; };
 		D88F712A2FCFD6CF000A14F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
+		DD232E39150F4C0AB280F69A /* ScoreboardGameDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5130BB387AE4B78898BAE94 /* ScoreboardGameDocument.swift */; };
+		DEA4146E210643B99A9147A8 /* ScoreboardSessionTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE754F1A87E4527B2A122FD /* ScoreboardSessionTransport.swift */; };
 		E253E13773694DE49BFD86F2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
+		E60117000000000000000001 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = E60117000000000000000002 /* LiveKitWebRTC */; };
+		E77485AD7DE44086BAD2D927 /* ScoreboardRTCTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB0F85B926B473BA9563817 /* ScoreboardRTCTransport.swift */; };
+		E9A2685B45DD452CA7705435 /* ScoreboardSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9956B1D57E374863A65B31DC /* ScoreboardSession.swift */; };
+		F3254BC109384B149A214844 /* ScoreboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 015C8F3DDDA64DAE869EB781 /* ScoreboardStore.swift */; };
+		F8DEF57765D04B129CFF11A3 /* ScoreboardSetupEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C58F7F5EFDD4593968E4307 /* ScoreboardSetupEditing.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		634F2AB4CA0D43828763AA50 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D820B20A2FCAA97400523B92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D820B2112FCAA97400523B92;
+			remoteInfo = smartScoreboard;
+		};
 		A76AF4D9F508470EB8C05883 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D820B20A2FCAA97400523B92 /* Project object */;
@@ -39,29 +74,108 @@
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1A19C84F1BB44E7A1920002 /* Copy Localization Test Input */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = LocalizationCatalog;
+			dstSubfolderSpec = 7;
+			files = (
+				A1A19C84F1BB44E7A1920001 /* Localizable.xcstrings in Copy Localization Test Input */,
+			);
+			name = "Copy Localization Test Input";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1A19C84F1BB44E7A1920012 /* Copy App Test Metadata */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = AppMetadata;
+			dstSubfolderSpec = 7;
+			files = (
+				A1A19C84F1BB44E7A1920010 /* Built App Info.plist in Copy App Test Metadata */,
+			);
+			name = "Copy App Test Metadata";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		015C8F3DDDA64DAE869EB781 /* ScoreboardStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardStore.swift; sourceTree = "<group>"; };
 		03483FFA1A5C43C2B50A791 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityAttributes.swift; sourceTree = "<group>"; };
+		1301060371314E3DABE34353 /* ScoreboardRemoteClockProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardRemoteClockProjection.swift; sourceTree = "<group>"; };
+		1FB0F85B926B473BA9563817 /* ScoreboardRTCTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardRTCTransport.swift; sourceTree = "<group>"; };
+		21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardCompanion.swift; sourceTree = "<group>"; };
+		234AF4FAD681442891669A6A /* BuzzerPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzerPlayer.swift; sourceTree = "<group>"; };
+		2FE754F1A87E4527B2A122FD /* ScoreboardSessionTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardSessionTransport.swift; sourceTree = "<group>"; };
+		3659B386A20C4546B71DED0C /* ScoreboardTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardTheme.swift; sourceTree = "<group>"; };
+		4948F6C37E144C06AE06F694 /* ScoreboardControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardControl.swift; sourceTree = "<group>"; };
 		4B25B34E35EC4696A58D6B3D /* zh-Hans.lproj/InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		4BEE280A5AAC4C73A7AD5D7D /* SportType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SportType.swift; sourceTree = "<group>"; };
+		6152FF3079A74B8DBC614C46 /* ScoreboardRemoteDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardRemoteDisplay.swift; sourceTree = "<group>"; };
+		73180AAF3A1F456D83F71826 /* smartScoreboardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = smartScoreboardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7381D4F78EF8495DBBFA7CC0 /* GameConfirmationAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameConfirmationAction.swift; sourceTree = "<group>"; };
 		739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScoreboardLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7C5EFFFDFA3E45818D42D70B /* ScoreboardRosterCSV.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardRosterCSV.swift; sourceTree = "<group>"; };
+		8A8AB58B6A454601B1281A55 /* ScoreboardFileStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardFileStorage.swift; sourceTree = "<group>"; };
+		8C58F7F5EFDD4593968E4307 /* ScoreboardSetupEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardSetupEditing.swift; sourceTree = "<group>"; };
+		8D906B2DA9734D21B740ECA0 /* ScoreboardLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLocalization.swift; sourceTree = "<group>"; };
+		948229225F864FE0A5217BF6 /* ScoreboardWebAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardWebAPI.swift; sourceTree = "<group>"; };
+		9948CA3CC0FE432C99E7CD13 /* ScoreboardLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLogging.swift; sourceTree = "<group>"; };
+		9956B1D57E374863A65B31DC /* ScoreboardSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardSession.swift; sourceTree = "<group>"; };
+		A1A19C84F1BB44E7A1920004 /* AllUI.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = AllUI.xctestplan; sourceTree = "<group>"; };
+		A1A19C84F1BB44E7A1920005 /* OperatorWorkflows.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = OperatorWorkflows.xctestplan; sourceTree = "<group>"; };
+		A1A19C84F1BB44E7A1920006 /* IntegrationRecovery.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = IntegrationRecovery.xctestplan; sourceTree = "<group>"; };
+		A1A19C84F1BB44E7A1920007 /* CoreRegression.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = CoreRegression.xctestplan; sourceTree = "<group>"; };
+		A1A19C84F1BB44E7A1920011 /* Built App Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Built App Info.plist"; path = smartScoreboard.app/Info.plist; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1A19C84F1BB44E7A1920013 /* SmokeUI.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SmokeUI.xctestplan; sourceTree = "<group>"; };
+		A2E0AF73BBA648169650BB74 /* ScoreboardAppBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardAppBackup.swift; sourceTree = "<group>"; };
+		A43479316DC3446980D4B514 /* DebateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebateModels.swift; sourceTree = "<group>"; };
+		A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardControlBoardConfiguration.swift; sourceTree = "<group>"; };
 		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
+		D5901BF521044B119386D971 /* ScoreboardPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardPreferences.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		E5130BB387AE4B78898BAE94 /* ScoreboardGameDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardGameDocument.swift; sourceTree = "<group>"; };
+		E56F3A2354B24C098A385C30 /* ScoreboardKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardKeyboardShortcuts.swift; sourceTree = "<group>"; };
+		E9C87438FD4B4A0E95FB1FDB /* smartScoreboardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = smartScoreboardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5EB3F233F174EF38BB12216 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		9A1184E081D649978EED2DA8 /* smartScoreboardUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = smartScoreboardUITests;
+			sourceTree = "<group>";
+		};
 		D820B2142FCAA97400523B92 /* smartScoreboard */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = smartScoreboard;
 			sourceTree = "<group>";
 		};
+		EAD20B1805C448F29C86DDF5 /* smartScoreboardTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = smartScoreboardTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		AF36334512574020AE6BE533 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				94E6089F2CAA4225BCF19776 /* LiveKitWebRTC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9952E3A237A4C3C9E777809 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1271E73D0C1437A963CE819 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -72,6 +186,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E60117000000000000000001 /* LiveKitWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,10 +204,27 @@
 			path = ScoreboardLiveActivityExtension;
 			sourceTree = "<group>";
 		};
+		A1A19C84F1BB44E7A1920003 /* TestPlans */ = {
+			isa = PBXGroup;
+			children = (
+				A1A19C84F1BB44E7A1920013 /* SmokeUI.xctestplan */,
+				A1A19C84F1BB44E7A1920004 /* AllUI.xctestplan */,
+				A1A19C84F1BB44E7A1920005 /* OperatorWorkflows.xctestplan */,
+				A1A19C84F1BB44E7A1920006 /* IntegrationRecovery.xctestplan */,
+				A1A19C84F1BB44E7A1920007 /* CoreRegression.xctestplan */,
+			);
+			path = TestPlans;
+			sourceTree = "<group>";
+		};
 		D820B2092FCAA97400523B92 = {
 			isa = PBXGroup;
 			children = (
+				A1A19C84F1BB44E7A1920003 /* TestPlans */,
+				9A1184E081D649978EED2DA8 /* smartScoreboardUITests */,
+				A1A19C84F1BB44E7A1920011 /* Built App Info.plist */,
 				D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */,
+				EAD20B1805C448F29C86DDF5 /* smartScoreboardTests */,
+				F45E445093FF45D9A773A833 /* Core sources under test */,
 				DAF6B1EDD972442299D2D2EE /* ScoreboardLiveActivityShared */,
 				221458D9C9FF4CEDA88D86F1 /* ScoreboardLiveActivityExtension */,
 				D820B2142FCAA97400523B92 /* smartScoreboard */,
@@ -103,7 +235,9 @@
 		D820B2132FCAA97400523B92 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				73180AAF3A1F456D83F71826 /* smartScoreboardUITests.xctest */,
 				D820B2122FCAA97400523B92 /* smartScoreboard.app */,
+				E9C87438FD4B4A0E95FB1FDB /* smartScoreboardTests.xctest */,
 				739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */,
 			);
 			name = Products;
@@ -117,9 +251,65 @@
 			path = ScoreboardLiveActivityShared;
 			sourceTree = "<group>";
 		};
+		F45E445093FF45D9A773A833 /* Core sources under test */ = {
+			isa = PBXGroup;
+			children = (
+				8C58F7F5EFDD4593968E4307 /* ScoreboardSetupEditing.swift */,
+				015C8F3DDDA64DAE869EB781 /* ScoreboardStore.swift */,
+				4948F6C37E144C06AE06F694 /* ScoreboardControl.swift */,
+				948229225F864FE0A5217BF6 /* ScoreboardWebAPI.swift */,
+				4BEE280A5AAC4C73A7AD5D7D /* SportType.swift */,
+				A43479316DC3446980D4B514 /* DebateModels.swift */,
+				3659B386A20C4546B71DED0C /* ScoreboardTheme.swift */,
+				234AF4FAD681442891669A6A /* BuzzerPlayer.swift */,
+				E56F3A2354B24C098A385C30 /* ScoreboardKeyboardShortcuts.swift */,
+				21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */,
+				9948CA3CC0FE432C99E7CD13 /* ScoreboardLogging.swift */,
+				E5130BB387AE4B78898BAE94 /* ScoreboardGameDocument.swift */,
+				8D906B2DA9734D21B740ECA0 /* ScoreboardLocalization.swift */,
+				7C5EFFFDFA3E45818D42D70B /* ScoreboardRosterCSV.swift */,
+				A2E0AF73BBA648169650BB74 /* ScoreboardAppBackup.swift */,
+				1301060371314E3DABE34353 /* ScoreboardRemoteClockProjection.swift */,
+				9956B1D57E374863A65B31DC /* ScoreboardSession.swift */,
+				2FE754F1A87E4527B2A122FD /* ScoreboardSessionTransport.swift */,
+				1FB0F85B926B473BA9563817 /* ScoreboardRTCTransport.swift */,
+				8A8AB58B6A454601B1281A55 /* ScoreboardFileStorage.swift */,
+				6152FF3079A74B8DBC614C46 /* ScoreboardRemoteDisplay.swift */,
+				D5901BF521044B119386D971 /* ScoreboardPreferences.swift */,
+				A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */,
+				7381D4F78EF8495DBBFA7CC0 /* GameConfirmationAction.swift */,
+			);
+			name = "Core sources under test";
+			path = smartScoreboard;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3B10E21C208847718DB16BD7 /* smartScoreboardTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A230514338DF4E2799DE937A /* Build configuration list for PBXNativeTarget "smartScoreboardTests" */;
+			buildPhases = (
+				4F308BE982294925A8FAB68B /* Sources */,
+				AF36334512574020AE6BE533 /* Frameworks */,
+				8BFC0BCCD0CB433B83764B6A /* Resources */,
+				A1A19C84F1BB44E7A1920002 /* Copy Localization Test Input */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EAD20B1805C448F29C86DDF5 /* smartScoreboardTests */,
+			);
+			name = smartScoreboardTests;
+			packageProductDependencies = (
+				E60117000000000000000002 /* LiveKitWebRTC */,
+			);
+			productName = smartScoreboardTests;
+			productReference = E9C87438FD4B4A0E95FB1FDB /* smartScoreboardTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		3C07EE3D36FA4642BCBEA508 /* ScoreboardLiveActivityExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B2DDA5BA81C349B482288B4F /* Build configuration list for PBXNativeTarget "ScoreboardLiveActivityExtension" */;
@@ -138,6 +328,28 @@
 			productName = ScoreboardLiveActivityExtension;
 			productReference = 739FCE32994E4C24ADBC9337 /* ScoreboardLiveActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		75C74EB93A284F618E736C09 /* smartScoreboardUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3375D3BD5CF48B6B5579D53 /* Build configuration list for PBXNativeTarget "smartScoreboardUITests" */;
+			buildPhases = (
+				63838FCC31674DBF9ED41D2F /* Sources */,
+				C1271E73D0C1437A963CE819 /* Frameworks */,
+				C74F97066A5144F5B18618F3 /* Resources */,
+				A1A19C84F1BB44E7A1920012 /* Copy App Test Metadata */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				33E114153D1C4A5F8277FE18 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9A1184E081D649978EED2DA8 /* smartScoreboardUITests */,
+			);
+			name = smartScoreboardUITests;
+			productName = smartScoreboardUITests;
+			productReference = 73180AAF3A1F456D83F71826 /* smartScoreboardUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		D820B2112FCAA97400523B92 /* smartScoreboard */ = {
 			isa = PBXNativeTarget;
@@ -158,6 +370,7 @@
 			);
 			name = smartScoreboard;
 			packageProductDependencies = (
+				E60117000000000000000002 /* LiveKitWebRTC */,
 			);
 			productName = smartScoreboard;
 			productReference = D820B2122FCAA97400523B92 /* smartScoreboard.app */;
@@ -176,6 +389,10 @@
 					3C07EE3D36FA4642BCBEA508 = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					75C74EB93A284F618E736C09 = {
+						CreatedOnToolsVersion = 27.1;
+						TestTargetID = D820B2112FCAA97400523B92;
+					};
 					D820B2112FCAA97400523B92 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -191,11 +408,16 @@
 			);
 			mainGroup = D820B2092FCAA97400523B92;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D820B2132FCAA97400523B92 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				75C74EB93A284F618E736C09 /* smartScoreboardUITests */,
+				3B10E21C208847718DB16BD7 /* smartScoreboardTests */,
 				D820B2112FCAA97400523B92 /* smartScoreboard */,
 				3C07EE3D36FA4642BCBEA508 /* ScoreboardLiveActivityExtension */,
 			);
@@ -213,6 +435,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8BFC0BCCD0CB433B83764B6A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C74F97066A5144F5B18618F3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D820B2102FCAA97400523B92 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -224,6 +460,44 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		4F308BE982294925A8FAB68B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F3254BC109384B149A214844 /* ScoreboardStore.swift in Sources */,
+				00D647BF6B4145F7B2D1F3D3 /* ScoreboardControl.swift in Sources */,
+				32BA5C3C899E40D1A75F91F2 /* ScoreboardWebAPI.swift in Sources */,
+				99E9B42BEBCE4C17AFC05D15 /* SportType.swift in Sources */,
+				67DA0A22D75F4C02A86EBB40 /* DebateModels.swift in Sources */,
+				34DC61FC774E493D9971D9D0 /* ScoreboardTheme.swift in Sources */,
+				CD4E06D9E13C4CD6B5D31141 /* BuzzerPlayer.swift in Sources */,
+				022E8E5D10AC4A0297CD7795 /* ScoreboardKeyboardShortcuts.swift in Sources */,
+				B01BBAF70C4E491AA1CA35ED /* ScoreboardCompanion.swift in Sources */,
+				7CEAB6E2EDCC4757A2543E2A /* ScoreboardLogging.swift in Sources */,
+				DD232E39150F4C0AB280F69A /* ScoreboardGameDocument.swift in Sources */,
+				79DA8C47D2304B3F8004FA69 /* ScoreboardLocalization.swift in Sources */,
+				9D5565EB64524E53B413456E /* ScoreboardRosterCSV.swift in Sources */,
+				CF5A3886A2574F4B815256FD /* ScoreboardAppBackup.swift in Sources */,
+				1B968D16C2294C439970A6B5 /* ScoreboardRemoteClockProjection.swift in Sources */,
+				E9A2685B45DD452CA7705435 /* ScoreboardSession.swift in Sources */,
+				DEA4146E210643B99A9147A8 /* ScoreboardSessionTransport.swift in Sources */,
+				E77485AD7DE44086BAD2D927 /* ScoreboardRTCTransport.swift in Sources */,
+				07266CBFD3C0440381F7E0F7 /* ScoreboardFileStorage.swift in Sources */,
+				6753133FB1964784AAF7E203 /* ScoreboardRemoteDisplay.swift in Sources */,
+				2A20A7B8126C411EA1086444 /* ScoreboardPreferences.swift in Sources */,
+				A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */,
+				F8DEF57765D04B129CFF11A3 /* ScoreboardSetupEditing.swift in Sources */,
+				4317E555A8B44A05A82A643D /* GameConfirmationAction.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		63838FCC31674DBF9ED41D2F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9DC4B2122804E3A8F724DD8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -244,6 +518,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		33E114153D1C4A5F8277FE18 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D820B2112FCAA97400523B92 /* smartScoreboard */;
+			targetProxy = 634F2AB4CA0D43828763AA50 /* PBXContainerItemProxy */;
+		};
 		AE43F183FBC84695AECD617B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			platformFilter = ios;
@@ -253,13 +532,101 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		00F99EF2584A4E62B25CD7CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Exercise scoreboard discovery and recovery with local UI test peers.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboardUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_TARGET_NAME = smartScoreboard;
+			};
+			name = Release;
+		};
+		1EA8799FCB644C44AD61094B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Exercise scoreboard discovery and recovery with local UI test peers.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboardUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_TARGET_NAME = smartScoreboard;
+			};
+			name = Debug;
+		};
+		4B09A35766FA40A4AB207E14 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboardTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) SCOREBOARD_TESTING";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		521F5D3BE87E4574B846C6E0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboardTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) SCOREBOARD_TESTING";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		6A818AC092D943FA80B0FE95 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -270,7 +637,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -418,7 +785,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -432,7 +799,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -465,7 +832,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -479,7 +846,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -506,7 +873,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -517,7 +884,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -538,6 +905,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A230514338DF4E2799DE937A /* Build configuration list for PBXNativeTarget "smartScoreboardTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B09A35766FA40A4AB207E14 /* Debug */,
+				521F5D3BE87E4574B846C6E0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3375D3BD5CF48B6B5579D53 /* Build configuration list for PBXNativeTarget "smartScoreboardUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1EA8799FCB644C44AD61094B /* Debug */,
+				00F99EF2584A4E62B25CD7CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		B2DDA5BA81C349B482288B4F /* Build configuration list for PBXNativeTarget "ScoreboardLiveActivityExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -566,6 +951,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/webrtc-xcframework.git";
+			requirement = {
+				kind = exactVersion;
+				version = 150.7871.03;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E60117000000000000000002 /* LiveKitWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;
+			productName = LiveKitWebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D820B20A2FCAA97400523B92 /* Project object */;
 }

@@ -279,57 +279,16 @@ struct ScoreboardFaceView: View {
         }
     }
 
+    @ViewBuilder
     private func scoreboardBackground(leftAccent: Color, rightAccent: Color) -> some View {
-        ZStack {
-            if backgroundStyle != .transparent {
-                LinearGradient(
-                    colors: palette.boardBackground,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-
-            if backgroundStyle == .blurred {
-                HStack {
-                    RadialGradient(
-                        colors: [
-                            leftAccent.opacity(0.28),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 24,
-                        endRadius: 420
-                    )
-
-                    Spacer()
-
-                    RadialGradient(
-                        colors: [
-                            rightAccent.opacity(0.28),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 24,
-                        endRadius: 420
-                    )
-                }
-            }
-
-            if backgroundStyle == .blurred {
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                palette.boardHighlightTop,
-                                .clear,
-                                .clear,
-                                palette.boardHighlightBottom
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            }
+        if backgroundStyle == .blurred {
+            ScoreboardBlurredBackgroundView(palette: palette, leftAccent: leftAccent, rightAccent: rightAccent)
+        } else if backgroundStyle != .transparent {
+            LinearGradient(
+                colors: palette.boardBackground,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 
@@ -391,6 +350,7 @@ struct ScoreboardFaceView: View {
 
             if showsScore {
                 Text("\(score)")
+                    .accessibilityIdentifier("public.score.\(side.rawValue)")
                     .font(.system(size: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout), weight: .black, design: .rounded))
                     .singleLineFitted(minScale: 0.32)
                     .contentTransition(.numericText())
@@ -567,6 +527,7 @@ struct ScoreboardFaceView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             } else if showsGameClock {
                 Text(formattedClock)
+                    .accessibilityIdentifier("public.clock")
                     .font(.system(size: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .singleLineFitted(minScale: 0.24)
@@ -2137,6 +2098,55 @@ private struct SidePanelData {
     let logoData: Data?
     let score: Int
     let accent: Color
+}
+
+/// Shared by the scoreboard face and the full-screen public display modes.
+struct ScoreboardBlurredBackgroundView: View {
+    let palette: ThemePalette
+    let leftAccent: Color
+    let rightAccent: Color
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: palette.boardBackground,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            HStack {
+                RadialGradient(
+                    colors: [leftAccent.opacity(0.28), .clear],
+                    center: .center,
+                    startRadius: 24,
+                    endRadius: 420
+                )
+
+                Spacer()
+
+                RadialGradient(
+                    colors: [rightAccent.opacity(0.28), .clear],
+                    center: .center,
+                    startRadius: 24,
+                    endRadius: 420
+                )
+            }
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            palette.boardHighlightTop,
+                            .clear,
+                            .clear,
+                            palette.boardHighlightBottom
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+    }
 }
 
 private extension View {

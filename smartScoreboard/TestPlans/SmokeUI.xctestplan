@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "id": "C79952BA-9295-4776-99CF-2F67E07E2335",
+      "name": "iPad",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 300,
+    "maximumTestExecutionTimeAllowance": 360
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:smartScoreboard.xcodeproj",
+        "identifier": "75C74EB93A284F618E736C09",
+        "name": "smartScoreboardUITests"
+      },
+      "selectedTests": [
+        "EventWorkflowUITests/testOfficialPauseLeavesPlayStoppedUntilOperatorRestarts()",
+        "DisplayLayoutUITests/testFullScreenDisplayTracksClockAndReopensWithCurrentScore()"
+      ]
+    }
+  ],
+  "version": 1
+}
