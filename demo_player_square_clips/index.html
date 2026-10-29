@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Player Introductions · Smart Scoreboard</title>
+  <style>
+    /* Match /demo/obs so Chromium preserves the embedded canvas's alpha. */
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f5f8ff; }
+    #obs { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; }
+    #introduction, .presentation {
+      --accent: #82c3ff;
+      position: fixed; top: 50%; left: 50%;
+      width: min(1600px, 92vw); height: min(900px, 80vh);
+      transform: translate(-50%, -50%);
+    }
+    #introduction[data-side="guest"] { --accent: #ff9ba2; }
+    .stage, .presentation-stage {
+      width: 100%; height: 100%; padding: 20px;
+      display: grid; grid-template-columns: minmax(0, .94fr) minmax(0, 1fr); gap: 20px;
+      background: rgba(8, 16, 27, .62); border: 1px solid rgba(225, 238, 255, .2);
+      border-radius: 24px; box-shadow: 0 20px 64px #0004;
+    }
+    #introduction[data-motion="entering"] .stage { animation: panel-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+    #introduction[data-motion="exiting"] .stage { animation: panel-out 360ms cubic-bezier(.4,0,.8,.2) both; }
+    .presentation[data-motion="entering"] .presentation-stage { animation: panel-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+    .presentation[data-motion="exiting"] .presentation-stage { animation: panel-out 360ms cubic-bezier(.4,0,.8,.2) both; }
+    #obs[data-motion="entering"] { animation: scorebar-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+    #obs[data-motion="exiting"] { animation: scorebar-out 360ms ease-in both; }
+    @keyframes scorebar-in { from { opacity: 0; clip-path: inset(0 50% 0 50%); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+    @keyframes scorebar-out { from { opacity: 1; clip-path: inset(0 0 0 0); } to { opacity: 0; clip-path: inset(0 50% 0 50%); } }
+    @keyframes panel-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+    @keyframes panel-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.97); } }
+    .roster-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+    .heading { padding: 18px 20px; border-radius: 14px; background: #101c2b; }
+    .heading h1 { margin: 0; font-size: clamp(20px, 2vw, 30px); line-height: 1.15; letter-spacing: -.035em; overflow-wrap: anywhere; text-wrap: balance; }
+    #rosterTeamName { flex-shrink: 0; padding: 12px 18px; color: var(--accent); background: #101c2b; border-radius: 12px; font-size: clamp(18px, 1.8vw, 26px); font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; text-wrap: balance; }
+    #rosterViewport { position: relative; isolation: isolate; flex: 1; min-height: 0; overflow: hidden; }
+    #rosterList { position: relative; display: grid; height: 100%; gap: 3px; list-style: none; margin: 0; padding: 0 2px; }
+    #rosterHighlight { position: absolute; z-index: 1; top: 0; border-radius: 10px; background: var(--accent); transition: transform 320ms cubic-bezier(.22,.8,.25,1), height 320ms, width 320ms, background 220ms; will-change: transform; }
+    .player-row {
+      position: relative; min-width: 0; min-height: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px;
+      align-items: center; gap: 10px; padding: 3px 14px;
+      background: transparent; border: 1px solid transparent; border-radius: 10px;
+      transition: color 200ms;
+    }
+    .player-row::before { content: ""; position: absolute; z-index: 0; inset: -1px; background: #101b2a; border: 1px solid #223144; border-radius: inherit; }
+    .player-row > span { position: relative; z-index: 2; min-width: 0; }
+    .row-number { color: #92a8bf; font-size: 18px; font-weight: 800; white-space: nowrap; transition: color 200ms; }
+    .row-name { font-size: 18px; font-weight: 650; line-height: 1.1; overflow-wrap: anywhere; }
+    .row-arrow { opacity: 0; font-size: 24px; line-height: 1; }
+    .player-row.is-selected { color: #081421; }
+    .player-row.is-selected .row-number { color: #182e45; }
+    .player-row.is-selected .row-arrow { opacity: 1; }
+    .showcase { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+    .portrait { position: relative; width: min(100%, calc(min(900px, 80vh) - 180px)); aspect-ratio: 1; flex-shrink: 0; overflow: hidden; border-radius: 16px; }
+    .pose-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 180ms linear; }
+    .pose-video.is-active { opacity: 1; z-index: 2; }
+    .pose-video.is-previous { opacity: 1; z-index: 1; transition: none; }
+    .caption { width: 100%; padding: 15px 18px; background: #101c2b; border-radius: 12px; }
+    .team { display: flex; align-items: center; min-width: 0; gap: 9px; margin-bottom: 7px; color: var(--accent); }
+    #teamLogo { flex-shrink: 0; width: 24px; height: 24px; object-fit: contain; }
+    #teamName { flex: 1; min-width: 0; font-size: 12px; font-weight: 800; line-height: 1.2; letter-spacing: .08em; text-transform: uppercase; overflow-wrap: anywhere; }
+    .player-identity { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+    #playerNumber { color: var(--accent); font-size: 25px; font-weight: 850; }
+    #playerName { margin: 0; font-size: clamp(22px, 2.4vw, 36px); font-weight: 800; letter-spacing: -.035em; overflow-wrap: anywhere; line-height: 1.1; }
+    .presentation-stage { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 28px; padding: 40px; }
+    .presentation-event { margin: 0; font-size: clamp(28px, 3.2vw, 58px); line-height: 1.1; letter-spacing: -.035em; text-align: center; overflow-wrap: anywhere; text-wrap: balance; }
+    .team-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; width: 100%; flex: 1; min-height: 0; }
+    .team-profile { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 28px; background: #101c2b; border-radius: 20px; border-top: 7px solid #82c3ff; }
+    .team-profile.guest { border-color: #ff9ba2; }
+    .profile-logo { width: min(240px,24vh); height: min(240px,24vh); min-height: 0; object-fit: contain; }
+    .profile-name { margin: 0; font-size: clamp(24px,3.4vw,64px); line-height: 1.1; text-align: center; overflow-wrap: anywhere; text-wrap: balance; }
+    .event-stage { gap: 36px; }
+    #presentationEventLogo { max-width: 80%; width: 680px; height: min(56vh,600px); min-height: 0; object-fit: contain; }
+    #presentationEventName { margin: 0; max-width: 100%; font-size: clamp(38px,5vw,96px); line-height: 1.08; text-align: center; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
+    #scenePowered { position: fixed; z-index: 30; left: 50%; bottom: clamp(6px,1.2vh,20px); transform: translateX(-50%); height: min(96px,8vh); width: auto; max-width: 70vw; object-fit: contain; pointer-events: none; }
+    #scenePowered[data-motion="entering"] { animation: powered-footer-in 360ms ease-out both; }
+    #scenePowered[data-motion="exiting"] { animation: powered-footer-out 300ms ease-in both; }
+    @keyframes powered-footer-in { from { opacity: 0; transform: translate(-50%,12px) scale(.94); } to { opacity: 1; transform: translate(-50%,0) scale(1); } }
+    @keyframes powered-footer-out { from { opacity: 1; transform: translate(-50%,0); } to { opacity: 0; transform: translate(-50%,12px); } }
+    @media (max-width: 680px) {
+      #introduction, .presentation { width: 94vw; height: 80vh; }
+      .stage { padding: 10px; gap: 10px; border-radius: 16px; }
+      .heading { padding: 14px 10px; }
+      .heading h1 { font-size: 20px; }
+      #rosterTeamName { padding: 10px; font-size: 18px; }
+      .player-row { grid-template-columns: 26px minmax(0, 1fr) 9px; padding: 2px 8px; gap: 5px; }
+      .row-number, .row-name { font-size: 13px; }
+      .caption { padding: 10px; }
+      .player-identity { flex-wrap: wrap; gap: 5px; }
+      #playerNumber { font-size: 18px; }
+      #playerName { font-size: 21px; }
+      #teamName { font-size: 10px; }
+      .presentation-stage { padding: 20px; gap: 18px; }
+      .team-grid { gap: 12px; }
+      .team-profile { padding: 14px; gap: 18px; }
+      .profile-logo { max-width: 100%; }
+    }
+    /* These animations are part of the broadcast, so retain them even when
+       the browser reports the operating system's reduced-motion preference. */
+  </style>
+</head>
+<body>
+  <iframe id="obs" title="Smart Scoreboard OBS display 3" hidden></iframe>
+  <section id="introduction" aria-label="Player introductions" hidden>
+    <div class="stage">
+      <div class="roster-panel">
+        <header class="heading" hidden><h1 id="eventName"></h1></header>
+        <div id="rosterTeamName"></div>
+        <div id="rosterViewport"><div id="rosterHighlight" aria-hidden="true" hidden></div><ol id="rosterList" aria-label="Team roster"></ol></div>
+      </div>
+      <div class="showcase">
+        <div class="portrait">
+          <video class="pose-video" muted playsinline preload="auto" disablepictureinpicture></video>
+          <video class="pose-video" muted playsinline preload="auto" disablepictureinpicture></video>
+        </div>
+        <div class="caption">
+          <div class="team"><img id="teamLogo" alt="" hidden><span id="teamName"></span></div>
+          <div class="player-identity"><span id="playerNumber"></span><h2 id="playerName"></h2></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="teamPresentation" class="presentation" aria-label="Team view" hidden>
+    <div class="presentation-stage">
+      <h1 id="teamEventName" class="presentation-event"></h1>
+      <div class="team-grid">
+        <article id="presentationHome" class="team-profile home"><img id="presentationHomeLogo" class="profile-logo" alt="" hidden><h2 id="presentationHomeName" class="profile-name"></h2></article>
+        <article id="presentationGuest" class="team-profile guest"><img id="presentationGuestLogo" class="profile-logo" alt="" hidden><h2 id="presentationGuestName" class="profile-name"></h2></article>
+      </div>
+    </div>
+  </section>
+  <section id="eventPresentation" class="presentation" aria-label="Event logo view" hidden>
+    <div class="presentation-stage event-stage"><img id="presentationEventLogo" alt="" hidden><h1 id="presentationEventName"></h1></div>
+  </section>
+  <img id="scenePowered" width="2172" height="724" alt="GameData powered by Smart Scoreboard" hidden>
+  <script>
+    'use strict';
+    const DISPLAY_ID = 3;
+    const PLAYER_SECONDS = 2.5;
+    const CLIPS = {
+      home: Array.from({ length: 12 }, (_, i) => `Blue_Player_${String(i + 1).padStart(2, '0')}_square.mp4`),
+      guest: Array.from({ length: 12 }, (_, i) => `Red_Player_${String(i + 13).padStart(2, '0')}_square.mp4`)
+    };
+    const state = {};
+    const obs = document.getElementById('obs');
+    const introduction = document.getElementById('introduction');
+    const stage = document.querySelector('.stage');
+    const teamPresentation = document.getElementById('teamPresentation');
+    const eventPresentation = document.getElementById('eventPresentation');
+    const scenePowered = document.getElementById('scenePowered');
+    const videos = [...document.querySelectorAll('.pose-video')];
+    const rosterList = document.getElementById('rosterList');
+    const rosterViewport = document.getElementById('rosterViewport');
+    const rosterHighlight = document.getElementById('rosterHighlight');
+    const assetBase = new URL(location.pathname === '/user' ? '/user/' : './', location.href);
+    const poweredURL = new URL('powered.png', assetBase).href;
+    scenePowered.src = poweredURL;
+    const obsURL = new URL('/demo/obs', location.href);
+    const params = new URLSearchParams(location.search);
+    if (params.has('lang')) obsURL.searchParams.set('lang', params.get('lang'));
+    obsURL.searchParams.set('displayId', DISPLAY_ID);
+    let iframeReady = false;
+    let connected = false;
+    let currentMode = null;
+    let phase = 'idle';
+    let sequence = [];
+    let currentIndex = -1;
+    let activeVideo = null;
+    let rosterSignature = '';
+    let rosterSide = null;
+    let generation = 0;
+    let controller = new AbortController();
+    let playbackTimer, bufferTimer, exitTimer, reconnectTimer;
+    let sceneTimer, sceneGeneration = 0, finishPendingScene = null, outgoingScene = null;
+    let viewReady = false;
+    let scoreSnapshot = null;
+    const playerSnapshots = new Map();
+    const scoreTimers = new Map();
+    let foulQueue = [], foulTimer, foulCloseTimer;
+    let poweredEntryTimer, poweredHoldTimer, poweredExitTimer, scenePoweredTimer;
+    let socket;
+    let disposed = false;
+    videos.forEach(video => { video.muted = true; });
+
+    function displayMode() {
+      const display = state.display || {};
+      const assignment = (display.broadcastControl?.assignments || []).find(item => Number(item.displayID) === DISPLAY_ID);
+      return assignment?.effectiveRenderMode || display.controlStatus?.currentMode || display.viewMode || 'scoreboard';
+    }
+
+    function syncOBS() {
+      const show = iframeReady && connected && state.display && viewReady && usesScorebar(currentMode);
+      if (show) openPanel(obs);
+      else if (obs.dataset.motion !== 'exiting') obs.hidden = true;
+    }
+
+    obs.addEventListener('load', () => {
+      try {
+        configureOBS();
+        iframeReady = true;
+      } catch { iframeReady = false; }
+      syncOBS();
+    });
+    obs.src = obsURL.href;
+
+    function usesScorebar(mode) { return Boolean(mode && !['playerView', 'teamView', 'eventLogo', 'blackScreen', 'backgroundOnly'].includes(mode)); }
+
+    function openPanel(panel) {
+      if (!panel.hidden) return;
+      panel.hidden = false;
+      panel.dataset.motion = 'entering';
+      if (panel === obs) showScorePowered();
+      else showScenePowered();
+    }
+
+    function showScenePowered() {
+      clearTimeout(scenePoweredTimer);
+      if (!scenePowered.hidden && scenePowered.dataset.motion !== 'exiting') return;
+      scenePowered.hidden = false;
+      scenePowered.dataset.motion = 'entering';
+    }
+
+    function hideScenePowered(immediate = false) {
+      clearTimeout(scenePoweredTimer);
+      if (immediate) { scenePowered.hidden = true; scenePowered.dataset.motion = 'hidden'; return; }
+      if (scenePowered.hidden) return;
+      scenePowered.dataset.motion = 'exiting';
+      scenePoweredTimer = setTimeout(() => { scenePowered.hidden = true; }, 320);
+    }
+
+    function showScorePowered() {
+      hideScorePowered(true);
+      const slot = obs.contentDocument?.getElementById('scorePowered');
+      if (!slot) return;
+      slot.hidden = false;
+      slot.dataset.motion = 'entering';
+      // The hold starts after the expansion; animation events and a timer
+      // cover both normal rendering and an interrupted browser paint cycle.
+      poweredEntryTimer = setTimeout(holdScorePowered, 450);
+    }
+
+    function holdScorePowered() {
+      const slot = obs.contentDocument?.getElementById('scorePowered');
+      if (!slot || slot.hidden || slot.dataset.motion !== 'entering' || !canAnnounce()) return;
+      clearTimeout(poweredEntryTimer);
+      slot.dataset.motion = 'visible';
+      poweredHoldTimer = setTimeout(() => hideScorePowered(), 5000);
+    }
+
+    function hideScorePowered(immediate = false) {
+      clearTimeout(poweredEntryTimer); clearTimeout(poweredHoldTimer); clearTimeout(poweredExitTimer);
+      const slot = obs.contentDocument?.getElementById('scorePowered');
+      if (!slot) return;
+      if (immediate) { slot.hidden = true; slot.dataset.motion = 'hidden'; return; }
+      if (slot.hidden) return;
+      slot.dataset.motion = 'exiting';
+      poweredExitTimer = setTimeout(() => { slot.hidden = true; }, 400);
+    }
+
+    function applyPresentationImage(id, metadata) {
+      const image = document.getElementById(id);
+      image.hidden = !metadata?.path;
+      if (!metadata?.path) { image.removeAttribute('src'); return; }
+      const url = new URL(metadata.path, location.href);
+      const version = metadata.id || metadata.updatedAtUnixTime;
+      if (version) url.searchParams.set('v', version);
+      if (image.src !== url.href) image.src = url.href;
+    }
+
+    function updatePresentations() {
+      if (!viewReady || !connected) return;
+      if (currentMode === 'teamView' && state.teams) {
+        const title = document.getElementById('teamEventName');
+        title.textContent = field(state.game?.eventName);
+        title.hidden = !title.textContent;
+        for (const side of ['home', 'guest']) {
+          const label = side === 'home' ? 'Home' : 'Guest';
+          document.getElementById(`presentation${label}Name`).textContent = teamName(side);
+          applyPresentationImage(`presentation${label}Logo`, state.display?.showsTeamLogos === false ? null : state.teams[side]?.logo);
+        }
+        const reversed = state.display?.direction === 'guestLeft';
+        document.getElementById('presentationHome').style.order = reversed ? '2' : '1';
+        document.getElementById('presentationGuest').style.order = reversed ? '1' : '2';
+        openPanel(teamPresentation);
+      }
+      if (currentMode === 'eventLogo' && state.game) {
+        document.getElementById('presentationEventName').textContent = field(state.game.eventName) || state.rules?.title || 'Smart Scoreboard';
+        applyPresentationImage('presentationEventLogo', state.display?.showsEventLogo === false ? null : state.display?.eventLogo);
+        openPanel(eventPresentation);
+      }
+    }
+
+    function transitionScene(mode) {
+      clearTimeout(sceneTimer);
+      const token = ++sceneGeneration;
+      viewReady = false;
+      hideScenePowered();
+      hideScorePowered();
+      clearScoreEffects();
+      const outgoing = [introduction, teamPresentation, eventPresentation, obs].find(panel => !panel.hidden);
+      outgoingScene = outgoing || null;
+      const finish = () => {
+        if (token !== sceneGeneration) return;
+        clearTimeout(sceneTimer);
+        finishPendingScene = null;
+        outgoingScene = null;
+        hideScenePowered(true);
+        for (const panel of [teamPresentation, eventPresentation, obs]) { panel.hidden = true; panel.dataset.motion = 'hidden'; }
+        if (phase === 'exiting') completeExit();
+        if (mode === 'playerView') {
+          invalidate();
+          introduction.hidden = true;
+          videos.forEach(video => { video.pause(); video.classList.remove('is-active', 'is-previous'); });
+          activeVideo = null;
+          currentIndex = -1;
+          rosterSignature = '';
+          rosterSide = null;
+          phase = 'waiting';
+        } else { phase = mode === null && currentMode === 'playerView' ? 'completed' : 'idle'; }
+        viewReady = true;
+        updatePresentations();
+        syncOBS();
+        if (mode === 'playerView') beginSequence();
+        else warmFirstClips();
+      };
+      finishPendingScene = finish;
+      if (['waiting', 'loading', 'playing'].includes(phase) || outgoing === introduction) endSequence();
+      if (outgoing) {
+        outgoing.dataset.motion = 'exiting';
+        sceneTimer = setTimeout(finish, 400);
+      } else finish();
+    }
+
+    function configureOBS() {
+      const doc = obs.contentDocument;
+      const style = doc.createElement('style');
+      style.textContent = `
+        #playerBug, #teamBug, #eventBug { display: none !important; }
+        [hidden] { display: none !important; }
+        .scorebug { left:50%; bottom:112px; transform:translateX(-50%); width:min(1640px,92vw); display:flex; align-items:stretch; border-radius:14px; overflow:visible; }
+        .scorebug .teams { display:contents; }
+        .scorebug .team { flex:1; min-width:0; min-height:104px; display:grid; grid-template-columns:56px minmax(0,1fr) auto 92px; background:#101c2b; border:0; }
+        .scorebug .team:not(.has-logo) { grid-template-columns:0 minmax(0,1fr) auto 92px; }
+        .scorebug .logo { grid-column:1; grid-row:1; width:44px; height:44px; margin:0; justify-self:center; }
+        .scorebug .name { grid-column:2; grid-row:1; padding:12px 16px; font-size:clamp(18px,2vw,32px); line-height:1.12; white-space:normal; overflow-wrap:anywhere; border:0; }
+        .scorebug .team-pause { grid-column:3; grid-row:1; }
+        .scorebug .score-wrap { grid-column:4; grid-row:1; position:relative; display:grid; align-self:stretch; background:#f8fafc; color:#101623; }
+        .scorebug .score { font-size:clamp(30px,3vw,50px); }
+        .scorebug .clockbox { flex:0 0 200px; order:1; width:auto; min-height:104px; display:grid; grid-template-columns:1fr; grid-template-rows:auto 1fr auto; }
+        .scorebug .period { padding:8px 10px 0; font-size:14px; }
+        .scorebug .clock { padding:4px 10px; font-size:38px; }
+        .scorebug .extra { padding:0 8px 8px; font-size:12px; }
+        #scorePowered { position:absolute; z-index:4; left:50%; bottom:100%; transform:translateX(-50%); width:min(520px,48vw); padding-bottom:12px; overflow:hidden; pointer-events:none; }
+        #scorePowered img { display:block; width:100%; height:auto; transform-origin:center bottom; }
+        #scorePowered[data-motion="entering"] img { animation:powered-rise 420ms cubic-bezier(.2,.8,.2,1) both; }
+        #scorePowered[data-motion="exiting"] img { animation:powered-drop 360ms ease-in both; }
+        @keyframes powered-rise { from{opacity:0;transform:translateY(calc(100% + 12px)) scale(.8)} to{opacity:1;transform:translateY(0) scale(1)} }
+        @keyframes powered-drop { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(calc(100% + 12px)) scale(.9)} }
+        .scorebug:not([data-reversed="true"]) .guest, .scorebug[data-reversed="true"] .home { grid-template-columns:92px auto minmax(0,1fr) 56px; }
+        .scorebug:not([data-reversed="true"]) .guest:not(.has-logo), .scorebug[data-reversed="true"] .home:not(.has-logo) { grid-template-columns:92px auto minmax(0,1fr) 0; }
+        .scorebug:not([data-reversed="true"]) .guest .logo, .scorebug[data-reversed="true"] .home .logo { grid-column:4; }
+        .scorebug:not([data-reversed="true"]) .guest .name, .scorebug[data-reversed="true"] .home .name { grid-column:3; }
+        .scorebug:not([data-reversed="true"]) .guest .team-pause, .scorebug[data-reversed="true"] .home .team-pause { grid-column:2; }
+        .scorebug:not([data-reversed="true"]) .guest .score-wrap, .scorebug[data-reversed="true"] .home .score-wrap { grid-column:1; }
+        .score-change { position:absolute; inset:0; z-index:2; background:#f8fafc; border-radius:inherit; pointer-events:none; }
+        .score-old, .score-new { position:absolute; inset:0; display:grid; place-items:center; font-size:clamp(30px,3vw,50px); font-weight:1000; font-variant-numeric:tabular-nums; }
+        .score-old { animation:score-old-out 1100ms both; }
+        .score-new { animation:score-new-in 1100ms both; }
+        .score-delta { position:absolute; z-index:3; left:50%; top:-14px; padding:4px 10px; border-radius:999px; background:#0ea5e9; color:white; font-size:24px; font-weight:950; animation:score-bonus 1100ms both; }
+        .guest .score-delta { background:#e85267; }
+        @keyframes score-old-out { 0%,25%{opacity:1;transform:translateY(0)} 55%,100%{opacity:0;transform:translateY(-24px)} }
+        @keyframes score-new-in { 0%,35%{opacity:0;transform:translateY(24px)} 70%,100%{opacity:1;transform:translateY(0)} }
+        @keyframes score-bonus { 0%{opacity:0;transform:translate(-50%,10px) scale(.7)} 18%,62%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-14px) scale(.9)} }
+        .broadcast-toast { position:absolute; z-index:5; top:calc(100% + 12px); left:50%; width:min(100%,1100px); transform:translateX(-50%); padding:15px 22px; border-radius:12px; border:1px solid #ffffff30; border-left:6px solid #f9b84a; background:#101c2b; color:white; font-size:clamp(16px,1.4vw,25px); font-weight:700; line-height:1.25; text-align:center; overflow-wrap:anywhere; }
+        .broadcast-toast[data-kind="yellow"] { border-left-color:#facc15; }
+        .broadcast-toast[data-kind="red"] { border-left-color:#fb5268; }
+        .broadcast-toast[data-motion="entering"] { animation:toast-in 300ms ease-out both; }
+        .broadcast-toast[data-motion="exiting"] { animation:toast-out 260ms ease-in both; }
+        @keyframes toast-in { from{opacity:0;transform:translate(-50%,12px)} to{opacity:1;transform:translate(-50%,0)} }
+        @keyframes toast-out { from{opacity:1;transform:translate(-50%,0)} to{opacity:0;transform:translate(-50%,8px)} }
+        @media(max-width:800px) {
+          .scorebug { width:94vw; bottom:120px; }
+          .scorebug .clockbox { flex-basis:120px; }
+          .scorebug .team { grid-template-columns:36px minmax(0,1fr) auto 60px; }
+          .scorebug .team:not(.has-logo) { grid-template-columns:0 minmax(0,1fr) auto 60px; }
+          .scorebug .logo { width:30px; height:30px; }
+          .scorebug .name { font-size:16px; padding:8px; }
+          .scorebug:not([data-reversed="true"]) .guest, .scorebug[data-reversed="true"] .home { grid-template-columns:60px auto minmax(0,1fr) 36px; }
+          .scorebug:not([data-reversed="true"]) .guest:not(.has-logo), .scorebug[data-reversed="true"] .home:not(.has-logo) { grid-template-columns:60px auto minmax(0,1fr) 0; }
+        }
+      `;
+      doc.head.appendChild(style);
+      const bar = doc.getElementById('scorebug');
+      if (!bar) return;
+      // Scene control belongs to this page. Keep the native formatter on the score
+      // bar so its own live mode update cannot replace a panel during its fade out.
+      const win = obs.contentWindow;
+      if (typeof win.displayMode === 'function') win.displayMode = () => 'scoreboard';
+      if (typeof win.applyDisplayDirection === 'function') {
+        const originalDirection = win.applyDisplayDirection;
+        win.applyDisplayDirection = (display, runtime) => {
+          originalDirection(display, runtime);
+          bar.dataset.reversed = String((display.direction || (runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft')) === 'guestLeft');
+        };
+      }
+      for (const side of ['home', 'guest']) {
+        const score = doc.getElementById(`${side}Score`);
+        if (!score || score.parentElement.classList.contains('score-wrap')) continue;
+        const wrapper = doc.createElement('div');
+        wrapper.className = 'score-wrap';
+        score.replaceWith(wrapper);
+        wrapper.appendChild(score);
+      }
+      const toast = doc.createElement('div');
+      toast.id = 'foulToast'; toast.className = 'broadcast-toast'; toast.hidden = true;
+      toast.setAttribute('role', 'status');
+      bar.appendChild(toast);
+      const powered = doc.createElement('div');
+      powered.id = 'scorePowered'; powered.hidden = true;
+      const poweredImage = doc.createElement('img');
+      poweredImage.src = poweredURL; poweredImage.width = 2172; poweredImage.height = 724;
+      poweredImage.alt = 'GameData powered by Smart Scoreboard';
+      powered.appendChild(poweredImage);
+      bar.appendChild(powered);
+      poweredImage.addEventListener('animationend', event => {
+        if (event.animationName === 'powered-rise') holdScorePowered();
+        if (event.animationName === 'powered-drop' && powered.dataset.motion === 'exiting') powered.hidden = true;
+      });
+      // A very fast socket can deliver the first state before the iframe load
+      // event. Re-render that state after installing the score-bar scene control.
+      try { win.eval("if (typeof v2State !== 'undefined') applyState(v2State)"); } catch { /* Initial resources can still be pending. */ }
+    }
+
+    function canAnnounce() { return connected && iframeReady && viewReady && usesScorebar(currentMode) && !obs.hidden && obs.dataset.motion !== 'exiting'; }
+
+    function animateScore(side, previous, next) {
+      const doc = obs.contentDocument;
+      const score = doc?.getElementById(`${side}Score`);
+      const wrapper = score?.parentElement;
+      if (!wrapper?.classList.contains('score-wrap')) return;
+      clearTimeout(scoreTimers.get(side));
+      wrapper.querySelector('.score-change')?.remove();
+      const effect = doc.createElement('div'); effect.className = 'score-change';
+      for (const [name, value] of [['score-old', previous], ['score-delta', `+${next - previous}`], ['score-new', next]]) {
+        const label = doc.createElement('span'); label.className = name; label.textContent = String(value); effect.appendChild(label);
+      }
+      score.textContent = String(next);
+      wrapper.appendChild(effect);
+      scoreTimers.set(side, setTimeout(() => { effect.remove(); scoreTimers.delete(side); }, 1100));
+    }
+
+    function observeScores(teams) {
+      for (const side of ['home', 'guest']) {
+        const old = scoreSnapshot?.[side];
+        const next = Number(teams?.[side]?.score);
+        if (Number.isFinite(old) && Number.isFinite(next) && next > old && canAnnounce()) animateScore(side, old, next);
+        if (Number.isFinite(old) && Number.isFinite(next) && next < old) {
+          clearTimeout(scoreTimers.get(side)); scoreTimers.delete(side);
+          obs.contentDocument?.getElementById(`${side}Score`)?.parentElement.querySelector('.score-change')?.remove();
+        }
+      }
+      scoreSnapshot = Object.fromEntries(['home', 'guest'].map(side => [side, Number(teams?.[side]?.score)]));
+    }
+
+    function showNextFoul() {
+      const toast = obs.contentDocument?.getElementById('foulToast');
+      if (!toast || !toast.hidden || !foulQueue.length || !canAnnounce()) return;
+      const event = foulQueue.shift();
+      toast.textContent = event.text;
+      toast.dataset.kind = event.kind;
+      toast.dataset.motion = 'entering';
+      toast.hidden = false;
+      foulTimer = setTimeout(() => {
+        toast.dataset.motion = 'exiting';
+        foulCloseTimer = setTimeout(() => { toast.hidden = true; showNextFoul(); }, 300);
+      }, 3200);
+    }
+
+    function observePlayers(players) {
+      for (const side of ['home', 'guest']) {
+        const roster = players?.[`${side}Roster`]?.players;
+        for (const player of roster?.length ? roster : (players?.[`${side}Displayed`] || [])) {
+          if (!player.id) continue;
+          const key = `${side}:${player.id}`;
+          const next = { fouls: Number(player.foulCount || 0), card: player.cardStatus || 'none' };
+          const old = playerSnapshots.get(key);
+          playerSnapshots.set(key, next);
+          if (!old || !hasIdentity(player) || !canAnnounce()) continue;
+          const details = [];
+          if (next.fouls > old.fouls) details.push(`Foul +${next.fouls - old.fouls} · ${next.fouls} total`);
+          const cardAdded = ({ none: 0, yellow: 1, red: 2 }[next.card] || 0) > ({ none: 0, yellow: 1, red: 2 }[old.card] || 0);
+          if (cardAdded) details.push(next.card === 'yellow' ? 'Yellow card' : 'Red card');
+          if (!details.length) continue;
+          foulQueue.push({ text: `${teamName(side)} · #${field(player.number)} ${playerName(player)} — ${details.join(' · ')}`, kind: cardAdded ? next.card : 'foul' });
+        }
+      }
+      showNextFoul();
+    }
+
+    function clearScoreEffects() {
+      for (const timer of scoreTimers.values()) clearTimeout(timer);
+      scoreTimers.clear();
+      obs.contentDocument?.querySelectorAll('.score-change').forEach(effect => effect.remove());
+      foulQueue = [];
+      clearTimeout(foulTimer); clearTimeout(foulCloseTimer);
+      const toast = obs.contentDocument?.getElementById('foulToast');
+      if (toast && !toast.hidden) {
+        toast.dataset.motion = 'exiting';
+        foulCloseTimer = setTimeout(() => { toast.hidden = true; }, 300);
+      }
+    }
+
+    function field(value) { return String(value ?? '').trim(); }
+    function hasIdentity(player) { return Boolean(field(player.name) && field(player.number)); }
+
+    function makeSequence(completeOnly = true) {
+      return ['home', 'guest'].flatMap(side => {
+        const roster = state.players?.[`${side}Roster`]?.players || [];
+        const players = roster.length ? roster : (state.players?.[`${side}Displayed`] || []);
+        return players.map((player, index) => ({
+          key: `${side}:${player.id || index}`, side, player,
+          clip: CLIPS[side][index % CLIPS[side].length]
+        })).filter(entry => !completeOnly || hasIdentity(entry.player));
+      });
+    }
+
+    function teamName(side) { return state.teams?.[side]?.name || (side === 'home' ? 'Home' : 'Guest'); }
+    function playerName(player) { return field(player.name); }
+
+    function updateEventName() {
+      const heading = document.getElementById('eventName');
+      const name = field(state.game?.eventName);
+      heading.textContent = name;
+      heading.parentElement.hidden = !name;
+    }
+
+    function fitTeamNames() {
+      for (const id of ['rosterTeamName', 'teamName']) {
+        const element = document.getElementById(id);
+        element.style.fontSize = '';
+        if (!element.clientWidth) continue;
+        const style = getComputedStyle(element);
+        let size = parseFloat(style.fontSize);
+        const lineHeight = parseFloat(style.lineHeight) / size;
+        const height = size * lineHeight * 2 + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 1;
+        const minimum = id === 'rosterTeamName' ? 12 : 9;
+        while (size > minimum && (element.scrollWidth > element.clientWidth || element.scrollHeight > height)) {
+          element.style.fontSize = `${--size}px`;
+        }
+      }
+    }
+
+    function moveHighlight(row, animate = true) {
+      const snap = !animate || rosterHighlight.hidden;
+      if (snap) rosterHighlight.style.transition = 'none';
+      rosterHighlight.hidden = false;
+      rosterHighlight.style.left = `${row.offsetLeft}px`;
+      rosterHighlight.style.width = `${row.offsetWidth}px`;
+      rosterHighlight.style.height = `${row.offsetHeight}px`;
+      rosterHighlight.style.transform = `translateY(${rosterList.offsetTop + row.offsetTop}px)`;
+      if (snap) {
+        rosterHighlight.getBoundingClientRect();
+        rosterHighlight.style.transition = '';
+      }
+    }
+
+    function fitRoster() {
+      const rows = [...rosterList.querySelectorAll('.player-row')];
+      const height = rosterViewport.clientHeight;
+      if (!height || !rows.length) return;
+      const gap = Math.min(5, Math.max(1, Math.floor(height / (rows.length * 12))));
+      rosterList.style.gap = `${gap}px`;
+      const rowHeight = (height - gap * (rows.length - 1)) / rows.length;
+      const padding = rowHeight >= 30 ? 3 : 1;
+      const base = Math.min(18, Math.max(6, rowHeight * .48));
+      for (const row of rows) {
+        row.style.paddingTop = row.style.paddingBottom = `${padding}px`;
+        for (const label of [row.querySelector('.row-name'), row.querySelector('.row-number')]) {
+          let size = base;
+          label.style.fontSize = `${size}px`;
+          const available = rowHeight - 2 * padding - 2;
+          while (size > 6 && (label.scrollHeight > available || label.scrollWidth > label.clientWidth)) {
+            label.style.fontSize = `${size = Math.max(6, size - .5)}px`;
+          }
+        }
+        row.querySelector('.row-arrow').style.fontSize = `${Math.min(24, base * 1.3)}px`;
+      }
+      rosterViewport.scrollTop = 0;
+      const selected = rosterList.querySelector('.is-selected');
+      if (selected) moveHighlight(selected, false);
+    }
+
+    function fitLayout() { fitTeamNames(); fitRoster(); }
+
+    function renderRoster(side = sequence[currentIndex]?.side || sequence[0]?.side) {
+      if (!side) return false;
+      const entries = sequence.filter(entry => entry.side === side && hasIdentity(entry.player));
+      const signature = JSON.stringify([side, teamName(side), entries.map(entry => [entry.key, entry.player.name, entry.player.number])]);
+      if (signature === rosterSignature) return false;
+      const changedTeam = side !== rosterSide;
+      rosterSide = side;
+      rosterSignature = signature;
+      document.getElementById('rosterTeamName').textContent = teamName(side);
+      rosterList.setAttribute('aria-label', `${teamName(side)} roster`);
+      const fragment = document.createDocumentFragment();
+      entries.forEach(entry => {
+        const row = document.createElement('li');
+        row.className = 'player-row';
+        row.dataset.key = entry.key;
+        const number = document.createElement('span');
+        number.className = 'row-number';
+        number.textContent = field(entry.player.number);
+        const name = document.createElement('span');
+        name.className = 'row-name';
+        name.textContent = playerName(entry.player);
+        const arrow = document.createElement('span');
+        arrow.className = 'row-arrow';
+        arrow.textContent = '›';
+        arrow.setAttribute('aria-hidden', 'true');
+        row.append(number, name, arrow);
+        fragment.appendChild(row);
+      });
+      rosterList.replaceChildren(fragment);
+      rosterList.style.gridTemplateRows = `repeat(${entries.length || 1}, minmax(0, 1fr))`;
+      rosterHighlight.hidden = true;
+      rosterViewport.scrollTop = 0;
+      fitLayout();
+      return changedTeam;
+    }
+
+    function updateIdentity(entry, animate = false) {
+      const changedTeam = renderRoster(entry.side);
+      document.getElementById('teamName').textContent = teamName(entry.side);
+      const number = String(entry.player.number ?? '').trim();
+      document.getElementById('playerNumber').textContent = number ? `#${number}` : '';
+      document.getElementById('playerName').textContent = playerName(entry.player);
+      introduction.dataset.side = entry.side;
+      const logo = document.getElementById('teamLogo');
+      const metadata = state.display?.showsTeamLogos === false ? null : state.teams?.[entry.side]?.logo;
+      logo.hidden = !metadata?.path;
+      if (metadata?.path) {
+        const url = new URL(metadata.path, location.href);
+        const version = metadata.id || metadata.updatedAtUnixTime;
+        if (version) url.searchParams.set('v', version);
+        if (logo.src !== url.href) logo.src = url.href;
+      } else { logo.removeAttribute('src'); }
+      fitLayout();
+      for (const row of rosterList.querySelectorAll('.player-row')) {
+        const selected = row.dataset.key === entry.key;
+        row.classList.toggle('is-selected', selected);
+        if (selected) {
+          row.setAttribute('aria-current', 'true');
+          moveHighlight(row, animate && !changedTeam);
+        } else { row.removeAttribute('aria-current'); }
+      }
+    }
+
+    function prepareVideo(video, entry) {
+      if (!entry) return;
+      const url = new URL(entry.clip, assetBase).href;
+      if (video.src === url) return;
+      video.pause();
+      video.src = url;
+      video.load();
+    }
+
+    function warmFirstClips() {
+      if (phase !== 'idle') return;
+      const upcoming = makeSequence();
+      videos.forEach((video, index) => prepareVideo(video, upcoming[index]));
+    }
+
+    function invalidate() {
+      generation++;
+      controller.abort();
+      controller = new AbortController();
+      clearTimeout(playbackTimer);
+      clearTimeout(bufferTimer);
+      clearTimeout(exitTimer);
+    }
+
+    function waitForMedia(video, signal, frame = false) {
+      return new Promise((resolve, reject) => {
+        let timer, frameID, painting = false;
+        const clean = () => {
+          clearTimeout(timer);
+          video.removeEventListener('loadeddata', ready);
+          video.removeEventListener('seeked', ready);
+          video.removeEventListener('canplay', ready);
+          video.removeEventListener('error', failed);
+          signal.removeEventListener('abort', aborted);
+          if (frameID !== undefined) cancelAnimationFrame(frameID);
+        };
+        const done = () => { clean(); resolve(); };
+        const failed = () => { clean(); reject(new Error('Clip unavailable')); };
+        const aborted = () => { clean(); reject(new Error('Cancelled')); };
+        const ready = () => {
+          if (video.readyState < 2 || video.seeking || painting) return;
+          // HAVE_CURRENT_DATA plus a completed seek guarantees a decoded first frame.
+          // Frame callbacks can stall on an invisible preloader, so allow two paint
+          // cycles before revealing it and retain the outgoing frame below the fade.
+          if (frame) {
+            painting = true;
+            frameID = requestAnimationFrame(() => {
+              frameID = requestAnimationFrame(() => { if (!signal.aborted) done(); });
+            });
+          }
+          else done();
+        };
+        if (signal.aborted) { aborted(); return; }
+        signal.addEventListener('abort', aborted, { once: true });
+        video.addEventListener('error', failed, { once: true });
+        video.addEventListener('loadeddata', ready);
+        video.addEventListener('seeked', ready);
+        video.addEventListener('canplay', ready);
+        timer = setTimeout(failed, 7000);
+        ready();
+      });
+    }
+
+    function completeExit() {
+      if (phase !== 'exiting') return;
+      clearTimeout(exitTimer);
+      hideScenePowered(true);
+      introduction.hidden = true;
+      introduction.dataset.motion = 'hidden';
+      videos.forEach(video => { video.pause(); video.classList.remove('is-active', 'is-previous'); });
+      activeVideo = null;
+      currentIndex = -1;
+      phase = currentMode === 'playerView' ? 'completed' : 'idle';
+      syncOBS();
+      warmFirstClips();
+    }
+
+    function endSequence() {
+      invalidate();
+      hideScenePowered();
+      videos.forEach(video => video.pause());
+      phase = 'exiting';
+      if (introduction.hidden) { completeExit(); return; }
+      introduction.dataset.motion = 'exiting';
+      exitTimer = setTimeout(completeExit, 400);
+    }
+
+    async function showEntry(index, token) {
+      if (token !== generation || currentMode !== 'playerView') return;
+      while (index < sequence.length && !hasIdentity(sequence[index].player)) index++;
+      if (index >= sequence.length) { endSequence(); return; }
+      clearTimeout(playbackTimer);
+      clearTimeout(bufferTimer);
+      phase = 'loading';
+      const incoming = activeVideo === videos[0] ? videos[1] : videos[0];
+      const outgoing = activeVideo;
+      const signal = controller.signal;
+      prepareVideo(incoming, sequence[index]);
+      try {
+        await waitForMedia(incoming, signal);
+        if (token !== generation) return;
+        incoming.currentTime = 0;
+        incoming.playbackRate = Number.isFinite(incoming.duration) && incoming.duration > 0 ? incoming.duration / PLAYER_SECONDS : 1.6;
+        await incoming.play();
+        await waitForMedia(incoming, signal, true);
+      } catch {
+        if (token === generation) showEntry(index + 1, token);
+        return;
+      }
+      if (token !== generation || currentMode !== 'playerView') return;
+      if (!hasIdentity(sequence[index].player)) { showEntry(index + 1, token); return; }
+      const entering = introduction.hidden;
+      currentIndex = index;
+      activeVideo = incoming;
+      introduction.hidden = false;
+      if (entering) introduction.dataset.motion = 'entering';
+      if (entering) showScenePowered();
+      incoming.classList.add('is-active');
+      if (outgoing) { outgoing.pause(); outgoing.classList.add('is-previous'); outgoing.classList.remove('is-active'); }
+      phase = 'playing';
+      updateIdentity(sequence[index], true);
+      // Keep the outgoing decoded frame underneath the incoming frame during the fade.
+      bufferTimer = setTimeout(() => {
+        if (token !== generation) return;
+        const spare = incoming === videos[0] ? videos[1] : videos[0];
+        spare.classList.remove('is-previous');
+        prepareVideo(spare, sequence[index + 1]);
+      }, 220);
+      playbackTimer = setTimeout(advance, (PLAYER_SECONDS + 1.5) * 1000);
+    }
+
+    function advance() {
+      if (phase === 'playing') showEntry(currentIndex + 1, generation);
+    }
+
+    function beginSequence() {
+      if (!viewReady || phase !== 'waiting' || !state.players || !state.teams) return;
+      sequence = makeSequence();
+      if (!sequence.length) return;
+      renderRoster();
+      rosterViewport.scrollTop = 0;
+      videos.forEach((video, index) => prepareVideo(video, sequence[index]));
+      showEntry(0, generation);
+    }
+
+    function render() {
+      updateEventName();
+      if (!state.display) return;
+      const mode = displayMode();
+      if (mode !== currentMode) {
+        currentMode = mode;
+        transitionScene(mode);
+      }
+      syncOBS();
+      if (mode === 'playerView') {
+        beginSequence();
+        if (['playing', 'loading'].includes(phase)) {
+          const live = new Map(makeSequence(false).map(entry => [entry.key, entry.player]));
+          sequence.forEach(entry => { if (live.has(entry.key)) entry.player = live.get(entry.key); });
+          renderRoster();
+          if (currentIndex >= 0) {
+            if (hasIdentity(sequence[currentIndex].player)) updateIdentity(sequence[currentIndex]);
+            else if (phase === 'playing') advance();
+          }
+        }
+      } else { updatePresentations(); warmFirstClips(); }
+    }
+
+    function handleMessage(message) {
+      if (message?.schemaVersion !== 2 || message.type !== 'scoreboard.v2.resource') return;
+      const envelope = message.payload || {};
+      const resource = message.resource || envelope.resource;
+      if (!['game', 'display', 'players', 'teams', 'rules'].includes(resource)) return;
+      state[resource] = envelope.data;
+      if (resource === 'teams') observeScores(envelope.data);
+      if (resource === 'players') observePlayers(envelope.data);
+      render();
+    }
+
+    function connect() {
+      if (disposed) return;
+      clearTimeout(reconnectTimer);
+      const url = new URL(location.href);
+      url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url.port = '5517'; url.pathname = '/api/v2/ws'; url.search = ''; url.hash = '';
+      socket = new WebSocket(url.href);
+      socket.onopen = () => {
+        connected = true;
+        scoreSnapshot = null;
+        playerSnapshots.clear();
+        clearScoreEffects();
+        Object.keys(state).forEach(key => delete state[key]);
+        syncOBS();
+        socket.send(JSON.stringify({ type: 'subscribe', apiVersion: 'v2' }));
+      };
+      socket.onmessage = event => {
+        try { handleMessage(JSON.parse(event.data)); } catch { /* Ignore malformed packets. */ }
+      };
+      socket.onclose = () => {
+        connected = false;
+        if (!disposed) transitionScene(null);
+        else obs.hidden = true;
+        if (!disposed) reconnectTimer = setTimeout(connect, 1200);
+      };
+      socket.onerror = () => socket.close();
+    }
+
+    videos.forEach(video => video.addEventListener('ended', () => { if (video === activeVideo) advance(); }));
+    for (const panel of [introduction, teamPresentation, eventPresentation, obs]) {
+      const frame = panel === obs ? obs : panel.firstElementChild;
+      frame.addEventListener('animationend', event => {
+        if (event.target !== frame) return;
+        if (['panel-out', 'scorebar-out'].includes(event.animationName) && panel.dataset.motion === 'exiting') {
+          if (panel === introduction) completeExit();
+          if (outgoingScene === panel) finishPendingScene?.();
+        }
+        if (['panel-in', 'scorebar-in'].includes(event.animationName) && panel.dataset.motion === 'entering') panel.dataset.motion = 'visible';
+      });
+    }
+    window.addEventListener('resize', fitLayout);
+    scenePowered.addEventListener('animationend', event => {
+      if (event.animationName === 'powered-footer-in' && scenePowered.dataset.motion === 'entering') scenePowered.dataset.motion = 'visible';
+      if (event.animationName === 'powered-footer-out' && scenePowered.dataset.motion === 'exiting') scenePowered.hidden = true;
+    });
+    window.addEventListener('pagehide', () => {
+      disposed = true;
+      invalidate();
+      sceneGeneration++;
+      hideScorePowered(true);
+      hideScenePowered(true);
+      clearTimeout(sceneTimer);
+      clearScoreEffects();
+      clearTimeout(reconnectTimer);
+      videos.forEach(video => video.pause());
+      socket?.close();
+    });
+    connect();
+  </script>
+</body>
+</html>
