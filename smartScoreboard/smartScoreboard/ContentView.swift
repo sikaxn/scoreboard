@@ -1271,6 +1271,8 @@ struct ContentView: View, ScoreboardSetupEditing {
             return "Use Keyboard Shortcuts to assign hardware keyboard commands to stable live control board actions. Shortcuts work on Mac, iPad, and iPhone when the live board is active and settings, text fields, alerts, or sheets are not open."
         case .integration:
             return "Use Integration to connect Web API and Bitfocus Companion with production tools on the local network. Pair displays and control boards on the Remote Display & Control page."
+        case .cloud:
+            return "Register this host to an account, enable its persistent cloud session, and pair remote devices."
         case .remoteDisplay:
             return "Use Remote Display & Control to pair nearby screens and control boards, manage device permissions, and choose the session host. Apple TV is display-only."
         case .about:
@@ -1500,6 +1502,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                     settingsRemoteDisplayPane(layout: layout)
                 }
             }
+        case .cloud:
+            ScoreboardViewBoundary { ScoreboardCloudSettingsView() }
         case .about:
             ScoreboardViewBoundary { settingsAboutPane() }
         }
@@ -3830,6 +3834,8 @@ struct ContentView: View, ScoreboardSetupEditing {
         let displayRows = remoteDisplaySettingsRows
 
         return VStack(alignment: .leading, spacing: 22) {
+            ScoreboardCloudFailoverSettings()
+            ScoreboardDevicePairingSection()
             settingsRemoteDisplayThisDeviceSection()
             settingsRemoteDisplayAboutSection()
             settingsRemoteDisplaySessionHostSection()
@@ -4092,10 +4098,9 @@ struct ContentView: View, ScoreboardSetupEditing {
             get: { store.remoteDisplayNetworkMode },
             set: { store.setRemoteDisplayNetworkMode($0) }
         )) {
-            localizedAppText(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly.title)
-                .tag(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly)
-            localizedAppText(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork.title)
-                .tag(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork)
+            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+                localizedAppText(mode.title).tag(mode)
+            }
         }
         .scoreboardSettingsPickerStyle(stacked: usesStackedSettingsRows)
     }
@@ -15514,6 +15519,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case players
     case display
     case remoteDisplay
+    case cloud
     case sound
     case theme
     case files
@@ -15532,6 +15538,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Players"
         case .display:
             return "Display"
+        case .cloud:
+            return "Cloud"
         case .remoteDisplay:
             return "Remote Display & Control"
         case .sound:
@@ -15559,6 +15567,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "Configure roster size, player identities, active lineup, and foul tracking."
         case .display:
             return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
+        case .cloud:
+            return "Connect an account and manage this host’s persistent cloud session."
         case .remoteDisplay:
             return "Pair nearby displays and control boards, manage permissions, and choose the session host."
         case .sound:
@@ -15586,6 +15596,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "person.3"
         case .display:
             return "tv"
+        case .cloud:
+            return "cloud"
         case .remoteDisplay:
             return "tv.and.mediabox"
         case .sound:

@@ -1,0 +1,34 @@
+# Cloud sessions (phase one)
+
+The cloud service lives in the sibling `scoreboard-cloud` repository. Its README contains Cloudflare setup, Google OAuth configuration, API details, and deferred work.
+
+**Local play remains authoritative.** A game host can serve LAN displays/controllers and cloud devices simultaneously. Only the host publishing to the cloud needs internet. LAN devices continue using their existing transport and pairing permissions and need no cloud account. Cloud commands enter the same host-side command validation and UUID deduplication path as local commands; host state changes are published to both transports. Cloud outages do not stop local clocks, Web API, displays/controllers, or Companion.
+
+Open **Settings → Cloud** on a host and choose **Public Cloud (Experimental)** or **Self-hosted**. Use **Sign In with Browser** to authorize that device to an account, give the host a recognizable name, and enable **Cloud Hosting**. A registered host has a persistent session ID, reused after disabling publishing, restarting, or signing in again to the same account with the same app device identity. Losing local app identity during a factory reset/reinstallation can produce a new binding. Old session-bound credentials remain compatible; sign out and sign in once to adopt account registration.
+
+Remote devices use the existing **Remote Display / Control Mode**. They show pairing codes and QR codes rather than an account sign-in form. A signed-in host can register their cloud code in **Pair a Device**. Registered remotes choose from an account's **Host Session** menu; entering a cloud session ID is no longer needed. Registration gives viewing access to that account's sessions. It does not grant account, session-management, or Admin privileges. The owner grants control for each host in Cloud settings or on the website. Registered devices can be revoked from Cloud settings.
+
+Nearby/LAN pairing still uses discovery and the remote's four-digit code. The host can scan that device's QR code on a supported iPhone/iPad, import a QR image on Mac/iPhone/iPad, or select a discovered device and enter its code. Existing takeover confirmations and per-device control permissions still apply. Apple TV displays codes/QR codes and uses the same host picker without requiring a browser login.
+
+Choose the connection policy on each remote:
+
+| Policy | Behavior |
+| --- | --- |
+| LAN Only | Same local network, no cloud transport or peer-to-peer discovery |
+| LAN + Nearby | Local network and Apple peer-to-peer Wi-Fi, no cloud transport |
+| Prefer LAN + Nearby | Prefer a fresh local connection; use the selected host's cloud session when it is unavailable |
+| Prefer Cloud | Prefer a fresh cloud connection; use a fresh local connection to the same host when it is unavailable |
+
+**Cloud Failover** is also available on the host's Remote Display & Control page. When enabled alongside Cloud Hosting, the host provisions cloud access to authenticated local peers over the existing trusted session channel, encrypted to that remote’s advertised per-run P-256 public key with AES-GCM and bound to the pairing secret and both device identities. Replayed enrollments are ignored within that app run. Provisioning carries over that host's local control permission. Credentials stay in Keychain. A device already registered to another account/service must explicitly forget that registration before switching; an owner's existing registration is preserved. Local peers can remain offline and continue using strict local modes.
+
+`ScoreboardRemoteConnectionRouter` keeps the LAN receiver acquired while a cloud view is active, so LAN can reconnect in the background. It selects the receiver rendered by the remote board and external display. It does not copy cloud snapshots into local host-authority or host-transfer state. It never automatically retries an in-flight command over another route, and waits for pending acknowledgements/timeouts before switching. A cloud session selection cannot fall back to another nearby game. Explicitly pairing a new nearby host clears the old cloud target even when the new host has no internet.
+
+Account levels are Guest (join), User (create/join), and Admin (service backend). Registration defaults to closed; new sign-ins are Guests until promoted or public registration is opened. The cloud owner account controls cloud membership. The existing owner device retains its local documents, and the existing local host/epoch fences continue to determine game authority. Admin is service access, not an automatic grant of live game control. Admin access to all cloud-stored files is reserved for the future storage phase; local files stay local.
+
+`ScoreboardCloudClient` owns an independent outbound WebSocket and receiver. It does not replace the existing Bonjour/NWConnection/RTC services. Cloud credentials are stored in Keychain, and the service origin is configurable for future self-hosted deployments. Native remote boards reuse the current scoreboard views and controls. Cloud timer commands apply at host arrival time; the host does not use remote wall clocks for delay compensation.
+
+The cloud console can open a fullscreen scoreboard, transparent OBS overlay, and commentator dashboard using copies of the app's web renderers. The native host supplies the current game and up to 120 recent log entries for commentary. Viewing pages have separate read-only connections, so the console stays connected. The owner can enable public share links that work without login, including in OBS, then revoke or replace them. Sharing defaults to off. Public output includes game/player information and gameplay commentary, excluding file operations, file metadata, and account/device identities. Existing LAN pages and access controls remain unchanged.
+
+Persistent native host sessions do not use the temporary-session expiry. Browser-created and legacy sessions still last up to 24 hours; browser login sessions last seven days. Registered device credentials remain valid until replaced or revoked. Disconnecting a cloud device or ending cloud access leaves the local game intact. If local host authority moves away, the old device stops publishing; enable cloud hosting on the newly selected host using its own account authorization. Cloud host migration, cloud files/media/audio, traditional login, VPS runtime, and complete cloud Web API v2 resource parity are deferred.
+
+The backend separates the identity provider from account roles and session permissions. The portable relay contracts allow a later SQLite/WebSocket VPS adapter and local username/password identities without changing the native protocol.

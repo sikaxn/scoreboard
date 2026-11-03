@@ -27,6 +27,51 @@ private enum RemoteDisplayReceiverNetworkModeStore {
 }
 
 struct RemoteScoreboardView: View {
+    @ObservedObject private var router = ScoreboardRemoteConnectionRouter.shared
+    private var fixedReceiver: ScoreboardRemoteDisplayReceiver?
+    private var exitRemoteDisplayMode: (() -> Void)?
+    private var openScoreboardWindow: (() -> Void)?
+    private var networkMode: ScoreboardRemoteDisplayNetworkMode
+    private var setNetworkMode: ((ScoreboardRemoteDisplayNetworkMode) -> Void)?
+    private var showsPairingControls: Bool
+    private var usesExternalDisplayDirection: Bool
+    @State private var activeMode: ScoreboardRemoteDisplayNetworkMode
+    @State private var acquired = false
+
+    init(receiver: ScoreboardRemoteDisplayReceiver? = nil,
+         exitRemoteDisplayMode: (() -> Void)? = nil, openScoreboardWindow: (() -> Void)? = nil,
+         networkMode: ScoreboardRemoteDisplayNetworkMode? = nil,
+         setNetworkMode: ((ScoreboardRemoteDisplayNetworkMode) -> Void)? = nil,
+         showsPairingControls: Bool = true, usesExternalDisplayDirection: Bool = false) {
+        let mode = networkMode ?? RemoteDisplayReceiverNetworkModeStore.mode
+        self.fixedReceiver = receiver; self.exitRemoteDisplayMode = exitRemoteDisplayMode
+        self.openScoreboardWindow = openScoreboardWindow; self.networkMode = mode
+        self.setNetworkMode = setNetworkMode; self.showsPairingControls = showsPairingControls
+        self.usesExternalDisplayDirection = usesExternalDisplayDirection
+        _activeMode = State(initialValue: mode)
+    }
+    var body: some View {
+        RemoteScoreboardContentView(receiver: fixedReceiver ?? router.receiver,
+            exitRemoteDisplayMode: exitRemoteDisplayMode, openScoreboardWindow: openScoreboardWindow,
+            networkMode: activeMode, setNetworkMode: { mode in
+                activeMode = mode; setNetworkMode?(mode)
+                if fixedReceiver == nil { router.updateMode(mode) }
+            }, showsPairingControls: showsPairingControls, usesExternalDisplayDirection: usesExternalDisplayDirection)
+        .id(fixedReceiver == nil ? router.route : .local)
+        .onAppear {
+            if fixedReceiver == nil && !acquired { acquired = true; router.acquire(mode: activeMode) }
+        }
+        .onDisappear {
+            if acquired { acquired = false; router.release() }
+        }
+        .onChange(of: networkMode) { _, mode in
+            activeMode = mode
+            if fixedReceiver == nil { router.updateMode(mode) }
+        }
+    }
+}
+
+private struct RemoteScoreboardContentView: View {
     var exitRemoteDisplayMode: (() -> Void)?
     var openScoreboardWindow: (() -> Void)?
     var networkMode: ScoreboardRemoteDisplayNetworkMode
@@ -181,7 +226,7 @@ struct RemoteScoreboardView: View {
                 }
             } else {
                 RemoteDisplayConfigurationView(
-                    receiver: receiver,
+                    receiver: receiver.isCloudReceiver ? ScoreboardRemoteDisplayReceiver.shared : receiver,
                     hasLiveState: receiver.state != nil,
                     returnToLive: { showsConfiguration = false },
                     exitRemoteDisplayMode: exitRemoteDisplayMode.map { exit in
@@ -240,7 +285,7 @@ struct RemoteScoreboardView: View {
         if newPhase == .background { sessionStore.prepareHostedMatchForBackground() }
         #if os(tvOS)
         if newPhase == .active {
-            receiver.resumeAfterAppLifecycle(networkMode: activeNetworkMode)
+            (receiver.isCloudReceiver ? ScoreboardRemoteDisplayReceiver.shared : receiver).resumeAfterAppLifecycle(networkMode: activeNetworkMode)
             updatePairingScreenVisibility()
             updateSleepPolicy()
         } else {
@@ -248,7 +293,7 @@ struct RemoteScoreboardView: View {
         }
         #elseif os(iOS)
         if newPhase == .active {
-            receiver.resumeAfterAppLifecycle(networkMode: activeNetworkMode)
+            (receiver.isCloudReceiver ? ScoreboardRemoteDisplayReceiver.shared : receiver).resumeAfterAppLifecycle(networkMode: activeNetworkMode)
         }
         #else
         _ = newPhase
@@ -256,7 +301,8 @@ struct RemoteScoreboardView: View {
     }
 
     private func updatePairingScreenVisibility() {
-        receiver.setPairingScreenVisible(showsPairingControls && (receiver.state == nil || showsConfiguration))
+        let pairingReceiver = receiver.isCloudReceiver ? ScoreboardRemoteDisplayReceiver.shared : receiver
+        pairingReceiver.setPairingScreenVisible(showsPairingControls && (receiver.state == nil || showsConfiguration))
     }
 
     private func handleReceiverPresentationStateChange() {
@@ -866,6 +912,9 @@ private struct RemoteDisplayConfigurationView: View {
                                 .stroke(.white.opacity(0.18), lineWidth: 1)
                         )
 
+                    ScoreboardPairingQRCode(value: ScoreboardPairingLink.nearbyURL(deviceID: receiver.displayID, code: receiver.pairingCode))
+                    Text("Scan this QR code from the host to pair over LAN or nearby.")
+                        .font(.caption).foregroundStyle(.white.opacity(0.62))
                     Text(savedPairingDetail)
                         .font(.caption.weight(.bold))
                         .multilineTextAlignment(.center)
@@ -885,6 +934,7 @@ private struct RemoteDisplayConfigurationView: View {
             }
 
             if showsPairingControls && !sessionStore.hasHostedMatchToDiscard {
+                ScoreboardCloudRemoteSection(mode: networkMode)
                 ScoreboardViewBoundary {
                     networkModeControl(isCompact: isCompact)
                 }
@@ -987,12 +1037,15 @@ private struct RemoteDisplayConfigurationView: View {
             get: { networkMode },
             set: setNetworkMode
         )) {
-            Text(verbatim: localizedRemoteDisplayString("LAN Only"))
-                .tag(ScoreboardRemoteDisplayNetworkMode.localNetworkOnly)
-            Text(verbatim: localizedRemoteDisplayString("Nearby"))
-                .tag(ScoreboardRemoteDisplayNetworkMode.nearbyAndLocalNetwork)
+            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+                Text(verbatim: localizedRemoteDisplayString(mode.title)).tag(mode)
+            }
         }
-        .pickerStyle(.segmented)
+        #if os(tvOS)
+        .pickerStyle(.automatic)
+        #else
+        .pickerStyle(.menu)
+        #endif
     }
 
     private var networkModePickerMaxWidth: CGFloat {

@@ -140,15 +140,21 @@ nonisolated enum ScoreboardRemoteDisplayConnectionQuality: String, Codable, Equa
 nonisolated enum ScoreboardRemoteDisplayNetworkMode: String, CaseIterable, Codable, Identifiable, Equatable, Sendable {
     case localNetworkOnly
     case nearbyAndLocalNetwork
+    case preferLocal
+    case preferCloud
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .localNetworkOnly:
-            return "Same Wi-Fi / LAN"
+            return "LAN Only"
         case .nearbyAndLocalNetwork:
-            return "Nearby + LAN"
+            return "LAN + Nearby"
+        case .preferLocal:
+            return "Prefer LAN + Nearby"
+        case .preferCloud:
+            return "Prefer Cloud"
         }
     }
 
@@ -158,12 +164,17 @@ nonisolated enum ScoreboardRemoteDisplayNetworkMode: String, CaseIterable, Codab
             return "Requires the operator and Remote Display devices to be on the same local network."
         case .nearbyAndLocalNetwork:
             return "Uses the local network and also allows Apple peer-to-peer Wi-Fi for nearby devices."
+        case .preferLocal:
+            return "Use LAN or nearby first, then cloud if this host's local connection is unavailable."
+        case .preferCloud:
+            return "Use cloud first, then LAN or nearby if the cloud connection is unavailable."
         }
     }
 
     var includesPeerToPeer: Bool {
-        self == .nearbyAndLocalNetwork
+        self != .localNetworkOnly
     }
+    var allowsCloud: Bool { self == .preferLocal || self == .preferCloud }
 }
 
 nonisolated enum ScoreboardRemoteDisplayDeviceType: String, Codable, Equatable, Sendable {
@@ -338,6 +349,7 @@ nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, S
     let isMuted: Bool
     var supportsSessionHosting: Bool = false
     var realtimeTransport: String = "WebSocket"
+    var cloudPairingPublicKey: String? = nil
 }
 
 nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equatable, Sendable {
@@ -442,6 +454,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let sessionEpoch: UInt64?
     let rtcVersion: Int?
     let rtcSignal: ScoreboardRTCSignal?
+    let cloudPairingPublicKey: String?
 
     init(
         kind: Kind,
@@ -471,7 +484,8 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         sessionID: UUID? = nil,
         sessionEpoch: UInt64? = nil,
         rtcVersion: Int? = nil,
-        rtcSignal: ScoreboardRTCSignal? = nil
+        rtcSignal: ScoreboardRTCSignal? = nil,
+        cloudPairingPublicKey: String? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -501,6 +515,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.sessionEpoch = sessionEpoch
         self.rtcVersion = rtcVersion
         self.rtcSignal = rtcSignal
+        self.cloudPairingPublicKey = cloudPairingPublicKey
     }
 }
 
@@ -1629,6 +1644,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         display?.lastAckAt = now
         display?.lastAckSequence = message.sequence
         display?.sessionProtocolVersion = message.sessionProtocolVersion
+        display?.cloudPairingPublicKey = message.cloudPairingPublicKey
         display?.latency = latency
         display?.appVersion = ScoreboardRemoteDisplayAppVersion(
             version: message.appVersion,
@@ -2022,7 +2038,8 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                     deviceType: display.deviceType,
                     isMuted: mutedDisplayIDs.contains(display.displayID),
                     supportsSessionHosting: display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
-                    realtimeTransport: display.rtcPeer?.isReady == true ? "WebRTC" : "WebSocket"
+                    realtimeTransport: display.rtcPeer?.isReady == true ? "WebRTC" : "WebSocket",
+                    cloudPairingPublicKey: display.cloudPairingPublicKey
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -2283,6 +2300,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var deviceType: ScoreboardRemoteDisplayDeviceType
         var remoteStateVersions: Set<Int>
         var sessionProtocolVersion: Int? = nil
+        var cloudPairingPublicKey: String? = nil
         var pendingPairingRequest: ScoreboardRemoteDisplayPairingRequest?
         var pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
         var isSendingState = false
@@ -2298,6 +2316,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 @MainActor
 final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     static let shared = ScoreboardRemoteDisplayReceiver()
+    var connectedHostID: String? { pairedHostID ?? lastActiveOperatorID }
     private static let networkRecoveryInterval: TimeInterval = 1.0
 
     @Published private(set) var status: ScoreboardRemoteDisplayReceiverStatus = .waiting
@@ -2319,6 +2338,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     var hostedControlCommandHandler: ((ScoreboardControlCommand) -> ScoreboardControlResult)?
     var commandSessionProvider: (() -> (UUID, UInt64)?)?
     private var pairedSessionProtocolVersion: Int?
+    private var cloudCommandSender: ((ScoreboardControlCommand) -> Void)?
+    var isCloudReceiver: Bool { cloudCommandSender != nil }
     private var pendingControlCommands: [UUID: ScoreboardControlCommand] = [:]
     var pendingCommandsForDisplay: [ScoreboardControlCommand] {
         pendingControlCommands.values.sorted { ($0.sentAt ?? 0) < ($1.sentAt ?? 0) }
@@ -2343,6 +2364,10 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         #if os(tvOS)
         return false
         #else
+        if isCloudReceiver {
+            return status.isLive && isRemoteControlAvailable && state?.control?.remoteEnabled == true
+                && lastReceivedAt.map { Date().timeIntervalSince($0) < 15 } == true
+        }
         if isHostingSession {
             return isRemoteControlAvailable && state?.control?.remoteEnabled == true && hostedControlCommandHandler != nil
         }
@@ -2357,6 +2382,21 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func sendCommand(_ input: ScoreboardControlCommand) {
+        if let sender = cloudCommandSender {
+            guard canSendControlCommand else {
+                controlResult = .failure(input.id, "disabled", "Cloud control is unavailable."); return
+            }
+            pendingControlCommands[input.id] = input
+            pendingControlCommandID = input.id
+            controlResult = nil
+            sender(input)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                guard let self, self.pendingControlCommands[input.id] != nil else { return }
+                self.cloudDisconnected("The host did not acknowledge. Refresh state before retrying; the command may have applied.")
+            }
+            return
+        }
         if isHostingSession {
             guard canSendControlCommand, let handler = hostedControlCommandHandler else {
                 controlResult = .failure(input.id, "disabled", "This device is not allowed to control the session.")
@@ -2530,6 +2570,57 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         return imageAssetsByID[id]?.data
     }
 
+    func beginCloudConnection(sendCommand: @escaping (ScoreboardControlCommand) -> Void) {
+        guard !isHostingSession else { return }
+        if !isCloudReceiver { stop() }
+        cloudCommandSender = sendCommand
+        realtimeTransport = "Cloud WebSocket"
+        cloudDisconnected("Waiting for the cloud host.")
+    }
+
+    func setCloudControlAllowed(_ allowed: Bool) {
+        guard isCloudReceiver else { return }
+        isRemoteControlAvailable = allowed
+        if let state { self.state = state.cloudControlPayload(allowed: allowed) }
+        #if !os(tvOS)
+        isControlBoardDevice = allowed
+        #endif
+        if !allowed { pendingControlCommands.removeAll(); pendingControlCommandID = nil }
+    }
+
+    func receiveCloudState(_ state: ScoreboardWebAPIState, controlAllowed: Bool, hostName: String) {
+        guard isCloudReceiver else { return }
+        self.state = state.cloudControlPayload(allowed: controlAllowed)
+        lastReceivedAt = Date()
+        lastHeartbeatAt = lastReceivedAt
+        masterClockOffset = nil
+        setCloudControlAllowed(controlAllowed)
+        status = .paired(hostName)
+    }
+
+    func receiveCloudResult(_ result: ScoreboardControlResult) {
+        guard isCloudReceiver else { return }
+        if let id = result.id { pendingControlCommands.removeValue(forKey: id) }
+        pendingControlCommandID = pendingControlCommands.keys.first
+        controlResult = result
+    }
+
+    func cloudDisconnected(_ message: String) {
+        guard isCloudReceiver else { return }
+        clearControlConnection()
+        isControlBoardDevice = false
+        status = .disconnected(message)
+    }
+
+    func endCloudConnection() {
+        guard isCloudReceiver else { return }
+        cloudDisconnected("Cloud disconnected.")
+        cloudCommandSender = nil
+        state = nil
+        lastReceivedAt = nil
+        lastHeartbeatAt = nil
+    }
+
     private var displayName = ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Display"
     private var networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     private var listenerNetworkMode: ScoreboardRemoteDisplayNetworkMode?
@@ -2571,6 +2662,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func release() {
         activeConsumerCount = max(0, activeConsumerCount - 1)
+        if isCloudReceiver { return }
         if activeConsumerCount == 0, !isHostingSession {
             stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
         }
@@ -2580,13 +2672,15 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         guard self.networkMode != networkMode else {
             return
         }
+        let needsRestart = self.networkMode.includesPeerToPeer != networkMode.includesPeerToPeer
         self.networkMode = networkMode
-        if listener != nil {
+        if listener != nil && needsRestart {
             startOrRefreshListener(recreate: true)
         }
     }
 
     func resumeAfterAppLifecycle(networkMode: ScoreboardRemoteDisplayNetworkMode) {
+        guard !isCloudReceiver else { return }
         self.networkMode = networkMode
         guard activeConsumerCount > 0 || isHostingSession else {
             return
@@ -2596,6 +2690,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func start(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
+        guard !isCloudReceiver else { return }
         if isHostingSession {
             updateNetworkMode(networkMode)
             startOrRefreshListener()
@@ -2712,6 +2807,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func setPairingScreenVisible(_ isVisible: Bool) {
+        guard !isCloudReceiver else { return }
         guard isPairingScreenVisible != isVisible else {
             return
         }
@@ -2957,7 +3053,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private func startOrRefreshListener(recreate: Bool = false) {
         guard activeConsumerCount > 0 || isHostingSession else { return }
         let discoveryInfo = currentDiscoveryInfo()
-        if let listener, !recreate, listenerNetworkMode == networkMode {
+        if let listener, !recreate, listenerNetworkMode?.includesPeerToPeer == networkMode.includesPeerToPeer {
             guard advertisedDiscoveryInfo != discoveryInfo else {
                 return
             }
@@ -3235,7 +3331,10 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
 
         clearFailedPairingAttempts(hostID: requesterHostID)
-        if pairedHostID != requesterHostID { isControlBoardDevice = false }
+        if pairedHostID != requesterHostID {
+            isControlBoardDevice = false; state = nil; lastReceivedAt = nil; lastHeartbeatAt = nil
+        }
+        if !request.trustedReconnect { ScoreboardCloudClient.shared.didPairLocalHost(requesterHostID) }
         if pairedConnection !== connection {
             pairedSessionProtocolVersion = nil
             masterClockOffset = nil
@@ -3447,7 +3546,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             remoteStateVersions: ScoreboardRemoteDisplayStateVersions.advertisedValue,
             receivedAt: receivedAt.timeIntervalSince1970,
             sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion,
-            rtcVersion: ScoreboardRTCPeer.protocolVersion
+            rtcVersion: ScoreboardRTCPeer.protocolVersion,
+            cloudPairingPublicKey: ScoreboardCloudEnrollmentCrypto.publicKey
         )
         sendControlMessage(response, to: [connection])
     }

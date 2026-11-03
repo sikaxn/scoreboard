@@ -1286,6 +1286,8 @@ final class ScoreboardStore: ObservableObject {
         }
         refreshRemoteDisplayState()
         remoteDisplayHostService.refreshControlPermissions()
+        ScoreboardCloudClient.shared.updateRemotePermission(localID: displayID, allowed: isAllowed)
+        provisionCloudFailoverForConnectedDevices()
     }
     @Published private(set) var webControlAPIKey: String = {
         if let key = ScoreboardPreferences.current.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
@@ -1523,6 +1525,7 @@ final class ScoreboardStore: ObservableObject {
         configureWebAPIService()
         configureRemoteDisplayService()
         configureSessionService()
+        configureCloudService()
         if sessionRecoveryRole == .fenced, let descriptor = sessionDescriptor,
            descriptor.hostDeviceID != localSessionDeviceID,
            let checkpoint = sessionTransferCheckpoint, sessionTransferID != nil {
@@ -6765,6 +6768,7 @@ final class ScoreboardStore: ObservableObject {
             .sink { [weak self] connectedDisplays in
                 guard let self, !self.isFollowingSessionHost else { return }
                 self.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
+                self.provisionCloudFailoverForConnectedDevices()
             }
             .store(in: &cancellables)
 
@@ -6979,6 +6983,66 @@ final class ScoreboardStore: ObservableObject {
             imageResponses: currentWebAPIImageResponses(),
             commentatorPayload: payloads.commentator
         )
+        if isSessionAuthority {
+            ScoreboardCloudClient.shared.publish(currentWebAPIState().cloudControlPayload(allowed: true).remoteDisplayPayload)
+        }
+    }
+
+    private func configureCloudService() {
+        ScoreboardCloudClient.shared.hostReadyHandler = { [weak self] in self?.provisionCloudFailoverForConnectedDevices() }
+        ScoreboardCloudClient.shared.configure(stateProvider: { [weak self] in
+            guard let self, self.isSessionAuthority else { return nil }
+            return self.currentWebAPIState().cloudControlPayload(allowed: true).remoteDisplayPayload
+        }, commandHandler: { [weak self] command in
+            self?.performCloudControlCommand(command) ?? .failure(command.id, "disabled", "Host unavailable.")
+        }, canHost: { [weak self] in self?.isSessionAuthority == true },
+        commentatorProvider: { [weak self] in self?.currentCloudCommentatorPayload() },
+        localHostID: { [weak self] in self?.remoteDisplayHostService.hostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID })
+    }
+
+    private var cloudEnrollmentRuns = Set<String>()
+    private func provisionCloudFailoverForConnectedDevices() {
+        let cloud = ScoreboardCloudClient.shared
+        guard isSessionAuthority, cloud.cloudFailoverEnabled, cloud.hostingEnabled, cloud.isConnected,
+              let room = cloud.session, cloud.isHost else { return }
+        for connection in remoteDisplayConnectedDisplays {
+            guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == connection.id }),
+                  let pairingSecret = peer.pairingSecret, !pairingSecret.isEmpty,
+                  let publicKey = connection.cloudPairingPublicKey, publicKey.count <= 128 else { continue }
+            let key = "\(room.ownerID)|\(room.id)|\(peer.id)|\(peer.pairingSetID ?? "")|\(publicKey)"
+            guard cloudEnrollmentRuns.insert(key).inserted else { continue }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    // Start with read-only access; serialize the latest local permission
+                    // after enrollment so a concurrent revocation cannot be overwritten.
+                    let data = try await cloud.provisionRemote(id: peer.id, name: peer.name, controlAllowed: false)
+                    cloud.updateRemotePermission(localID: peer.id, allowed: self.isRemoteControlAllowed(displayID: peer.id), force: true)
+                    let encrypted = try ScoreboardCloudEnrollmentCrypto.seal(data, recipient: publicKey, pairingSecret: pairingSecret,
+                        hostID: self.remoteDisplayHostService.hostID, deviceID: peer.id)
+                    for _ in 0..<5 {
+                        guard self.isSessionAuthority, cloud.cloudFailoverEnabled, cloud.session?.id == room.id,
+                              self.remoteDisplayTrustedDisplays.contains(where: { $0.id == peer.id && $0.pairingSecret == peer.pairingSecret }) else { return }
+                        if self.remoteDisplayHostService.sendSessionMessage(encrypted, toDisplayID: peer.id) { return }
+                        try await Task.sleep(for: .seconds(1))
+                    }
+                } catch { /* Local pairing remains usable while cloud enrollment is unavailable. */ }
+                self.cloudEnrollmentRuns.remove(key)
+            }
+        }
+    }
+
+    func currentCloudCommentatorPayload() -> ScoreboardWebAPICommentatorPayload? {
+        guard isSessionAuthority else { return nil }
+        return ScoreboardWebAPICommentatorPayload.make(from: currentWebAPIState(),
+            logSession: logManager.currentSessionSnapshot()).limited(to: 120)
+    }
+
+    func performCloudControlCommand(_ command: ScoreboardControlCommand) -> ScoreboardControlResult {
+        guard isSessionAuthority else {
+            return .failure(command.id, "conflict", "This device is no longer the game host.")
+        }
+        return performControlCommand(command, remote: false)
     }
 
     private func startRemoteDisplayHostService() {
@@ -7238,6 +7302,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetToFactoryDefaults() {
+        ScoreboardCloudClient.shared.resetServiceSettings()
         sessionDescriptor = nil
         sessionRecoveryRole = nil
         sessionAuthorityFenced = false
@@ -8906,6 +8971,9 @@ extension ScoreboardStore {
         }
         remoteDisplayHostService.maintenanceHandler = { [weak self] in self?.maintainSession() }
         receiver.sessionMessageHandler = { [weak self] data in
+            if let host = receiver.authenticatedSessionOwnerHostID,
+               let secret = receiver.trustedHosts.first(where: { $0.id == host })?.pairingSecret,
+               ScoreboardCloudClient.shared.acceptEncryptedEnrollment(data, pairingSecret: secret, authenticatedHostID: host, localDeviceID: receiver.displayID) { return }
             self?.receiveSessionMessage(data, senderID: nil, fromHost: true)
         }
         receiver.commandSessionProvider = { [weak receiver] in
