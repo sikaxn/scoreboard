@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import SwiftUI
 import Network
+import Darwin
 #if os(iOS) || os(tvOS)
 import UIKit
 #endif
@@ -338,6 +339,154 @@ struct ScoreboardRemoteDisplaySource: Identifiable {
     }
 }
 
+nonisolated enum ScoreboardConnectionRoute: String, Codable, Sendable {
+    case local, lan, nearby, direct, cloud
+    var title: String {
+        switch self {
+        case .local: "This Device"
+        case .lan: "LAN"
+        case .nearby: "Nearby"
+        case .direct: "Direct"
+        case .cloud: "Cloud"
+        }
+    }
+}
+
+nonisolated enum ScoreboardConnectionMethod: String, Codable, Sendable {
+    case inProcess = "inprocess"
+    case webSocket = "websocket"
+    case webRTC = "webrtc"
+    var title: String {
+        switch self {
+        case .inProcess: "In Process"
+        case .webSocket: "WebSocket"
+        case .webRTC: "WebRTC"
+        }
+    }
+}
+
+nonisolated struct ScoreboardConnectionInfo: Codable, Equatable, Sendable {
+    var route: ScoreboardConnectionRoute
+    var method: ScoreboardConnectionMethod
+    var interfaceType: String? = nil
+    var interfaceName: String? = nil
+
+    static let cloud = Self(route: .cloud, method: .webSocket)
+    static let local = Self(route: .local, method: .inProcess)
+    // Cloud relaying is WebSocket-only. This also keeps older or malformed
+    // diagnostic reports from ever presenting WebRTC as a cloud connection.
+    var normalized: Self {
+        var result = self
+        if method == .webRTC && route == .cloud { result.route = .direct }
+        if method == .inProcess { result.route = .local }
+        return result
+    }
+    var summary: String {
+        [ScoreboardLocalization.string(normalized.route.title), method.title].joined(separator: " · ")
+    }
+    var interfaceTitle: String? {
+        switch interfaceType {
+        case "wifi": "Wi-Fi"
+        case "ethernet": "Ethernet"
+        case "peerToPeer": "Peer-to-peer Wi-Fi"
+        case "loopback": "Loopback"
+        case "cellular": "Cellular"
+        default: interfaceName
+        }
+    }
+}
+
+nonisolated struct ScoreboardClientConnectionStatus: Codable, Equatable, Sendable {
+    var active: ScoreboardConnectionInfo?
+    var available: [ScoreboardConnectionInfo]
+    var activeHostID: String? = nil
+    var summary: String {
+        active?.summary ?? ScoreboardLocalization.string(available.isEmpty ? "Disconnected" : "Standby")
+    }
+    var otherConnections: String? {
+        let others = available.map(\.summary).filter { $0 != active?.summary }
+        return others.isEmpty ? nil : Array(Set(others)).sorted().joined(separator: ", ")
+    }
+
+    func scoped(to hostID: String?) -> Self {
+        var result = self
+        if let hostID, let activeHostID, activeHostID != hostID { result.active = nil }
+        return result
+    }
+
+    static func merged(hostID: String, local: ScoreboardRemoteDisplayConnection?, cloud: ScoreboardCloudMember?) -> Self {
+        let localLive = local?.quality == .live || local?.quality == .poor
+        let cloudLive = cloud?.connected == true
+        let report = cloudLive ? (cloud?.connectionStatus ?? local?.clientConnectionStatus) : local?.clientConnectionStatus
+        var available: [ScoreboardConnectionInfo] = []
+        if localLive, let local {
+            if local.availableConnections.isEmpty {
+                if let info = local.connectionInfo { available.append(info.normalized) }
+            } else { available += local.availableConnections.map(\.normalized) }
+        }
+        if cloudLive { available.append(.cloud) }
+        var active = report?.scoped(to: hostID).active?.normalized
+        if active?.route == .cloud && !cloudLive { active = nil }
+        if active?.route != .cloud && !localLive { active = nil }
+        // Legacy LAN clients have no report; the host knows their data channel.
+        // A native cloud socket alone may only be on standby.
+        if report == nil && localLive { active = local?.connectionInfo?.normalized }
+        return .init(active: active, available: available, activeHostID: report?.activeHostID)
+    }
+}
+
+nonisolated enum ScoreboardConnectionPath {
+    static func describe(_ path: NWPath?, method: ScoreboardConnectionMethod = .webSocket) -> ScoreboardConnectionInfo {
+        guard let path else { return .init(route: .direct, method: method) }
+        if let endpoint = path.localEndpoint, case .hostPort(let host, _) = endpoint,
+           let info = describe(address: String(describing: host), method: method, interfaces: path.availableInterfaces) { return info }
+        if path.usesInterfaceType(.loopback) { return .init(route: .local, method: method, interfaceType: "loopback") }
+        if path.usesInterfaceType(.wiredEthernet) { return .init(route: .lan, method: method, interfaceType: "ethernet") }
+        // Wi-Fi can mean LAN or AWDL. Only a positively identified interface
+        // establishes which; enabling nearby discovery does not prove its use.
+        return .init(route: .direct, method: method, interfaceType: path.usesInterfaceType(.wifi) ? "wifi" : nil)
+    }
+
+    static func describe(address: String, method: ScoreboardConnectionMethod, interfaces: [NWInterface] = []) -> ScoreboardConnectionInfo? {
+        guard let name = interfaceName(address: address) else { return nil }
+        let lower = name.lowercased()
+        if lower.hasPrefix("awdl") || lower.hasPrefix("llw") || lower.hasPrefix("p2p") {
+            return .init(route: .nearby, method: method, interfaceType: "peerToPeer", interfaceName: name)
+        }
+        if lower.hasPrefix("lo") { return .init(route: .local, method: method, interfaceType: "loopback", interfaceName: name) }
+        let type = interfaces.first { $0.name == name }?.type
+        let medium: String? = type == .wifi ? "wifi" : type == .wiredEthernet ? "ethernet" : type == .cellular ? "cellular" : nil
+        let route: ScoreboardConnectionRoute = lower.hasPrefix("en") || lower.hasPrefix("bridge") || type == .wifi || type == .wiredEthernet ? .lan : .direct
+        return .init(route: route, method: method, interfaceType: medium, interfaceName: name)
+    }
+
+    private static func interfaceName(address: String) -> String? {
+        let components = address.split(separator: "%", maxSplits: 1).map(String.init)
+        if components.count == 2 {
+            if let index = UInt32(components[1]) {
+                var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+                if if_indextoname(index, &name) != nil { return String(cString: name) }
+            } else if if_nametoindex(components[1]) != 0 { return components[1] }
+        }
+        var first: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&first) == 0, let first else { return nil }
+        defer { freeifaddrs(first) }
+        var matches = Set<String>()
+        var entry: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = entry {
+            defer { entry = current.pointee.ifa_next }
+            guard let socket = current.pointee.ifa_addr,
+                  socket.pointee.sa_family == UInt8(AF_INET) || socket.pointee.sa_family == UInt8(AF_INET6) else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(socket, socklen_t(socket.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                let ip = String(cString: host).split(separator: "%").first.map(String.init)
+                if ip?.lowercased() == components.first?.lowercased() { matches.insert(String(cString: current.pointee.ifa_name)) }
+            }
+        }
+        return matches.count == 1 ? matches.first : nil
+    }
+}
+
 nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
@@ -350,6 +499,9 @@ nonisolated struct ScoreboardRemoteDisplayConnection: Identifiable, Equatable, S
     var supportsSessionHosting: Bool = false
     var realtimeTransport: String = "WebSocket"
     var cloudPairingPublicKey: String? = nil
+    var connectionInfo: ScoreboardConnectionInfo? = nil
+    var clientConnectionStatus: ScoreboardClientConnectionStatus? = nil
+    var availableConnections: [ScoreboardConnectionInfo] = []
 }
 
 nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equatable, Sendable {
@@ -455,6 +607,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
     let rtcVersion: Int?
     let rtcSignal: ScoreboardRTCSignal?
     let cloudPairingPublicKey: String?
+    let clientConnectionStatus: ScoreboardClientConnectionStatus?
 
     init(
         kind: Kind,
@@ -485,7 +638,8 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         sessionEpoch: UInt64? = nil,
         rtcVersion: Int? = nil,
         rtcSignal: ScoreboardRTCSignal? = nil,
-        cloudPairingPublicKey: String? = nil
+        cloudPairingPublicKey: String? = nil,
+        clientConnectionStatus: ScoreboardClientConnectionStatus? = nil
     ) {
         self.kind = kind
         self.sequence = sequence
@@ -516,6 +670,7 @@ nonisolated struct ScoreboardRemoteDisplayControlMessage: Codable, Sendable {
         self.rtcVersion = rtcVersion
         self.rtcSignal = rtcSignal
         self.cloudPairingPublicKey = cloudPairingPublicKey
+        self.clientConnectionStatus = clientConnectionStatus
     }
 }
 
@@ -1491,6 +1646,14 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 self?.handleConnectionStateChanged(state, endpoint: source.endpoint)
             }
         }
+        connection.pathUpdateHandler = { [weak self, weak connection] path in
+            Task { @MainActor [weak self, weak connection] in
+                guard let self, let connection,
+                      self.displayConnectionsByEndpoint[source.endpoint]?.connection === connection else { return }
+                self.displayConnectionsByEndpoint[source.endpoint]?.webSocketConnectionInfo = ScoreboardConnectionPath.describe(path)
+                self.updateBrowsingStatus()
+            }
+        }
         connection.start(queue: .main)
         updateBrowsingStatus()
     }
@@ -1502,6 +1665,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         switch state {
         case .ready:
             display.isReady = true
+            display.webSocketConnectionInfo = ScoreboardConnectionPath.describe(display.connection.currentPath)
             displayConnectionsByEndpoint[endpoint] = display
             startReceiving(from: endpoint)
             sendPendingPairingRequest(to: endpoint)
@@ -1645,6 +1809,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         display?.lastAckSequence = message.sequence
         display?.sessionProtocolVersion = message.sessionProtocolVersion
         display?.cloudPairingPublicKey = message.cloudPairingPublicKey
+        display?.clientConnectionStatus = message.clientConnectionStatus
         display?.latency = latency
         display?.appVersion = ScoreboardRemoteDisplayAppVersion(
             version: message.appVersion,
@@ -2038,8 +2203,12 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                     deviceType: display.deviceType,
                     isMuted: mutedDisplayIDs.contains(display.displayID),
                     supportsSessionHosting: display.sessionProtocolVersion == ScoreboardSessionTransport.protocolVersion,
-                    realtimeTransport: display.rtcPeer?.isReady == true ? "WebRTC" : "WebSocket",
-                    cloudPairingPublicKey: display.cloudPairingPublicKey
+                    realtimeTransport: display.stateMethod == .webRTC && display.rtcPeer?.isReady == true ? "WebRTC" : "WebSocket",
+                    cloudPairingPublicKey: display.cloudPairingPublicKey,
+                    connectionInfo: display.stateMethod == .webRTC && display.rtcPeer?.isReady == true ? display.rtcPeer?.connectionInfo : display.webSocketConnectionInfo,
+                    clientConnectionStatus: display.clientConnectionStatus,
+                    availableConnections: [display.rtcPeer?.isReady == true ? display.rtcPeer?.connectionInfo : nil,
+                                           display.webSocketConnectionInfo].compactMap { $0 }
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -2088,7 +2257,11 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         guard !data.isEmpty, var display = displayConnectionsByEndpoint[endpoint], display.isReady else {
             return
         }
-        if display.rtcPeer?.send(data) == true { return }
+        if display.rtcPeer?.send(data) == true {
+            display.stateMethod = .webRTC
+            displayConnectionsByEndpoint[endpoint] = display
+            return
+        }
         if display.isSendingState {
             display.pendingStateData = data
             displayConnectionsByEndpoint[endpoint] = display
@@ -2096,6 +2269,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         }
 
         display.isSendingState = true
+        display.stateMethod = .webSocket
         displayConnectionsByEndpoint[endpoint] = display
         let connection = display.connection
         sendData(data, to: [endpoint]) { [weak self] _ in
@@ -2301,6 +2475,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         var remoteStateVersions: Set<Int>
         var sessionProtocolVersion: Int? = nil
         var cloudPairingPublicKey: String? = nil
+        var clientConnectionStatus: ScoreboardClientConnectionStatus? = nil
+        var webSocketConnectionInfo: ScoreboardConnectionInfo? = nil
+        var stateMethod: ScoreboardConnectionMethod = .webSocket
         var pendingPairingRequest: ScoreboardRemoteDisplayPairingRequest?
         var pendingTrustedDisplay: ScoreboardRemoteDisplayTrustedPeer?
         var isSendingState = false
@@ -2340,6 +2517,22 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var pairedSessionProtocolVersion: Int?
     private var cloudCommandSender: ((ScoreboardControlCommand) -> Void)?
     var isCloudReceiver: Bool { cloudCommandSender != nil }
+    var connectionStatusProvider: (() -> ScoreboardClientConnectionStatus)?
+    @Published private(set) var webSocketConnectionInfo: ScoreboardConnectionInfo?
+    private var stateMethod: ScoreboardConnectionMethod = .webSocket
+    var connectionInfo: ScoreboardConnectionInfo? {
+        if isHostingSession { return .local }
+        guard status.isLive else { return nil }
+        if isCloudReceiver { return .cloud }
+        guard pairedConnection != nil else { return nil }
+        return stateMethod == .webRTC && rtcPeer?.isReady == true ? rtcPeer?.connectionInfo : webSocketConnectionInfo
+    }
+    var availableConnections: [ScoreboardConnectionInfo] {
+        guard !isCloudReceiver, status.isLive, pairedConnection != nil else { return [] }
+        let websocket = webSocketConnectionInfo ?? ScoreboardConnectionInfo(route: .direct, method: .webSocket)
+        if rtcPeer?.isReady == true, let rtc = rtcPeer?.connectionInfo { return [rtc, websocket] }
+        return [websocket]
+    }
     private var pendingControlCommands: [UUID: ScoreboardControlCommand] = [:]
     var pendingCommandsForDisplay: [ScoreboardControlCommand] {
         pendingControlCommands.values.sorted { ($0.sentAt ?? 0) < ($1.sentAt ?? 0) }
@@ -2635,10 +2828,13 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
                 rtcPeer?.close(notifyRemote: false)
                 rtcPeer = nil
                 realtimeTransport = "WebSocket"
+                stateMethod = .webSocket
+                webSocketConnectionInfo = newValue.map { ScoreboardConnectionPath.describe($0.currentPath) }
             }
         }
     }
     private var activeConsumerCount = 0
+    var hasActiveConsumers: Bool { activeConsumerCount > 0 }
     private var isSessionOwnerDevice = false
     private var pairingCodeTimer: Timer?
     private var heartbeatMonitorTimer: Timer?
@@ -3139,6 +3335,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
                 self?.handleConnectionStateChanged(state, connection: connection)
             }
         }
+        connection.pathUpdateHandler = { [weak self, weak connection] path in
+            Task { @MainActor [weak self, weak connection] in
+                guard let self, let connection, self.pairedConnection === connection else { return }
+                self.webSocketConnectionInfo = ScoreboardConnectionPath.describe(path)
+            }
+        }
         connection.start(queue: .main)
     }
 
@@ -3219,7 +3421,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
     }
 
-    private func handleReceivedData(_ data: Data, from connection: NWConnection) {
+    private func handleReceivedData(_ data: Data, from connection: NWConnection, method: ScoreboardConnectionMethod = .webSocket) {
         guard !data.isEmpty else {
             return
         }
@@ -3260,6 +3462,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         if wasSessionOwner != isSessionOwnerDevice { startOrRefreshListener() }
 
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            stateMethod = method
+            realtimeTransport = method.title
             state = decodedState
             lastReceivedAt = Date()
             status = .paired(pairedHostName ?? localizedRemoteDisplayString("operator device"))
@@ -3433,12 +3637,12 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
                         MainActor.assumeIsolated {
                             guard let self, let connection, self.pairedConnection === connection,
                                   !self.isHostingSession else { return }
-                            self.handleReceivedData(data, from: connection)
+                            self.handleReceivedData(data, from: connection, method: .webRTC)
                         }
                     }, onReady: { [weak self, weak connection] ready in
                         MainActor.assumeIsolated {
                             guard let self, let connection, self.pairedConnection === connection else { return }
-                            self.realtimeTransport = ready ? "WebRTC" : "WebSocket"
+                            if !ready { self.stateMethod = .webSocket; self.realtimeTransport = "WebSocket" }
                         }
                     })
             }
@@ -3547,7 +3751,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             receivedAt: receivedAt.timeIntervalSince1970,
             sessionProtocolVersion: ScoreboardSessionTransport.protocolVersion,
             rtcVersion: ScoreboardRTCPeer.protocolVersion,
-            cloudPairingPublicKey: ScoreboardCloudEnrollmentCrypto.publicKey
+            cloudPairingPublicKey: ScoreboardCloudEnrollmentCrypto.publicKey,
+            clientConnectionStatus: connectionStatusProvider?()
         )
         sendControlMessage(response, to: [connection])
     }

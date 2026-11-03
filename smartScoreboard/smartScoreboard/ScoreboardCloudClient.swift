@@ -3,15 +3,24 @@ import Foundation
 import Security
 import CryptoKit
 
-nonisolated struct ScoreboardCloudMember: Codable, Identifiable, Sendable {
+nonisolated struct ScoreboardCloudMember: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var uid: String
     var name: String
     var role: String
     var requestedControl: Bool
+    var connected: Bool? = nil
+    var localDeviceID: String? = nil
+    var connectionStatus: ScoreboardClientConnectionStatus? = nil
 }
 
-nonisolated struct ScoreboardCloudSession: Codable, Sendable {
+nonisolated struct ScoreboardCloudViewer: Codable, Identifiable, Equatable, Sendable {
+    var id: String
+    var name: String
+    var mode: String
+}
+
+nonisolated struct ScoreboardCloudSession: Codable, Equatable, Sendable {
     var id: String
     var name: String
     var ownerID: String
@@ -24,6 +33,8 @@ nonisolated struct ScoreboardCloudSession: Codable, Sendable {
     var persistent: Bool?
     var enabled: Bool?
     var hostLocalID: String?
+    var viewers: [ScoreboardCloudViewer]? = nil
+    var supportsConnectionDiagnostics: Bool? = nil
 }
 
 nonisolated enum ScoreboardCloudEndpoint {
@@ -152,6 +163,8 @@ nonisolated private enum CloudKeychain {
 @MainActor final class ScoreboardCloudClient: ObservableObject {
     static let shared = ScoreboardCloudClient()
     let receiver = ScoreboardRemoteDisplayReceiver()
+    var connectionStatusProvider: (() -> ScoreboardClientConnectionStatus)?
+    private var lastReportedConnectionStatus: ScoreboardClientConnectionStatus?
     @Published var serviceMode: ScoreboardCloudServiceMode {
         didSet { preferences.set(serviceMode.rawValue, forKey: "scoreboard.cloudServiceMode") }
     }
@@ -190,6 +203,7 @@ nonisolated private enum CloudKeychain {
     @Published private(set) var isLinked = false
     @Published private(set) var isLinking = false
     var isHost: Bool { session?.hostDeviceID == deviceID && deviceID != nil }
+    var isPublishingLocalHost: Bool { isHost && hostingEnabled && canHostProvider?() == true }
     var canControl: Bool { session?.members.first { $0.id == deviceID }?.role == "controller" }
     private(set) var deviceID: String?
     private var credential: CloudCredential?
@@ -650,6 +664,7 @@ nonisolated private enum CloudKeychain {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 guard let self, let task, connectionID == runID else { return }
+                reportConnectionStatus()
                 if isHost {
                     guard let state = stateProvider?() else {
                         task.cancel(with: .goingAway, reason: nil)
@@ -679,6 +694,7 @@ nonisolated private enum CloudKeychain {
             let newlyConnected = !isConnected
             session = room
             isConnected = true
+            reportConnectionStatus(force: newlyConnected)
             status = isHost ? "Hosting \(room.name) through the cloud." : "Connected to \(room.name)."
             if !isHost {
                 receiver.setCloudControlAllowed(canControl && room.hostOnline)
@@ -692,6 +708,10 @@ nonisolated private enum CloudKeychain {
                     hostReadyHandler?()
                 }
             }
+        } else if frame.type == "client-connection", let memberID = frame.memberID,
+                  let connectionStatus = frame.connectionStatus,
+                  let index = session?.members.firstIndex(where: { $0.id == memberID }) {
+            session?.members[index].connectionStatus = connectionStatus
         } else if frame.type == "state", let state = frame.state, !isHost {
             lastStateAt = Date()
             receiver.receiveCloudState(state, controlAllowed: canControl, hostName: session?.name ?? "Cloud host")
@@ -703,6 +723,13 @@ nonisolated private enum CloudKeychain {
             if let state = stateProvider?() { publish(state) }
         } else if frame.type == "result", let result = frame.result { receiver.receiveCloudResult(result) }
         else if frame.type == "error" { status = frame.message ?? "Cloud request failed." }
+    }
+
+    private func reportConnectionStatus(force: Bool = false) {
+        guard isConnected, session?.supportsConnectionDiagnostics == true, let status = connectionStatusProvider?(),
+              force || status != lastReportedConnectionStatus else { return }
+        lastReportedConnectionStatus = status
+        send(Frame(type: "client-connection", connectionStatus: status))
     }
 
     private func sendCommand(_ input: ScoreboardControlCommand) {
@@ -763,6 +790,8 @@ nonisolated private enum CloudKeychain {
         var generation: String?
         var result: ScoreboardControlResult?
         var message: String?
+        var memberID: String?
+        var connectionStatus: ScoreboardClientConnectionStatus?
     }
     nonisolated private struct Frame: Encodable {
         var type: String
@@ -773,6 +802,7 @@ nonisolated private enum CloudKeychain {
         var requestID: String? = nil
         var result: ScoreboardControlResult? = nil
         var commentator: ScoreboardWebAPICommentatorPayload? = nil
+        var connectionStatus: ScoreboardClientConnectionStatus? = nil
     }
 }
 
@@ -811,6 +841,31 @@ nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
     private let local = ScoreboardRemoteDisplayReceiver.shared
     private let cloud = ScoreboardCloudClient.shared
     var receiver: ScoreboardRemoteDisplayReceiver { route == .cloud ? cloud.receiver : local }
+
+    private init() {
+        local.connectionStatusProvider = { [weak self] in self?.connectionStatus ?? .init(active: nil, available: []) }
+        cloud.connectionStatusProvider = { [weak self] in self?.connectionStatus ?? .init(active: nil, available: []) }
+    }
+
+    var connectionStatus: ScoreboardClientConnectionStatus {
+        let active: ScoreboardConnectionInfo?
+        let hostID: String?
+        if local.isHostingSession || cloud.isPublishingLocalHost {
+            active = .local; hostID = cloud.session?.hostLocalID ?? local.displayID
+        } else if consumers > 0 {
+            active = receiver.connectionInfo
+            hostID = route == .cloud ? cloud.selectedHostLocalID : local.connectedHostID
+        } else if local.hasActiveConsumers {
+            // A session owner can follow a delegated host without opening the
+            // remote-display UI or acquiring this router.
+            active = local.connectionInfo; hostID = local.connectedHostID
+        } else {
+            active = nil; hostID = nil
+        }
+        var available = local.availableConnections
+        if cloud.isConnected { available.append(.cloud) }
+        return .init(active: active?.normalized, available: available.map(\.normalized), activeHostID: hostID)
+    }
 
     func acquire(mode: ScoreboardRemoteDisplayNetworkMode) {
         consumers += 1

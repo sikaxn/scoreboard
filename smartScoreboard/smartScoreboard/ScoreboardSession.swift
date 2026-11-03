@@ -72,6 +72,7 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var appVersion: ScoreboardRemoteDisplayAppVersion? = nil
     var quality: ScoreboardRemoteDisplayConnectionQuality? = nil
     var realtimeTransport: String? = nil
+    var connectionStatus: ScoreboardClientConnectionStatus? = nil
 }
 
 extension ScoreboardSessionDescriptor {

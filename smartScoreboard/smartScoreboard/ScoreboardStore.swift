@@ -1174,6 +1174,7 @@ final class ScoreboardStore: ObservableObject {
                 clients[index].deviceType = .current
                 clients[index].latencyMilliseconds = sessionRoundTripSeconds.map { Int(($0 * 1_000).rounded()) }
                 clients[index].realtimeTransport = ScoreboardRemoteDisplayReceiver.shared.realtimeTransport
+                clients[index].connectionStatus = ScoreboardRemoteConnectionRouter.shared.connectionStatus
             }
             return clients
         }
@@ -1181,7 +1182,7 @@ final class ScoreboardStore: ObservableObject {
         var ids = Set(remoteDisplayTrustedDisplays.map(\.id))
             .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([hostID])
         if let ownerID = sessionDescriptor?.ownerDeviceID, ownerID != hostID { ids.insert(ownerID) }
-        let peers = ids.map { id in
+        var peers = ids.map { id in
             let connection = remoteDisplayConnectedDisplays.first { $0.id == id }
             let saved = remoteDisplayTrustedDisplays.first { $0.id == id }
             return ScoreboardSessionPeer(
@@ -1195,9 +1196,43 @@ final class ScoreboardStore: ObservableObject {
                 lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
                 appVersion: connection?.appVersion,
                 quality: connection?.quality,
-                realtimeTransport: connection?.realtimeTransport)
+                realtimeTransport: connection?.realtimeTransport,
+                connectionStatus: remoteClientConnectionStatus(connection, cloudMember: nil))
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        return sessionDescriptor?.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected) ?? peers
+        peers.append(contentsOf: webAPIClients)
+        let cloud = ScoreboardCloudClient.shared
+        if cloud.isHost, let room = cloud.session {
+            for member in room.members where member.role != "host" {
+                let id = member.uid == room.ownerID ? (member.localDeviceID ?? member.id) : member.id
+                let local = remoteDisplayConnectedDisplays.first { $0.id == id }
+                let status = remoteClientConnectionStatus(local, cloudMember: cloud.isConnected ? member : nil)
+                if let index = peers.firstIndex(where: { $0.id == id }) {
+                    peers[index].connectionStatus = status
+                    peers[index].connected = peers[index].connected || (cloud.isConnected && member.connected == true)
+                    // Local and cloud permissions remain independently enforced.
+                } else {
+                    peers.append(.init(id: id, name: member.name, deviceType: .unknown,
+                        connected: cloud.isConnected && member.connected == true, supportsHosting: false,
+                        controlEnabled: member.role == "controller", connectionStatus: status))
+                }
+            }
+            if cloud.isConnected {
+                for viewer in room.viewers ?? [] {
+                    peers.append(.init(id: viewer.id, name: "\(viewer.name) · \(viewer.mode.capitalized)",
+                        deviceType: .unknown, connected: true, supportsHosting: false, controlEnabled: false,
+                        connectionStatus: .init(active: .cloud, available: [.cloud])))
+                }
+            }
+        }
+        peers.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let ownerCloudConnected = peers.first { $0.id == sessionDescriptor?.ownerDeviceID }?
+            .connectionStatus?.available.contains(where: { $0.route == .cloud }) == true
+        return sessionDescriptor?.clientPeers(from: peers,
+            ownerConnected: ownerCloudConnected ? true : remoteSessionOwnerConnected) ?? peers
+    }
+
+    private func remoteClientConnectionStatus(_ local: ScoreboardRemoteDisplayConnection?, cloudMember: ScoreboardCloudMember?) -> ScoreboardClientConnectionStatus {
+        .merged(hostID: remoteDisplayHostService.hostID, local: local, cloud: cloudMember)
     }
     var canRecoverSessionHost: Bool {
         guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
@@ -1332,6 +1367,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
     @Published var customDisplayModeTitlesByMode: [String: String] = [:]
     @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
+    @Published private(set) var webAPIClients: [ScoreboardSessionPeer] = []
     @Published private(set) var webAPILocalAddresses: [String] = []
     @Published var isRemoteDisplayHostEnabled = false
     @Published var isRemoteDisplayViewerModeEnabled = false
@@ -6698,6 +6734,13 @@ final class ScoreboardStore: ObservableObject {
     #endif
 
     private func configureWebAPIService() {
+        webAPIService.clientsHandler = { [weak self] peers in
+            Task { @MainActor [weak self] in
+                guard let self, self.webAPIClients != peers else { return }
+                self.webAPIClients = peers
+                self.scheduleStateSideEffectRefresh()
+            }
+        }
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIService.controlHandler = { [weak self] command, key, completion in
             Task { @MainActor [weak self] in
@@ -6989,6 +7032,23 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func configureCloudService() {
+        _ = ScoreboardRemoteConnectionRouter.shared
+        ScoreboardCloudClient.shared.$session.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                // @Published emits before assignment; refresh after the room has
+                // been installed so web/LAN snapshots contain the new roster.
+                Task { @MainActor [weak self] in
+                    self?.objectWillChange.send()
+                    self?.scheduleStateSideEffectRefresh()
+                }
+            }.store(in: &cancellables)
+        ScoreboardCloudClient.shared.$isConnected.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.objectWillChange.send()
+                    self?.scheduleStateSideEffectRefresh()
+                }
+            }.store(in: &cancellables)
         ScoreboardCloudClient.shared.hostReadyHandler = { [weak self] in self?.provisionCloudFailoverForConnectedDevices() }
         ScoreboardCloudClient.shared.configure(stateProvider: { [weak self] in
             guard let self, self.isSessionAuthority else { return nil }
@@ -9559,7 +9619,10 @@ extension ScoreboardStore {
                         lastHandshakeAgeSeconds: peer.lastHandshakeAgeSeconds, appVersion: peer.appVersion,
                         deviceType: peer.deviceType,
                         isMuted: remoteDisplayMutedDisplayIDs.contains(peer.id),
-                        supportsSessionHosting: peer.supportsHosting)
+                        supportsSessionHosting: peer.supportsHosting,
+                        realtimeTransport: peer.realtimeTransport ?? "WebSocket",
+                        connectionInfo: peer.connectionStatus?.active,
+                        clientConnectionStatus: peer.connectionStatus)
                 }
             }
             if let allowed = message.allowedControllers {
@@ -9880,20 +9943,7 @@ extension ScoreboardStore {
             if lastSessionPeerReportAt.map({ Date().timeIntervalSince($0) > 1 }) ?? true {
                 lastSessionPeerReportAt = Date()
                 let peers = remoteDisplayHostService.exportSessionPairings()
-                let connected = Set(remoteDisplayConnectedDisplays.map(\.id))
-                let rows = peers.peers.map { peer in
-                    let connection = remoteDisplayConnectedDisplays.first { $0.id == peer.id }
-                    return ScoreboardSessionPeer(id: peer.id, name: peer.name,
-                        deviceType: peer.deviceType ?? .unknown,
-                        connected: connected.contains(peer.id) || peer.id == localSessionDeviceID,
-                        supportsHosting: peer.id == localSessionDeviceID ||
-                            connection?.supportsSessionHosting == true,
-                        latencyMilliseconds: connection?.latencyMilliseconds,
-                        lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
-                        appVersion: connection?.appVersion ?? (peer.id == localSessionDeviceID ? .current : nil),
-                        quality: connection?.quality,
-                        realtimeTransport: connection?.realtimeTransport)
-                }
+                let rows = remoteSessionDevices ?? []
                 let report = ScoreboardSessionMessage(kind: .peers, descriptor: descriptor,
                     peers: rows, pairingConfiguration: peers,
                     allowedControllers: remoteControlAllowedDisplayIDs)

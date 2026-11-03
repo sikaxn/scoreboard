@@ -4638,7 +4638,8 @@ struct ContentView: View, ScoreboardSetupEditing {
     ) -> String {
         if let connection = row.connection {
             let soundState = row.isMuted ? localizedAppString("Muted") : localizedAppString("Sound on")
-            return "\(remoteDisplayConnectionDetail(connection)) · \(soundState)"
+            let route = connection.clientConnectionStatus?.summary ?? connection.connectionInfo?.summary
+            return [route, remoteDisplayConnectionDetail(connection), soundState].compactMap { $0 }.joined(separator: " · ")
         }
         if isInUseByOtherBoard, let source = row.source {
             return localizedAppFormat("In use by %@", source.activeOperatorName ?? localizedAppString("another operator device"))
@@ -8552,7 +8553,13 @@ struct ContentView: View, ScoreboardSetupEditing {
                     }
                     if !remoteConnectionIsHosting {
                         remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
-                        remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
+                        if let info = remoteControlReceiver.connectionInfo {
+                            remoteConnectionDetailRow("Route", value: localizedAppString(info.normalized.route.title))
+                            remoteConnectionDetailRow("Transport", value: info.method.title)
+                            if let medium = info.interfaceTitle { remoteConnectionDetailRow("Interface", value: medium) }
+                        } else {
+                            remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
+                        }
                     }
                 }
                 .padding(14)
@@ -8649,10 +8656,21 @@ struct ContentView: View, ScoreboardSetupEditing {
                 if let canControl = device.controlEnabled, !isHost {
                     Text(canControl ? "Control enabled" : "Remote Display").font(.caption).foregroundStyle(.secondary)
                 }
-                if !isHost && device.connected, let transport = device.realtimeTransport {
-                    Text(transport).font(.caption).foregroundStyle(.secondary)
+                if !isHost && device.connected {
+                    if let connection = device.connectionStatus {
+                        Text(connection.summary).font(.caption).foregroundStyle(.secondary)
+                        if let medium = connection.active?.interfaceTitle {
+                            Text(medium).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let other = connection.otherConnections {
+                            Text("Available: \(other)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if let transport = device.realtimeTransport {
+                        Text(transport).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                if !isHost && device.connected, let latency = device.latencyMilliseconds {
+                if !isHost && device.connected, device.connectionStatus?.active?.route != .cloud,
+                   let latency = device.latencyMilliseconds {
                     Text(localizedAppFormat("Ping %d ms", latency)).font(.caption).monospacedDigit()
                 }
                 if !isHost, !device.connected, let age = device.lastHandshakeAgeSeconds {

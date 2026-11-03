@@ -11,6 +11,7 @@ import AVFoundation
 
 struct ScoreboardPairingQRCode: View {
     let value: String
+    var size: CGFloat = 150
     private var image: CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(value.utf8)
@@ -22,7 +23,7 @@ struct ScoreboardPairingQRCode: View {
         if let image {
             Image(decorative: image, scale: 1)
                 .resizable().interpolation(.none).scaledToFit()
-                .frame(width: 150, height: 150).padding(12).background(.white, in: RoundedRectangle(cornerRadius: 8))
+                .frame(width: size, height: size).padding(12).background(.white, in: RoundedRectangle(cornerRadius: 8))
                 .accessibilityLabel("Pairing QR Code")
         }
     }
@@ -31,53 +32,141 @@ struct ScoreboardPairingQRCode: View {
 struct ScoreboardCloudRemoteSection: View {
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
     let mode: ScoreboardRemoteDisplayNetworkMode
+    var enableCloud: (() -> Void)? = nil
+    var permitsSessionJoining = true
+    @State private var confirmsForget = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if mode.allowsCloud {
-                Label("Cloud Connection", systemImage: "cloud") .font(.headline)
-                if !cloud.isLinked {
-                    Picker("Cloud Service", selection: $cloud.serviceMode) {
-                        Text("Public Cloud (Experimental)").tag(ScoreboardCloudServiceMode.publicCloud)
-                        Text("Self-hosted").tag(ScoreboardCloudServiceMode.selfHosted)
-                    }.disabled(cloud.isLinking)
-                    if cloud.serviceMode == .selfHosted {
-                        TextField("https://your-scoreboard-server.com", text: $cloud.selfHostedURL)
-                            .autocorrectionDisabled().disabled(cloud.isLinking)
-                    }
-                    if cloud.isLinking { Button("Change Cloud Service") { cloud.cancelLink() } }
+        VStack(alignment: .leading, spacing: 22) {
+            if !permitsSessionJoining {
+                RemotePairingCard("Session Host") {
+                    hint("Finish hosting this match before pairing with another host. You can configure the cloud service below.")
                 }
-                if cloud.isLinked {
-                    if let account = cloud.account { Text(account.name).font(.subheadline) }
-                    Picker("Host Session", selection: Binding(get: { cloud.selectedSessionID }, set: { cloud.selectSession($0) })) {
-                        Text("Choose a host").tag("")
-                        ForEach(cloud.sessions.filter { $0.hostDeviceID == nil || $0.hostDeviceID != cloud.deviceID }) { session in Text(session.name).tag(session.id) }
-                    }
-                    .accessibilityIdentifier("cloud.sessionPicker")
-                    HStack {
-                        Button("Refresh Hosts") { Task { await cloud.refreshSessions() } }
-                        Button("Reconnect Cloud") { cloud.reconnect() }
-                    }
-                    Text(cloud.status).font(.footnote)
-                    Button("Forget Cloud Account", role: .destructive) { cloud.disconnect() }
-                } else if let code = cloud.linkCode {
-                    Text("Cloud Pairing Code").font(.subheadline)
-                    Text(code).font(.title.monospaced())
-                    if let url = cloud.verificationURL { ScoreboardPairingQRCode(value: url.absoluteString) }
-                    Text("On the signed-in host, open Cloud settings and enter or scan this code. This device does not need to sign in.").font(.footnote)
-                    Button("New Pairing Code") { cloud.cancelLink(); cloud.beginLink(remote: true) }
-                } else {
-                    Button("Show Cloud Pairing Code") { cloud.beginLink(remote: true) }.disabled(cloud.isLinking)
-                    Text(cloud.status).font(.footnote)
+            } else if !mode.allowsCloud {
+                RemotePairingCard("Connection") {
+                    hint("Choose a cloud preference to pair or join through the cloud. You can configure your server below first.")
+                    RemotePairingActionButton(title: "Prefer Cloud", symbol: "cloud", primary: true, disabled: enableCloud == nil) { enableCloud?() }
                 }
             }
+            serviceSection
+            if cloud.isLinked { registeredSection }
+            else { pairingSection }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog("Forget Cloud Account?", isPresented: $confirmsForget, titleVisibility: .visible) {
+            Button("Forget Cloud Account", role: .destructive) { cloud.disconnect() }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("This removes cloud registration from this device. Nearby pairing is kept.") }
         .task(id: mode) {
-            if mode.allowsCloud {
-                if cloud.isLinked { await cloud.refreshSessions() }
-                else if !cloud.isLinking { cloud.beginLink(remote: true) }
-            } else if cloud.isRemotePairing { cloud.cancelLink() }
+            if !permitsSessionJoining && cloud.isRemotePairing { cloud.cancelLink() }
+            else if mode.allowsCloud && cloud.isLinked { await cloud.refreshSessions() }
+            else if !mode.allowsCloud && cloud.isRemotePairing { cloud.cancelLink() }
         }
+    }
+
+    private var serviceSection: some View {
+        RemotePairingCard("Cloud Service") {
+            RemotePairingActionButton(title: "Public Cloud (Experimental)", symbol: "cloud",
+                selected: cloud.serviceMode == .publicCloud, disabled: cloud.isLinked || cloud.isLinking) {
+                cloud.serviceMode = .publicCloud
+            }.accessibilityIdentifier("remote.cloud.public")
+            RemotePairingActionButton(title: "Self-hosted", symbol: "server.rack",
+                selected: cloud.serviceMode == .selfHosted, disabled: cloud.isLinked || cloud.isLinking) {
+                cloud.serviceMode = .selfHosted
+            }.accessibilityIdentifier("remote.cloud.selfHosted")
+            if cloud.serviceMode == .selfHosted {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Service URL").font(.system(size: RemotePairingAppearance.captionSize, weight: .semibold)).foregroundStyle(.white.opacity(0.75))
+                    TextField("https://your-scoreboard-server.com", text: $cloud.selfHostedURL)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: RemotePairingAppearance.bodySize))
+                        .foregroundStyle(.white)
+                        .autocorrectionDisabled()
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+                        .padding(16)
+                        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .disabled(cloud.isLinked || cloud.isLinking)
+                        .accessibilityIdentifier("remote.cloud.selfHostedURL")
+                }
+            } else {
+                Text(verbatim: ScoreboardCloudEndpoint.publicServiceURL)
+                    .font(.system(size: RemotePairingAppearance.captionSize)).foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if cloud.isLinked {
+                hint("Forget this cloud account before changing servers.")
+                RemotePairingActionButton(title: "Change Cloud Service", symbol: "server.rack") { confirmsForget = true }
+            }
+            else if cloud.isLinking { hint("Cancel linking below to change the cloud service or server address.") }
+        }
+    }
+
+    private var registeredSection: some View {
+        RemotePairingCard("Host Session") {
+            if let account = cloud.account {
+                Text(verbatim: account.name).font(.system(size: RemotePairingAppearance.bodySize, weight: .semibold)).foregroundStyle(.white)
+            }
+            let sessions = cloud.sessions.filter { $0.hostDeviceID == nil || $0.hostDeviceID != cloud.deviceID }
+            if sessions.isEmpty {
+                hint("Enable Cloud Hosting on a device registered to this account, then refresh the hosts.")
+            }
+            ForEach(sessions) { session in
+                RemotePairingActionButton(title: session.name, symbol: "display", selected: cloud.selectedSessionID == session.id,
+                    disabled: !mode.allowsCloud || !permitsSessionJoining, verbatim: true) { cloud.selectSession(session.id) }
+            }
+            Text(cloud.status).font(.system(size: RemotePairingAppearance.captionSize)).foregroundStyle(.white.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+            RemotePairingActionButton(title: "Refresh Hosts", symbol: "arrow.clockwise", disabled: !mode.allowsCloud) { Task { await cloud.refreshSessions() } }
+            if !cloud.selectedSessionID.isEmpty {
+                RemotePairingActionButton(title: "Reconnect Cloud", symbol: "arrow.triangle.2.circlepath", disabled: !mode.allowsCloud || !permitsSessionJoining) { cloud.reconnect() }
+            }
+            RemotePairingActionButton(title: "Forget Cloud Account", symbol: "person.crop.circle.badge.xmark", destructive: true) { confirmsForget = true }
+        }
+    }
+
+    private var pairingSection: some View {
+        RemotePairingCard("Cloud Pairing Code") {
+            if let code = cloud.linkCode {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 28) {
+                        pairingCode(code).frame(maxWidth: .infinity)
+                        if let url = cloud.verificationURL { ScoreboardPairingQRCode(value: url.absoluteString, size: RemotePairingAppearance.qrSize) }
+                    }
+                    VStack(spacing: 24) {
+                        pairingCode(code)
+                        if let url = cloud.verificationURL { ScoreboardPairingQRCode(value: url.absoluteString, size: RemotePairingAppearance.qrSize) }
+                    }.frame(maxWidth: .infinity)
+                }
+                hint("On the signed-in host, open Cloud settings and enter or scan this code. This device does not need to sign in.")
+                RemotePairingActionButton(title: "New Pairing Code", symbol: "arrow.clockwise", disabled: !mode.allowsCloud || !permitsSessionJoining) { cloud.cancelLink(); cloud.beginLink(remote: true) }
+            } else {
+                hint("Register this display from your signed-in host, then choose a host session here.")
+                if cloud.isLinking {
+                    ProgressView().tint(.white)
+                } else {
+                    RemotePairingActionButton(title: "Show Cloud Pairing Code", symbol: "qrcode", primary: true,
+                        disabled: !mode.allowsCloud || !permitsSessionJoining || cloud.serviceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { cloud.beginLink(remote: true) }
+                }
+            }
+            Text(cloud.status).font(.system(size: RemotePairingAppearance.captionSize)).foregroundStyle(.white.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+            if cloud.isLinking {
+                RemotePairingActionButton(title: "Cancel Linking", symbol: "xmark.circle") { cloud.cancelLink() }
+            }
+        }
+    }
+
+    private func pairingCode(_ code: String) -> some View {
+        Text(code).font(.system(size: 40, weight: .bold, design: .monospaced))
+            .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+            .accessibilityIdentifier("remote.cloud.pairingCode")
+    }
+    private func hint(_ text: String) -> some View {
+        Text(verbatim: ScoreboardLocalization.string(text))
+            .font(.system(size: RemotePairingAppearance.captionSize)).foregroundStyle(.white.opacity(0.65))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -98,19 +187,24 @@ struct ScoreboardDevicePairingSection: View {
     @State private var scansQR = false
     #endif
     var body: some View {
-        ScoreboardCloudSection("Pair a Device") {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    TextField("Cloud Pairing Code", text: $code).autocorrectionDisabled()
-                    Button("Register Device") {
-                        Task {
-                            do { try await cloud.approveRemote(code: code); feedback = "Device registered. Choose a host session on that device."; code = "" }
-                            catch { feedback = error.localizedDescription }
-                        }
-                    }.disabled(!cloud.isLinked || cloud.isRemoteRegistration || code.isEmpty)
-                }
-                Text("Remote devices show a code or QR code. Registration grants access to this account's sessions; control needs approval for each host.").font(.footnote)
-                HStack {
+        ScoreboardCloudSection("Pair a Device", footer: "Remote devices show a code or QR code. Registration grants access to this account's sessions; control needs approval for each host.") {
+            ScoreboardCloudSettingsRow("Cloud Pairing Code") {
+                TextField("Cloud Pairing Code", text: $code)
+                    .autocorrectionDisabled().scoreboardCloudSettingsField()
+            }
+            ScoreboardCloudSettingsDivider()
+            ScoreboardCloudSettingsRow("Account") {
+                Button("Register Device") {
+                    Task {
+                        do { try await cloud.approveRemote(code: code); feedback = "Device registered. Choose a host session on that device."; code = "" }
+                        catch { feedback = error.localizedDescription }
+                    }
+                }.disabled(!cloud.isLinked || cloud.isRemoteRegistration || code.isEmpty)
+            }
+            #if !os(tvOS)
+            ScoreboardCloudSettingsDivider()
+            ScoreboardCloudSettingsRow("Pairing QR Code") {
+                VStack(alignment: .leading, spacing: 10) {
                     #if os(iOS)
                     if DataScannerViewController.isSupported {
                         Button("Scan Pairing QR Code", systemImage: "qrcode.viewfinder") { scansQR = true }
@@ -120,18 +214,26 @@ struct ScoreboardDevicePairingSection: View {
                     Button("Import Pairing QR Image", systemImage: "qrcode") { importsQR = true }
                     #endif
                 }
-                if !store.isRemoteDisplayHostEnabled {
+            }
+            #endif
+            if !store.isRemoteDisplayHostEnabled {
+                ScoreboardCloudSettingsDivider()
+                ScoreboardCloudSettingsRow("Connection") {
                     Button("Discover Nearby Devices") { store.setRemoteDisplayHostEnabled(true) }
                 }
-                ForEach(store.remoteDisplaySources.filter { !$0.isSessionInfrastructure && $0.allowsNewPairing }) { source in
-                    HStack {
-                        Label(source.name, systemImage: "antenna.radiowaves.left.and.right")
-                        Spacer()
-                        Button("Pair Nearby") { selectedNearby = source; nearbyCode = ""; asksNearbyCode = true }
-                    }
+            }
+            ForEach(store.remoteDisplaySources.filter { !$0.isSessionInfrastructure && $0.allowsNewPairing }) { source in
+                ScoreboardCloudSettingsDivider()
+                ScoreboardCloudSettingsRow(source.name, verbatim: true) {
+                    Button("Pair Nearby") { selectedNearby = source; nearbyCode = ""; asksNearbyCode = true }
                 }
-                if !feedback.isEmpty { Text(feedback).font(.footnote).accessibilityIdentifier("cloud.pairingFeedback") }
-            }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !feedback.isEmpty {
+                ScoreboardCloudSettingsDivider()
+                Text(feedback).font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
+                    .accessibilityIdentifier("cloud.pairingFeedback")
+            }
         }
         .onChange(of: store.remoteDisplaySources.map(\.id)) { _, _ in tryNearby() }
         .alert("Nearby Pairing Code", isPresented: $asksNearbyCode) {
@@ -243,21 +345,3 @@ private struct ScoreboardQRScanner: UIViewControllerRepresentable {
     }
 }
 #endif
-
-struct ScoreboardCloudSection<Content: View>: View {
-    let title: LocalizedStringKey
-    @ViewBuilder var content: () -> Content
-    init(_ title: LocalizedStringKey, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title; self.content = content
-    }
-    var body: some View {
-        #if os(tvOS)
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.headline)
-            content()
-        }.padding(20).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        #else
-        GroupBox(title) { content() }
-        #endif
-    }
-}

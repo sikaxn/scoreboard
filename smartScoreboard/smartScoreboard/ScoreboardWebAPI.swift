@@ -1962,6 +1962,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.ironmaple.smartscoreboard.webapi", qos: .utility)
     var controlHandler: (@Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void)?
+    var clientsHandler: (@Sendable ([ScoreboardSessionPeer]) -> Void)?
+    private var lastReportedClients: [ScoreboardSessionPeer] = []
     private let maxHTTPHeaderBytes = 16 * 1024
     private let maxHTTPBodyBytes = 16 * 1024
     private let maxWebSocketClients = 16
@@ -2508,6 +2510,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 }
                 handler(command, key, completion)
             },
+            onConnectionChange: { [weak self] in self?.reportClientsLocked() },
             onClose: { [weak self] clientID in
                 self?.queue.async {
                     self?.clients[clientID] = nil
@@ -2559,6 +2562,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         for client in clients.values {
             client.sendLatestState()
         }
+        reportClientsLocked()
     }
 
     private func stopLocked(notify: Bool) {
@@ -2577,12 +2581,14 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             client.close()
         }
         clients.removeAll()
+        reportClientsLocked()
         if notify {
             updateStatusLocked(.off)
         }
     }
 
     private func updateRunningStatusLocked() {
+        reportClientsLocked()
         guard httpReady, webSocketReady else {
             return
         }
@@ -2591,6 +2597,13 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             webSocketPort: webSocketListener?.port?.rawValue ?? listeningWebSocketPort,
             clientCount: clients.count
         ))
+    }
+
+    private func reportClientsLocked() {
+        let peers = clients.values.compactMap(\.connectionPeer).sorted { $0.id < $1.id }
+        guard peers != lastReportedClients else { return }
+        lastReportedClients = peers
+        clientsHandler?(peers)
     }
 
     private func updateStatusLocked(_ status: ScoreboardWebAPIStatus) {
@@ -2845,9 +2858,23 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         private let latestV2ManifestProvider: @Sendable () -> Data
         private let latestV2ResourcesProvider: @Sendable () -> [ScoreboardWebAPIV2ResourcePayload]
         private let onClose: @Sendable (UUID) -> Void
+        private let onConnectionChange: @Sendable () -> Void
         private let rtcControlHandler: @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void
         private var rtcPeer: ScoreboardRTCPeer?
         private var isClosed = false
+        private var isReady = false
+        private var stateMethod: ScoreboardConnectionMethod = .webSocket
+        private var webSocketConnectionInfo = ScoreboardConnectionInfo(route: .direct, method: .webSocket)
+        var connectionPeer: ScoreboardSessionPeer? {
+            guard isReady, !isClosed else { return nil }
+            let websocket = webSocketConnectionInfo
+            let active = stateMethod == .webRTC && rtcPeer?.isReady == true ? (rtcPeer?.connectionInfo ?? websocket) : websocket
+            let available = [rtcPeer?.isReady == true ? rtcPeer?.connectionInfo : nil, websocket].compactMap { $0 }
+            return .init(id: "web:\(id.uuidString)", name: "Web Client · \(id.uuidString.prefix(6))",
+                deviceType: .unknown, connected: true, supportsHosting: false,
+                realtimeTransport: active.method.title,
+                connectionStatus: .init(active: active, available: available))
+        }
         private var pendingSends = 0
         private var initialV1WorkItem: DispatchWorkItem?
         private var isSubscribedToV2 = false
@@ -2862,6 +2889,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             latestV2ManifestProvider: @escaping @Sendable () -> Data,
             latestV2ResourcesProvider: @escaping @Sendable () -> [ScoreboardWebAPIV2ResourcePayload],
             rtcControlHandler: @escaping @Sendable (ScoreboardControlCommand, String, @escaping @Sendable (ScoreboardControlResult) -> Void) -> Void,
+            onConnectionChange: @escaping @Sendable () -> Void,
             onClose: @escaping @Sendable (UUID) -> Void
         ) {
             self.id = id
@@ -2872,6 +2900,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             self.latestV2ManifestProvider = latestV2ManifestProvider
             self.latestV2ResourcesProvider = latestV2ResourcesProvider
             self.rtcControlHandler = rtcControlHandler
+            self.onConnectionChange = onConnectionChange
             self.onClose = onClose
         }
 
@@ -2881,6 +2910,9 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 self.queue.async {
                     switch state {
                     case .ready:
+                        self.isReady = true
+                        self.webSocketConnectionInfo = ScoreboardConnectionPath.describe(self.connection.currentPath)
+                        self.onConnectionChange()
                         self.receiveNextMessage()
                         self.scheduleInitialV1Send()
                     case .failed, .cancelled:
@@ -2890,6 +2922,13 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     @unknown default:
                         break
                     }
+                }
+            }
+            connection.pathUpdateHandler = { [weak self] path in
+                guard let self else { return }
+                self.queue.async {
+                    self.webSocketConnectionInfo = ScoreboardConnectionPath.describe(path)
+                    self.onConnectionChange()
                 }
             }
             connection.start(queue: queue)
@@ -2960,6 +2999,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 initialV1WorkItem?.cancel()
                 initialV1WorkItem = nil
                 isSubscribedToV2 = true
+                stateMethod = .webSocket
                 sendV2Snapshot(forceResources: true)
             } else if normalized == "get" ||
                 normalized.contains(#""type":"get""#) ||
@@ -3017,6 +3057,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     }, onReady: { [weak self] _ in
                         guard let self, !self.isClosed else { return }
                         self.sendLatestState()
+                        self.onConnectionChange()
                     })
             }
             rtcPeer?.receive(signal)
@@ -3051,7 +3092,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             if isSubscribedToV2 {
                 sendV2Snapshot(forceResources: false)
             } else {
-                sendText(latestV1EnvelopeProvider())
+                if let method = sendText(latestV1EnvelopeProvider()) { stateMethod = method }
             }
         }
 
@@ -3071,11 +3112,11 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
             }
         }
 
-        func sendText(_ data: Data, allowRTC: Bool = true) {
-            guard !isClosed else { return }
-            if allowRTC, !isSubscribedToV2, rtcPeer?.send(data) == true { return }
+        @discardableResult func sendText(_ data: Data, allowRTC: Bool = true) -> ScoreboardConnectionMethod? {
+            guard !isClosed else { return nil }
+            if allowRTC, !isSubscribedToV2, rtcPeer?.send(data) == true { return .webRTC }
             guard pendingSends < 32 else {
-                return
+                return nil
             }
 
             let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
@@ -3094,6 +3135,7 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                     }
                 }
             })
+            return .webSocket
         }
 
         private func sendError(_ message: String) {
