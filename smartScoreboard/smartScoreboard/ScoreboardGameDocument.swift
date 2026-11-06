@@ -21,7 +21,9 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Equatable, Sendable {
-    var fileVersion = 12
+    var fileVersion = 13
+    var matchID: UUID? = nil
+    var ownerDeviceID: String? = nil
     var sport: SportType?
     var customSportConfig: CustomSportConfig?
     var customDebatePreset: DebatePreset?
@@ -201,6 +203,8 @@ struct ScoreboardGameSnapshot: Equatable, Sendable {
 extension ScoreboardGameSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
         case fileVersion
+        case matchID
+        case ownerDeviceID
         case sport
         case customSportConfig
         case customDebatePreset
@@ -293,6 +297,8 @@ extension ScoreboardGameSnapshot: Codable {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
+        matchID = try container.decodeIfPresent(UUID.self, forKey: .matchID)
+        ownerDeviceID = try container.decodeIfPresent(String.self, forKey: .ownerDeviceID)
         sport = try container.decodeIfPresent(SportType.self, forKey: .sport)
         customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig)
         customDebatePreset = try container.decodeIfPresent(DebatePreset.self, forKey: .customDebatePreset)
@@ -384,6 +390,8 @@ extension ScoreboardGameSnapshot: Codable {
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(matchID, forKey: .matchID)
+        try container.encodeIfPresent(ownerDeviceID, forKey: .ownerDeviceID)
         try container.encode(fileVersion, forKey: .fileVersion)
         try container.encodeIfPresent(sport, forKey: .sport)
         try container.encodeIfPresent(customSportConfig, forKey: .customSportConfig)

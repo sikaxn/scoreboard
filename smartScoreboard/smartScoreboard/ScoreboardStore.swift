@@ -1074,6 +1074,161 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var shotClockAutosaveRevision = 0
     @Published var didCompleteSetup = false
     @Published private(set) var currentGameDisplayName: String?
+    @Published private(set) var currentMatchID = UUID()
+    @Published private(set) var matchOwnerDeviceID: String?
+    @Published private(set) var isJoinedMatchActive = false
+    @Published private(set) var isPreparingMatchJoin = false
+    @Published private(set) var locallyRequestedControllers: Set<String> = []
+    private var joinedReceiverAcquired = false
+    lazy var matchLibrary = ScoreboardMatchRepository(store: self)
+    @Published private(set) var joinedAsDisplay = false
+    var matchWorkspace: ScoreboardMatchWorkspace {
+        if isDelegatedSessionHost { return .venueHost }
+        if isPreparingMatchJoin { return .joining }
+        // Preserve installations explicitly configured as a fixed display before 1.8.
+        if isJoinedMatchActive || isRemoteDisplayViewerModeEnabled { return .participant(displayOnly: joinedAsDisplay) }
+        return .personal
+    }
+    @Published var pendingMatchInvitationURL: URL?
+    private var preparingCloudHost = false
+    private var matchRuntimeIDs: [UUID: UUID] = [:]
+    private var matchEpochs: [UUID: UInt64] = [:]
+    var currentMatchRecord: ScoreboardMatchRecord { ScoreboardMatchIndex.record(for: currentMatchID) }
+    var currentRuntimeID: UUID {
+        if let sessionDescriptor { return sessionDescriptor.sessionID }
+        if let cached = matchRuntimeIDs[currentMatchID] { return cached }
+        let record = currentMatchRecord
+        matchRuntimeIDs[currentMatchID] = record.runtimeID
+        ScoreboardMatchIndex.save(record)
+        return record.runtimeID
+    }
+    var currentAuthorityEpoch: UInt64 {
+        if let sessionDescriptor { return sessionDescriptor.epoch }
+        if let cached = matchEpochs[currentMatchID] { return cached }
+        let epoch = currentMatchRecord.authorityEpoch ?? 0; matchEpochs[currentMatchID] = epoch; return epoch
+    }
+    @Published var isShowingFileHome = true
+
+    func setDeviceMode(_ mode: ScoreboardDeviceMode) throws {
+        guard mode != ScoreboardDeviceMode.current else { return }
+        #if os(tvOS)
+        return
+        #else
+        try requireMatchReplacementAllowed()
+        guard !isDelegatedSessionHost else { throw NSError(domain: "ScoreboardMode", code: 409,
+            userInfo: [NSLocalizedDescriptionKey: "Finish hosting this match before switching modes."]) }
+        try matchLibrary.save()
+        setRemoteDisplayHostEnabled(false)
+        ScoreboardCloudClient.shared.hostingEnabled = false
+        ScoreboardPreferences.current.set(mode.rawValue, forKey: ScoreboardDeviceMode.preferenceKey)
+        #endif
+    }
+
+    var currentMatchTitle: String {
+        currentGameDisplayName ?? "\(homeTeamName.isEmpty ? localizedStoreString("Home") : homeTeamName) vs \(guestTeamName.isEmpty ? localizedStoreString("Guest") : guestTeamName)"
+    }
+
+    func requireMatchReplacementAllowed() throws {
+        guard !isFollowingSessionHost, !isDelegatedSessionHost, !sessionTransferInProgress,
+              !isJoinedMatchActive, !isPreparingMatchJoin,
+              !isAnyTimerRunning, !(remoteSessionDevices ?? []).contains(where: \.connected) else {
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                "Stop the timers and finish or leave the current shared match before opening or joining another match."])
+        }
+    }
+
+    func requireNewLocalMatchAllowed() throws {
+        guard ScoreboardDeviceMode.current.canCreateScoreboards else {
+            throw NSError(domain: "ScoreboardMode", code: 403, userInfo: [NSLocalizedDescriptionKey: "Kiosk mode can only join a scoreboard."])
+        }
+        guard !isFollowingSessionHost, !isDelegatedSessionHost, !isJoinedMatchActive,
+              !sessionTransferInProgress, !isAnyTimerRunning else {
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                "Stop the timers and finish hosting or leave the joined match before starting a new match."])
+        }
+    }
+
+    func openLibraryMatch(_ snapshot: ScoreboardGameSnapshot, url: URL) throws {
+        guard ScoreboardDeviceMode.current.canCreateScoreboards else {
+            throw NSError(domain: "ScoreboardMode", code: 403, userInfo: [NSLocalizedDescriptionKey: "Switch to App Mode to open local scoreboards."])
+        }
+        try requireMatchReplacementAllowed()
+        if let id = snapshot.matchID {
+            let record = ScoreboardMatchIndex.record(for: id)
+            guard record.lastHostDeviceID == nil || record.lastHostDeviceID == localSessionDeviceID else {
+                throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                    "Another device last hosted this match. Reconnect to that host or use explicit session recovery before opening this local copy."])
+            }
+        }
+        let restorePairing = isRemoteDisplayHostEnabled && snapshot.matchID != currentMatchID
+        if restorePairing { setRemoteDisplayHostEnabled(false) }
+        applyGameSnapshot(snapshot)
+        if restorePairing { setRemoteDisplayHostEnabled(true) }
+        setCurrentGameDisplayName(url.deletingPathExtension().lastPathComponent)
+        var record = currentMatchRecord; record.filePath = url.path; ScoreboardMatchIndex.save(record)
+        ScoreboardCloudClient.shared.activateMatch(cloudMatchContext)
+    }
+
+    func prepareJoiningMatch(asDisplay: Bool = false) throws {
+        guard !isPreparingMatchJoin, !isJoinedMatchActive else {
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey: "Leave the current match before joining another one."])
+        }
+        try requireMatchReplacementAllowed()
+        try matchLibrary.save()
+        persistState()
+        isPreparingMatchJoin = true; joinedAsDisplay = asDisplay
+        setRemoteDisplayViewerModeEnabled(true)
+        guard isRemoteDisplayViewerModeEnabled else {
+            isPreparingMatchJoin = false
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey: sessionStatusMessage ?? "Unable to join while this device is hosting."])
+        }
+        #if !SCOREBOARD_TESTING
+        ScoreboardRemoteDisplayReceiver.shared.acquire(networkMode: remoteDisplayNetworkMode)
+        joinedReceiverAcquired = true
+        ScoreboardNearbyMatchService.shared.update(owner: self)
+        #endif
+    }
+
+    func commitJoinedMatch() {
+        guard isPreparingMatchJoin else { return }
+        isPreparingMatchJoin = false; isJoinedMatchActive = true
+    }
+
+    func setJoiningPresentation(displayOnly: Bool) {
+        guard isPreparingMatchJoin else { return }
+        joinedAsDisplay = displayOnly
+    }
+
+    func joinAnotherMatch(asDisplay: Bool = false) throws {
+        try prepareJoiningMatch(asDisplay: asDisplay)
+        commitJoinedMatch()
+    }
+
+    func leaveJoinedMatch() {
+        if joinedReceiverAcquired {
+            joinedReceiverAcquired = false
+            ScoreboardRemoteDisplayReceiver.shared.release()
+        }
+        ScoreboardCloudClient.shared.leaveGuestMatch()
+        ScoreboardRemoteDisplayReceiver.shared.discardReceivedScoreboard()
+        setRemoteDisplayViewerModeEnabled(false)
+        if !isRemoteDisplayViewerModeEnabled {
+            isJoinedMatchActive = false; isPreparingMatchJoin = false; joinedAsDisplay = false
+            if isRemoteDisplayHostEnabled {
+                ensureOwnedSessionDescriptor()
+                startRemoteDisplayHostService()
+                refreshRemoteDisplayState()
+            }
+            let cloud = ScoreboardCloudClient.shared
+            cloud.activateMatch(cloudMatchContext)
+            if cloud.cloudEnabled && cloud.hostingEnabled { cloud.reconnect() }
+        }
+    }
+
+    var cloudMatchContext: ScoreboardCloudMatchContext {
+        .init(matchID: currentMatchID, runtimeID: currentRuntimeID, ownerDeviceID: matchOwnerDeviceID ?? localSessionDeviceID,
+            epoch: currentAuthorityEpoch, name: currentMatchTitle, hostDeviceID: sessionDescriptor?.hostDeviceID ?? localSessionDeviceID)
+    }
 
     @Published private(set) var sessionDescriptor: ScoreboardSessionDescriptor?
     @Published private(set) var sessionTransferInProgress = false
@@ -1174,6 +1329,7 @@ final class ScoreboardStore: ObservableObject {
                 clients[index].deviceType = .current
                 clients[index].latencyMilliseconds = sessionRoundTripSeconds.map { Int(($0 * 1_000).rounded()) }
                 clients[index].realtimeTransport = ScoreboardRemoteDisplayReceiver.shared.realtimeTransport
+                clients[index].connectionStatus = ScoreboardRemoteConnectionRouter.shared.connectionStatus
             }
             return clients
         }
@@ -1181,7 +1337,7 @@ final class ScoreboardStore: ObservableObject {
         var ids = Set(remoteDisplayTrustedDisplays.map(\.id))
             .union(remoteDisplayConnectedDisplays.map(\.id)).subtracting([hostID])
         if let ownerID = sessionDescriptor?.ownerDeviceID, ownerID != hostID { ids.insert(ownerID) }
-        let peers = ids.map { id in
+        var peers = ids.map { id in
             let connection = remoteDisplayConnectedDisplays.first { $0.id == id }
             let saved = remoteDisplayTrustedDisplays.first { $0.id == id }
             return ScoreboardSessionPeer(
@@ -1195,9 +1351,49 @@ final class ScoreboardStore: ObservableObject {
                 lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
                 appVersion: connection?.appVersion,
                 quality: connection?.quality,
-                realtimeTransport: connection?.realtimeTransport)
+                realtimeTransport: connection?.realtimeTransport,
+                connectionStatus: remoteClientConnectionStatus(connection, cloudMember: nil),
+                devicePublicKey: connection?.devicePublicKey, cloudPairingPublicKey: connection?.cloudPairingPublicKey,
+                requestedControl: locallyRequestedControllers.contains(id))
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        return sessionDescriptor?.clientPeers(from: peers, ownerConnected: remoteSessionOwnerConnected) ?? peers
+        peers.append(contentsOf: webAPIClients)
+        let cloud = ScoreboardCloudClient.shared
+        if cloud.isHost, let room = cloud.session {
+            for member in room.members where member.role != "host" {
+                let known = remoteDisplayTrustedDisplays.first { $0.id == member.localDeviceID && $0.devicePublicKey != nil && $0.devicePublicKey == member.devicePublicKey }
+                let id = known?.id ?? (member.uid == room.ownerID ? (member.localDeviceID ?? member.id) : member.id)
+                if member.localDeviceID == hostID && member.devicePublicKey == ScoreboardDeviceIdentity.publicKey { continue }
+                let local = remoteDisplayConnectedDisplays.first { $0.id == id }
+                let status = remoteClientConnectionStatus(local, cloudMember: cloud.isConnected ? member : nil)
+                if let index = peers.firstIndex(where: { $0.id == id }) {
+                    let hasLiveCloud = peers[index].connectionStatus?.available.contains(where: { $0.route == .cloud }) == true
+                    if member.connected == true || !hasLiveCloud { peers[index].connectionStatus = status }
+                    peers[index].connected = peers[index].connected || (cloud.isConnected && member.connected == true)
+                    // Local and cloud permissions remain independently enforced.
+                } else {
+                    peers.append(.init(id: id, name: member.name, deviceType: .unknown,
+                        connected: cloud.isConnected && member.connected == true, supportsHosting: false,
+                        controlEnabled: member.role == "controller", connectionStatus: status,
+                        devicePublicKey: member.devicePublicKey, requestedControl: member.requestedControl))
+                }
+            }
+            if cloud.isConnected {
+                for viewer in room.viewers ?? [] {
+                    peers.append(.init(id: viewer.id, name: "\(viewer.name) · \(viewer.mode.capitalized)",
+                        deviceType: .unknown, connected: true, supportsHosting: false, controlEnabled: false,
+                        connectionStatus: .init(active: .cloud, available: [.cloud])))
+                }
+            }
+        }
+        peers.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let ownerCloudConnected = peers.first { $0.id == sessionDescriptor?.ownerDeviceID }?
+            .connectionStatus?.available.contains(where: { $0.route == .cloud }) == true
+        return sessionDescriptor?.clientPeers(from: peers,
+            ownerConnected: ownerCloudConnected ? true : remoteSessionOwnerConnected) ?? peers
+    }
+
+    private func remoteClientConnectionStatus(_ local: ScoreboardRemoteDisplayConnection?, cloudMember: ScoreboardCloudMember?) -> ScoreboardClientConnectionStatus {
+        .merged(hostID: remoteDisplayHostService.hostID, local: local, cloud: cloudMember)
     }
     var canRecoverSessionHost: Bool {
         guard isSessionOwner, isFollowingSessionHost, !sessionIsConnected,
@@ -1261,12 +1457,10 @@ final class ScoreboardStore: ObservableObject {
     func isRemoteControlAllowed(displayID: String) -> Bool {
         if isSessionAuthority && sessionDescriptor?.ownerDeviceID == displayID { return true }
         if isDelegatedSessionHost && displayID == localSessionDeviceID {
-            return ScoreboardRemoteDisplayDeviceType.current != .appleTV
-                && remoteControlAllowedDisplayIDs.contains(displayID)
+            return remoteControlAllowedDisplayIDs.contains(displayID)
         }
         guard remoteControlAllowedDisplayIDs.contains(displayID),
-              let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
-              peer.deviceType != .appleTV else { return false }
+              remoteDisplayTrustedDisplays.contains(where: { $0.id == displayID }) else { return false }
         return true
     }
 
@@ -1277,15 +1471,21 @@ final class ScoreboardStore: ObservableObject {
             return
         }
         if isAllowed {
-            guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == displayID }),
-                  peer.deviceType != .appleTV else { return }
+            guard remoteDisplayTrustedDisplays.contains(where: { $0.id == displayID }) else { return }
             remoteControlAllowedDisplayIDs.insert(displayID)
+            locallyRequestedControllers.remove(displayID)
         } else { remoteControlAllowedDisplayIDs.remove(displayID) }
         if !isDelegatedSessionHost {
             ScoreboardPreferences.current.set(remoteControlAllowedDisplayIDs.sorted(), forKey: "scoreboard.remoteControlAllowedDisplayIDs")
         }
         refreshRemoteDisplayState()
         remoteDisplayHostService.refreshControlPermissions()
+        ScoreboardCloudClient.shared.updateRemotePermission(localID: displayID, publicKey: remoteDisplayTrustedDisplays.first { $0.id == displayID }?.devicePublicKey, allowed: isAllowed)
+        provisionCloudFailoverForConnectedDevices()
+    }
+
+    func noteLocalControlRequest(displayID: String) {
+        locallyRequestedControllers.insert(displayID)
     }
     @Published private(set) var webControlAPIKey: String = {
         if let key = ScoreboardPreferences.current.string(forKey: "scoreboard.webControlAPIKey"), key.count == 16,
@@ -1313,6 +1513,7 @@ final class ScoreboardStore: ObservableObject {
             guard cached.0 == data else { return .failure(command.id, "conflict", "Command ID was reused with different parameters.") }
             return cached.1
         }
+        if let matchID = command.matchID, matchID != currentMatchID { return .failure(command.id, "conflict", "This command belongs to another match.") }
         let result = executeControlCommand(command, remote: remote)
         if controlCommandResults.count >= 512, let oldest = controlCommandResults.min(by: { $0.value.2 < $1.value.2 })?.key {
             controlCommandResults.removeValue(forKey: oldest)
@@ -1330,6 +1531,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var webAPIBroadcastDisplayModesByID: [Int: ScoreboardWebAPIBroadcastDisplayMode] = [:]
     @Published var customDisplayModeTitlesByMode: [String: String] = [:]
     @Published private(set) var webAPIStatus: ScoreboardWebAPIStatus = .off
+    @Published private(set) var webAPIClients: [ScoreboardSessionPeer] = []
     @Published private(set) var webAPILocalAddresses: [String] = []
     @Published var isRemoteDisplayHostEnabled = false
     @Published var isRemoteDisplayViewerModeEnabled = false
@@ -1523,6 +1725,7 @@ final class ScoreboardStore: ObservableObject {
         configureWebAPIService()
         configureRemoteDisplayService()
         configureSessionService()
+        configureCloudService()
         if sessionRecoveryRole == .fenced, let descriptor = sessionDescriptor,
            descriptor.hostDeviceID != localSessionDeviceID,
            let checkpoint = sessionTransferCheckpoint, sessionTransferID != nil {
@@ -3174,6 +3377,20 @@ final class ScoreboardStore: ObservableObject {
 
     func newGame() {
         if routeRemoteControlCommand("game.new") { return }
+        do { try requireNewLocalMatchAllowed(); try matchLibrary.save() }
+        catch { sessionStatusMessage = error.localizedDescription; return }
+        currentMatchID = UUID()
+        locallyRequestedControllers = []
+        matchOwnerDeviceID = sessionDescriptor?.ownerDeviceID ?? localSessionDeviceID
+        sessionDescriptor?.matchID = currentMatchID
+        if sessionDescriptor != nil {
+            sessionDescriptor?.sessionID = UUID()
+            sessionDescriptor?.epoch = 0
+            sessionTransferCheckpoint = nil
+        }
+        setCurrentGameDisplayName(nil)
+        startLocalMatchLog()
+        ScoreboardCloudClient.shared.activateMatch(cloudMatchContext)
         pauseClock()
         pauseShotClock()
         clearQueuedEventActions()
@@ -3209,6 +3426,13 @@ final class ScoreboardStore: ObservableObject {
         resetPlayerTrackingForNewGame()
         updateTimerState()
         requestGameClockAutosave()
+        matchLibrary.saveAfterChange()
+        persistState()
+    }
+
+    func startLocalMatchLog() {
+        logManager.startSession()
+        sessionDescriptor?.logSessionID = logManager.currentSessionSnapshot()?.sessionID
     }
 
     func resetScores() {
@@ -4635,7 +4859,9 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 12,
+            fileVersion: 13,
+            matchID: currentMatchID,
+            ownerDeviceID: matchOwnerDeviceID ?? localSessionDeviceID,
             sport: selectedSport,
             customSportConfig: customSportConfig,
             customDebatePreset: customDebatePreset,
@@ -4823,6 +5049,11 @@ final class ScoreboardStore: ObservableObject {
             return
         }
         performWithoutAuditLogging {
+            if let id = snapshot.matchID {
+                currentMatchID = id
+                matchOwnerDeviceID = snapshot.ownerDeviceID ?? localSessionDeviceID
+                sessionDescriptor?.matchID = id
+            }
             if !isRemoteControlProxy {
                 pauseClock()
                 pauseShotClock()
@@ -6203,6 +6434,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
+        guard !isEnabled || ScoreboardDeviceMode.current.canHost else { return }
         if !isEnabled && (isFollowingSessionHost || isDelegatedSessionHost) {
             guard !isAnyTimerRunning, !sessionTransferInProgress else {
                 sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
@@ -6300,6 +6532,7 @@ final class ScoreboardStore: ObservableObject {
         #endif
 
         isRemoteDisplayViewerModeEnabled = isEnabled
+        if !isEnabled { isJoinedMatchActive = false; isPreparingMatchJoin = false; joinedAsDisplay = false }
         if !isEnabled && !isSessionOwner {
             sessionDescriptor = nil
             sessionRecoveryRole = nil
@@ -6695,6 +6928,13 @@ final class ScoreboardStore: ObservableObject {
     #endif
 
     private func configureWebAPIService() {
+        webAPIService.clientsHandler = { [weak self] peers in
+            Task { @MainActor [weak self] in
+                guard let self, self.webAPIClients != peers else { return }
+                self.webAPIClients = peers
+                self.scheduleStateSideEffectRefresh()
+            }
+        }
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIService.controlHandler = { [weak self] command, key, completion in
             Task { @MainActor [weak self] in
@@ -6765,6 +7005,7 @@ final class ScoreboardStore: ObservableObject {
             .sink { [weak self] connectedDisplays in
                 guard let self, !self.isFollowingSessionHost else { return }
                 self.handleRemoteDisplayConnectedDisplaysChanged(connectedDisplays)
+                self.provisionCloudFailoverForConnectedDevices()
             }
             .store(in: &cancellables)
 
@@ -6863,7 +7104,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func handleRemoteDisplayTrustedDisplaysChanged(_ trustedDisplays: [ScoreboardRemoteDisplayTrustedPeer]) {
         remoteDisplayTrustedDisplays = trustedDisplays
-        let permitted = remoteControlAllowedDisplayIDs.intersection(Set(trustedDisplays.filter { $0.deviceType != .appleTV }.map(\.id)))
+        let permitted = remoteControlAllowedDisplayIDs.intersection(Set(trustedDisplays.map(\.id)))
         if permitted != remoteControlAllowedDisplayIDs {
             remoteControlAllowedDisplayIDs = permitted
             if !isDelegatedSessionHost {
@@ -6979,9 +7220,103 @@ final class ScoreboardStore: ObservableObject {
             imageResponses: currentWebAPIImageResponses(),
             commentatorPayload: payloads.commentator
         )
+        if isSessionAuthority {
+            ScoreboardCloudClient.shared.publish(currentWebAPIState().cloudControlPayload(allowed: true).remoteDisplayPayload)
+        }
+    }
+
+    private func configureCloudService() {
+        ScoreboardCloudClient.shared.activateMatch(cloudMatchContext)
+        $sessionDescriptor.removeDuplicates().sink { [weak self] descriptor in
+            guard let self else { return }
+            if let descriptor {
+                var record = ScoreboardMatchIndex.record(for: descriptor.matchID ?? self.currentMatchID)
+                record.runtimeID = descriptor.sessionID; record.lastHostDeviceID = descriptor.hostDeviceID
+                record.authorityEpoch = descriptor.epoch
+                self.matchRuntimeIDs[record.matchID] = descriptor.sessionID; self.matchEpochs[record.matchID] = descriptor.epoch
+                ScoreboardMatchIndex.save(record)
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                ScoreboardCloudClient.shared.authorityDidChange(self.cloudMatchContext, isAuthority: self.isSessionAuthority)
+            }
+        }.store(in: &cancellables)
+        _ = ScoreboardRemoteConnectionRouter.shared
+        ScoreboardCloudClient.shared.$session.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                // @Published emits before assignment; refresh after the room has
+                // been installed so web/LAN snapshots contain the new roster.
+                Task { @MainActor [weak self] in
+                    self?.objectWillChange.send()
+                    self?.scheduleStateSideEffectRefresh()
+                }
+            }.store(in: &cancellables)
+        ScoreboardCloudClient.shared.$isConnected.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.objectWillChange.send()
+                    self?.scheduleStateSideEffectRefresh()
+                }
+            }.store(in: &cancellables)
+        ScoreboardCloudClient.shared.hostReadyHandler = { [weak self] in self?.provisionCloudFailoverForConnectedDevices() }
+        ScoreboardCloudClient.shared.configure(stateProvider: { [weak self] in
+            guard let self, self.isSessionAuthority else { return nil }
+            return self.currentWebAPIState().cloudControlPayload(allowed: true).remoteDisplayPayload
+        }, commandHandler: { [weak self] command in
+            self?.performCloudControlCommand(command) ?? .failure(command.id, "disabled", "Host unavailable.")
+        }, canHost: { [weak self] in ScoreboardDeviceMode.current.canHost && self?.isSessionAuthority == true },
+        commentatorProvider: { [weak self] in self?.currentCloudCommentatorPayload() },
+        localHostID: { [weak self] in self?.remoteDisplayHostService.hostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID })
+    }
+
+    private var cloudEnrollmentRuns = Set<String>()
+    private func provisionCloudFailoverForConnectedDevices() {
+        let cloud = ScoreboardCloudClient.shared
+        guard isSessionAuthority, cloud.canManageMatch, cloud.cloudFailoverEnabled, cloud.hostingEnabled, cloud.isConnected,
+              let room = cloud.session, cloud.isHost else { return }
+        for connection in remoteDisplayConnectedDisplays {
+            guard let peer = remoteDisplayTrustedDisplays.first(where: { $0.id == connection.id }),
+                  let pairingSecret = peer.pairingSecret, !pairingSecret.isEmpty,
+                  let publicKey = connection.cloudPairingPublicKey, publicKey.count <= 128,
+                  let signingKey = connection.devicePublicKey else { continue }
+            let key = "\(room.ownerID)|\(room.id)|\(peer.id)|\(peer.pairingSetID ?? "")|\(publicKey)"
+            guard cloudEnrollmentRuns.insert(key).inserted else { continue }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    // Start with read-only access; serialize the latest local permission
+                    // after enrollment so a concurrent revocation cannot be overwritten.
+                    let data = try await cloud.provisionRemote(id: peer.id, name: peer.name, publicKey: signingKey, controlAllowed: false)
+                    cloud.updateRemotePermission(localID: peer.id, allowed: self.isRemoteControlAllowed(displayID: peer.id), force: true)
+                    let encrypted = try ScoreboardCloudEnrollmentCrypto.seal(data, recipient: publicKey, pairingSecret: pairingSecret,
+                        hostID: self.remoteDisplayHostService.hostID, deviceID: peer.id)
+                    for _ in 0..<5 {
+                        guard self.isSessionAuthority, cloud.cloudFailoverEnabled, cloud.session?.id == room.id,
+                              self.remoteDisplayTrustedDisplays.contains(where: { $0.id == peer.id && $0.pairingSecret == peer.pairingSecret }) else { return }
+                        if self.remoteDisplayHostService.sendSessionMessage(encrypted, toDisplayID: peer.id) { return }
+                        try await Task.sleep(for: .seconds(1))
+                    }
+                } catch { /* Local pairing remains usable while cloud enrollment is unavailable. */ }
+                self.cloudEnrollmentRuns.remove(key)
+            }
+        }
+    }
+
+    func currentCloudCommentatorPayload() -> ScoreboardWebAPICommentatorPayload? {
+        guard isSessionAuthority else { return nil }
+        return ScoreboardWebAPICommentatorPayload.make(from: currentWebAPIState(),
+            logSession: logManager.currentSessionSnapshot()).limited(to: 120)
+    }
+
+    func performCloudControlCommand(_ command: ScoreboardControlCommand) -> ScoreboardControlResult {
+        guard isSessionAuthority else {
+            return .failure(command.id, "conflict", "This device is no longer the game host.")
+        }
+        return performControlCommand(command, remote: false)
     }
 
     private func startRemoteDisplayHostService() {
+        guard ScoreboardDeviceMode.current.canHost else { return }
         guard isSessionAuthority else { return }
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayStates(),
@@ -7003,6 +7338,11 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func refreshRemoteDisplayState() {
+        guard !isRemoteControlProxy else { return }
+        #if !SCOREBOARD_TESTING
+        ScoreboardNearbyMatchService.shared.update(owner: self)
+        #endif
+        ScoreboardCloudClient.shared.authorityDidChange(cloudMatchContext, isAuthority: isSessionAuthority)
         guard isSessionAuthority else { return }
         remoteDisplayHostService.updateState(encodedRemoteDisplayStates())
         if isDelegatedSessionHost {
@@ -7231,13 +7571,48 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func restorePersistedStateData(_ data: Data) throws {
-        let persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
+        guard isApplyingSessionUpdate || (!isFollowingSessionHost && !isDelegatedSessionHost && !sessionTransferInProgress) else {
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey: "Finish or recover the live session before restoring a backup."])
+        }
+        var persistedState = try JSONDecoder().decode(PersistedState.self, from: data)
+        if !isApplyingSessionUpdate, let owner = persistedState.matchOwnerDeviceID, owner != localSessionDeviceID {
+            persistedState.matchID = UUID(); persistedState.matchOwnerDeviceID = localSessionDeviceID
+        }
         clearPrimaryTimerPersistence()
         applyPersistedState(persistedState.excludingRemoteDisplayPairingState)
         persistState()
+        if !isApplyingSessionUpdate { ScoreboardCloudClient.shared.activateMatch(cloudMatchContext) }
+    }
+
+    /// Explicit kiosk factory reset. Never changes the remote host's file or service data.
+    func resetKioskToFactoryDefaults() throws {
+        guard ScoreboardDeviceMode.current == .kiosk else {
+            throw NSError(domain: "ScoreboardMode", code: 403, userInfo: [NSLocalizedDescriptionKey: "Use App Settings to reset an App Mode device."])
+        }
+        guard !hasHostedMatchToDiscard else {
+            throw NSError(domain: "ScoreboardMode", code: 409, userInfo: [NSLocalizedDescriptionKey: "Return or explicitly discard the previous hosted match before resetting this device."])
+        }
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        receiver.disconnectFromOperator()
+        leaveJoinedMatch()
+        receiver.forgetTrustedHosts()
+        receiver.discardReceivedScoreboard()
+        let folder = try ScoreboardFileStorage.storedGamesDirectory(create: false)
+        if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+        try logManager.replaceSessions(with: [])
+        let hostedFolder = ScoreboardSessionRecovery.url.deletingLastPathComponent().appendingPathComponent("Hosted", isDirectory: true)
+        if FileManager.default.fileExists(atPath: hostedFolder.path) { try FileManager.default.removeItem(at: hostedFolder) }
+        resetToFactoryDefaults()
+        for key in ["scoreboard.matchIndex.v1", "scoreboard.workingGameFilename", "scoreboard.remotePairingPage",
+                    "smartScoreboard.remoteDisplayReceiverNetworkMode", ScoreboardDeviceMode.preferenceKey] {
+            ScoreboardPreferences.current.removeObject(forKey: key)
+        }
+        isShowingFileHome = true
+        try matchLibrary.reconcileAfterRestore()
     }
 
     func resetToFactoryDefaults() {
+        ScoreboardCloudClient.shared.resetServiceSettings()
         sessionDescriptor = nil
         sessionRecoveryRole = nil
         sessionAuthorityFenced = false
@@ -7298,6 +7673,8 @@ final class ScoreboardStore: ObservableObject {
 
     private func applyPersistedState(_ persistedState: PersistedState) {
         performWithoutAuditLogging {
+            currentMatchID = persistedState.matchID ?? UUID()
+            matchOwnerDeviceID = persistedState.matchOwnerDeviceID ?? localSessionDeviceID
             pauseClock()
             pauseShotClock()
             stopTestSound()
@@ -7676,7 +8053,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func currentPersistedState() -> PersistedState {
-        PersistedState(
+        var result = PersistedState(
             selectedSport: selectedSport,
             customSportConfig: customSportConfig,
             homeTeamName: homeTeamName,
@@ -7785,13 +8162,16 @@ final class ScoreboardStore: ObservableObject {
             webAPIBroadcastDisplayModesByID: webAPIBroadcastDisplayModesByID,
             customDisplayModeTitlesByMode: customDisplayModeTitlesByMode,
             isRemoteDisplayHostEnabled: isRemoteDisplayHostEnabled,
-            isRemoteDisplayViewerModeEnabled: isRemoteDisplayViewerModeEnabled,
+            isRemoteDisplayViewerModeEnabled: (isJoinedMatchActive || isPreparingMatchJoin) ? false : isRemoteDisplayViewerModeEnabled,
             isRemoteDisplayIndividualControlEnabled: isRemoteDisplayIndividualControlEnabled,
             remoteDisplayNetworkMode: remoteDisplayNetworkMode,
             pauseDurationSeconds: pauseDurationSeconds,
             pauseTimer: pauseTimer,
             isTeamPauseIndefinite: isTeamPauseIndefinite
         )
+        result.matchID = currentMatchID
+        result.matchOwnerDeviceID = matchOwnerDeviceID
+        return result
     }
 
     private func normalizedSoundAssignmentsBySport(_ assignmentsBySport: [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]]) -> [SportType: [ScoreboardSoundEvent: ScoreboardSoundEffect]] {
@@ -7975,6 +8355,8 @@ private struct PrimaryTimerPersistenceSnapshot: Codable {
 }
 
 private struct PersistedState: Codable {
+    var matchID: UUID? = nil
+    var matchOwnerDeviceID: String? = nil
     var selectedSport: SportType
     var customSportConfig: CustomSportConfig
     var homeTeamName: String
@@ -8091,6 +8473,7 @@ private struct PersistedState: Codable {
     var isTeamPauseIndefinite: Bool?
 
     private enum CodingKeys: String, CodingKey {
+        case matchID, matchOwnerDeviceID
         case homeTeamName
         case selectedSport
         case customSportConfig
@@ -8445,6 +8828,8 @@ private struct PersistedState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        matchID = try container.decodeIfPresent(UUID.self, forKey: .matchID)
+        matchOwnerDeviceID = try container.decodeIfPresent(String.self, forKey: .matchOwnerDeviceID)
         selectedSport = try container.decodeIfPresent(SportType.self, forKey: .selectedSport) ?? .basketball
         customSportConfig = try container.decodeIfPresent(CustomSportConfig.self, forKey: .customSportConfig) ?? .default
         homeTeamName = try container.decode(String.self, forKey: .homeTeamName)
@@ -8613,6 +8998,8 @@ private struct PersistedState: Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(matchID, forKey: .matchID)
+        try container.encodeIfPresent(matchOwnerDeviceID, forKey: .matchOwnerDeviceID)
         try container.encode(selectedSport, forKey: .selectedSport)
         try container.encode(customSportConfig, forKey: .customSportConfig)
         try container.encode(homeTeamName, forKey: .homeTeamName)
@@ -8906,6 +9293,9 @@ extension ScoreboardStore {
         }
         remoteDisplayHostService.maintenanceHandler = { [weak self] in self?.maintainSession() }
         receiver.sessionMessageHandler = { [weak self] data in
+            if let host = receiver.authenticatedSessionOwnerHostID,
+               let secret = receiver.trustedHosts.first(where: { $0.id == host })?.pairingSecret,
+               ScoreboardCloudClient.shared.acceptEncryptedEnrollment(data, pairingSecret: secret, authenticatedHostID: host, localDeviceID: receiver.displayID) { return }
             self?.receiveSessionMessage(data, senderID: nil, fromHost: true)
         }
         receiver.commandSessionProvider = { [weak receiver] in
@@ -9023,13 +9413,13 @@ extension ScoreboardStore {
 
     private func ensureOwnedSessionDescriptor() {
         guard sessionDescriptor == nil, isSessionAuthority, !isRemoteControlProxy else { return }
-        let descriptor = ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 0,
+        let descriptor = ScoreboardSessionDescriptor(sessionID: currentRuntimeID, epoch: currentAuthorityEpoch,
             ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,
             ownerName: remoteDisplayHostName, hostDeviceID: localSessionDeviceID,
             hostName: remoteDisplayHostName,
             hostAddresses: ScoreboardWebAPIService.localIPv4Addresses(),
             hostWebAPIStatus: webAPIStatus.healthValue, hostCompanionEnabled: isCompanionEnabled,
-            logSessionID: logManager.currentSessionSnapshot()?.sessionID)
+            logSessionID: logManager.currentSessionSnapshot()?.sessionID, matchID: currentMatchID)
         sessionDescriptor = descriptor
         sessionRecoveryRole = .host
         do {
@@ -9181,13 +9571,43 @@ extension ScoreboardStore {
         sessionStatusMessage = "Hosting on this device. Other devices disconnected."
     }
 
-    func assignSessionHost(displayID: String) {
+    func assignSessionHost(displayID: String, cloudPrepared: Bool = false) {
         guard !isAnyTimerRunning else {
             sessionStatusMessage = "Stop all timers before moving the session host."
             return
         }
         guard canChangeSessionHost else {
             recordSessionFailure("Connect to the current host before moving the session.")
+            return
+        }
+        let cloud = ScoreboardCloudClient.shared
+        if !cloudPrepared, cloud.cloudEnabled, cloud.isConnected, cloud.canManageMatch {
+            guard !preparingCloudHost else { return }
+            let connection = remoteDisplayConnectedDisplays.first { $0.id == displayID }
+            let reported = remoteSessionDevices?.first { $0.id == displayID }
+            let publicKey = displayID == localSessionDeviceID ? ScoreboardDeviceIdentity.publicKey : (connection?.devicePublicKey ?? reported?.devicePublicKey)
+            let encryptionKey = displayID == localSessionDeviceID ? ScoreboardCloudEnrollmentCrypto.publicKey : (connection?.cloudPairingPublicKey ?? reported?.cloudPairingPublicKey)
+            guard let publicKey, let encryptionKey, let descriptor = sessionDescriptor,
+                  descriptor.epoch < UInt64.max,
+                  let pairingSecret = displayID == localSessionDeviceID ? sessionOwnerPairingSecret : (remoteDisplayTrustedDisplays.first(where: { $0.id == displayID })?.pairingSecret ?? sessionTransferCheckpoint?.pairings.peers.first(where: { $0.id == displayID })?.pairingSecret) else {
+                sessionStatusMessage = "Reconnect the target device with the current app before delegating cloud publishing."; return
+            }
+            preparingCloudHost = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }; defer { preparingCloudHost = false }
+                do {
+                    let grant = try await cloud.preparePublisher(deviceID: displayID, name: connection?.name ?? reported?.name ?? remoteDisplayHostName,
+                        publicKey: publicKey, ownerHostID: descriptor.ownerHostID, epoch: descriptor.epoch + 1)
+                    let data = try JSONEncoder().encode(grant)
+                    if displayID == localSessionDeviceID { _ = cloud.acceptPublisherGrant(data, authenticatedHostID: grant.hostLocalID, localDeviceID: localSessionDeviceID) }
+                    else {
+                        let sealed = try ScoreboardCloudEnrollmentCrypto.seal(data, recipient: encryptionKey, pairingSecret: pairingSecret, hostID: descriptor.ownerHostID, deviceID: displayID)
+                        if isFollowingSessionHost { sendSessionAdministration(.init(action: "cloudPublisherGrant", payload: sealed, displayID: displayID)) }
+                        else if !remoteDisplayHostService.sendSessionMessage(sealed, toDisplayID: displayID) { throw URLError(.cannotConnectToHost) }
+                    }
+                    assignSessionHost(displayID: displayID, cloudPrepared: true)
+                } catch { sessionStatusMessage = "Cloud host authorization failed: \(error.localizedDescription)" }
+            }
             return
         }
         if isFollowingSessionHost {
@@ -9219,6 +9639,7 @@ extension ScoreboardStore {
             rejectHostTransferForRunningTimers()
             return
         }
+        guard ScoreboardDeviceMode.current.canHost else { return }
         guard targetID != localSessionDeviceID,
               let target = remoteDisplayConnectedDisplays.first(where: { $0.id == targetID && $0.supportsSessionHosting }) else {
             recordSessionFailure("The selected device must be connected and support session hosting.")
@@ -9290,7 +9711,7 @@ extension ScoreboardStore {
         case .prepare:
             guard fromHost, message.targetID == localSessionDeviceID else { return }
             Self.sessionLogger.notice("Received host preparation")
-            guard let checkpoint = message.checkpoint,
+            guard ScoreboardDeviceMode.current.canHost, let checkpoint = message.checkpoint,
                   checkpoint.descriptor == message.descriptor,
                   message.descriptor.epoch > 0,
                   canAcceptIncomingSession(message.descriptor) else {
@@ -9491,7 +9912,11 @@ extension ScoreboardStore {
                         lastHandshakeAgeSeconds: peer.lastHandshakeAgeSeconds, appVersion: peer.appVersion,
                         deviceType: peer.deviceType,
                         isMuted: remoteDisplayMutedDisplayIDs.contains(peer.id),
-                        supportsSessionHosting: peer.supportsHosting)
+                        supportsSessionHosting: peer.supportsHosting,
+                        realtimeTransport: peer.realtimeTransport ?? "WebSocket",
+                        cloudPairingPublicKey: peer.cloudPairingPublicKey,
+                        connectionInfo: peer.connectionStatus?.active,
+                        clientConnectionStatus: peer.connectionStatus, devicePublicKey: peer.devicePublicKey)
                 }
             }
             if let allowed = message.allowedControllers {
@@ -9812,20 +10237,7 @@ extension ScoreboardStore {
             if lastSessionPeerReportAt.map({ Date().timeIntervalSince($0) > 1 }) ?? true {
                 lastSessionPeerReportAt = Date()
                 let peers = remoteDisplayHostService.exportSessionPairings()
-                let connected = Set(remoteDisplayConnectedDisplays.map(\.id))
-                let rows = peers.peers.map { peer in
-                    let connection = remoteDisplayConnectedDisplays.first { $0.id == peer.id }
-                    return ScoreboardSessionPeer(id: peer.id, name: peer.name,
-                        deviceType: peer.deviceType ?? .unknown,
-                        connected: connected.contains(peer.id) || peer.id == localSessionDeviceID,
-                        supportsHosting: peer.id == localSessionDeviceID ||
-                            connection?.supportsSessionHosting == true,
-                        latencyMilliseconds: connection?.latencyMilliseconds,
-                        lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
-                        appVersion: connection?.appVersion ?? (peer.id == localSessionDeviceID ? .current : nil),
-                        quality: connection?.quality,
-                        realtimeTransport: connection?.realtimeTransport)
-                }
+                let rows = remoteSessionDevices ?? []
                 let report = ScoreboardSessionMessage(kind: .peers, descriptor: descriptor,
                     peers: rows, pairingConfiguration: peers,
                     allowedControllers: remoteControlAllowedDisplayIDs)
@@ -10054,6 +10466,8 @@ extension ScoreboardStore {
 
     private func applySessionAdministration(_ admin: ScoreboardSessionAdministration) {
         switch admin.action {
+        case "cloudPublisherGrant":
+            if let payload = admin.payload { _ = remoteDisplayHostService.sendSessionMessage(payload, toDisplayID: admin.displayID) }
         case "controlPermission": setRemoteControlAllowed(displayID: admin.displayID, isAllowed: admin.enabled == true)
         case "pair":
             if let source = remoteDisplaySources.first(where: { $0.id == admin.displayID }), let code = admin.text {
@@ -10396,6 +10810,13 @@ extension ScoreboardStore {
 
 @MainActor
 extension ScoreboardStore {
+    func withControlTestTrustedSessionUpdate(_ action: () throws -> Void) rethrows {
+        let previous = isApplyingSessionUpdate
+        isApplyingSessionUpdate = true
+        defer { isApplyingSessionUpdate = previous }
+        try action()
+    }
+
     func withControlTestFollowingSessionHost(_ action: () -> Void) {
         let previousDescriptor = sessionDescriptor
         let previousRole = sessionRecoveryRole

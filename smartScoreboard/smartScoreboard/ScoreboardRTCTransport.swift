@@ -35,6 +35,8 @@ nonisolated final class ScoreboardRTCPeer: NSObject, @unchecked Sendable {
     private var ready = false
     private var closed = false
     private var reservedBytes = 0
+    private var observedConnection = ScoreboardConnectionInfo(route: .direct, method: .webRTC)
+    private var lastStatsUptime: TimeInterval = 0
     private var peer: LKRTCPeerConnection?
     private var channel: LKRTCDataChannel?
     private var pendingCandidates: [ScoreboardRTCSignal] = []
@@ -80,6 +82,34 @@ nonisolated final class ScoreboardRTCPeer: NSObject, @unchecked Sendable {
     }
 
     var isReady: Bool { lock.withLock { ready && !closed } }
+    var connectionInfo: ScoreboardConnectionInfo {
+        let refresh = lock.withLock {
+            let now = ProcessInfo.processInfo.systemUptime
+            guard ready, !closed, now - lastStatsUptime >= 2 else { return false }
+            lastStatsUptime = now
+            return true
+        }
+        if refresh {
+            Self.rtcQueue.async { [weak self] in
+                guard let self, !self.isClosed, let peer = self.peer else { return }
+                peer.statistics { [weak self] report in
+                    guard let self, self.isReady else { return }
+                    let statistics = report.statistics
+                    let selectedID = statistics.values.first { $0.type == "transport" }?.values["selectedCandidatePairId"] as? String
+                    let nominated = statistics.values.filter { $0.type == "candidate-pair" &&
+                        ($0.values["state"] as? String) == "succeeded" && ($0.values["nominated"] as? NSNumber)?.boolValue == true }
+                    let pair = selectedID.flatMap { statistics[$0] } ?? (nominated.count == 1 ? nominated.first : nil)
+                    let candidateID = pair?.values["localCandidateId"] as? String
+                    let candidate = candidateID.flatMap { statistics[$0] }
+                    let address = (candidate?.values["address"] as? String) ?? (candidate?.values["ip"] as? String)
+                    let info = address.flatMap { ScoreboardConnectionPath.describe(address: $0, method: .webRTC) }
+                        ?? ScoreboardConnectionInfo(route: .direct, method: .webRTC)
+                    self.lock.withLock { self.observedConnection = info }
+                }
+            }
+        }
+        return lock.withLock { observedConnection }
+    }
     private var isClosed: Bool { lock.withLock { closed } }
 
     /// False means use the existing transport immediately. Never block the UI

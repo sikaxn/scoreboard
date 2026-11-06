@@ -133,7 +133,7 @@ extension ScoreboardTests {
         }
         store.setRemoteControlAllowed(displayID: "test-ipad", isAllowed: false)
         store.setRemoteControlAllowed(displayID: "test-tv", isAllowed: true)
-        #expect(!store.isRemoteControlAllowed(displayID: "test-tv"), "Apple TV cannot receive control permission")
+        #expect(store.isRemoteControlAllowed(displayID: "test-tv"), "Apple TV kiosks may control with explicit owner approval")
         store.setRemoteControlAllowed(displayID: "unpaired", isAllowed: true)
         #expect(!store.isRemoteControlAllowed(displayID: "unpaired"), "unpaired device cannot receive control permission")
         store.setPlayerTrackingEnabled(true)

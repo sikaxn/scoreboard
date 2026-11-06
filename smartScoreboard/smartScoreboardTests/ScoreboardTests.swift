@@ -30,6 +30,7 @@ struct ScoreboardTests {
     init() {
         _ = ScoreboardTestEnvironment.root
         store.resetToFactoryDefaults()
+        store.didCompleteSetup = true
         store.setSelectedSport(.basketball)
         store.newGame()
         store.isSoundEnabled = false

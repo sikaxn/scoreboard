@@ -14,6 +14,12 @@ struct ExternalScoreboardView: View {
     }
 
     var body: some View {
+        if store.isShowingFileHome {
+            ScoreboardWaitingDisplayView()
+        } else { liveBoard }
+    }
+
+    private var liveBoard: some View {
         PublicScoreboardDisplayView(
             viewMode: store.publicDisplayViewMode,
             playerViewRosterScope: .fullRoster,

@@ -29,6 +29,7 @@ nonisolated struct ScoreboardControlCommand: Codable, Sendable {
     var timerID: UUID?
     var sentAt: TimeInterval?
     var expectedRunning: Bool?
+    var matchID: UUID? = nil
 }
 
 nonisolated struct ScoreboardControlResult: Codable, Sendable {
@@ -276,6 +277,10 @@ extension ScoreboardStore {
                 running = debateActiveTimer == target && isDebatePrepClockRunning
             } else { running = isClockRunning }
             guard running == expected else { return fail("conflict", "Timer state changed. Refresh before trying again.") }
+        }
+        if command.action == "game.new" {
+            do { try requireNewLocalMatchAllowed(); try matchLibrary.save() }
+            catch { return fail("conflict", error.localizedDescription) }
         }
         var timing = beginRemoteTimerOperation(command, delay: age)
         let previousPenaltyIDs = Set((homePenaltyTimers + guestPenaltyTimers).map(\.id))

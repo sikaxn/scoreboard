@@ -59,14 +59,27 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     init(remoteControlBoard: Bool = false,
          remoteReceiver: ScoreboardRemoteDisplayReceiver? = nil,
-         returnToRemoteControl: (() -> Void)? = nil) {
-        _showsSetup = State(initialValue: remoteControlBoard ? false : !ScoreboardStore.shared.didCompleteSetup)
+         returnToRemoteControl: (() -> Void)? = nil,
+         startsInSettings: Bool = false, initialSettingsSection: String = "game", softwareSettings: Bool = false,
+         returnHome: (() -> Void)? = nil) {
+        _showsSetup = State(initialValue: !remoteControlBoard && startsInSettings)
+        _selectedSettingsPane = State(initialValue: SettingsPane(rawValue: initialSettingsSection) ?? .game)
+        self.returnHome = returnHome
+        self.softwareSettings = softwareSettings
         _remoteControlReceiver = ObservedObject(wrappedValue: remoteReceiver ?? .shared)
         self.returnToRemoteControl = returnToRemoteControl
     }
 
     @ObservedObject private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver
+    private let softwareSettings: Bool
+    private var visibleSettingsPanes: [SettingsPane] {
+        softwareSettings ? [.general, .cloud, .remoteDisplay, .sound, .theme, .keyboardShortcuts, .integration, .files, .logs, .about]
+            : [.game, .players, .display]
+    }
+    private var returnHome: (() -> Void)?
     private var returnToRemoteControl: (() -> Void)?
+    @State private var showsSettingsActions = false
+    @State private var showsSettingsSectionPicker = false
     @State private var showsRemoteConnectionDetails = false
     @State private var showsControlBoardModePicker = false
     @AppStorage(ScoreboardControlBoardPreferences.storageKey, store: ScoreboardPreferences.current)
@@ -951,7 +964,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Settings")
+                        Text(softwareSettings ? "App Settings" : "Game Settings")
                             .font(.system(size: layout.heroTitleSize - 4, weight: .black, design: .rounded))
                             .foregroundStyle(settingsPalette.primaryText)
 
@@ -961,7 +974,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     }
 
                     VStack(spacing: 8) {
-                        ForEach(SettingsPane.allCases) { pane in
+                        ForEach(visibleSettingsPanes) { pane in
                             settingsSidebarButton(pane)
                         }
                     }
@@ -976,9 +989,9 @@ struct ContentView: View, ScoreboardSetupEditing {
             VStack(spacing: 10) {
                 if !layout.usesVerticalToolbar {
                     Button {
-                        openSetupGame()
+                        returnFromSettings()
                     } label: {
-                        localizedAppText(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
+                        localizedAppText(softwareSettings ? "Done" : store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board")
                             .font(.headline.weight(.bold))
                             .foregroundStyle(settingsPalette.secondaryButtonText)
                             .frame(maxWidth: .infinity)
@@ -1018,17 +1031,7 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func settingsCompactNavigationBar(layout: InterfaceLayout, showsSidebarToggle: Bool) -> some View {
         HStack(spacing: 10) {
-            Menu {
-                ForEach(SettingsPane.allCases) { pane in
-                    Button {
-                        selectSettingsPane(pane)
-                    } label: {
-                        Label(localizedAppString(pane.title), systemImage: pane.systemImage)
-                    }
-                    .disabled(!isSettingsPaneEnabled(pane))
-                    .accessibilityIdentifier("settings.pane.\(pane.rawValue)")
-                }
-            } label: {
+            Button { showsSettingsSectionPicker = true } label: {
                 HStack(spacing: 10) {
                     Image(systemName: selectedSettingsPane.systemImage)
                         .font(.headline.weight(.semibold))
@@ -1052,6 +1055,26 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(localizedAppString("Settings Section"))
+            .popover(isPresented: $showsSettingsSectionPicker, arrowEdge: .top) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(visibleSettingsPanes) { pane in
+                            Button {
+                                showsSettingsSectionPicker = false
+                                selectSettingsPane(pane)
+                            } label: {
+                                Label(localizedAppString(pane.title), systemImage: pane.systemImage)
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(!isSettingsPaneEnabled(pane))
+                                .accessibilityIdentifier("settings.pane.\(pane.rawValue)")
+                        }
+                    }.padding(16)
+                }.frame(width: 280).frame(maxHeight: 480)
+                    #if os(iOS)
+                    .presentationCompactAdaptation(.popover)
+                    #endif
+            }
 
             if showsSidebarToggle {
                 settingsCompactNavigationIconButton("Show Sidebar", systemImage: "sidebar.leading") {
@@ -1062,10 +1085,10 @@ struct ContentView: View, ScoreboardSetupEditing {
             }
 
             settingsCompactNavigationIconButton(
-                store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board",
-                systemImage: store.didCompleteSetup ? "play.rectangle.fill" : "play.fill"
+                softwareSettings ? "Done" : store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board",
+                systemImage: softwareSettings ? "xmark" : store.didCompleteSetup ? "play.rectangle.fill" : "play.fill"
             ) {
-                openSetupGame()
+                returnFromSettings()
             }
         }
         .padding(.horizontal, layout.settingsCompactNavigationHorizontalPadding)
@@ -1076,6 +1099,11 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .fill(settingsPalette.divider)
                 .frame(height: 1)
         }
+    }
+
+    private func returnFromSettings() {
+        if softwareSettings { ScoreboardAppNavigation.shared.destination = nil }
+        else { openSetupGame() }
     }
 
     private func settingsCompactNavigationIconButton(
@@ -1138,9 +1166,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     private func settingsDetailPane(layout: InterfaceLayout) -> some View {
         GeometryReader { proxy in
             Group {
-                if selectedSettingsPane == .files {
-                    settingsLibraryDetailPane(layout: layout)
-                } else if selectedSettingsPane == .logs, !layout.settingsUsesCompactNavigation {
+                if selectedSettingsPane == .logs, !layout.settingsUsesCompactNavigation {
                     settingsFixedManagerDetailPane(layout: layout)
                 } else {
                     settingsScrollableDetailPane(layout: layout)
@@ -1254,13 +1280,9 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .sound:
             return "Use Sound to decide whether the app can play audio and which tones fire for each sport event. Sound settings are global to the app, while sport event assignments let different game types use different start, stop, warning, and expiration cues."
         case .theme:
-            return "Use Theme to set the visual style shared by setup, live controls, previews, and public scoreboard outputs. This page also controls display direction, public-display background treatment, and optional date or time overlays."
+            return "Theme, Live Activity, and physical display directions are preferences for this app. Backgrounds, logos, and date/time overlays are saved with the scoreboard in Game Settings."
         case .files:
-            #if os(iOS)
-            return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files also appear in the Files app under Scoreboard > Library."
-            #else
-            return "Use Library to preserve reusable game setups, recover live state, and move data between devices. Game files keep operator-facing setup and scoreboard state, while full backups can include settings, game files, current game state, and logs."
-            #endif
+            return "Back up or restore this device’s app preferences, local scoreboard files, and logs. Create and open individual scoreboards from Home."
         case .logs:
             #if os(iOS)
             return "Use Logs to review the sequence of actions captured during a scoreboard run. Log sessions also appear in the Files app under Scoreboard > Logs."
@@ -1272,8 +1294,8 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .integration:
             return "Use Integration to connect Web API and Bitfocus Companion with production tools on the local network. Pair displays and control boards on the Remote Display & Control page."
         case .remoteDisplay:
-            return "Use Remote Display & Control to pair nearby screens and control boards, manage device permissions, and choose the session host. Apple TV is display-only."
-        case .about:
+            return "Set how this device connects. Open Connect Devices on the control board to pair participants with the current scoreboard."
+        case .about, .general, .cloud:
             return nil
         }
     }
@@ -1462,6 +1484,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func isSettingsPaneEnabled(_ pane: SettingsPane) -> Bool {
+        guard visibleSettingsPanes.contains(pane) else { return false }
         switch pane {
         case .keyboardShortcuts:
             return !store.isRemoteDisplayViewerModeEnabled
@@ -1486,7 +1509,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .theme:
             ScoreboardViewBoundary { settingsThemePane() }
         case .files:
-            ScoreboardViewBoundary { settingsFilesPane(layout: layout) }
+            ScoreboardViewBoundary { settingsBackupSection(layout: layout) }
         case .logs:
             ScoreboardViewBoundary { settingsLogsPane(layout: layout) }
         case .keyboardShortcuts:
@@ -1497,9 +1520,13 @@ struct ContentView: View, ScoreboardSetupEditing {
             ScoreboardViewBoundary {
                 VStack(alignment: .leading, spacing: 22) {
                     settingsLocalNetworkPermissionSection()
-                    settingsRemoteDisplayPane(layout: layout)
+                    ScoreboardConnectionPreferencesView()
                 }
             }
+        case .general:
+            ScoreboardViewBoundary { ScoreboardSoftwareGeneralSettingsView() }
+        case .cloud:
+            ScoreboardViewBoundary { ScoreboardCloudSettingsView() }
         case .about:
             ScoreboardViewBoundary { settingsAboutPane() }
         }
@@ -2796,7 +2823,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     }
                 }
 
-                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. To change Remote Display direction, go to Settings > Remote Display & Control.") {
+                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. Each receiving device can choose its own display direction.") {
                     settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control.", systemImage: "arrow.left.and.right")
                     settingsDivider()
 
@@ -2825,49 +2852,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                     }
                 }
 
-                settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
-                    let backgroundModes = ExternalDisplayBackgroundMode.selectableThemeModes
-                    ForEach(Array(backgroundModes.enumerated()), id: \.element.id) { index, mode in
-                        externalBackgroundModeRow(mode)
-
-                        if index < backgroundModes.count - 1 {
-                            settingsDivider()
-                        }
-                    }
-                    settingsDivider()
-                    externalBackgroundImageControls()
-                    if store.externalDisplayBackgroundMode == .animatedLogo && ExternalDisplayBackgroundMode.isAnimatedLogoBackgroundEnabled {
-                        settingsDivider()
-                        animatedLogoBackgroundControls()
-                    }
-                }
-
-                settingsSection(title: "Display Date & Time", footer: "Shows the current device date/time on public and remote displays without resizing the scoreboard.") {
-                    settingsToggleRow(title: "Show Date/Time", isOn: Binding(
-                        get: { store.showsExternalDisplayDateTime },
-                        set: { store.showsExternalDisplayDateTime = $0 }
-                    ))
-                    settingsDivider()
-                    settingsPickerRow(
-                        title: "Time Format",
-                        selection: Binding(
-                            get: { store.externalDisplayDateTimeFormat },
-                            set: { store.externalDisplayDateTimeFormat = $0 }
-                        ),
-                        options: ExternalDisplayDateTimeFormat.allCases
-                    ) { option in
-                        option.title
-                    }
-                    .disabled(!store.showsExternalDisplayDateTime)
-                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
-                    settingsDivider()
-                    settingsToggleRow(title: "Show Seconds", isOn: Binding(
-                        get: { store.showsExternalDisplayDateTimeSeconds },
-                        set: { store.showsExternalDisplayDateTimeSeconds = $0 }
-                    ))
-                    .disabled(!store.showsExternalDisplayDateTime)
-                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
-                }
             }
         }
     }
@@ -2977,8 +2961,62 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
     }
 
-    private func settingsDisplayPane() -> some View {
+    private func settingsFilePresentation() -> some View {
         VStack(alignment: .leading, spacing: 22) {
+                settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
+                    let backgroundModes = ExternalDisplayBackgroundMode.selectableThemeModes
+                    ForEach(Array(backgroundModes.enumerated()), id: \.element.id) { index, mode in
+                        externalBackgroundModeRow(mode)
+
+                        if index < backgroundModes.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                    settingsDivider()
+                    externalBackgroundImageControls()
+                    if store.externalDisplayBackgroundMode == .animatedLogo && ExternalDisplayBackgroundMode.isAnimatedLogoBackgroundEnabled {
+                        settingsDivider()
+                        animatedLogoBackgroundControls()
+                    }
+                }
+
+                settingsSection(title: "Display Date & Time", footer: "Shows the current device date/time on public and remote displays without resizing the scoreboard.") {
+                    settingsToggleRow(title: "Show Date/Time", isOn: Binding(
+                        get: { store.showsExternalDisplayDateTime },
+                        set: { store.showsExternalDisplayDateTime = $0 }
+                    ))
+                    settingsDivider()
+                    settingsPickerRow(
+                        title: "Time Format",
+                        selection: Binding(
+                            get: { store.externalDisplayDateTimeFormat },
+                            set: { store.externalDisplayDateTimeFormat = $0 }
+                        ),
+                        options: ExternalDisplayDateTimeFormat.allCases
+                    ) { option in
+                        option.title
+                    }
+                    .disabled(!store.showsExternalDisplayDateTime)
+                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
+                    settingsDivider()
+                    settingsToggleRow(title: "Show Seconds", isOn: Binding(
+                        get: { store.showsExternalDisplayDateTimeSeconds },
+                        set: { store.showsExternalDisplayDateTimeSeconds = $0 }
+                    ))
+                    .disabled(!store.showsExternalDisplayDateTime)
+                    .opacity(store.showsExternalDisplayDateTime ? 1 : 0.42)
+                }
+        }
+    }
+
+    @ViewBuilder private func settingsDisplayPane() -> some View {
+        if isExternalBackgroundImageEditorVisible { externalBackgroundImageEditorPage() }
+        else { settingsDisplayContent() }
+    }
+
+    private func settingsDisplayContent() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            settingsFilePresentation()
             settingsSection(title: "Lineup") {
                 settingsStepperValueRow(
                     title: "Player Lineup Size",
@@ -8097,13 +8135,13 @@ struct ContentView: View, ScoreboardSetupEditing {
     @ViewBuilder
     private var settingsToolbarActions: some View {
         Button {
-            openSetupGame()
+            returnFromSettings()
         } label: {
             Label(localizedAppString(store.didCompleteSetup ? "Back to Live Board" : "Go to Control Board"),
                   systemImage: "chevron.backward")
         }
         Menu {
-            ForEach(SettingsPane.allCases) { pane in
+            ForEach(visibleSettingsPanes) { pane in
                 Button {
                     selectSettingsPane(pane)
                 } label: {
@@ -8320,7 +8358,7 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func headerTitleBlock(layout: InterfaceLayout) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text((store.isRemoteControlProxy ? store.currentGameDisplayName : selectedStoredGameFile?.displayName) ?? localizedAppString("New Game"))
+            Text(store.currentMatchTitle)
                 .font(.system(size: layout.headerTitleSize, weight: .black, design: .rounded))
                 .singleLineFitted(minScale: 0.6)
                 .foregroundStyle(themePalette.dashboardPrimaryText)
@@ -8971,31 +9009,38 @@ struct ContentView: View, ScoreboardSetupEditing {
         if store.isRemoteControlProxy {
             if let returnToRemoteControl {
                 Button(action: returnToRemoteControl) {
-                    headerIconButtonLabel(
-                        systemImage: "arrow.uturn.backward",
-                        tint: themePalette.dashboardNeutralButton,
-                        foreground: themePalette.dashboardNeutralButtonText,
-                        layout: layout
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(localizedAppString("Return to Remote Control"))
-                .help(localizedAppString("Return to Remote Control"))
+                    headerIconButtonLabel(systemImage: "arrow.uturn.backward", tint: themePalette.dashboardNeutralButton,
+                        foreground: themePalette.dashboardNeutralButtonText, layout: layout)
+                }.buttonStyle(.plain).accessibilityLabel("Return to Remote Control")
             }
-        } else { Button {
-            openSettingsFromLiveBoard()
+        } else {
+            Button { showsSettingsActions = true } label: {
+                headerIconButtonLabel(systemImage: "gearshape", tint: themePalette.dashboardNeutralButton,
+                    foreground: themePalette.dashboardNeutralButtonText, layout: layout)
+            }.buttonStyle(.plain).accessibilityLabel("Settings").help("Settings")
+                .popover(isPresented: $showsSettingsActions, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        settingsAction("Game Settings", symbol: "slider.horizontal.3") { openSettingsFromLiveBoard() }
+                        settingsAction("App Settings", symbol: "gearshape") { ScoreboardAppNavigation.shared.openSettings("general") }
+                        Divider().padding(.vertical, 6)
+                        settingsAction("Connect Devices", symbol: "person.2") { ScoreboardAppNavigation.shared.open(.sharing) }
+                        if let returnHome { settingsAction("Home", symbol: "house", action: returnHome) }
+                    }.padding(16).frame(width: 280)
+                        #if os(iOS)
+                        .presentationCompactAdaptation(.popover)
+                        #endif
+                }
+        }
+    }
+
+    private func settingsAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button {
+            showsSettingsActions = false
+            DispatchQueue.main.async(execute: action)
         } label: {
-            headerIconButtonLabel(
-                systemImage: "gearshape",
-                tint: themePalette.dashboardNeutralButton,
-                foreground: themePalette.dashboardNeutralButtonText,
-                layout: layout
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(localizedAppString("Settings"))
-        .help(localizedAppString("Settings"))
-        }
+            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12).contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     private func headerIconButtonLabel(systemImage: String, tint: Color, foreground: Color, layout: InterfaceLayout) -> some View {
@@ -12211,7 +12256,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         store.syncLiveActivityForCurrentState()
         #endif
         updateIdleTimer(for: scenePhase)
-        presentGettingStartedIfNeeded()
+        // Home is the startup workflow.
     }
 
     @MainActor
@@ -13111,6 +13156,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             try replaceStoredGameFiles(with: backup.storedGameFiles)
             try logManager.replaceSessions(with: backup.logSessions)
             try store.restorePersistedStateData(backup.persistedStateData)
+            try store.matchLibrary.reconcileAfterRestore()
 
             selectedGameFileIDs.removeAll()
             selectedLogSessionIDs.removeAll()
@@ -13658,7 +13704,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             } else if let savedFile = storedGameFiles.first(where: { $0.url.lastPathComponent == workingGameFilename }) {
                 selectedStoredGameFileID = savedFile.id
             } else {
-                selectedStoredGameFileID = storedGameFiles.first?.id
+                selectedStoredGameFileID = nil
             }
 
             renameGameFileNameDraft = selectedStoredGameFile?.displayName ?? ""
@@ -14234,105 +14280,28 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func initializeWorkingGameFile() {
-        /* APP_STORE_PREVIEW_CAPTURE_BEGIN
-        #if DEBUG && targetEnvironment(simulator)
-        if ProcessInfo.processInfo.environment["SCOREBOARD_PREVIEW_SCREEN"] != nil {
-            // A previously opened game must not overwrite the capture fixture.
-            loadSetupDraftsFromStore()
-            gameFileNameDraft = "DEMO"
-            return
-        }
-        #endif
-        APP_STORE_PREVIEW_CAPTURE_END */
         migrateLegacyPresetsToStoredGameFilesIfNeeded()
-        refreshStoredGameFiles()
-
-        if store.sessionDescriptor != nil {
-            // Keep the live host authoritative when the owner's view is recreated.
-            // The selected local file remains the destination for normal autosave.
-            ensureWorkingGameFileExists()
-            loadSetupDraftsFromStore()
-            gameFileNameDraft = selectedStoredGameFile?.displayName ?? store.currentGameDisplayName ?? ""
-            return
-        }
-
-        if let selectedStoredGameFile {
-            loadStoredGameFile(selectedStoredGameFile)
-            return
-        }
-
-        if let firstStoredGameFile = storedGameFiles.first {
-            loadStoredGameFile(firstStoredGameFile)
-            return
-        }
-
         do {
-            let snapshot = store.currentGameSnapshot()
-            let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(snapshot.homeTeamName, snapshot.guestTeamName))
-            try writeGameSnapshot(snapshot, to: url)
-            refreshStoredGameFiles(selectedURL: url)
-            selectedStoredGameFileID = url.path
+            try store.matchLibrary.start()
+            refreshStoredGameFiles(selectedURL: store.currentMatchRecord.filePath.map { URL(fileURLWithPath: $0) })
             loadSetupDraftsFromStore()
-            gameFileNameDraft = url.deletingPathExtension().lastPathComponent
-        } catch {
-            presentFileOperationError(error)
-        }
+            gameFileNameDraft = store.currentMatchTitle
+        } catch { presentFileOperationError(error) }
     }
 
-    func ensureWorkingGameFileExists() {
-        if selectedStoredGameFile != nil {
-            return
-        }
-
-        if storedGameFiles.isEmpty {
-            do {
-                let snapshot = showsSetup ? currentSetupWorkingSnapshot() : store.currentGameSnapshot()
-                let url = try uniqueStoredGameFileURL(preferredFilename: suggestedGameFilename(snapshot.homeTeamName, snapshot.guestTeamName))
-                try writeGameSnapshot(snapshot, to: url)
-                refreshStoredGameFiles(selectedURL: url)
-                gameFileNameDraft = url.deletingPathExtension().lastPathComponent
-            } catch {
-                presentFileOperationError(error)
-            }
-            return
-        }
-
-        if let firstStoredGameFile = storedGameFiles.first {
-            selectedStoredGameFileID = firstStoredGameFile.id
-        }
-    }
+    func ensureWorkingGameFileExists() { store.matchLibrary.saveAfterChange() }
 
     func autosaveSelectedGameFile(refreshSelection: Bool = false) {
-        guard !store.isRemoteControlProxy else { return }
-        guard let selectedURL = selectedStoredGameFile?.url else {
-            return
+        // Persistence is owned by the repository, independently of this view.
+        if refreshSelection {
+            store.matchLibrary.saveAfterChange()
+            refreshStoredGameFiles(selectedURL: store.currentMatchRecord.filePath.map { URL(fileURLWithPath: $0) })
         }
-
-        let autosave = PendingGameFileAutosave(
-            url: selectedURL,
-            refreshSelection: refreshSelection
-        )
-        requestGameFileAutosave(autosave)
     }
 
     private func autosaveSelectedGameFileImmediately(refreshSelection: Bool = false) {
-        guard !store.isRemoteControlProxy else { return }
-        guard let selectedURL = selectedStoredGameFile?.url else {
-            return
-        }
-
-        discardPendingGameFileAutosave(for: selectedURL)
-
-        do {
-            let snapshot = store.currentGameSnapshot()
-            try writeGameSnapshot(snapshot, to: selectedURL)
-
-            if refreshSelection {
-                refreshStoredGameFiles(selectedURL: selectedURL)
-            }
-        } catch {
-            presentFileOperationError(error)
-        }
+        store.matchLibrary.saveAfterChange()
+        if refreshSelection { refreshStoredGameFiles(selectedURL: store.currentMatchRecord.filePath.map { URL(fileURLWithPath: $0) }) }
     }
 
     private func requestGameFileAutosave(_ autosave: PendingGameFileAutosave) {
@@ -14418,9 +14387,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         return store.currentGameSnapshot()
     }
 
-    private func flushPendingGameFileAutosaves() {
-        performPendingGameFileAutosaves()
-    }
+    private func flushPendingGameFileAutosaves() { store.matchLibrary.saveAfterChange() }
 
     private func flushPendingGameFileAutosave(for url: URL) {
         let key = url.standardizedFileURL.path
@@ -14727,11 +14694,8 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private var setupDescription: String {
-        #if os(macOS)
-        "Set the teams and opening game state, then move into the control board. The public scoreboard opens as a separate SwiftUI window for presentation."
-        #else
-        "Set the teams and opening game state, then move into the control board. Connect an external display to show the full-screen public scoreboard."
-        #endif
+        softwareSettings ? "Preferences for this device. These settings do not travel with scoreboard files."
+            : "Teams, rules, and presentation saved in this scoreboard file."
     }
 
     private var displayStatusTitle: String {
@@ -15510,10 +15474,12 @@ private enum ActiveAlert: Identifiable {
 }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
+    case general
     case game
     case players
     case display
     case remoteDisplay
+    case cloud
     case sound
     case theme
     case files
@@ -15526,6 +15492,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .general:
+            return "General"
         case .game:
             return "Game Setup"
         case .players:
@@ -15533,13 +15501,15 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .display:
             return "Display"
         case .remoteDisplay:
-            return "Remote Display & Control"
+            return "Connection Preferences"
+        case .cloud:
+            return "Cloud Service"
         case .sound:
             return "Sound"
         case .theme:
             return "Theme"
         case .files:
-            return "Library"
+            return "Backup & Restore"
         case .logs:
             return "Logs"
         case .keyboardShortcuts:
@@ -15553,6 +15523,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .general:
+            return "Choose how this device runs Smart Scoreboard."
         case .game:
             return "Edit teams, period, and clock defaults before opening the live control board."
         case .players:
@@ -15560,13 +15532,15 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .display:
             return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
         case .remoteDisplay:
-            return "Pair nearby displays and control boards, manage permissions, and choose the session host."
+            return "Choose the preferred route for connections on this device."
+        case .cloud:
+            return "Choose a cloud service and sign in to share your scoreboards online."
         case .sound:
             return "Control global audio and preview sport-specific timer sounds."
         case .theme:
             return "Choose the look for both the operator controls and public scoreboard."
         case .files:
-            return "Manage local game files for both reusable setups and live games."
+            return "Back up or restore this device. Open scoreboards from Home."
         case .logs:
             return "Review per-run audit sessions with export and delete tools."
         case .keyboardShortcuts:
@@ -15580,6 +15554,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .general:
+            return "app"
         case .game:
             return "slider.horizontal.3"
         case .players:
@@ -15588,6 +15564,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             return "tv"
         case .remoteDisplay:
             return "tv.and.mediabox"
+        case .cloud:
+            return "cloud"
         case .sound:
             return "speaker.wave.2"
         case .theme:
@@ -15606,7 +15584,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     }
 
     var usesFileManagerLayout: Bool {
-        self == .files || self == .logs
+        self == .logs
     }
 }
 

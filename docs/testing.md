@@ -41,7 +41,10 @@ not apply.
 | `SessionLogTests.swift` | Page limits, cursors, missing and duplicate pages, conflicting history, persistence and host promotion |
 | `SetupNavigationTests.swift` | Settings confirmation, unchanged navigation, live clock fractions, actual edits, initial setup and delegated-host forwarding |
 | `WebAPIIntegrationTests.swift` | Live HTTP catalog, authentication, malformed input, command retries, sport conflicts and key revocation |
+| `CloudSessionTests.swift` | Transport preference and same-host routing, QR pairing links, encrypted enrollment, recipient binding/tamper/replay rejection and account preservation, public/self-hosted service selection, HTTPS origins, cloud receiver permissions, state encoding, bounded commentator logs and host authority, mixed LAN HTTP/cloud commands, shared UUID deduplication, local timers and integrations after cloud disconnect |
 | `LocalizationTests.swift` | All catalog placeholders, formatter ABI, positional arguments and English/Chinese/missing/malformed bundles |
+
+During incremental work, run focused tests for the affected behavior only when necessary. Do not run the full test session or broad UI suites unless explicitly requested; those sessions can take over an hour.
 
 All Swift checks now live in the native test target. There is no command-line Swift
 compiler harness or runtime extraction of source code. Settings navigation uses

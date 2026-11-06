@@ -5,7 +5,7 @@ import UIKit
 final class DisplayLayoutUITests: ScoreboardUITestCase {
     func testSettingsNavigationRespondsOutsideItsText() {
         launch()
-        openSettings()
+        openAppSettings()
         let sidebar = mainWindow.scrollViews["settings.sidebar"]
         if sidebar.exists {
             let remote = mainWindow.buttons["settings.pane.remoteDisplay"]
@@ -15,7 +15,7 @@ final class DisplayLayoutUITests: ScoreboardUITestCase {
         } else {
             selectSettingsSection("remoteDisplay")
         }
-        XCTAssertTrue(mainWindow.buttons["Enter"].firstMatch.exists)
+        XCTAssertTrue(mainWindow.staticTexts["settings.title.remoteDisplay"].exists)
         selectSettingsSection("integration")
         XCTAssertTrue(mainWindow.buttons["settings.integration.webAPI"].exists)
         XCTAssertTrue(mainWindow.buttons["settings.integration.bitfocusCompanion"].exists)

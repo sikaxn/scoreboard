@@ -44,7 +44,7 @@ class ScoreboardUITestCase: XCTestCase {
         networkDiagnostics = nil
     }
 
-    func launch(_ scenario: String = "basketball") {
+    func launch(_ scenario: String = "basketball", opensBoard: Bool = true) {
         // Xcode can prelaunch the app without the fixture environment.
         // Start a new process so isolated preferences and event data apply.
         app.terminate()
@@ -54,6 +54,15 @@ class ScoreboardUITestCase: XCTestCase {
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 15))
         if #available(iOS 26.0, *), mainWindow.frame.minX > 1 || mainWindow.frame.minY > 1 {
             maximizeWindow()
+        }
+        if opensBoard {
+            let resume = app.buttons["home.continue"]
+            if resume.waitForExistence(timeout: 5) { tap(resume) }
+            else if scenario == "setup" {
+                tap(app.buttons["home.new"])
+                tap(app.buttons["home.create"])
+                XCTAssertTrue(app.staticTexts["settings.title.game"].waitForExistence(timeout: 10))
+            }
         }
     }
 
@@ -208,6 +217,7 @@ class ScoreboardUITestCase: XCTestCase {
 
     func openSettings() {
         tap(mainWindow.buttons["Settings"].firstMatch)
+        tapMenuAction("Game Settings")
         // A segment, prep, side, or secondary clock can also trigger this warning.
         let confirmation = app.alerts.firstMatch
         let gamePane = mainWindow.staticTexts["settings.title.game"]
@@ -249,6 +259,7 @@ class ScoreboardUITestCase: XCTestCase {
     }
 
     func returnToBoard() {
+        if app.buttons["appSettings.done"].exists { tap(app.buttons["appSettings.done"]); return }
         tap(mainWindow.buttons.matching(NSPredicate(format: "label IN %@", ["Go to Control Board", "Back to Live Board"])).firstMatch)
         waitUntil("The live board must return for the selected event mode") {
             self.mainWindow.buttons["Settings"].firstMatch.exists
@@ -262,7 +273,19 @@ class ScoreboardUITestCase: XCTestCase {
         tap(mainWindow.buttons["settings.integration.\(name)"])
     }
 
+    func openAppSettings() {
+        tap(mainWindow.buttons["Settings"].firstMatch)
+        tapMenuAction("App Settings")
+        XCTAssertTrue(app.staticTexts["settings.title.general"].waitForExistence(timeout: 10))
+    }
+
     func selectSettingsSection(_ name: String) {
+        let gameSections = ["game", "players", "display"]
+        if !gameSections.contains(name) && !app.buttons["appSettings.done"].exists {
+            returnToBoard(); openAppSettings()
+        } else if gameSections.contains(name) && app.buttons["appSettings.done"].exists {
+            returnToBoard(); openSettings()
+        }
         let item = mainWindow.buttons["settings.pane.\(name)"]
         if mainWindow.scrollViews["settings.sidebar"].exists {
             tap(item)
@@ -272,10 +295,11 @@ class ScoreboardUITestCase: XCTestCase {
             // iPhone layouts. Navigate by the user-visible action title.
             let title: String
             switch name {
-            case "remoteDisplay": title = "Remote Display & Control"
+            case "remoteDisplay": title = "Connection Preferences"
             case "keyboardShortcuts": title = "Keyboard Shortcuts"
             case "game": title = "Game Setup"
-            case "files": title = "Library"
+            case "files": title = "Backup & Restore"
+            case "cloud": title = "Cloud Service"
             default: title = name.capitalized
             }
             let menuItem = app.buttons[title].firstMatch

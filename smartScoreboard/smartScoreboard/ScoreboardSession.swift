@@ -14,6 +14,7 @@ nonisolated struct ScoreboardSessionDescriptor: Codable, Equatable, Sendable {
     var hostCompanionEnabled: Bool? = nil
     var logSessionID: UUID? = nil
     var safeToDisconnect: Bool? = nil
+    var matchID: UUID? = nil
 
     func accepts(_ other: Self) -> Bool {
         sessionID == other.sessionID && ownerDeviceID == other.ownerDeviceID
@@ -72,6 +73,10 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var appVersion: ScoreboardRemoteDisplayAppVersion? = nil
     var quality: ScoreboardRemoteDisplayConnectionQuality? = nil
     var realtimeTransport: String? = nil
+    var connectionStatus: ScoreboardClientConnectionStatus? = nil
+    var devicePublicKey: String? = nil
+    var cloudPairingPublicKey: String? = nil
+    var requestedControl: Bool? = nil
 }
 
 extension ScoreboardSessionDescriptor {
@@ -102,6 +107,7 @@ extension ScoreboardSessionDescriptor {
 
 nonisolated struct ScoreboardSessionAdministration: Codable, Sendable {
     var action: String
+    var payload: Data? = nil
     var displayID: String
     var enabled: Bool? = nil
     var text: String? = nil

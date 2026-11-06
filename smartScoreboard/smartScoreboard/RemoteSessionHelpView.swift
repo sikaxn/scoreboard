@@ -7,49 +7,30 @@ struct RemoteSessionHelpView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Example: a basketball game with three public screens")
-                        .font(.title2.bold())
-                    Text("This is one possible setup. Remote Display & Control works with every supported sport and different numbers of screens and control boards. In this basketball example, one screen sits behind each basket and a master screen sits at midcourt. The owner starts the match, then chooses a reliable paired device as the host. Every screen and control board follows that host.")
+                    Text("Start with a scoreboard file").font(.title2.bold())
+                    Text("In App Mode, use Home to create a scoreboard, open an existing file, or connect to another host. Your local files work without an account or internet.")
                         .foregroundStyle(.secondary)
-
-                    Image(ScoreboardLocalization.usesSimplifiedChinese ? "RemoteSessionCourtChinese" : "RemoteSessionCourt")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .accessibilityLabel("Basketball court diagram: left basket, master, and right basket screens, the owner tablet, and a separate control board all connect to the Ethernet Apple TV host. Web API and Companion run on the host.")
-
-                    helpCard("Owner", icon: "ipad", tint: .blue,
-                        text: "The owner sets up the game and starts pairing. It keeps the match file and integration settings, grants control to each paired device, and chooses the session host. It can go offline after assigning a host; the host and other control boards keep the game running.")
-                    helpCard("Host", icon: "server.rack", tint: .indigo,
-                        text: "Exactly one paired device runs scores, clocks, sounds, logs, Web API, and Bitfocus Companion. An Ethernet-connected Apple TV or Mac is a useful choice. The host keeps an isolated working copy until the owner saves the match or another host accepts the handoff.")
-                    helpCard("Control board", icon: "hand.tap", tint: .teal,
-                        text: "An approved iPhone, iPad, or Mac uses the normal control board, including players and display controls. It can also show a remote display. Apple TV can display and host, but has no control board.")
-                    helpCard("Remote displays", icon: "display.2", tint: .orange,
-                        text: "The basket screens and master screen show the same live match. They reconnect to the selected host after a handoff; each screen can keep its own display direction and layout.")
-
-                    Text("How devices connect")
-                        .font(.title2.bold())
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)],
-                              alignment: .leading, spacing: 14) {
-                        networkCard("LAN Only", icon: "network", path: "Device → Wi-Fi or Ethernet network → Host",
-                            detail: "Use when all devices share the same local network. An Ethernet host can serve wireless screens and control boards on that LAN.")
-                        networkCard("Nearby / peer-to-peer", icon: "dot.radiowaves.left.and.right", path: "Device ↔ nearby Host",
-                            detail: "Allows Apple's direct nearby Wi-Fi path as well as the LAN. It can work without a separate router, but range and interference still matter.")
+                    helpCard("App Mode", icon: "doc.text", tint: .blue,
+                        text: "The device that opens the scoreboard file runs the game. Game Settings saves teams, rules, clocks, rosters and presentation in that file. App Settings contains preferences for this device.")
+                    helpCard("Kiosk Mode", icon: "display", tint: .orange,
+                        text: "Join an existing scoreboard as a display or an approved controller. Kiosks cannot create files or host. Received game data is cleared when disconnected. Apple TV always uses Kiosk Mode.")
+                    helpCard("Nearby pairing", icon: "dot.radiowaves.left.and.right", tint: .teal,
+                        text: "On the host, open Connect Devices and allow nearby connections. On the joining device, select the discovered scoreboard and enter the host’s pairing PIN or ask the host to confirm. The host can also select a kiosk and enter the device PIN shown on its pairing screen.")
+                    helpCard("Cloud code and password", icon: "cloud", tint: .indigo,
+                        text: "Only the owner signs in. The host enables online sharing and sets a match password. Other devices join with the session code and password. The code stays fixed for that session. Controllers require approval; public viewing links are read-only.")
+                    Text("Connection preferences").font(.title2.bold())
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)], alignment: .leading, spacing: 14) {
+                        networkCard("LAN Only", icon: "network", path: "Device → Local network → Host",
+                            detail: "Use Wi-Fi or Ethernet on the same network. Internet and accounts are not required.")
+                        networkCard("LAN + Nearby", icon: "wifi", path: "Device ↔ Nearby host",
+                            detail: "Also allows Apple’s nearby peer-to-peer Wi-Fi connection.")
+                        networkCard("Cloud preferences", icon: "cloud", path: "Device → Cloud service → Host",
+                            detail: "Prefer Cloud or Prefer LAN + Nearby can use a cloud path for the same match. The publishing host and devices using cloud need internet; local devices can stay offline.")
                     }
-
                     helpCard("Web API and Companion", icon: "point.3.connected.trianglepath.dotted", tint: .purple,
-                        text: "Both come from the host, at the host IP shown in Integration settings. Browser clients should use that IP. Companion commands fire once from the host, even if several control boards are connected.")
-                    helpCard("Safe to Disconnect", icon: "checkmark.shield", tint: .green,
-                        text: "This appears on the owner's control board and connected display when every timer is stopped and the owner has confirmed that the latest match file and log were saved. If it says sync pending, keep the host open or reconnect the owner. Leaving a host while unsynced offers an explicit delete choice. Apple TV can lose its local working copy after Scoreboard closes, so reconnect the owner and wait for Safe to Disconnect before leaving the app.")
-                    helpCard("If the host is gone", icon: "arrow.uturn.backward.circle", tint: .red,
-                        text: "On the owner's Remote Display & Control settings, Recover Here starts hosting from the last match copy the owner saved. Changes made after that copy may be lost, and all timers restart paused. If the old host returns, discard its local match before reconnecting it. A delegated host can discard its isolated match and log from its pairing screen.")
+                        text: "These integrations run on the host. Configure them in App Settings. Remote control changes the game on that host; it does not create a separate local game on a kiosk.")
                     helpCard("Local Network permission", icon: "wifi", tint: .cyan,
-                        text: "On iPhone, iPad, or Apple TV, the system may ask for Local Network access when Remote Display starts. Allow it for pairing and discovery. If pairing stays empty after denying it, enable Scoreboard's Local Network permission in the device's Settings, then return to the app.")
-
-                    Text("Quick setup: enable Remote Display / Control pairing on the owner, allow Local Network access on each device, enter each device's pairing code, grant control per device, then choose Make Session Host. Watch the connection and sync status before powering anything down.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        text: "Allow Local Network access for nearby discovery and pairing. If discovery is empty after denying it, enable Smart Scoreboard’s Local Network permission in system Settings.")
                 }
                 .frame(maxWidth: 900, alignment: .leading)
                 .padding(24)

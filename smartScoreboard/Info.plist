@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array><dict><key>CFBundleURLName</key><string>Smart Scoreboard Invitations</string><key>CFBundleURLSchemes</key><array><string>smartscoreboard</string></array></dict></array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>IronMaple.smartScoreboard.timer-maintenance</string>
@@ -59,9 +61,10 @@
 	<array>
 		<string>_smartscoreboard._tcp</string>
 		<string>_scorebrd-tv._tcp</string>
+		<string>_scorebrd-join._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Scoreboard uses a communication library that includes camera support. This version of Scoreboard does not access the camera or capture photos or video.</string>
+	<string>Scan a remote device’s QR code to pair it with this scoreboard.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scoreboard uses the local network to pair Remote Displays and control boards, keep a hosted match in sync, serve the Web API, and send Bitfocus Companion commands when enabled.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

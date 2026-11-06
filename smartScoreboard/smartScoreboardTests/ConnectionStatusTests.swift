@@ -2,6 +2,80 @@ import Foundation
 import Testing
 
 extension ScoreboardTests {
+    @Test("Local web clients enter and leave the host roster with their actual WebSocket route", .timeLimit(.minutes(1)))
+    func webClientConnectionRoute() async throws {
+        store.isWebAPIEnabled = true
+        defer { store.setWebAPIEnabled(false) }
+        for _ in 0..<80 {
+            if store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let port = try #require({ () -> UInt16? in
+            guard case .running(_, let port, _) = store.webAPIStatus else { return nil }
+            return port
+        }())
+        let socket = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)/")!)
+        socket.resume()
+        defer { socket.cancel(with: .goingAway, reason: nil) }
+        _ = try await socket.receive()
+        for _ in 0..<40 {
+            if !store.webAPIClients.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let client = try #require(store.remoteSessionDevices?.first { $0.id.hasPrefix("web:") })
+        #expect(client.connected && client.connectionStatus?.active?.route == .local)
+        #expect(client.connectionStatus?.active?.method == .webSocket)
+        #expect(client.connectionStatus?.available.contains(where: { $0.route == .cloud }) == false)
+        socket.cancel(with: .goingAway, reason: nil)
+        for _ in 0..<80 {
+            if store.webAPIClients.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(store.remoteSessionDevices?.contains(where: { $0.id == client.id }) == false)
+    }
+
+    @Test("Client connection reports distinguish LAN WebRTC, cloud failover and standby links")
+    func clientConnectionRoutes() {
+        let rtc = ScoreboardConnectionInfo(route: .lan, method: .webRTC)
+        var local = ScoreboardRemoteDisplayConnection(id: "client", name: "Display", quality: .live,
+            latencyMilliseconds: 5, lastHandshakeAgeSeconds: 0, appVersion: nil, deviceType: .ipad, isMuted: false,
+            connectionInfo: rtc, clientConnectionStatus: .init(active: rtc, available: [rtc, .cloud], activeHostID: "host"))
+        var cloud = ScoreboardCloudMember(id: "cloud-client", uid: "account", name: "Display", role: "display",
+            requestedControl: false, connected: true, localDeviceID: "client", connectionStatus: local.clientConnectionStatus)
+        let lan = ScoreboardClientConnectionStatus.merged(hostID: "host", local: local, cloud: cloud)
+        #expect(lan.active == rtc && lan.available == [rtc, .cloud])
+        #expect(lan.otherConnections == ScoreboardConnectionInfo.cloud.summary)
+        cloud.connectionStatus = .init(active: .cloud, available: [rtc, .cloud], activeHostID: "host")
+        let failover = ScoreboardClientConnectionStatus.merged(hostID: "host", local: local, cloud: cloud)
+        #expect(failover.active == .cloud && failover.available.contains(rtc))
+        cloud.connectionStatus?.activeHostID = "another-host"
+        #expect(ScoreboardClientConnectionStatus.merged(hostID: "host", local: local, cloud: cloud).active == nil)
+        #expect(ScoreboardClientConnectionStatus.merged(hostID: "host", local: nil, cloud: nil).available.isEmpty)
+        cloud.connectionStatus = nil
+        #expect(ScoreboardClientConnectionStatus.merged(hostID: "host", local: nil, cloud: cloud).active == nil)
+        local.clientConnectionStatus = nil
+        #expect(ScoreboardClientConnectionStatus.merged(hostID: "host", local: local, cloud: nil).active == rtc)
+        let invalid = ScoreboardConnectionInfo(route: .cloud, method: .webRTC)
+        #expect(invalid.normalized.route == .direct && !invalid.summary.contains("Cloud"))
+    }
+
+    @Test("Connection diagnostics round trip while older peer and heartbeat messages remain readable")
+    func connectionDiagnosticsCompatibility() throws {
+        let oldPeer = Data(#"{"id":"client","name":"Display","deviceType":"ipad","connected":true,"supportsHosting":true}"#.utf8)
+        let peer = try JSONDecoder().decode(ScoreboardSessionPeer.self, from: oldPeer)
+        #expect(peer.connectionStatus == nil)
+        let status = ScoreboardClientConnectionStatus(active: .init(route: .nearby, method: .webSocket, interfaceType: "peerToPeer", interfaceName: "awdl0"),
+            available: [.cloud], activeHostID: "host")
+        let message = ScoreboardRemoteDisplayControlMessage(kind: .heartbeatAck, sequence: 1, sentAt: 1,
+            hostID: "host", hostName: "Host", displayID: "client", displayName: "Display", clientConnectionStatus: status)
+        let encoded = try JSONEncoder().encode(message)
+        #expect(try JSONDecoder().decode(ScoreboardRemoteDisplayControlMessage.self, from: encoded).clientConnectionStatus == status)
+        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacy.removeValue(forKey: "clientConnectionStatus")
+        #expect(try JSONDecoder().decode(ScoreboardRemoteDisplayControlMessage.self,
+            from: JSONSerialization.data(withJSONObject: legacy)).clientConnectionStatus == nil)
+    }
+
     private var connectionTestSession: ScoreboardSessionDescriptor {
         ScoreboardSessionDescriptor(sessionID: UUID(), epoch: 2, ownerDeviceID: "owner", ownerHostID: "owner-pairing",
             ownerName: "Owner iPad", hostDeviceID: "host", hostName: "Host TV", hostAddresses: [])

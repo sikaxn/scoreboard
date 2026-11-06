@@ -30,6 +30,7 @@
 		A1A19C84F1BB44E7A1920001 /* Localizable.xcstrings in Copy Localization Test Input */ = {isa = PBXBuildFile; fileRef = D88F71292FCFD6CF000A14F2 /* Localizable.xcstrings */; };
 		A1A19C84F1BB44E7A1920010 /* Built App Info.plist in Copy App Test Metadata */ = {isa = PBXBuildFile; fileRef = A1A19C84F1BB44E7A1920011 /* Built App Info.plist */; };
 		A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */; };
+		A6C10D202611020000000001 /* ScoreboardCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C10D202611020000000002 /* ScoreboardCloudClient.swift */; };
 		B01BBAF70C4E491AA1CA35ED /* ScoreboardCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */; };
 		CD4E06D9E13C4CD6B5D31141 /* BuzzerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234AF4FAD681442891669A6A /* BuzzerPlayer.swift */; };
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
@@ -131,6 +132,7 @@
 		A2E0AF73BBA648169650BB74 /* ScoreboardAppBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardAppBackup.swift; sourceTree = "<group>"; };
 		A43479316DC3446980D4B514 /* DebateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebateModels.swift; sourceTree = "<group>"; };
 		A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardControlBoardConfiguration.swift; sourceTree = "<group>"; };
+		A6C10D202611020000000002 /* ScoreboardCloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardCloudClient.swift; sourceTree = "<group>"; };
 		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
 		D5901BF521044B119386D971 /* ScoreboardPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardPreferences.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -254,6 +256,7 @@
 		F45E445093FF45D9A773A833 /* Core sources under test */ = {
 			isa = PBXGroup;
 			children = (
+				A6C10D202611020000000002 /* ScoreboardCloudClient.swift */,
 				8C58F7F5EFDD4593968E4307 /* ScoreboardSetupEditing.swift */,
 				015C8F3DDDA64DAE869EB781 /* ScoreboardStore.swift */,
 				4948F6C37E144C06AE06F694 /* ScoreboardControl.swift */,
@@ -464,6 +467,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6C10D202611020000000001 /* ScoreboardCloudClient.swift in Sources */,
 				F3254BC109384B149A214844 /* ScoreboardStore.swift in Sources */,
 				00D647BF6B4145F7B2D1F3D3 /* ScoreboardControl.swift in Sources */,
 				32BA5C3C899E40D1A75F91F2 /* ScoreboardWebAPI.swift in Sources */,
@@ -626,7 +630,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -637,7 +641,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -785,7 +789,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -799,7 +803,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -832,7 +836,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -846,7 +850,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -873,7 +877,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 53MBHYV2D9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -884,7 +888,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = IronMaple.smartScoreboard.ScoreboardLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

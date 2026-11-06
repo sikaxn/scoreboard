@@ -8,7 +8,7 @@ import TipKit
 
 @main
 struct SmartScoreboardApp: App {
-    // Apple TV also owns a runtime when selected as the session host.
+    // App mode owns documents; kiosk mode only participates in another host's match.
     @StateObject private var store = ScoreboardStore.shared
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ScoreboardAppTerminationDelegate.self) private var terminationDelegate
@@ -40,14 +40,16 @@ struct SmartScoreboardApp: App {
     var body: some Scene {
         #if os(tvOS)
         WindowGroup {
-            RemoteScoreboardView()
+            ScoreboardWorkspaceView()
+                .defaultAppStorage(ScoreboardPreferences.current)
                 .environmentObject(store)
                 .reportsSceneActivityForSleepPolicy()
                 .reportsExternalDisplaysForSleepPolicy()
         }
         #elseif os(macOS)
         Window("Control Board", id: "control-board") {
-            MacControlBoardRootView()
+            ScoreboardWorkspaceView()
+                .modifier(ScoreboardInvitationLinkHandler())
                 .defaultAppStorage(ScoreboardPreferences.current)
                 .scoreboardUITestAnimationPolicy()
                 .environmentObject(store)
@@ -79,19 +81,9 @@ struct SmartScoreboardApp: App {
         .windowStyle(.hiddenTitleBar)
         #else
         WindowGroup {
-            Group {
-                if store.isRemoteDisplayViewerModeEnabled {
-                    RemoteScoreboardView(exitRemoteDisplayMode: {
-                        store.setRemoteDisplayViewerModeEnabled(false)
-                    }, networkMode: store.remoteDisplayNetworkMode, setNetworkMode: {
-                        store.setRemoteDisplayNetworkMode($0)
-                    })
-                } else {
-                    ContentView()
-                        .environmentObject(store)
-                        .environmentObject(publicBoardState)
-                }
-            }
+            ScoreboardWorkspaceView()
+                .environmentObject(store)
+                .environmentObject(publicBoardState)
             .defaultAppStorage(ScoreboardPreferences.current)
             .scoreboardUITestAnimationPolicy()
             #if os(iOS)
@@ -103,6 +95,7 @@ struct SmartScoreboardApp: App {
             .reportsSceneActivityForSleepPolicy()
             .reportsExternalDisplaysForSleepPolicy()
             .reportsScoreboardSleepPolicy(store: store, publicBoardState: publicBoardState)
+            .modifier(ScoreboardInvitationLinkHandler())
         }
         #endif
     }
@@ -113,6 +106,15 @@ struct SmartScoreboardApp: App {
 private final class ScoreboardAppTerminationDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let store = ScoreboardStore.shared
+        do { try store.matchLibrary.save() }
+        catch {
+            let alert = NSAlert()
+            alert.messageText = ScoreboardLocalization.string("Match could not be saved")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: ScoreboardLocalization.string("Keep Open"))
+            alert.runModal()
+            return .terminateCancel
+        }
         guard store.isDelegatedSessionHost else { return .terminateNow }
         if store.isSessionSafeToDisconnect {
             store.handoffHostedMatchForQuit { success in
@@ -133,34 +135,6 @@ private final class ScoreboardAppTerminationDelegate: NSObject, NSApplicationDel
 #endif
 
 #if os(macOS)
-private struct MacControlBoardRootView: View {
-    @EnvironmentObject private var store: ScoreboardStore
-    @EnvironmentObject private var publicBoardState: PublicBoardState
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        if store.isRemoteDisplayViewerModeEnabled {
-            RemoteScoreboardView(
-                exitRemoteDisplayMode: {
-                    store.setRemoteDisplayViewerModeEnabled(false)
-                },
-                openScoreboardWindow: {
-                    publicBoardState.requestFullscreen()
-                    openWindow(id: "public-scoreboard")
-                },
-                networkMode: store.remoteDisplayNetworkMode,
-                setNetworkMode: {
-                    store.setRemoteDisplayNetworkMode($0)
-                }
-            )
-        } else {
-            ContentView()
-                .environmentObject(store)
-                .environmentObject(publicBoardState)
-        }
-    }
-}
-
 private struct MacPublicScoreboardRootView: View {
     @EnvironmentObject private var store: ScoreboardStore
     @EnvironmentObject private var publicBoardState: PublicBoardState
@@ -172,7 +146,9 @@ private struct MacPublicScoreboardRootView: View {
 
     var body: some View {
         Group {
-            if followsRemoteScoreboard {
+            if store.isShowingFileHome {
+                ScoreboardWaitingDisplayView()
+            } else if followsRemoteScoreboard {
                 RemoteScoreboardView(
                     networkMode: store.remoteDisplayNetworkMode,
                     setNetworkMode: {
