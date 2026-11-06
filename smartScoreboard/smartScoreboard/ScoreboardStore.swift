@@ -1109,6 +1109,66 @@ final class ScoreboardStore: ObservableObject {
     }
     @Published var isShowingFileHome = true
 
+    func prepareForFileHome() throws {
+        guard !isFollowingSessionHost, !isDelegatedSessionHost, !sessionTransferInProgress else {
+            throw NSError(domain: "ScoreboardMatch", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                "Return or finish the hosted match before going Home."])
+        }
+        try matchLibrary.save()
+        if isJoinedMatchActive || isPreparingMatchJoin { leaveJoinedMatch() }
+        isShowingFileHome = true
+        setRemoteDisplayHostEnabled(false)
+        stopRemoteDisplayHostService()
+        ScoreboardRemoteDisplayReceiver.shared.suspendConnections()
+        stopWebAPIService()
+        invalidateQueuedCompanionCommands()
+        ScoreboardCloudClient.shared.pauseHostingForHome()
+        #if !SCOREBOARD_TESTING
+        ScoreboardNearbyMatchService.shared.update(owner: self)
+        #endif
+    }
+
+    func resumeOpenMatchConnections() {
+        isShowingFileHome = false
+        if localConnectionsEnabled && ScoreboardDeviceMode.current.canHost && !isJoinedMatchActive && !isFollowingSessionHost {
+            setRemoteDisplayHostEnabled(true)
+        }
+        if isWebAPIEnabled { startWebAPIService() }
+        if !isJoinedMatchActive { ScoreboardCloudClient.shared.reconnect() }
+    }
+
+    @Published private(set) var localConnectionsEnabled = ScoreboardConnectionPolicy.allowsLocalNetworking
+
+    func setLocalConnectionsEnabled(_ enabled: Bool) throws {
+        guard enabled != localConnectionsEnabled else { return }
+        guard enabled || (!isFollowingSessionHost && !isDelegatedSessionHost && !sessionTransferInProgress) else {
+            throw NSError(domain: "ScoreboardConnections", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                "Return or finish the hosted match before turning off connections."])
+        }
+        ScoreboardPreferences.current.set(enabled, forKey: ScoreboardConnectionPolicy.preferenceKey)
+        localConnectionsEnabled = enabled
+        if enabled {
+            if !isShowingFileHome && ScoreboardDeviceMode.current.canHost { setRemoteDisplayHostEnabled(true) }
+            ScoreboardRemoteDisplayReceiver.shared.resumeConnections()
+        } else {
+            let cloud = ScoreboardCloudClient.shared
+            let hasCloudMatch = cloud.cloudEnabled && (cloud.session != nil || cloud.isRemoteRegistration)
+            if (isJoinedMatchActive || isPreparingMatchJoin) && !hasCloudMatch { leaveJoinedMatch() }
+            setRemoteDisplayHostEnabled(false)
+            stopRemoteDisplayHostService()
+            ScoreboardRemoteDisplayReceiver.shared.suspendConnections()
+            setWebAPIEnabled(false)
+            stopWebAPIService()
+            setCompanionEnabled(false)
+            invalidateQueuedCompanionCommands()
+            cancelExternalAutomationSafetyNotice()
+        }
+        synchronizeConnectionPreference(cloudEnabled: ScoreboardCloudClient.shared.cloudEnabled)
+        #if !SCOREBOARD_TESTING
+        ScoreboardNearbyMatchService.shared.connectionsDidChange(owner: self)
+        #endif
+    }
+
     func setDeviceMode(_ mode: ScoreboardDeviceMode) throws {
         guard mode != ScoreboardDeviceMode.current else { return }
         #if os(tvOS)
@@ -1176,7 +1236,7 @@ final class ScoreboardStore: ObservableObject {
         try requireMatchReplacementAllowed()
         try matchLibrary.save()
         persistState()
-        isPreparingMatchJoin = true; joinedAsDisplay = asDisplay
+        isPreparingMatchJoin = true; joinedAsDisplay = asDisplay || !ScoreboardRemoteDisplayDeviceType.current.supportsControl
         setRemoteDisplayViewerModeEnabled(true)
         guard isRemoteDisplayViewerModeEnabled else {
             isPreparingMatchJoin = false
@@ -1196,7 +1256,7 @@ final class ScoreboardStore: ObservableObject {
 
     func setJoiningPresentation(displayOnly: Bool) {
         guard isPreparingMatchJoin else { return }
-        joinedAsDisplay = displayOnly
+        joinedAsDisplay = displayOnly || !ScoreboardRemoteDisplayDeviceType.current.supportsControl
     }
 
     func joinAnotherMatch(asDisplay: Bool = false) throws {
@@ -1346,7 +1406,7 @@ final class ScoreboardStore: ObservableObject {
                 deviceType: connection?.deviceType ?? saved?.deviceType ?? .unknown,
                 connected: connection?.quality == .live || connection?.quality == .poor,
                 supportsHosting: connection?.supportsSessionHosting == true,
-                controlEnabled: id == sessionDescriptor?.ownerDeviceID || remoteControlAllowedDisplayIDs.contains(id),
+                controlEnabled: isRemoteControlAllowed(displayID: id),
                 latencyMilliseconds: connection?.latencyMilliseconds,
                 lastHandshakeAgeSeconds: connection?.lastHandshakeAgeSeconds,
                 appVersion: connection?.appVersion,
@@ -1374,7 +1434,7 @@ final class ScoreboardStore: ObservableObject {
                     peers.append(.init(id: id, name: member.name, deviceType: .unknown,
                         connected: cloud.isConnected && member.connected == true, supportsHosting: false,
                         controlEnabled: member.role == "controller", connectionStatus: status,
-                        devicePublicKey: member.devicePublicKey, requestedControl: member.requestedControl))
+                        devicePublicKey: member.devicePublicKey, requestedControl: member.requestedControl, supportsControl: member.canControl))
                 }
             }
             if cloud.isConnected {
@@ -1455,6 +1515,8 @@ final class ScoreboardStore: ObservableObject {
     @Published private(set) var remoteControlAllowedDisplayIDs = Set(ScoreboardPreferences.current.stringArray(forKey: "scoreboard.remoteControlAllowedDisplayIDs") ?? [])
 
     func isRemoteControlAllowed(displayID: String) -> Bool {
+        guard !isShowingFileHome,
+              remoteDisplayTrustedDisplays.first(where: { $0.id == displayID })?.deviceType != .appleTV else { return false }
         if isSessionAuthority && sessionDescriptor?.ownerDeviceID == displayID { return true }
         if isDelegatedSessionHost && displayID == localSessionDeviceID {
             return remoteControlAllowedDisplayIDs.contains(displayID)
@@ -1471,7 +1533,7 @@ final class ScoreboardStore: ObservableObject {
             return
         }
         if isAllowed {
-            guard remoteDisplayTrustedDisplays.contains(where: { $0.id == displayID }) else { return }
+            guard remoteDisplayTrustedDisplays.contains(where: { $0.id == displayID && $0.deviceType != .appleTV }) else { return }
             remoteControlAllowedDisplayIDs.insert(displayID)
             locallyRequestedControllers.remove(displayID)
         } else { remoteControlAllowedDisplayIDs.remove(displayID) }
@@ -2901,7 +2963,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setCompanionEnabled(_ isEnabled: Bool) {
-        let resolvedEnabled = isEnabled && isCompanionVisible
+        let resolvedEnabled = isEnabled && isCompanionVisible && ScoreboardConnectionPolicy.allowsLocalNetworking
         guard isCompanionEnabled != resolvedEnabled else {
             return
         }
@@ -5976,7 +6038,7 @@ final class ScoreboardStore: ObservableObject {
             let commandEvent = companionLocation(for: dispatch.event) != nil
                 ? dispatch.event : dispatch.fallbackEvent
             var location: ScoreboardCompanionLocation?
-            if isCompanionVisible, isCompanionEnabled,
+            if !isShowingFileHome, isCompanionVisible, isCompanionEnabled,
                !isCompanionEventBypassed(dispatch.event, sport: selectedSport),
                let commandEvent, !isCompanionEventBypassed(commandEvent, sport: selectedSport),
                commandedEvents.insert(commandEvent).inserted {
@@ -6120,7 +6182,7 @@ final class ScoreboardStore: ObservableObject {
         _ location: ScoreboardCompanionLocation,
         events: [ScoreboardSoundEvent] = [], sport: SportType? = nil
     ) {
-        guard isSessionAuthority else { return }
+        guard !isShowingFileHome, ScoreboardConnectionPolicy.allowsLocalNetworking, isSessionAuthority else { return }
         let commandGeneration = companionCommandGeneration
         let eventSport = sport ?? selectedSport
         companionService.sendPress(
@@ -6221,6 +6283,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setWebAPIEnabled(_ isEnabled: Bool) {
+        guard !isEnabled || ScoreboardConnectionPolicy.allowsLocalNetworking else { return }
         guard isWebAPIEnabled != isEnabled else {
             return
         }
@@ -6434,7 +6497,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayHostEnabled(_ isEnabled: Bool) {
-        guard !isEnabled || ScoreboardDeviceMode.current.canHost else { return }
+        guard !isEnabled || (!isShowingFileHome && ScoreboardConnectionPolicy.allowsLocalNetworking && ScoreboardDeviceMode.current.canHost) else { return }
         if !isEnabled && (isFollowingSessionHost || isDelegatedSessionHost) {
             guard !isAnyTimerRunning, !sessionTransferInProgress else {
                 sessionStatusMessage = "Stop all timers and finish the host handoff before turning pairing off."
@@ -6701,6 +6764,24 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func setRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
+        guard let resolved = ScoreboardRemoteDisplayNetworkMode.resolved(mode, localEnabled: localConnectionsEnabled,
+            cloudEnabled: ScoreboardCloudClient.shared.cloudEnabled) else { return }
+        applyRemoteDisplayNetworkMode(resolved)
+    }
+
+    var availableConnectionModes: [ScoreboardRemoteDisplayNetworkMode] {
+        ScoreboardRemoteDisplayNetworkMode.available(localEnabled: localConnectionsEnabled,
+            cloudEnabled: ScoreboardCloudClient.shared.cloudEnabled)
+    }
+
+    private func synchronizeConnectionPreference(cloudEnabled: Bool) {
+        if let mode = ScoreboardRemoteDisplayNetworkMode.resolved(remoteDisplayNetworkMode,
+            localEnabled: localConnectionsEnabled, cloudEnabled: cloudEnabled) {
+            applyRemoteDisplayNetworkMode(mode)
+        }
+    }
+
+    private func applyRemoteDisplayNetworkMode(_ mode: ScoreboardRemoteDisplayNetworkMode) {
         guard remoteDisplayNetworkMode != mode else {
             return
         }
@@ -6938,7 +7019,7 @@ final class ScoreboardStore: ObservableObject {
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIService.controlHandler = { [weak self] command, key, completion in
             Task { @MainActor [weak self] in
-                guard let self, self.isSessionAuthority, self.isWebAPIEnabled, self.isWebControlEnabled else {
+                guard let self, !self.isShowingFileHome, self.isSessionAuthority, self.isWebAPIEnabled, self.isWebControlEnabled else {
                     completion(.failure(command.id, "disabled", "Web control is disabled.")); return
                 }
                 guard key.uppercased() == self.webControlAPIKey else {
@@ -6983,7 +7064,7 @@ final class ScoreboardStore: ObservableObject {
             self?.isRemoteControlAllowed(displayID: displayID) ?? false
         }
         remoteDisplayHostService.controlCommandHandler = { [weak self] command, displayID in
-            guard let self, self.isSessionAuthority, self.isRemoteDisplayHostEnabled,
+            guard let self, !self.isShowingFileHome, self.isSessionAuthority, self.isRemoteDisplayHostEnabled,
                   self.isRemoteControlAllowed(displayID: displayID) else {
                 return .failure(command.id, "disabled", "This device is not allowed to control the main board.")
             }
@@ -7190,7 +7271,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startWebAPIService() {
-        guard isSessionAuthority else { return }
+        guard !isShowingFileHome, ScoreboardConnectionPolicy.allowsLocalNetworking, isSessionAuthority else { return }
         webAPILocalAddresses = ScoreboardWebAPIService.localIPv4Addresses()
         webAPIStatus = .starting
         let payloads = encodedWebAPIOutputPayloads()
@@ -7226,6 +7307,10 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func configureCloudService() {
+        ScoreboardCloudClient.shared.$cloudEnabled.removeDuplicates().sink { [weak self] enabled in
+            self?.objectWillChange.send()
+            self?.synchronizeConnectionPreference(cloudEnabled: enabled)
+        }.store(in: &cancellables)
         ScoreboardCloudClient.shared.activateMatch(cloudMatchContext)
         $sessionDescriptor.removeDuplicates().sink { [weak self] descriptor in
             guard let self else { return }
@@ -7260,11 +7345,11 @@ final class ScoreboardStore: ObservableObject {
             }.store(in: &cancellables)
         ScoreboardCloudClient.shared.hostReadyHandler = { [weak self] in self?.provisionCloudFailoverForConnectedDevices() }
         ScoreboardCloudClient.shared.configure(stateProvider: { [weak self] in
-            guard let self, self.isSessionAuthority else { return nil }
+            guard let self, !self.isShowingFileHome, self.isSessionAuthority else { return nil }
             return self.currentWebAPIState().cloudControlPayload(allowed: true).remoteDisplayPayload
         }, commandHandler: { [weak self] command in
             self?.performCloudControlCommand(command) ?? .failure(command.id, "disabled", "Host unavailable.")
-        }, canHost: { [weak self] in ScoreboardDeviceMode.current.canHost && self?.isSessionAuthority == true },
+        }, canHost: { [weak self] in ScoreboardDeviceMode.current.canHost && self?.isShowingFileHome == false && self?.isSessionAuthority == true },
         commentatorProvider: { [weak self] in self?.currentCloudCommentatorPayload() },
         localHostID: { [weak self] in self?.remoteDisplayHostService.hostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID })
     }
@@ -7286,7 +7371,7 @@ final class ScoreboardStore: ObservableObject {
                 do {
                     // Start with read-only access; serialize the latest local permission
                     // after enrollment so a concurrent revocation cannot be overwritten.
-                    let data = try await cloud.provisionRemote(id: peer.id, name: peer.name, publicKey: signingKey, controlAllowed: false)
+                    let data = try await cloud.provisionRemote(id: peer.id, name: peer.name, publicKey: signingKey, controlAllowed: false, canControl: connection.deviceType.supportsControl)
                     cloud.updateRemotePermission(localID: peer.id, allowed: self.isRemoteControlAllowed(displayID: peer.id), force: true)
                     let encrypted = try ScoreboardCloudEnrollmentCrypto.seal(data, recipient: publicKey, pairingSecret: pairingSecret,
                         hostID: self.remoteDisplayHostService.hostID, deviceID: peer.id)
@@ -7309,14 +7394,14 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func performCloudControlCommand(_ command: ScoreboardControlCommand) -> ScoreboardControlResult {
-        guard isSessionAuthority else {
+        guard !isShowingFileHome, isSessionAuthority else {
             return .failure(command.id, "conflict", "This device is no longer the game host.")
         }
         return performControlCommand(command, remote: false)
     }
 
     private func startRemoteDisplayHostService() {
-        guard ScoreboardDeviceMode.current.canHost else { return }
+        guard !isShowingFileHome, ScoreboardConnectionPolicy.allowsLocalNetworking, ScoreboardDeviceMode.current.canHost else { return }
         guard isSessionAuthority else { return }
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayStates(),
@@ -7612,6 +7697,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetToFactoryDefaults() {
+        ScoreboardPreferences.current.removeObject(forKey: ScoreboardConnectionPolicy.preferenceKey)
+        localConnectionsEnabled = true
         ScoreboardCloudClient.shared.resetServiceSettings()
         sessionDescriptor = nil
         sessionRecoveryRole = nil
@@ -7797,7 +7884,7 @@ final class ScoreboardStore: ObservableObject {
             soundAssignmentsBySport = normalizedSoundAssignmentsBySport(persistedState.soundAssignmentsBySport)
             keyboardShortcutsByAction = Self.normalizedKeyboardShortcuts(persistedState.keyboardShortcutsByAction)
             isCompanionVisible = persistedState.isCompanionVisible
-            isCompanionEnabled = persistedState.isCompanionVisible && persistedState.isCompanionEnabled
+            isCompanionEnabled = ScoreboardConnectionPolicy.allowsLocalNetworking && persistedState.isCompanionVisible && persistedState.isCompanionEnabled
             companionSyncWithSound = persistedState.companionSyncWithSound
             companionHost = persistedState.companionHost
             companionMode = persistedState.companionMode
@@ -7805,16 +7892,18 @@ final class ScoreboardStore: ObservableObject {
             companionAssignmentsBySport = normalizedCompanionAssignmentsBySport(persistedState.companionAssignmentsBySport)
             didCompleteSetup = persistedState.didCompleteSetup
             setupPresets = persistedState.setupPresets
-            isWebAPIEnabled = persistedState.isWebAPIEnabled
+            isWebAPIEnabled = ScoreboardConnectionPolicy.allowsLocalNetworking && persistedState.isWebAPIEnabled
             webAPIUpdateMode = persistedState.webAPIUpdateMode
             isWebAPIBroadcastControlEnabled = persistedState.isWebAPIBroadcastControlEnabled
             webAPIBroadcastEnabledDisplayCount = Self.boundedWebAPIBroadcastEnabledDisplayCount(persistedState.webAPIBroadcastEnabledDisplayCount)
             webAPIBroadcastDisplayModesByID = Self.normalizedWebAPIBroadcastDisplayModes(persistedState.webAPIBroadcastDisplayModesByID)
             customDisplayModeTitlesByMode = Self.normalizedCustomDisplayModeTitles(persistedState.customDisplayModeTitlesByMode)
-            isRemoteDisplayHostEnabled = persistedState.isRemoteDisplayHostEnabled
-            isRemoteDisplayViewerModeEnabled = persistedState.isRemoteDisplayViewerModeEnabled
+            isRemoteDisplayHostEnabled = ScoreboardConnectionPolicy.allowsLocalNetworking && persistedState.isRemoteDisplayHostEnabled
+            isRemoteDisplayViewerModeEnabled = ScoreboardConnectionPolicy.allowsLocalNetworking && persistedState.isRemoteDisplayViewerModeEnabled
             isRemoteDisplayIndividualControlEnabled = persistedState.isRemoteDisplayIndividualControlEnabled
-            remoteDisplayNetworkMode = persistedState.remoteDisplayNetworkMode
+            remoteDisplayNetworkMode = ScoreboardRemoteDisplayNetworkMode.resolved(persistedState.remoteDisplayNetworkMode,
+                localEnabled: ScoreboardConnectionPolicy.allowsLocalNetworking,
+                cloudEnabled: ScoreboardPreferences.current.bool(forKey: "scoreboard.cloudEnabled")) ?? persistedState.remoteDisplayNetworkMode
             if !currentRules.supportsShotClock {
                 defaultShotClockSeconds = 0
                 activeShotClockPresetSeconds = 0
@@ -9412,6 +9501,7 @@ extension ScoreboardStore {
     }
 
     private func ensureOwnedSessionDescriptor() {
+        guard !isShowingFileHome else { return }
         guard sessionDescriptor == nil, isSessionAuthority, !isRemoteControlProxy else { return }
         let descriptor = ScoreboardSessionDescriptor(sessionID: currentRuntimeID, epoch: currentAuthorityEpoch,
             ownerDeviceID: localSessionDeviceID, ownerHostID: remoteDisplayHostID,

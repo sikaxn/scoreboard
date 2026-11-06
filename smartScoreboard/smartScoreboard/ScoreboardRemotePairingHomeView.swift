@@ -172,8 +172,10 @@ struct ScoreboardRemotePairingHomeView: View {
                             Button("Discard Previous Hosted Match", role: .destructive, action: discardHostedMatch)
                         }
                     } else if showsPairingControls {
-                        ScoreboardNearbyJoinContent(joined: returnToLive)
-                        Divider()
+                        if store.localConnectionsEnabled {
+                            ScoreboardNearbyJoinContent(joined: returnToLive)
+                            Divider()
+                        }
                         NavigationLink {
                             ScrollView {
                                 ScoreboardMatchGuestJoinForm(beforeConnect: { control in
@@ -184,7 +186,8 @@ struct ScoreboardRemotePairingHomeView: View {
                                     .padding(32)
                             }.navigationTitle("Cloud Code & Password")
                         } label: { Label("Join with Cloud Code & Password", systemImage: "cloud") }
-                            .buttonStyle(.bordered).accessibilityIdentifier("kiosk.cloudJoin")
+                            .buttonStyle(.bordered).disabled(!cloud.cloudEnabled).accessibilityIdentifier("kiosk.cloudJoin")
+                        if store.localConnectionsEnabled {
                         NavigationLink {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 24) {
@@ -197,12 +200,14 @@ struct ScoreboardRemotePairingHomeView: View {
                                 }.padding(32)
                             }.navigationTitle("Pair This Device")
                         } label: { Label("Show This Device’s Pairing PIN", systemImage: "qrcode") }.buttonStyle(.bordered)
+                        }
                     }
                     Divider()
                     NavigationLink {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 28) {
                                 ScoreboardSoftwareGeneralSettingsView()
+                                ScoreboardLocalConnectionsToggle()
                                 ScoreboardConnectionPreferencesView()
                                 ScoreboardCloudRemoteSection(mode: networkMode, permitsSessionJoining: false)
                                 Button("Forget Saved Pairings", role: .destructive) { forgot = true }

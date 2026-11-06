@@ -137,7 +137,7 @@ final class IntegrationRecoveryUITests: ScoreboardUITestCase {
             tap(mainWindow.buttons["connection.statusButton"])
         }
         tap(mainWindow.buttons["connection.settings"], anchor: status)
-        XCTAssertTrue(mainWindow.staticTexts["settings.title.remoteDisplay"].waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.staticTexts["settings.title.cloud"].waitForExistence(timeout: 5))
         returnToBoard()
     }
 

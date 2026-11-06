@@ -19,10 +19,10 @@ struct ScoreboardMatchLibraryView: View {
     }
     @ObservedObject private var navigation = ScoreboardAppNavigation.shared
     @ObservedObject private var library = ScoreboardStore.shared.matchLibrary
+    @ObservedObject private var cloud = ScoreboardCloudClient.shared
     @State private var showsNew = false
     @State private var showsAppMenu = false
     @State private var imports = false
-    @State private var opensImportedFile = false
     @State private var searches = false
     @State private var query = ""
     @State private var name = ""
@@ -56,7 +56,7 @@ struct ScoreboardMatchLibraryView: View {
                             .popover(isPresented: $showsAppMenu, arrowEdge: .top) {
                                 VStack(alignment: .leading, spacing: 18) {
                                     Button("App Settings", systemImage: "gearshape") { showsAppMenu = false; navigation.openSettings("general") }
-                                    Button("Cloud Service", systemImage: "cloud") { showsAppMenu = false; navigation.openSettings("cloud") }
+                                    Button("LAN & Cloud", systemImage: "network") { showsAppMenu = false; navigation.openSettings("cloud") }
                                     Divider()
                                     Button("Switch to Kiosk Mode", systemImage: "display") { showsAppMenu = false; confirmsKiosk = true }
                                 }.buttonStyle(.plain).padding(24)
@@ -66,13 +66,11 @@ struct ScoreboardMatchLibraryView: View {
                             }
                     }
                     ScoreboardHomeStatusView().scoreboardHomeEntrance(order: 1)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 215), spacing: 16)], spacing: 16) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: compactHeader ? 1 : 2), spacing: 16) {
                         action("New Scoreboard", detail: "Choose a sport and get started", icon: "plus", color: .orange) { name = ""; showsNew = true }
                             .accessibilityIdentifier("home.new")
-                        action("Open Scoreboard", detail: "Choose a scoreboard file", icon: "folder", color: .blue) { opensImportedFile = true; imports = true }
-                            .accessibilityIdentifier("home.open")
-                        action("Connect to Scoreboard", detail: "Nearby or with a cloud code", icon: "person.2", color: .teal) { navigation.open(.join) }
-                            .accessibilityIdentifier("home.connect")
+                        action("Connect to Scoreboard", detail: store.localConnectionsEnabled ? "Nearby or with a cloud code" : cloud.cloudEnabled ? "Join with a cloud code" : "Enable LAN or cloud in App Settings", icon: "person.2", color: .teal) { navigation.open(.join) }
+                            .disabled(!store.localConnectionsEnabled && !cloud.cloudEnabled).accessibilityIdentifier("home.connect")
                     }.scoreboardHomeEntrance(order: 2)
                     if let current = library.workingMatch {
                         HStack(spacing: 18) {
@@ -89,9 +87,9 @@ struct ScoreboardMatchLibraryView: View {
                     }
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
-                            Text("On This Device").font(.title2.bold())
+                            Text("Open Scoreboard").font(.title2.bold())
                             Spacer()
-                            Button("Import File", systemImage: "square.and.arrow.down") { opensImportedFile = false; imports = true }.accessibilityIdentifier("home.import")
+                            Button("Open File…", systemImage: "folder") { imports = true }.accessibilityIdentifier("home.open")
                         }
                         if searches || !library.entries.isEmpty {
                             TextField("Search scoreboards", text: $query).textFieldStyle(.roundedBorder).focused($searchFocused)
@@ -151,12 +149,12 @@ struct ScoreboardMatchLibraryView: View {
                 perform {
                     let url = try result.get(), access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    if opensImportedFile, let local = library.entries.first(where: { $0.url.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) {
+                    if let local = library.entries.first(where: { $0.url.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) {
                         try library.resume(local); navigation.openBoard()
                     } else {
                         let previous = Set(library.entries.map(\.id))
                         try library.importCopy(url)
-                        if opensImportedFile, let imported = library.entries.first(where: { !previous.contains($0.id) }) {
+                        if let imported = library.entries.first(where: { !previous.contains($0.id) }) {
                             try library.resume(imported); navigation.openBoard()
                         }
                     }

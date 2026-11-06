@@ -32,6 +32,7 @@ struct ScoreboardKioskHomeView: View {
     let showAbout: () -> Void
     let discardHostedMatch: () -> Void
     @ObservedObject private var store = ScoreboardStore.shared
+    @ObservedObject private var cloud = ScoreboardCloudClient.shared
     @State private var path: [KioskHomePage] = []
     @State private var lastAction = "tv.nearby"
     @State private var confirmsLeave = false
@@ -88,7 +89,7 @@ struct ScoreboardKioskHomeView: View {
                 }.padding(.horizontal, compact ? 40 : 72).padding(.vertical, compact ? 36 : 60)
             }
         }
-        .defaultFocus($focused, hasLiveState ? "tv.live" : lastAction)
+        .defaultFocus($focused, hasLiveState ? "tv.live" : !store.localConnectionsEnabled ? (cloud.cloudEnabled ? "tv.cloud" : "tv.settings") : lastAction)
         #if os(tvOS) || os(macOS)
         .onExitCommand(perform: hasLiveState ? returnToLive : nil)
         #endif
@@ -106,14 +107,19 @@ struct ScoreboardKioskHomeView: View {
                 }
             }
             if fillsHeight { Spacer(minLength: 8) }
-            Text("DEVICE PAIRING PIN").font(.system(size: compact ? 18 : 22, weight: .semibold)).foregroundStyle(.secondary)
-            Text(receiver.pairingCode).font(.system(size: compact ? 56 : 76, weight: .bold, design: .monospaced))
-                .contentTransition(.opacity).accessibilityIdentifier("kiosk.devicePIN")
-            Text("The host can discover this device and enter this PIN. Or choose Nearby Scoreboards to join from here.")
-                .font(.system(size: compact ? 20 : 24)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 24) {
-                ScoreboardPairingQRCode(value: ScoreboardPairingLink.nearbyURL(deviceID: receiver.displayID, code: receiver.pairingCode), size: compact ? 88 : 120)
-                KioskActionButton("New PIN", symbol: "arrow.clockwise", id: "tv.newPIN", focus: $focused) { receiver.resetPairingCode() }
+            if store.localConnectionsEnabled {
+                Text("DEVICE PAIRING PIN").font(.system(size: compact ? 18 : 22, weight: .semibold)).foregroundStyle(.secondary)
+                Text(receiver.pairingCode).font(.system(size: compact ? 56 : 76, weight: .bold, design: .monospaced))
+                    .contentTransition(.opacity).accessibilityIdentifier("kiosk.devicePIN")
+                Text("The host can discover this device and enter this PIN. Or choose Nearby Scoreboards to join from here.")
+                    .font(.system(size: compact ? 20 : 24)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 24) {
+                    ScoreboardPairingQRCode(value: ScoreboardPairingLink.nearbyURL(deviceID: receiver.displayID, code: receiver.pairingCode), size: compact ? 88 : 120)
+                    KioskActionButton("New PIN", symbol: "arrow.clockwise", id: "tv.newPIN", focus: $focused) { receiver.resetPairingCode() }
+                }
+            } else {
+                Label("LAN & Nearby Off", systemImage: "network.slash").font(.title2.bold())
+                Text(cloud.cloudEnabled ? "Join using a cloud code and password." : "Enable LAN/nearby or cloud in App Settings to join a scoreboard.").foregroundStyle(.secondary)
             }
             if fillsHeight { Spacer(minLength: 8) }
             ScoreboardHomeStatusView(stacked: true, fontSize: compact ? 16 : 20)
@@ -132,10 +138,11 @@ struct ScoreboardKioskHomeView: View {
                 Text("This device has a hosted match from an earlier version. Return it to the owner before resetting or joining another scoreboard.").font(.system(size: 24)).foregroundStyle(.orange)
                 KioskActionButton("Discard Previous Hosted Match", symbol: "trash", id: "tv.discard", focus: $focused, destructive: true, action: discardHostedMatch)
             } else {
-                KioskActionButton("Nearby Scoreboards", symbol: "dot.radiowaves.left.and.right", detail: "Discover a host on LAN or nearby Wi-Fi", id: "tv.nearby", focus: $focused, primary: !hasLiveState) {
+                KioskActionButton("Nearby Scoreboards", symbol: "dot.radiowaves.left.and.right", detail: "Discover a host on LAN or nearby Wi-Fi", id: "tv.nearby", focus: $focused, primary: !hasLiveState, enabled: store.localConnectionsEnabled) {
                     lastAction = "tv.nearby"; path.append(.nearby)
                 }
-                KioskActionButton("Cloud Code & Password", symbol: "cloud", detail: "Join without signing in", id: "tv.cloud", focus: $focused) {
+                KioskActionButton("Cloud Code & Password", symbol: "cloud", detail: "Join without signing in", id: "tv.cloud", focus: $focused,
+                    primary: !hasLiveState && !store.localConnectionsEnabled, enabled: cloud.cloudEnabled) {
                     lastAction = "tv.cloud"; path.append(.cloud)
                 }
             }
@@ -145,7 +152,7 @@ struct ScoreboardKioskHomeView: View {
             if hasLiveState || store.isJoinedMatchActive {
                 KioskActionButton("Leave Scoreboard", symbol: "rectangle.portrait.and.arrow.right", id: "tv.leave", focus: $focused, destructive: true) { confirmsLeave = true }
             }
-            Text("Join as a display or an approved control board. Received match data is cleared when disconnected.")
+            Text(ScoreboardRemoteDisplayDeviceType.current.supportsControl ? "Join as a display or an approved control board. Received match data is cleared when disconnected." : "Join as a scoreboard display. Received match data is cleared when disconnected.")
                 .font(.system(size: compact ? 20 : 22)).foregroundStyle(.secondary)
         }.scoreboardHomeEntrance(order: 1)
     }
@@ -176,12 +183,14 @@ private struct ScoreboardKioskSettingsView: View {
                 #else
                 ScoreboardSoftwareGeneralSettingsView()
                 #endif
+                ScoreboardLocalConnectionsToggle()
                 ScoreboardCloudRemoteSection(mode: store.remoteDisplayNetworkMode, permitsSessionJoining: false)
                 RemotePairingCard("Connection Preference") {
-                    ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+                    ForEach(store.availableConnectionModes) { mode in
                         KioskActionButton(mode.title, symbol: "network", detail: mode.detail, id: "tv.policy.\(mode.rawValue)", focus: $focused,
                             selected: store.remoteDisplayNetworkMode == mode) { store.setRemoteDisplayNetworkMode(mode) }
                     }
+                    if store.availableConnectionModes.isEmpty { Text("Local Only").foregroundStyle(.secondary) }
                 }
                 RemotePairingCard("This Device") {
                     KioskActionButton("Forget Saved Pairings", symbol: "link.badge.plus", id: "tv.forget", focus: $focused) { confirmsForget = true }
@@ -210,112 +219,6 @@ private struct ScoreboardKioskSettingsView: View {
         .alert("Unable to Reset", isPresented: Binding(get: { resetError != nil }, set: { if !$0 { resetError = nil } })) {
             Button("OK") { resetError = nil }
         } message: { Text(resetError ?? "") }
-    }
-}
-
-/// Shared controller, with focus and Siri Remote commands on Apple TV.
-struct ScoreboardKioskControlView: View {
-    @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
-    var showConnection: () -> Void
-    @FocusState private var focused: String?
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                if let state = receiver.state {
-                    VStack(spacing: 28) {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 28) {
-                                controlHeader.frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
-                                KioskActionButton("Connection", symbol: "network", id: "control.connection", focus: $focused, action: showConnection).frame(width: 300)
-                            }
-                            VStack(alignment: .leading, spacing: 20) {
-                                controlHeader
-                                KioskActionButton("Connection", symbol: "network", id: "control.connection", focus: $focused, action: showConnection)
-                            }
-                        }.scoreboardKioskFocusSection()
-                        if !receiver.canSendControlCommand {
-                            Label("Waiting for a fresh connection. Score controls are unavailable.", systemImage: "wifi.exclamationmark").foregroundStyle(.orange)
-                        }
-                        if state.rules.supportsScore {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: geometry.size.width >= 1000 ? 2 : 1), spacing: 28) {
-                                score(state.teams.home.name, value: state.teams.home.score, side: .home, state: state)
-                                score(state.teams.guest.name, value: state.teams.guest.score, side: .guest, state: state)
-                            }
-                        }
-                        if state.clocks.showsGameClock || state.rules.usesChessClocks {
-                            VStack(spacing: 20) {
-                                if state.rules.usesChessClocks {
-                                    HStack(spacing: 32) {
-                                        KioskActionButton("\(state.teams.home.name) · \(state.clocks.formattedHomeChessClock)", symbol: "timer", id: "control.homeClock", focus: $focused, enabled: receiver.canSendControlCommand) { send(state.rules.sport == .debate ? "debate.turn" : "chess.side", side: .home) }
-                                        KioskActionButton("\(state.teams.guest.name) · \(state.clocks.formattedGuestChessClock)", symbol: "timer", id: "control.guestClock", focus: $focused, enabled: receiver.canSendControlCommand) { send(state.rules.sport == .debate ? "debate.turn" : "chess.side", side: .guest) }
-                                    }
-                                } else { Text(state.clocks.formattedGameClock).font(.system(size: 64, weight: .bold, design: .monospaced)) }
-                                KioskActionButton("Start / Pause Clock", symbol: "playpause.fill", id: "control.clock", focus: $focused, primary: true, enabled: receiver.canSendControlCommand) { send("clock.toggle") }.frame(maxWidth: 650)
-                            }.scoreboardKioskFocusSection()
-                        }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: min(280, max(110, geometry.size.width - controlPadding * 2))), spacing: 32)], spacing: 24) {
-                            if state.rules.supportsShotClock {
-                                KioskActionButton("Shot Clock · \(state.clocks.formattedShotClock)", symbol: "playpause", id: "control.shot", focus: $focused, enabled: receiver.canSendControlCommand) { send("shot.toggle") }
-                            }
-                            if state.rules.supportsPeriod {
-                                KioskActionButton("Previous \(state.rules.periodTitle)", symbol: "minus", id: "control.periodMinus", focus: $focused, enabled: receiver.canSendControlCommand) { send("period.adjust", value: -1) }
-                                KioskActionButton("Next \(state.rules.periodTitle)", symbol: "plus", id: "control.periodPlus", focus: $focused, enabled: receiver.canSendControlCommand) { send("period.adjust", value: 1) }
-                            }
-                        }.scoreboardKioskFocusSection()
-                        if let result = receiver.controlResult, !result.success { Text(result.message ?? "Command unavailable").foregroundStyle(.orange) }
-                    }.padding(.horizontal, controlPadding).padding(.vertical, 40)
-                    .defaultFocus($focused, receiver.canSendControlCommand ? (state.rules.supportsScore ? state.rules.scoreStepOptions.first.map { "control.home.plus.\($0)" } ?? "control.home.minus" : "control.clock") : "control.connection")
-                }
-            }
-        }.background(Color(red: 0.035, green: 0.055, blue: 0.10).ignoresSafeArea()).preferredColorScheme(.dark)
-        #if os(tvOS) || os(macOS)
-        .onExitCommand(perform: showConnection)
-        #endif
-        #if os(tvOS)
-        .onPlayPauseCommand {
-            guard let state = receiver.state, state.clocks.showsGameClock || state.rules.usesChessClocks else { return }
-            send("clock.toggle")
-        }
-        #endif
-        .onChange(of: receiver.canSendControlCommand) { _, ready in if !ready { focused = "control.connection" } }
-    }
-    private var controlHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Control Board").font(.system(size: 38, weight: .bold))
-            Text(controlInstructions).font(.system(size: 20)).foregroundStyle(.secondary)
-        }
-    }
-    private var controlPadding: CGFloat {
-        #if os(tvOS)
-        72
-        #else
-        28
-        #endif
-    }
-    private var controlInstructions: String {
-        #if os(tvOS)
-        "Arrows: move · Select: activate · Play/Pause: clock · Back: connection"
-        #elseif os(macOS)
-        "Click a control · Tab to move · Esc opens connection options"
-        #else
-        "Choose a score or clock control. Connection options stay available above."
-        #endif
-    }
-    private func score(_ name: String, value: Int, side: TeamSide, state: ScoreboardWebAPIState) -> some View {
-        VStack(spacing: 18) {
-            Text(name).font(.system(size: 32, weight: .bold)).lineLimit(2)
-            Text("\(value)").font(.system(size: 96, weight: .bold, design: .rounded)).monospacedDigit()
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 18)], spacing: 18) {
-                ForEach(Array(state.rules.scoreStepOptions.prefix(3)), id: \.self) { amount in
-                    KioskActionButton("+\(amount)", symbol: "", id: "control.\(side.rawValue).plus.\(amount)", focus: $focused, primary: true, enabled: receiver.canSendControlCommand) { send("score.adjust", side: side, value: amount) }
-                }
-                KioskActionButton("−1", symbol: "", id: "control.\(side.rawValue).minus", focus: $focused, enabled: receiver.canSendControlCommand) { send("score.adjust", side: side, value: -1) }
-            }.frame(maxWidth: CGFloat((min(3, state.rules.scoreStepOptions.count) + 1) * 138 - 18))
-        }.padding(26).frame(maxWidth: .infinity).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24)).scoreboardKioskFocusSection()
-    }
-    private func send(_ action: String, side: TeamSide? = nil, value: Int? = nil) {
-        guard receiver.canSendControlCommand, let state = receiver.state else { return }
-        receiver.sendCommand(.init(action: action, sport: state.rules.sport, side: side, value: value))
     }
 }
 

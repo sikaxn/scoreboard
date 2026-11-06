@@ -63,7 +63,7 @@ struct ContentView: View, ScoreboardSetupEditing {
          startsInSettings: Bool = false, initialSettingsSection: String = "game", softwareSettings: Bool = false,
          returnHome: (() -> Void)? = nil) {
         _showsSetup = State(initialValue: !remoteControlBoard && startsInSettings)
-        _selectedSettingsPane = State(initialValue: SettingsPane(rawValue: initialSettingsSection) ?? .game)
+        _selectedSettingsPane = State(initialValue: SettingsPane(rawValue: initialSettingsSection == "remoteDisplay" ? "cloud" : initialSettingsSection) ?? .game)
         self.returnHome = returnHome
         self.softwareSettings = softwareSettings
         _remoteControlReceiver = ObservedObject(wrappedValue: remoteReceiver ?? .shared)
@@ -73,7 +73,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     @ObservedObject private var remoteControlReceiver: ScoreboardRemoteDisplayReceiver
     private let softwareSettings: Bool
     private var visibleSettingsPanes: [SettingsPane] {
-        softwareSettings ? [.general, .cloud, .remoteDisplay, .sound, .theme, .keyboardShortcuts, .integration, .files, .logs, .about]
+        softwareSettings ? [.general, .cloud, .sound, .theme, .keyboardShortcuts, .integration, .files, .logs, .about]
             : [.game, .players, .display]
     }
     private var returnHome: (() -> Void)?
@@ -265,6 +265,7 @@ struct ContentView: View, ScoreboardSetupEditing {
     private var isGameClockResetInterlockActive: Bool { store.isGameClockInterlockActive }
     private var areLiveKeyboardShortcutsEnabled: Bool {
         guard !showsSetup,
+              !showsRemoteConnectionDetails,
               !showsControlBoardModePicker,
               focusedSettingsTextFieldID == nil,
               recordingKeyboardShortcutAction == nil,
@@ -315,6 +316,12 @@ struct ContentView: View, ScoreboardSetupEditing {
     var body: ScoreboardViewBoundary {
         ScoreboardViewBoundary {
             alertConfiguredRootView
+                .sheet(isPresented: $showsRemoteConnectionDetails) {
+                    ScoreboardConnectionSheet(receiver: remoteControlReceiver, returnToRemoteControl: returnToRemoteControl)
+                        .environmentObject(store)
+                        .defaultAppStorage(ScoreboardPreferences.current)
+                        .frame(minWidth: 320, idealWidth: 900, minHeight: 550)
+                }
         }
     }
 
@@ -999,6 +1006,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                             .background(settingsPalette.secondaryButtonBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(softwareSettings ? "appSettings.done" : "settings.back")
                 }
 
                 Button {
@@ -1090,6 +1098,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             ) {
                 returnFromSettings()
             }
+            .accessibilityIdentifier(softwareSettings ? "appSettings.done" : "settings.back")
         }
         .padding(.horizontal, layout.settingsCompactNavigationHorizontalPadding)
         .padding(.vertical, layout.settingsCompactNavigationVerticalPadding)
@@ -1515,7 +1524,14 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .keyboardShortcuts:
             ScoreboardViewBoundary { settingsKeyboardShortcutsPane(layout: layout) }
         case .integration:
-            ScoreboardViewBoundary { settingsIntegrationPane(layout: layout) }
+            ScoreboardViewBoundary {
+                VStack(alignment: .leading, spacing: 22) {
+                    if !store.localConnectionsEnabled {
+                        Text("Connections are off. Enable them in Connections settings to use network integrations.").foregroundStyle(.secondary)
+                    }
+                    settingsIntegrationPane(layout: layout).disabled(!store.localConnectionsEnabled)
+                }
+            }
         case .remoteDisplay:
             ScoreboardViewBoundary {
                 VStack(alignment: .leading, spacing: 22) {
@@ -1526,7 +1542,16 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .general:
             ScoreboardViewBoundary { ScoreboardSoftwareGeneralSettingsView() }
         case .cloud:
-            ScoreboardViewBoundary { ScoreboardCloudSettingsView() }
+            ScoreboardViewBoundary {
+                VStack(alignment: .leading, spacing: 22) {
+                    ScoreboardLocalConnectionsToggle()
+                    ScoreboardConnectionPreferencesView()
+                    if store.localConnectionsEnabled {
+                        settingsLocalNetworkPermissionSection()
+                    }
+                    ScoreboardCloudSettingsView()
+                }
+            }
         case .about:
             ScoreboardViewBoundary { settingsAboutPane() }
         }
@@ -4130,7 +4155,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             get: { store.remoteDisplayNetworkMode },
             set: { store.setRemoteDisplayNetworkMode($0) }
         )) {
-            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { mode in
+            ForEach(store.availableConnectionModes) { mode in
                 localizedAppText(mode.title).tag(mode)
             }
         }
@@ -8401,7 +8426,7 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     @ViewBuilder
     private func externalDisplayHeaderStatusBadge(layout: InterfaceLayout) -> some View {
-        if store.isRemoteControlProxy || store.isFollowingSessionHost || store.isRemoteDisplayHostEnabled {
+        if store.isRemoteControlProxy || store.isFollowingSessionHost || store.isRemoteDisplayHostEnabled || ScoreboardCloudClient.shared.isPublishingLocalHost {
             remoteControlHeaderStatusBadge(layout: layout)
         } else {
         HStack(spacing: 8) {
@@ -8431,34 +8456,12 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
     }
 
-    private var remoteControlPingTitle: String {
-        guard remoteControlReceiver.status.isLive, let trip = remoteControlReceiver.roundTripSeconds else {
-            return localizedAppString("Ping unavailable")
-        }
-        return localizedAppFormat("Ping %d ms", Int((trip * 1_000).rounded()))
+    private var connectionOverview: ScoreboardConnectionOverview {
+        .init(store: store, receiver: remoteControlReceiver)
     }
-
-    private var remoteConnectionIsHosting: Bool {
-        if store.isFollowingSessionHost { return false }
-        if let session = remoteConnectionSession, session.hostDeviceID != store.localSessionDeviceID { return false }
-        return remoteControlReceiver.isHostingSession || (store.isSessionAuthority && store.isRemoteDisplayHostEnabled)
-    }
-
-    private var remoteControlConnectionTitle: String {
-        if remoteConnectionIsHosting { return localizedAppString("Hosting") }
-        guard remoteControlReceiver.status.isLive else { return localizedAppString(remoteControlReceiver.status.title) }
-        return localizedAppString(remoteControlReceiver.isControlConnectionReady ? "Connected" :
-            (store.isFollowingSessionHost ? "Waiting for session host…" : "Waiting for main device…"))
-    }
-
-    private var remoteControlDeviceCountsTitle: String? {
-        guard let counts = store.remoteSessionDeviceCounts else { return nil }
-        return localizedAppFormat("%d connected · %d disconnected", counts.connected, counts.disconnected)
-    }
-
-    private var remoteConnectionSession: ScoreboardSessionDescriptor? {
-        store.isSessionAuthority ? store.sessionDescriptor : (remoteControlReceiver.state?.control?.session ?? store.sessionDescriptor)
-    }
+    private var remoteConnectionIsHosting: Bool { connectionOverview.isHosting }
+    private var remoteControlConnectionTitle: String { connectionOverview.title }
+    private var remoteControlDeviceCountsTitle: String? { connectionOverview.countsDescription }
 
     private var remoteOwnerIsDisconnected: Bool {
         store.remoteSessionOwnerConnected == false
@@ -8509,211 +8512,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                 }
             }
         }
-        .popover(isPresented: Binding(
-            get: { showsRemoteConnectionDetails && !isIPhoneInterface },
-            set: { showsRemoteConnectionDetails = $0 }
-        )) {
-            TimelineView(.periodic(from: Date(), by: 1)) { _ in
-                remoteConnectionDetails(showsHeading: true)
-            }
-            .frame(width: 400, height: 520)
-        }
-        #if os(iOS)
-        .sheet(isPresented: Binding(
-            get: { showsRemoteConnectionDetails && isIPhoneInterface },
-            set: { showsRemoteConnectionDetails = $0 }
-        )) {
-            NavigationStack {
-                TimelineView(.periodic(from: Date(), by: 1)) { _ in
-                    remoteConnectionDetails(showsHeading: false)
-                }
-                .navigationTitle(localizedAppString("Connection Status"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(localizedAppString("Done")) { showsRemoteConnectionDetails = false }
-                            .accessibilityIdentifier("connection.done")
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        #endif
-    }
-
-    private func remoteConnectionDetailRow(_ title: String, value: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                localizedAppText(title).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 4)
-                Text(value).multilineTextAlignment(.trailing)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                localizedAppText(title).foregroundStyle(.secondary)
-                Text(value).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .font(.callout)
-    }
-
-    private func remoteConnectionDetails(showsHeading: Bool) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if showsHeading {
-                    HStack {
-                        localizedAppText("Connection Status").font(.headline)
-                        Spacer()
-                        Button { showsRemoteConnectionDetails = false } label: {
-                            Image(systemName: "xmark").frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(localizedAppString("Close"))
-                    }
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    remoteConnectionDetailRow(remoteConnectionIsHosting ? "Connection" : "Connection to Host", value: remoteControlConnectionTitle)
-                    if let session = remoteConnectionSession {
-                        remoteConnectionDetailRow("Session Host", value: session.hostName)
-                        remoteConnectionDetailRow("Owner", value: session.ownerName)
-                        if store.isFollowingSessionHost {
-                            localizedAppText(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !remoteConnectionIsHosting {
-                        remoteConnectionDetailRow("Latency", value: remoteControlPingTitle)
-                        if let info = remoteControlReceiver.connectionInfo {
-                            remoteConnectionDetailRow("Route", value: localizedAppString(info.normalized.route.title))
-                            remoteConnectionDetailRow("Transport", value: info.method.title)
-                            if let medium = info.interfaceTitle { remoteConnectionDetailRow("Interface", value: medium) }
-                        } else {
-                            remoteConnectionDetailRow("Transport", value: remoteControlReceiver.realtimeTransport)
-                        }
-                    }
-                }
-                .padding(14)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
-
-                VStack(alignment: .leading, spacing: 12) {
-                    localizedAppText("Clients Connected to Host").font(.subheadline.weight(.semibold))
-                    if let remoteControlDeviceCountsTitle {
-                        Text(remoteControlDeviceCountsTitle).font(.caption).monospacedDigit()
-                    }
-                    if !remoteConnectionIsHosting && !remoteControlReceiver.status.isLive {
-                        localizedAppText("Last reported by the session host.").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if (store.remoteSessionDevices ?? []).isEmpty {
-                        localizedAppText("No clients connected.").font(.callout).foregroundStyle(.secondary)
-                    }
-                    ForEach(store.remoteSessionDevices ?? [], id: \.id) { device in
-                        remoteConnectionDeviceRow(device)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-                if let result = remoteControlReceiver.controlResult, !result.success {
-                    Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"),
-                          systemImage: "exclamationmark.circle")
-                        .font(.callout)
-                }
-                if store.isSessionOwner && !store.isRemoteControlProxy {
-                    Divider()
-                    Button {
-                        showsRemoteConnectionDetails = false
-                        openSettingsFromLiveBoard()
-                        selectedSettingsPane = .remoteDisplay
-                    } label: {
-                        Label(localizedAppString("Remote Display Settings"), systemImage: "tv.and.mediabox")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("connection.settings")
-                    Button(role: .destructive) {
-                        store.hostOnOwnerAndDisconnectOthers()
-                    } label: {
-                        localizedAppText("Host Here & Disconnect Others")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!store.canHostOnOwnerAndDisconnectOthers)
-                    if store.isAnyTimerRunning {
-                        localizedAppText("Stop all timers before moving the session host.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let message = store.sessionStatusMessage {
-                        Text(ScoreboardLocalization.remoteSessionMessage(message))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if let returnToRemoteControl {
-                    Button(localizedAppString("Return to Remote Control")) {
-                        showsRemoteConnectionDetails = false
-                        returnToRemoteControl()
-                    }
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityIdentifier("connection.status")
-        .foregroundStyle(.primary)
-    }
-
-    private func remoteConnectionDeviceRow(_ device: ScoreboardSessionPeer) -> some View {
-        let isHost = device.id == remoteConnectionSession?.hostDeviceID
-        let status = isHost && device.connected ? "Hosting" : (device.connected ? (device.quality == .poor ? "Poor" : "Connected") :
-            (device.quality == .connecting ? "Connecting" : "Disconnected"))
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: device.deviceType.systemImage)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(device.name).font(.callout.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 5) {
-                    Circle().fill(device.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
-                    localizedAppText(status).font(.caption)
-                }
-                if device.id == remoteConnectionSession?.ownerDeviceID, !isHost {
-                    Text("Owner · Client").font(.caption.weight(.semibold))
-                }
-                Text(localizedAppString(device.deviceType.title)).font(.caption).foregroundStyle(.secondary)
-                if let canControl = device.controlEnabled, !isHost {
-                    Text(canControl ? "Control enabled" : "Remote Display").font(.caption).foregroundStyle(.secondary)
-                }
-                if !isHost && device.connected {
-                    if let connection = device.connectionStatus {
-                        Text(connection.summary).font(.caption).foregroundStyle(.secondary)
-                        if let medium = connection.active?.interfaceTitle {
-                            Text(medium).font(.caption).foregroundStyle(.secondary)
-                        }
-                        if let other = connection.otherConnections {
-                            Text("Available: \(other)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else if let transport = device.realtimeTransport {
-                        Text(transport).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if !isHost && device.connected, device.connectionStatus?.active?.route != .cloud,
-                   let latency = device.latencyMilliseconds {
-                    Text(localizedAppFormat("Ping %d ms", latency)).font(.caption).monospacedDigit()
-                }
-                if !isHost, !device.connected, let age = device.lastHandshakeAgeSeconds {
-                    Text(localizedAppFormat("Last response %d s ago", age))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("connection.client.\(device.id)")
     }
 
     #if os(iOS)
@@ -9040,7 +8838,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                         settingsAction("Game Settings", symbol: "slider.horizontal.3") { openSettingsFromLiveBoard() }
                         settingsAction("App Settings", symbol: "gearshape") { ScoreboardAppNavigation.shared.openSettings("general") }
                         Divider().padding(.vertical, 6)
-                        settingsAction("Connect Devices", symbol: "person.2") { ScoreboardAppNavigation.shared.open(.sharing) }
+                        settingsAction("Connect Devices", symbol: "person.2") { showsRemoteConnectionDetails = true }
                         if let returnHome { settingsAction("Home", symbol: "house", action: returnHome) }
                     }.padding(16).frame(width: 280)
                         #if os(iOS)
@@ -15520,7 +15318,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .remoteDisplay:
             return "Connection Preferences"
         case .cloud:
-            return "Cloud Service"
+            return "LAN & Cloud"
         case .sound:
             return "Sound"
         case .theme:
@@ -15551,7 +15349,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .remoteDisplay:
             return "Choose the preferred route for connections on this device."
         case .cloud:
-            return "Choose a cloud service and sign in to share your scoreboards online."
+            return "Control LAN/nearby and cloud access separately. Turn both off to keep this device completely local."
         case .sound:
             return "Control global audio and preview sport-specific timer sounds."
         case .theme:
@@ -15582,7 +15380,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .remoteDisplay:
             return "tv.and.mediabox"
         case .cloud:
-            return "cloud"
+            return "network"
         case .sound:
             return "speaker.wave.2"
         case .theme:

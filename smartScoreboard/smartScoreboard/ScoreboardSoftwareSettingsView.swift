@@ -1,5 +1,26 @@
 import SwiftUI
 
+struct ScoreboardLocalConnectionsToggle: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @State private var error: String?
+    var body: some View {
+        ScoreboardCloudSection("LAN & Nearby", footer: "Allow pairing and connections on your local network or nearby Wi-Fi, including local Web API and Companion. Cloud access is controlled separately below. Turn both off for a completely local scoreboard.") {
+            Toggle("Enable LAN & Nearby", isOn: Binding(get: { store.localConnectionsEnabled }, set: { enabled in
+                do { try store.setLocalConnectionsEnabled(enabled) }
+                catch { self.error = error.localizedDescription }
+            }))
+                .scoreboardCloudSettingsToggleStyle().padding(.vertical, 12)
+                .accessibilityIdentifier("connections.localEnabled")
+            if !store.localConnectionsEnabled {
+                Text("LAN and nearby connections are off. Cloud can still be used independently.").foregroundStyle(.secondary).padding(.bottom, 12)
+            }
+        }
+        .alert("Unable to Change LAN & Nearby", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
+    }
+}
+
 struct ScoreboardSoftwareGeneralSettingsView: View {
     @EnvironmentObject private var store: ScoreboardStore
     @State private var requestedMode: ScoreboardDeviceMode?
@@ -32,13 +53,22 @@ struct ScoreboardSoftwareGeneralSettingsView: View {
 
 struct ScoreboardConnectionPreferencesView: View {
     @EnvironmentObject private var store: ScoreboardStore
+    @ObservedObject private var cloud = ScoreboardCloudClient.shared
     @State private var showsGuide = false
     var body: some View {
-        ScoreboardCloudSection("Connection Preferences", footer: "Nearby and LAN work without internet. Cloud preferences require cloud access on the host and this device.") {
+        ScoreboardCloudSection("Preferred Route", footer: "Available routes follow the LAN/nearby and cloud switches. LAN and nearby do not need internet.") {
+            if store.availableConnectionModes.isEmpty {
+                Label("Local Only", systemImage: "internaldrive").padding(.vertical, 12)
+            } else if store.availableConnectionModes.count == 1 {
+                Text(store.remoteDisplayNetworkMode.title).padding(.vertical, 12).accessibilityIdentifier("connections.preference")
+            } else {
             Picker("Preferred Connection", selection: Binding(get: { store.remoteDisplayNetworkMode }, set: store.setRemoteDisplayNetworkMode)) {
-                ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.menu).padding(.vertical, 12)
-            Text(store.remoteDisplayNetworkMode.detail).font(.callout).foregroundStyle(.secondary).padding(.bottom, 12)
+                ForEach(store.availableConnectionModes) { Text($0.title).tag($0) }
+            }.pickerStyle(.menu).padding(.vertical, 12).accessibilityIdentifier("connections.preference")
+            }
+            if !store.availableConnectionModes.isEmpty {
+                Text(store.remoteDisplayNetworkMode.detail).font(.callout).foregroundStyle(.secondary).padding(.bottom, 12)
+            }
             Button("Connection Guide", systemImage: "questionmark.circle") { showsGuide = true }.padding(.bottom, 12)
         }.sheet(isPresented: $showsGuide) { RemoteSessionHelpView() }
     }

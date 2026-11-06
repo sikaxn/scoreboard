@@ -4,6 +4,149 @@ import CryptoKit
 import Network
 
 extension ScoreboardTests {
+    @Test("Home stops serving clients without discarding the scoreboard and reopening restarts hosting")
+    func fileHomeDisconnectsClients() async throws {
+        try store.matchLibrary.start()
+        store.adjustScore(isHome: true, by: 7)
+        let matchID = store.currentMatchID
+        store.isWebAPIEnabled = true
+        defer { store.isWebAPIEnabled = false; store.setRemoteDisplayHostEnabled(false); store.isShowingFileHome = false }
+        for _ in 0..<80 {
+            if store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let port = try #require({ () -> UInt16? in if case .running(_, let port, _) = store.webAPIStatus { return port }; return nil }())
+        let socket = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)/")!)
+        socket.resume()
+        defer { socket.cancel(with: .goingAway, reason: nil) }
+        _ = try await socket.receive()
+        for _ in 0..<80 {
+            if !store.webAPIClients.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(!store.webAPIClients.isEmpty)
+        try store.prepareForFileHome()
+        for _ in 0..<80 {
+            if store.webAPIClients.isEmpty && !store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(store.isShowingFileHome && !store.isRemoteDisplayHostEnabled)
+        #expect(store.webAPIClients.isEmpty && !store.webAPIStatus.isRunning)
+        store.setRemoteDisplayHostEnabled(true)
+        #expect(!store.isRemoteDisplayHostEnabled)
+        #expect(!store.performCloudControlCommand(cmd("score.adjust", side: .home, value: 1)).success)
+        #expect(store.currentMatchID == matchID && store.homeScore == 7)
+        store.resumeOpenMatchConnections()
+        for _ in 0..<80 {
+            if store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(!store.isShowingFileHome && store.webAPIStatus.isRunning && store.isRemoteDisplayHostEnabled)
+        #expect(store.currentMatchID == matchID && store.homeScore == 7)
+    }
+
+    @Test("Apple TV is display-only while iPad and Mac support the standard controller")
+    func remoteDeviceControlCapabilities() {
+        #expect(!ScoreboardRemoteDisplayDeviceType.appleTV.supportsControl)
+        #expect(ScoreboardRemoteDisplayDeviceType.ipad.supportsControl && ScoreboardRemoteDisplayDeviceType.mac.supportsControl)
+        store.setRemoteControlAllowed(displayID: "test-tv", isAllowed: true)
+        #expect(!store.isRemoteControlAllowed(displayID: "test-tv"))
+        store.setRemoteControlAllowed(displayID: "test-ipad", isAllowed: true)
+        #expect(store.isRemoteControlAllowed(displayID: "test-ipad"))
+    }
+
+    @Test("Kiosk invitations compare the configured cloud origin without accepting another server")
+    func configuredCloudServiceOrigin() {
+        #expect(ScoreboardCloudEndpoint.sameService("https://scores.example.test/", "https://scores.example.test"))
+        #expect(ScoreboardCloudEndpoint.sameService("https://scores.example.test:443", "https://scores.example.test"))
+        #expect(!ScoreboardCloudEndpoint.sameService("https://other.example.test", "https://scores.example.test"))
+        #expect(!ScoreboardCloudEndpoint.sameService("https://scores.example.test:8443", "https://scores.example.test"))
+    }
+
+    @Test("Local-only mode stops network services and cannot be bypassed by opening or restoring a scoreboard")
+    func localOnlyConnectionPolicy() async throws {
+        let library = store.matchLibrary
+        try library.start()
+        store.adjustScore(isHome: true, by: 7)
+        try library.save()
+        let matchID = store.currentMatchID
+        var backup = try #require(JSONSerialization.jsonObject(with: store.exportPersistedStateData()) as? [String: Any])
+        backup["isRemoteDisplayHostEnabled"] = true
+        backup["isWebAPIEnabled"] = true
+        backup["isCompanionVisible"] = true
+        backup["isCompanionEnabled"] = true
+        defer { try? store.setLocalConnectionsEnabled(true) }
+
+        // The core fixture serves HTTP on an OS-assigned loopback port.
+        store.isWebAPIEnabled = true
+        for _ in 0..<80 {
+            if store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(store.webAPIStatus.isRunning)
+
+        try store.setLocalConnectionsEnabled(false)
+        for _ in 0..<80 {
+            if !store.webAPIStatus.isRunning { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(!store.webAPIStatus.isRunning)
+        #expect(!ScoreboardConnectionPolicy.allowsLocalNetworking && !store.localConnectionsEnabled)
+        #expect(!store.isRemoteDisplayHostEnabled && !store.isWebAPIEnabled && !store.isCompanionEnabled)
+        store.setRemoteDisplayHostEnabled(true)
+        store.setWebAPIEnabled(true)
+        store.isCompanionVisible = true
+        store.setCompanionEnabled(true)
+        #expect(!store.isRemoteDisplayHostEnabled && !store.isWebAPIEnabled && !store.isCompanionEnabled)
+        try store.restorePersistedStateData(JSONSerialization.data(withJSONObject: backup))
+        #expect(!store.isRemoteDisplayHostEnabled && !store.isWebAPIEnabled && !store.isCompanionEnabled)
+        #expect(!store.localConnectionsEnabled && !ScoreboardConnectionPolicy.allowsLocalNetworking)
+        // Restoring file state must remain usable without reactivating networking.
+        store.adjustScore(isHome: true, by: 1)
+        try library.save()
+        #expect(store.currentMatchID == matchID && store.homeScore == 8)
+        #expect(!ScoreboardCloudClient.shared.isConnected)
+        try store.setLocalConnectionsEnabled(true)
+        #expect(ScoreboardConnectionPolicy.allowsLocalNetworking && store.localConnectionsEnabled)
+        #expect(store.currentMatchID == matchID && store.homeScore == 8)
+    }
+
+    @Test("Preferred routes track independent LAN and cloud switches, including cloud-only operation")
+    func linkedConnectionPreferences() throws {
+        let cloud = ScoreboardCloudClient.shared
+        defer { cloud.cloudEnabled = false; try? store.setLocalConnectionsEnabled(true) }
+        cloud.cloudEnabled = false
+        #expect(store.availableConnectionModes == [.localNetworkOnly, .nearbyAndLocalNetwork])
+        store.setRemoteDisplayNetworkMode(.localNetworkOnly)
+        #expect(store.remoteDisplayNetworkMode == .localNetworkOnly)
+        cloud.cloudEnabled = true
+        #expect(store.availableConnectionModes == [.preferLocal, .preferCloud])
+        #expect(store.remoteDisplayNetworkMode == .preferLocal)
+        store.setRemoteDisplayNetworkMode(.preferCloud)
+        try store.setLocalConnectionsEnabled(false)
+        #expect(cloud.cloudEnabled)
+        #expect(store.availableConnectionModes == [.cloudOnly] && store.remoteDisplayNetworkMode == .cloudOnly)
+        #expect(!ScoreboardRemoteDisplayNetworkMode.cloudOnly.includesPeerToPeer)
+        #expect(ScoreboardRemoteRoute.choose(mode: .cloudOnly, localFresh: true, cloudFresh: false,
+            sameHost: true, current: .cloud, hasPendingCommand: false) == .cloud)
+        store.setRemoteDisplayNetworkMode(.preferLocal)
+        #expect(store.remoteDisplayNetworkMode == .cloudOnly)
+        cloud.cloudEnabled = false
+        #expect(store.availableConnectionModes.isEmpty && !store.localConnectionsEnabled)
+        try store.setLocalConnectionsEnabled(true)
+        #expect(store.remoteDisplayNetworkMode == .nearbyAndLocalNetwork)
+    }
+
+    @Test("Bonjour authorization failures have actionable messages without misclassifying network failures")
+    func nearbyDiscoveryPermissionErrors() {
+        #expect(ScoreboardNearbyNetworkError.requiresPermission(.dns(-65555)))
+        #expect(ScoreboardNearbyNetworkError.requiresPermission(.dns(-65570)))
+        #expect(ScoreboardNearbyNetworkError.requiresPermission(.posix(.EACCES)))
+        #expect(!ScoreboardNearbyNetworkError.requiresPermission(.posix(.ENETDOWN)))
+        #expect(!ScoreboardNearbyNetworkError.message(for: .dns(-65555)).contains("-65555"))
+        #expect(!ScoreboardNearbyNetworkError.message(for: .dns(-65555)).contains("NoAuth"))
+    }
+
     @Test("Kiosk factory reset clears cloud URL, credentials, local pairings and cached game data")
     func kioskFactoryReset() throws {
         let preferences = ScoreboardPreferences.current

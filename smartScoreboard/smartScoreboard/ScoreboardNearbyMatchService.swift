@@ -44,6 +44,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     @Published private(set) var joinCode = String(format: "%06d", Int.random(in: 0...999_999))
     @Published private(set) var requestedControllers: Set<String> = []
     @Published private(set) var discoveryError: String?
+    @Published private(set) var discoveryNeedsPermission = false
     private weak var owner: ScoreboardStore?
     private var listener: NWListener?
     private var browser: NWBrowser?
@@ -77,7 +78,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
 
     func update(owner store: ScoreboardStore) {
         owner = store
-        let enabled = ScoreboardDeviceMode.current.canHost && store.isRemoteDisplayHostEnabled && store.isSessionAuthority && (!store.isRemoteDisplayViewerModeEnabled || store.isDelegatedSessionHost)
+        let enabled = !store.isShowingFileHome && ScoreboardConnectionPolicy.allowsLocalNetworking && ScoreboardDeviceMode.current.canHost && store.isRemoteDisplayHostEnabled && store.isSessionAuthority && (!store.isRemoteDisplayViewerModeEnabled || store.isDelegatedSessionHost)
         guard enabled else {
             listener?.cancel(); listener = nil; advertisedMatchID = nil; lastAdvertisement = nil
             pending.values.forEach { $0.cancel() }; pending.removeAll()
@@ -121,12 +122,18 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
 
     func acquireBrowser(mode: ScoreboardRemoteDisplayNetworkMode) {
         browserConsumers += 1
+        startBrowser(mode: mode)
+    }
+
+    private func startBrowser(mode: ScoreboardRemoteDisplayNetworkMode) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, mode.allowsLocalNetwork else { return }
         guard browser == nil else { return }
+        discoveryError = nil; discoveryNeedsPermission = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil),
                                 using: Self.parameters(peerToPeer: mode.includesPeerToPeer))
         browser.browseResultsChangedHandler = { [weak self, weak browser] results, _ in
             Task { @MainActor [weak self, weak browser] in
-            guard let self, self.browser === browser else { return }
+            guard let self, let browser, self.browser === browser else { return }
             let matches: [ScoreboardNearbyMatch] = results.compactMap { result in
                 guard case .bonjour(let txt) = result.metadata, txt["version"] == "1",
                       let id = txt["ownerID"], id != ScoreboardStore.shared.localSessionDeviceID,
@@ -138,9 +145,19 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
             self.discoveryError = nil
             }
         }
-        browser.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
-            if case .failed(let error) = state { self?.discoveryError = error.localizedDescription }
+        browser.stateUpdateHandler = { [weak self, weak browser] state in
+            Task { @MainActor [weak self, weak browser] in
+            guard let self, let browser, self.browser === browser else { return }
+            switch state {
+            case .ready:
+                self.discoveryError = nil; self.discoveryNeedsPermission = false
+            case .waiting(let error), .failed(let error):
+                self.discoveryError = ScoreboardNearbyNetworkError.message(for: error)
+                self.discoveryNeedsPermission = ScoreboardNearbyNetworkError.requiresPermission(error)
+                self.matches = []
+                if case .failed = state { self.browser?.cancel(); self.browser = nil }
+            default: break
+            }
             }
         }
         self.browser = browser; browser.start(queue: .main)
@@ -151,8 +168,27 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         if browserConsumers == 0 { browser?.cancel(); browser = nil; matches = [] }
     }
 
+    func retryBrowser(mode: ScoreboardRemoteDisplayNetworkMode) {
+        browser?.cancel(); browser = nil; matches = []
+        if browserConsumers > 0 { startBrowser(mode: mode) }
+    }
+
+    func connectionsDidChange(owner store: ScoreboardStore) {
+        update(owner: store)
+        if ScoreboardConnectionPolicy.allowsLocalNetworking {
+            if browserConsumers > 0 { startBrowser(mode: store.remoteDisplayNetworkMode) }
+        } else {
+            browser?.cancel(); browser = nil; matches = []
+            discoveryError = nil; discoveryNeedsPermission = false
+            cancelRequest()
+        }
+    }
+
     func requestJoin(_ match: ScoreboardNearbyMatch, code: String, control: Bool,
                      mode: ScoreboardRemoteDisplayNetworkMode, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking else {
+            completion(.failure(error("Enable LAN & Nearby in App Settings first."))); return
+        }
         cancelRequest()
         let receiver = ScoreboardRemoteDisplayReceiver.shared
         let request = JoinRequest(matchID: match.matchID, code: code,

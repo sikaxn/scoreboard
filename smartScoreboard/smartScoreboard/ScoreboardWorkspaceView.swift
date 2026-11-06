@@ -25,20 +25,20 @@ struct ScoreboardWorkspaceView: View {
 
     private var kiosk: Bool { ScoreboardDeviceMode.current == .kiosk }
     var body: some View {
-        Group {
-            if kiosk || store.matchWorkspace.presentsSharedMatch {
-                remoteView.transition(.opacity)
-            } else {
-                #if !os(tvOS)
-                if navigation.boardOpen {
-                    ContentView(startsInSettings: navigation.startsInSetup, returnHome: navigation.goHome).transition(.opacity)
-                } else {
-                    ScoreboardMatchLibraryView().transition(.opacity)
-                }
-                #endif
+        ZStack {
+            workspace
+                .opacity(navigation.destination == .settings ? 0 : 1)
+                .allowsHitTesting(navigation.destination != .settings)
+                .accessibilityHidden(navigation.destination == .settings)
+            #if !os(tvOS)
+            if navigation.destination == .settings {
+                ContentView(startsInSettings: true, initialSettingsSection: navigation.settingsSection, softwareSettings: true)
+                    .id("app-settings").transition(.opacity)
             }
+            #endif
         }
         .id(mode)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: navigation.destination == .settings)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: mode)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: navigation.boardOpen)
         .confirmationDialog("Nearby Join Request", isPresented: Binding(get: { !nearby.approvals.isEmpty }, set: { _ in }), titleVisibility: .visible) {
@@ -57,6 +57,7 @@ struct ScoreboardWorkspaceView: View {
             do {
                 _ = try await ScoreboardFileStorage.migrateLegacyFilesToUserVisibleStorage()
                 try store.matchLibrary.start()
+                if !navigation.boardOpen && !store.matchWorkspace.presentsSharedMatch { try store.prepareForFileHome() }
             } catch { startupError = error.localizedDescription }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -68,20 +69,16 @@ struct ScoreboardWorkspaceView: View {
             if joined { navigation.destination = nil }
         }
         #if !os(tvOS)
-        .sheet(item: $navigation.destination, onDismiss: navigation.didDismiss) { destination in
+        .sheet(item: Binding(get: { navigation.destination == .settings ? nil : navigation.destination }, set: {
+            if navigation.destination != .settings { navigation.destination = $0 }
+        }), onDismiss: navigation.didDismiss) { destination in
             Group {
                 switch destination {
                 case .join:
                     ScoreboardJoinMatchView(initialInvitation: navigation.invitation, nearbyInvitation: navigation.nearbyInvitation)
                 case .sharing:
                     ScoreboardConnectionSheet()
-                case .settings:
-                    NavigationStack {
-                        ContentView(startsInSettings: true, initialSettingsSection: navigation.settingsSection, softwareSettings: true)
-                            .navigationTitle("App Settings")
-                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { navigation.destination = nil }.accessibilityIdentifier("appSettings.done") } }
-                    }
-                case .library: EmptyView()
+                case .settings, .library: EmptyView()
                 }
             }
             .environmentObject(store).environmentObject(PublicBoardState.shared)
@@ -93,6 +90,19 @@ struct ScoreboardWorkspaceView: View {
             set: { if !$0 { startupError = nil; navigation.fileImportError = nil } })) {
                 Button("OK") { startupError = nil; navigation.fileImportError = nil }
         } message: { Text(startupError ?? navigation.fileImportError ?? "") }
+    }
+    @ViewBuilder private var workspace: some View {
+        if kiosk || store.matchWorkspace.presentsSharedMatch {
+            remoteView.transition(.opacity)
+        } else {
+            #if !os(tvOS)
+            if navigation.boardOpen {
+                ContentView(startsInSettings: navigation.startsInSetup, returnHome: navigation.goHome).transition(.opacity)
+            } else {
+                ScoreboardMatchLibraryView().transition(.opacity)
+            }
+            #endif
+        }
     }
     @ViewBuilder private var remoteView: some View {
         #if os(macOS)
@@ -150,23 +160,36 @@ struct ScoreboardConnectionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ScoreboardStore
     @ObservedObject private var router = ScoreboardRemoteConnectionRouter.shared
+    var receiver: ScoreboardRemoteDisplayReceiver? = nil
+    var returnToRemoteControl: (() -> Void)? = nil
+    private var activeReceiver: ScoreboardRemoteDisplayReceiver { receiver ?? router.receiver }
+    private var isParticipant: Bool { store.isJoinedMatchActive || store.isRemoteControlProxy || store.isFollowingSessionHost }
     var body: some View {
         NavigationStack {
             ScrollView {
-                if store.isJoinedMatchActive {
+                if isParticipant {
                     VStack(alignment: .leading, spacing: 24) {
-                        Text(router.receiver.state.map { "\($0.teams.home.name) vs \($0.teams.guest.name)" } ?? "Waiting for scoreboard")
+                        Text(activeReceiver.state.map { "\($0.teams.home.name) vs \($0.teams.guest.name)" } ?? "Waiting for scoreboard")
                             .font(.title.bold())
-                        Text(router.connectionStatus.summary)
+                        ScoreboardConnectionOverviewSection(receiver: activeReceiver)
+                        ScoreboardConnectedDevicesSection(receiver: activeReceiver)
                         Text("Scores and timers stay with the host. Leaving returns this device to Home.").foregroundStyle(.secondary)
                         Picker("Connection", selection: Binding(get: { store.remoteDisplayNetworkMode }, set: store.setRemoteDisplayNetworkMode)) {
-                            ForEach(ScoreboardRemoteDisplayNetworkMode.allCases) { Text($0.title).tag($0) }
+                            ForEach(store.availableConnectionModes) { Text($0.title).tag($0) }
                         }
-                        Button("Leave Scoreboard", role: .destructive) { store.leaveJoinedMatch(); ScoreboardAppNavigation.shared.goHome(); dismiss() }
+                        ScoreboardSessionRecoveryControls()
+                        Button("LAN & Cloud Settings") { dismiss(); ScoreboardAppNavigation.shared.openSettings("cloud") }
+                            .accessibilityIdentifier("connection.settings")
+                        if store.isJoinedMatchActive {
+                            Button("Leave Scoreboard", role: .destructive) { store.leaveJoinedMatch(); ScoreboardAppNavigation.shared.goHome(); dismiss() }
+                        }
+                        if let returnToRemoteControl {
+                            Button("Return to Remote Control") { dismiss(); returnToRemoteControl() }
+                        }
                     }.padding(24)
-                } else { ScoreboardHostConnectionsView().padding(24) }
-            }.navigationTitle(store.isJoinedMatchActive ? "Connection" : "Connect Devices")
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+                } else { ScoreboardHostConnectionsView(receiver: activeReceiver).padding(24) }
+            }.accessibilityIdentifier("connection.status").navigationTitle("Connect Devices")
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("connection.done") } }
         }
     }
 }

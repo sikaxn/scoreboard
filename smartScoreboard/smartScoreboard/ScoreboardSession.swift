@@ -77,6 +77,7 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var devicePublicKey: String? = nil
     var cloudPairingPublicKey: String? = nil
     var requestedControl: Bool? = nil
+    var supportsControl: Bool? = nil
 }
 
 extension ScoreboardSessionDescriptor {

@@ -19,6 +19,8 @@ struct ScoreboardMatchGuestJoinForm: View {
     @State private var feedback = ""
     @State private var joinTask: Task<Void, Never>?
     @State private var confirmsServer = false
+    private var usesConfiguredServer: Bool { ScoreboardDeviceMode.current == .kiosk }
+    private var controlRequested: Bool { requestsControl && ScoreboardRemoteDisplayDeviceType.current.supportsControl }
     #if !os(tvOS)
     @State private var importsQR = false
     #endif
@@ -36,19 +38,18 @@ struct ScoreboardMatchGuestJoinForm: View {
             TextField("Match code or invitation link", text: $code).autocorrectionDisabled().scoreboardCloudSettingsField()
                 .accessibilityIdentifier("join.matchCode")
             SecureField("Match password", text: $password).scoreboardCloudSettingsField().accessibilityIdentifier("join.password")
-            TextField("Cloud server URL", text: $server).autocorrectionDisabled().scoreboardCloudSettingsField()
+            if !usesConfiguredServer {
+                TextField("Cloud server URL", text: $server).autocorrectionDisabled().scoreboardCloudSettingsField().accessibilityIdentifier("join.server")
+            }
             #if os(tvOS)
-            HStack(spacing: 24) {
-                RemotePairingActionButton(title: "Display", symbol: "tv", selected: !requestsControl) { requestsControl = false }
-                RemotePairingActionButton(title: "Control Board", symbol: "gamecontroller", detail: "Requires host approval", selected: requestsControl) { requestsControl = true }
-            }.focusSection()
+            Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
             #else
             Picker("Join as", selection: $requestsControl) { Text("Display").tag(false); Text("Controller · owner approval").tag(true) }
                 .pickerStyle(.menu)
             #endif
             LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 12) {
                 Button(busy ? "Joining…" : "Join Match", systemImage: "arrow.right.circle") {
-                    if server != cloud.serviceURL && !ScoreboardCloudEndpoint.isPublicService(server) { confirmsServer = true }
+                    if !usesConfiguredServer && server != cloud.serviceURL && !ScoreboardCloudEndpoint.isPublicService(server) { confirmsServer = true }
                     else { submit() }
                 }.buttonStyle(.borderedProminent).disabled(busy || code.isEmpty || password.count < 6 || !cloud.cloudEnabled)
                     .accessibilityIdentifier("join.submit")
@@ -61,7 +62,7 @@ struct ScoreboardMatchGuestJoinForm: View {
             }
             if !feedback.isEmpty { Text(feedback).font(.callout).accessibilityIdentifier("join.feedback") }
         }
-        .onAppear { server = initialInvitation?.server ?? cloud.serviceURL; if let invitation = initialInvitation { apply(invitation) } }
+        .onAppear { server = usesConfiguredServer ? cloud.serviceURL : (initialInvitation?.server ?? cloud.serviceURL); if let invitation = initialInvitation { apply(invitation) } }
         .onChange(of: code) { _, value in
             if let invitation = ScoreboardMatchInvitation.parse(value) { apply(invitation) }
             else if let invitation = ScoreboardNearbyInvitation.parse(value), let receivedNearbyInvitation {
@@ -102,7 +103,10 @@ struct ScoreboardMatchGuestJoinForm: View {
         #endif
     }
     private func apply(_ invitation: ScoreboardMatchInvitation) {
-        code = invitation.code; server = invitation.server
+        if usesConfiguredServer, !ScoreboardCloudEndpoint.sameService(invitation.server, cloud.serviceURL) {
+            code = ""; feedback = "This invitation uses another cloud server. Change the server in App Settings first."; return
+        }
+        code = invitation.code; server = usesConfiguredServer ? cloud.serviceURL : invitation.server
         if let value = invitation.password { password = value }
     }
     private func receive(_ value: String) {
@@ -117,8 +121,8 @@ struct ScoreboardMatchGuestJoinForm: View {
             do {
                 try ScoreboardStore.shared.requireMatchReplacementAllowed()
                 try await cloud.joinInvitation(code: code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: ""),
-                    password: password, server: server, requestControl: requestsControl,
-                    beforeConnect: { try beforeConnect?(requestsControl) })
+                    password: password, server: usesConfiguredServer ? cloud.serviceURL : server, requestControl: controlRequested,
+                    beforeConnect: { try beforeConnect?(controlRequested) })
                 joined?(); feedback = "Joined. Control requests need the owner's approval."
             } catch {
                 failed?()
@@ -129,9 +133,184 @@ struct ScoreboardMatchGuestJoinForm: View {
 }
 
 #if !os(tvOS)
+/// The badge and device manager describe the same active session.
+@MainActor struct ScoreboardConnectionOverview {
+    let store: ScoreboardStore
+    let receiver: ScoreboardRemoteDisplayReceiver
+    var session: ScoreboardSessionDescriptor? {
+        store.isSessionAuthority ? store.sessionDescriptor : (receiver.state?.control?.session ?? store.sessionDescriptor)
+    }
+    var isHosting: Bool {
+        if store.isFollowingSessionHost { return false }
+        if let session, session.hostDeviceID != store.localSessionDeviceID { return false }
+        return receiver.isHostingSession || (store.isSessionAuthority &&
+            (store.isRemoteDisplayHostEnabled || ScoreboardCloudClient.shared.isPublishingLocalHost))
+    }
+    var title: String {
+        if isHosting { return ScoreboardLocalization.string("Hosting") }
+        if store.isSessionAuthority && !store.isJoinedMatchActive && !store.isRemoteControlProxy {
+            return ScoreboardLocalization.string("Local")
+        }
+        guard receiver.status.isLive else { return ScoreboardLocalization.string(receiver.status.title) }
+        return ScoreboardLocalization.string(receiver.isControlConnectionReady || store.joinedAsDisplay ? "Connected" : "Waiting for session host…")
+    }
+    var peers: [ScoreboardSessionPeer] {
+        if store.isJoinedMatchActive, !store.isRemoteControlProxy, let control = receiver.state?.control {
+            let peers = control.devices ?? []
+            return control.session?.clientPeers(from: peers, ownerConnected: control.ownerConnected) ?? peers
+        }
+        return store.remoteSessionDevices ?? []
+    }
+    var countsDescription: String {
+        let connected = peers.filter(\.connected).count
+        return scoreboardLocalizedFormat(ScoreboardLocalization.string("%d connected · %d disconnected"),
+            locale: .current, arguments: [connected, peers.count - connected])
+    }
+}
+
+struct ScoreboardConnectionOverviewSection: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
+    private var overview: ScoreboardConnectionOverview { .init(store: store, receiver: receiver) }
+    var body: some View {
+        ScoreboardCloudSection("Connection Status") {
+            VStack(alignment: .leading, spacing: 14) {
+                row("Connection", overview.title)
+                if let session = overview.session {
+                    row("Session Host", session.hostName)
+                    row("Owner", session.ownerName)
+                } else if store.isSessionAuthority && !store.isJoinedMatchActive {
+                    row("Session Host", ScoreboardRemoteDisplayDeviceName.current ?? ScoreboardLocalization.string("This Device"))
+                    row("Owner", ScoreboardRemoteDisplayDeviceName.current ?? ScoreboardLocalization.string("This Device"))
+                } else if let name = receiver.connectedHostName {
+                    row("Scoreboard", name)
+                }
+                if !store.isSessionAuthority || store.isJoinedMatchActive {
+                    if let info = receiver.connectionInfo {
+                        row("Route", ScoreboardLocalization.string(info.normalized.route.title))
+                        row("Transport", info.method.title)
+                        if let medium = info.interfaceTitle { row("Interface", medium) }
+                    } else { row("Transport", receiver.realtimeTransport) }
+                    if receiver.connectionInfo?.normalized.route != .cloud, let trip = receiver.roundTripSeconds {
+                        row("Latency", scoreboardLocalizedFormat(ScoreboardLocalization.string("Ping %d ms"),
+                            locale: .current, arguments: [Int((trip * 1_000).rounded())]))
+                    }
+                }
+                if store.remoteSessionOwnerConnected == false {
+                    Label("Owner disconnected", systemImage: "person.crop.circle.badge.exclamationmark").foregroundStyle(.orange)
+                }
+                if store.isFollowingSessionHost {
+                    Text(store.isSessionSafeToDisconnect ? "Safe to Disconnect" : "Match active or sync pending").font(.caption).foregroundStyle(.secondary)
+                }
+                if let result = receiver.controlResult, !result.success {
+                    Label(ScoreboardLocalization.remoteSessionMessage(result.message ?? "Command failed"), systemImage: "exclamationmark.circle").foregroundStyle(.orange)
+                }
+            }.padding(.vertical, 14)
+        }
+    }
+    private func row(_ title: String, _ value: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text(ScoreboardLocalization.string(title)).foregroundStyle(.secondary).fixedSize()
+                Spacer(minLength: 4)
+                Text(verbatim: value).multilineTextAlignment(.trailing).fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ScoreboardLocalization.string(title)).foregroundStyle(.secondary)
+                Text(verbatim: value).fixedSize(horizontal: false, vertical: true)
+            }
+        }.font(.callout)
+    }
+}
+
+struct ScoreboardConnectedDevicesSection: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    @ObservedObject private var cloud = ScoreboardCloudClient.shared
+    @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
+    @State private var feedback: String?
+    private var overview: ScoreboardConnectionOverview { .init(store: store, receiver: receiver) }
+    private var canManage: Bool { !store.isRemoteControlProxy && (store.isSessionAuthority || store.isFollowingSessionHost) && !store.isJoinedMatchActive }
+    var body: some View {
+        ScoreboardCloudSection("Connected Devices") {
+            if overview.peers.isEmpty {
+                Text("No devices connected.").foregroundStyle(.secondary).padding(.vertical, 12)
+            } else {
+                Text(overview.countsDescription).font(.caption).foregroundStyle(.secondary).padding(.vertical, 12)
+            }
+            if !overview.isHosting && !receiver.status.isLive && !overview.peers.isEmpty {
+                Text("Last reported by the session host.").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(overview.peers, id: \.id) { peer in
+                VStack(alignment: .leading, spacing: 12) {
+                    deviceDetails(peer)
+                    let member = cloud.session?.members.first { $0.id == peer.id && $0.role != "host" }
+                    let paired = store.remoteDisplayTrustedDisplays.contains { $0.id == peer.id }
+                    if canManage, peer.deviceType.supportsControl, peer.supportsControl != false,
+                       peer.id != overview.session?.ownerDeviceID, paired || member != nil {
+                        Toggle((peer.requestedControl == true || member?.requestedControl == true) && peer.controlEnabled != true ? "Approve Control Request" : "Allow Control", isOn: Binding(
+                            get: { peer.controlEnabled == true }, set: { allowed in
+                                if paired { store.setRemoteControlAllowed(displayID: peer.id, isAllowed: allowed) }
+                                else if let member { Task { if !(await cloud.setCloudPermission(memberID: member.id, allowed: allowed)) { feedback = cloud.status } } }
+                            }))
+                            .accessibilityIdentifier("connection.control.\(peer.id)")
+                    } else if let allowed = peer.controlEnabled {
+                        Label(allowed ? "Control enabled" : "Remote Display", systemImage: allowed ? "gamecontroller" : "eye").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.padding(.vertical, 14).accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("connection.client.\(peer.id)")
+                Divider()
+            }
+            if let feedback { Text(feedback).font(.caption).foregroundStyle(.orange).padding(.vertical, 10) }
+        }
+    }
+    private func deviceDetails(_ peer: ScoreboardSessionPeer) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: peer.deviceType.systemImage).frame(width: 28)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(peer.name).font(.headline)
+                HStack(spacing: 6) {
+                    Circle().fill(peer.connected ? (peer.quality == .poor ? Color.orange : Color.green) : Color.orange).frame(width: 7, height: 7)
+                    Text(peer.connected ? (peer.quality == .poor ? "Poor" : "Connected") : (peer.quality == .connecting ? "Connecting" : "Disconnected")).font(.caption)
+                }
+                if peer.id == overview.session?.ownerDeviceID { Text("Owner · Client").font(.caption.weight(.semibold)) }
+                let type = ScoreboardLocalization.string(peer.deviceType.title)
+                if peer.name.localizedCaseInsensitiveCompare(type) != .orderedSame { Text(type).font(.caption).foregroundStyle(.secondary) }
+                if peer.connected {
+                    if let status = peer.connectionStatus {
+                        Text(status.summary).font(.caption).foregroundStyle(.secondary)
+                        if let medium = status.active?.interfaceTitle { Text(medium).font(.caption).foregroundStyle(.secondary) }
+                        if let other = status.otherConnections { Text("Available: \(other)").font(.caption).foregroundStyle(.secondary) }
+                    } else if let transport = peer.realtimeTransport { Text(transport).font(.caption).foregroundStyle(.secondary) }
+                    if peer.connectionStatus?.active?.route != .cloud, let latency = peer.latencyMilliseconds {
+                        Text(scoreboardLocalizedFormat(ScoreboardLocalization.string("Ping %d ms"), locale: .current, arguments: [latency])).font(.caption).monospacedDigit()
+                    }
+                } else if let age = peer.lastHandshakeAgeSeconds {
+                    Text(scoreboardLocalizedFormat(ScoreboardLocalization.string("Last response %d s ago"), locale: .current, arguments: [age])).font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.accessibilityElement(children: .combine)
+    }
+}
+
+struct ScoreboardSessionRecoveryControls: View {
+    @EnvironmentObject private var store: ScoreboardStore
+    var body: some View {
+        if store.isSessionOwner && !store.isRemoteControlProxy && (store.isRemoteDisplayHostEnabled || store.isFollowingSessionHost) {
+            ScoreboardCloudSection("Session Host") {
+                Button("Host Here & Disconnect Others", role: .destructive) { store.hostOnOwnerAndDisconnectOthers() }
+                    .buttonStyle(.bordered).padding(.vertical, 12).disabled(!store.canHostOnOwnerAndDisconnectOthers)
+                if store.isAnyTimerRunning { Text("Stop all timers before moving the session host.").font(.caption).foregroundStyle(.secondary) }
+                if let message = store.sessionStatusMessage { Text(ScoreboardLocalization.remoteSessionMessage(message)).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+    }
+}
+
 /// Match participation lives with the open document, not in global settings.
 struct ScoreboardHostConnectionsView: View {
     @EnvironmentObject private var store: ScoreboardStore
+    @Environment(\.dismiss) private var dismiss
+    var receiver: ScoreboardRemoteDisplayReceiver = .shared
     @ObservedObject private var nearby = ScoreboardNearbyMatchService.shared
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
     @State private var password = ""
@@ -142,11 +321,16 @@ struct ScoreboardHostConnectionsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             Text(store.currentMatchTitle).font(.title2.bold())
+            ScoreboardConnectionOverviewSection(receiver: receiver)
+            ScoreboardConnectedDevicesSection(receiver: receiver)
             ScoreboardCloudSection("Nearby", footer: "Works without internet. Other devices discover this scoreboard and ask you to confirm, or enter the pairing PIN.") {
                 Toggle("Allow Nearby Connections", isOn: Binding(get: { store.isRemoteDisplayHostEnabled }, set: {
                     if !$0 && store.remoteSessionDevices?.contains(where: \.connected) == true { confirmsStop = true }
                     else { store.setRemoteDisplayHostEnabled($0); nearby.update(owner: store) }
-                })).padding(.vertical, 12).accessibilityIdentifier("host.nearby")
+                })).padding(.vertical, 12).disabled(!store.localConnectionsEnabled).accessibilityIdentifier("host.nearby")
+                if !store.localConnectionsEnabled {
+                    Text("LAN & Nearby is off in App Settings. Cloud sharing is available separately.").font(.callout).foregroundStyle(.secondary)
+                }
                 if store.isRemoteDisplayHostEnabled {
                     Divider()
                     HStack(spacing: 24) {
@@ -173,11 +357,12 @@ struct ScoreboardHostConnectionsView: View {
                 }
             }
             ScoreboardCloudSection("Cloud", footer: "Only the host signs in. Guests join with this session’s fixed code and password.") {
-                NavigationLink("Cloud Account & Service") { ScrollView { ScoreboardCloudSettingsView().padding(24) }.navigationTitle("App Settings · Cloud") }
+                Button("LAN & Cloud Settings") { dismiss(); ScoreboardAppNavigation.shared.openSettings("cloud") }
                     .padding(.vertical, 12)
+                    .accessibilityIdentifier("connection.settings")
                 Divider()
                 if cloud.hostingEnabled {
-                    Label(cloud.isConnected ? "Sharing Online" : "Connecting…", systemImage: "cloud").padding(.vertical, 12)
+                    Label(!cloud.cloudEnabled ? "Cloud is disabled in App Settings" : cloud.isConnected ? "Sharing Online" : "Connecting…", systemImage: "cloud").padding(.vertical, 12)
                     Button("Stop Online Sharing", role: .destructive) { cloud.hostingEnabled = false }
                 } else {
                     Text(cloud.onlineSharingGuidance).font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
@@ -227,27 +412,8 @@ struct ScoreboardHostConnectionsView: View {
                     }.padding(.vertical, 12)
                 }
             }
-            ScoreboardCloudSection("Connected Devices") {
-                let peers = store.remoteSessionDevices ?? []
-                if peers.isEmpty { Text("No devices connected.").foregroundStyle(.secondary).padding(.vertical, 12) }
-                ForEach(peers, id: \.id) { peer in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack { Text(peer.name).font(.headline); Spacer(); Text(peer.connected ? "Connected" : "Offline").font(.caption) }
-                        if let status = peer.connectionStatus { Text(status.summary).font(.caption).foregroundStyle(.secondary) }
-                        let member = cloud.session?.members.first { $0.id == peer.id && $0.role != "host" }
-                        let locallyPaired = store.remoteDisplayTrustedDisplays.contains { $0.id == peer.id }
-                        if locallyPaired || member != nil {
-                            Toggle((peer.requestedControl == true || member?.requestedControl == true) && peer.controlEnabled != true ? "Approve Control Request" : "Allow Control", isOn: Binding(
-                                get: { peer.controlEnabled == true }, set: { allowed in
-                                    if locallyPaired { store.setRemoteControlAllowed(displayID: peer.id, isAllowed: allowed) }
-                                    else if let member { Task { _ = await cloud.setCloudPermission(memberID: member.id, allowed: allowed) } }
-                                }))
-                        } else { Label("Viewer", systemImage: "eye").font(.caption).foregroundStyle(.secondary) }
-                    }.padding(.vertical, 14)
-                    Divider()
-                }
-            }
             ScoreboardCloudFailoverSettings()
+            ScoreboardSessionRecoveryControls()
             if !feedback.isEmpty { Text(feedback).font(.callout).foregroundStyle(.orange) }
         }
         .confirmationDialog("Disconnect Nearby Devices?", isPresented: $confirmsStop, titleVisibility: .visible) {

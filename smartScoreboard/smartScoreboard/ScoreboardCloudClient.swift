@@ -81,6 +81,7 @@ nonisolated struct ScoreboardCloudMember: Codable, Identifiable, Equatable, Send
     var localDeviceID: String? = nil
     var connectionStatus: ScoreboardClientConnectionStatus? = nil
     var devicePublicKey: String? = nil
+    var canControl: Bool? = nil
 }
 
 nonisolated struct ScoreboardCloudViewer: Codable, Identifiable, Equatable, Sendable {
@@ -134,6 +135,11 @@ nonisolated enum ScoreboardCloudEndpoint {
             throw URLError(.badURL)
         }
         return url
+    }
+    static func sameService(_ first: String, _ second: String) -> Bool {
+        guard let first = try? validate(first), let second = try? validate(second) else { return false }
+        return first.scheme?.lowercased() == second.scheme?.lowercased() && first.host?.lowercased() == second.host?.lowercased()
+            && (first.port ?? (first.scheme == "https" ? 443 : 80)) == (second.port ?? (second.scheme == "https" ? 443 : 80))
     }
 }
 
@@ -265,8 +271,8 @@ nonisolated private enum CloudKeychain {
     @Published var cloudEnabled = false {
         didSet {
             preferences.set(cloudEnabled, forKey: "scoreboard.cloudEnabled")
-            if !cloudEnabled { cancelLink(); suspendTransport(); status = "Cloud is disabled. LAN and nearby remain available." }
-            else if !oldValue && (isLinked || publisherActive) { reconnect() }
+            if !cloudEnabled { suspendConnections(); status = "Cloud is disabled." }
+            else if !oldValue { reconnect() }
         }
     }
     private var matchContext: ScoreboardCloudMatchContext?
@@ -332,7 +338,7 @@ nonisolated private enum CloudKeychain {
     @Published private(set) var isLinking = false
     var isHost: Bool { session?.hostDeviceID == deviceID && deviceID != nil }
     var isPublishingLocalHost: Bool { isHost && (hostingEnabled || publisherActive) && canHostProvider?() == true }
-    var canControl: Bool { session?.members.first { $0.id == deviceID }?.role == "controller" }
+    var canControl: Bool { ScoreboardRemoteDisplayDeviceType.current.supportsControl && session?.members.first { $0.id == deviceID }?.role == "controller" }
     private(set) var deviceID: String?
     private var credential: CloudCredential?
     private var parkedOwnerCredential: CloudCredential?
@@ -343,7 +349,10 @@ nonisolated private enum CloudKeychain {
     private var committingPublisher = false
     var canManageMatch: Bool { hasOwnerAccount && session?.ownerID == account?.id }
     private var socket: URLSessionWebSocketTask?
+    private var requestSession = URLSession(configuration: .ephemeral)
     private var connectionTask: Task<Void, Never>?
+    private var homePauseTask: Task<Void, Never>?
+    private var homePausedMatchID: UUID?
     private var linkTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var lastStateAt: Date?
@@ -549,21 +558,28 @@ nonisolated private enum CloudKeychain {
     }
 
     func reconnect() {
+        guard cloudEnabled else { status = "Cloud is disabled."; return }
         let publishing = publisherGrant.flatMap { grant -> CloudCredential? in
             guard publisherActive, canHostProvider?() == true, grant.matchID == matchContext?.matchID,
                   grant.runtimeID == matchContext?.runtimeID, grant.epoch == matchContext?.epoch else { return nil }
             return CloudCredential(serviceURL: grant.serviceURL, token: grant.token, sessionID: grant.sessionID,
                 access: "publisher", accountID: nil, hostLocalID: grant.hostLocalID)
         }
-        guard cloudEnabled, let credential = publishing ?? credential else { return }
+        guard let credential = publishing ?? credential else {
+            if !isLinking { status = "Ready to sign in or join using a cloud code." }
+            return
+        }
         connectionTask?.cancel()
         heartbeatTask?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil; isConnected = false; receiver.endCloudConnection()
         let runID = UUID()
         connectionID = runID
+        let pendingPause = homePauseTask
+        if canHostProvider?() == true { homePausedMatchID = nil }
         connectionTask = Task { [weak self] in
             guard let self else { return }
+            await pendingPause?.value
             var attempts = 0
             while !Task.isCancelled && connectionID == runID {
                 do {
@@ -589,8 +605,9 @@ nonisolated private enum CloudKeychain {
                                 selectedSessionID = ""; session = nil
                             }
                             guard !selectedSessionID.isEmpty else { status = "Choose a host session."; return }
-                            struct Join: Encodable { var requestControl: Bool }
-                            room = try await call(base: base, path: "api/sessions/\(selectedSessionID)/join", body: Join(requestControl: credential.requestControl ?? true), token: credential.token)
+                            struct Join: Encodable { var requestControl: Bool; var canControl: Bool }
+                            let supportsControl = ScoreboardRemoteDisplayDeviceType.current.supportsControl
+                            room = try await call(base: base, path: "api/sessions/\(selectedSessionID)/join", body: Join(requestControl: supportsControl && (credential.requestControl ?? true), canControl: supportsControl), token: credential.token)
                         } else {
                             guard hostingEnabled else { status = "Signed in. Open Connect Devices on your scoreboard and choose Share This Scoreboard Online."; return }
                             guard canHostProvider?() == true else { status = "This device is not the game host. Return to your local scoreboard or reconnect to the current host."; return }
@@ -680,14 +697,37 @@ nonisolated private enum CloudKeychain {
         linkRunID = UUID(); linkTask?.cancel(); isLinking = false; linkCode = nil; verificationURL = nil
     }
 
+    func pauseHostingForHome() {
+        suspendTransport()
+        guard cloudEnabled, hostingEnabled, let context = matchContext,
+              homePausedMatchID != context.matchID, let credential, hasOwnerAccount,
+              let id = session?.id ?? ScoreboardMatchIndex.record(for: context.matchID).cloudSessionID else { return }
+        homePausedMatchID = context.matchID
+        let previous = homePauseTask
+        homePauseTask = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            do {
+                struct Publishing: Encodable { var enabled = false }
+                let room: ScoreboardCloudSession = try await call(base: ScoreboardCloudEndpoint.validate(credential.serviceURL),
+                    path: "api/sessions/\(id)/publishing", body: Publishing(), token: credential.token, timeout: 5)
+                if session?.id == id && canHostProvider?() != true { session = room; status = "Online sharing is paused while Home is open." }
+            } catch {
+                if cloudEnabled && canHostProvider?() != true { status = "Local connections are closed. Could not pause cloud sharing: \(error.localizedDescription)" }
+            }
+        }
+    }
+
     func joinInvitation(code: String, password: String, server: String, requestControl: Bool, beforeConnect: (() throws -> Void)? = nil) async throws {
         guard cloudEnabled else { throw URLError(.notConnectedToInternet) }
         let base = try ScoreboardCloudEndpoint.validate(server)
-        struct Join: Encodable { var code: String; var password: String; var name: String; var deviceID: String; var devicePublicKey: String; var requestControl: Bool; var client = "native" }
+        let canControl = ScoreboardRemoteDisplayDeviceType.current.supportsControl
+        let requestControl = requestControl && canControl
+        struct Join: Encodable { var code: String; var password: String; var name: String; var deviceID: String; var devicePublicKey: String; var requestControl: Bool; var canControl: Bool; var client = "native" }
         struct Joined: Decodable { var token: String; var sessionID: String; var deviceID: String; var session: ScoreboardCloudSession }
         let result: Joined = try await call(base: base, path: "api/invitations/join", body: Join(code: code, password: password,
             name: ScoreboardRemoteDisplayDeviceName.current ?? "Scoreboard", deviceID: ScoreboardRemoteDisplayReceiver.shared.displayID,
-            devicePublicKey: ScoreboardDeviceIdentity.publicKey, requestControl: requestControl))
+            devicePublicKey: ScoreboardDeviceIdentity.publicKey, requestControl: requestControl, canControl: canControl))
         try Task.checkCancellation()
         try beforeConnect?()
         if let existing = credential, existing.access != "participant" {
@@ -765,6 +805,16 @@ nonisolated private enum CloudKeychain {
         connectionID = UUID(); connectionTask?.cancel(); heartbeatTask?.cancel(); publishTask?.cancel()
         socket?.cancel(with: .goingAway, reason: nil); socket = nil; isConnected = false
         receiver.endCloudConnection()
+    }
+
+    func suspendConnections() {
+        cancelLink()
+        suspendTransport()
+        requestSession.invalidateAndCancel()
+        requestSession = URLSession(configuration: .ephemeral)
+        remotePermissionTasks.values.forEach { $0.cancel() }
+        remotePermissionTasks.removeAll()
+        status = "Cloud is disabled."
     }
 
     private func updateHosting() {
@@ -868,12 +918,12 @@ nonisolated private enum CloudKeychain {
         status = "Remote device registered. Choose its host session on that device."
     }
 
-    func provisionRemote(id: String, name: String, publicKey: String, controlAllowed: Bool) async throws -> Data {
+    func provisionRemote(id: String, name: String, publicKey: String, controlAllowed: Bool, canControl: Bool = true) async throws -> Data {
         guard cloudFailoverEnabled, canManageMatch, let credential, let session else { throw URLError(.userAuthenticationRequired) }
-        struct Enrollment: Encodable { var deviceID: String; var name: String; var devicePublicKey: String; var controlAllowed: Bool }
+        struct Enrollment: Encodable { var deviceID: String; var name: String; var devicePublicKey: String; var controlAllowed: Bool; var canControl: Bool }
         struct Grant: Decodable { var token: String; var deviceID: String; var sessionID: String; var hostLocalID: String }
         let grant: Grant = try await call(base: ScoreboardCloudEndpoint.validate(credential.serviceURL), path: "api/sessions/\(session.id)/participants/provision",
-            body: Enrollment(deviceID: id, name: name, devicePublicKey: publicKey, controlAllowed: controlAllowed), token: credential.token)
+            body: Enrollment(deviceID: id, name: name, devicePublicKey: publicKey, controlAllowed: controlAllowed && canControl, canControl: canControl), token: credential.token)
         guestDeviceIDs[id] = grant.deviceID
         return try JSONEncoder().encode(ScoreboardCloudEnrollment(serviceURL: credential.serviceURL, token: grant.token,
             sessionID: grant.sessionID, accountID: session.ownerID, hostLocalID: grant.hostLocalID, remoteDeviceID: id,
@@ -1111,8 +1161,9 @@ nonisolated private enum CloudKeychain {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return try await response(request)
     }
-    private func call<Input: Encodable, Result: Decodable>(base: URL, path: String, body: Input, token: String? = nil) async throws -> Result {
+    private func call<Input: Encodable, Result: Decodable>(base: URL, path: String, body: Input, token: String? = nil, timeout: TimeInterval = 60) async throws -> Result {
         var request = URLRequest(url: base.appendingPathComponent(path))
+        request.timeoutInterval = timeout
         request.httpMethod = "POST"
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1123,7 +1174,8 @@ nonisolated private enum CloudKeychain {
         guard cloudEnabled else { throw URLError(.cancelled) }
         var request = request
         try ScoreboardDeviceIdentity.sign(&request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await requestSession.data(for: request)
+        guard cloudEnabled else { throw URLError(.cancelled) }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(Failure.self, from: data))?.message ?? "Cloud request failed."
             throw NSError(domain: "ScoreboardCloud", code: (response as? HTTPURLResponse)?.statusCode ?? 0,
@@ -1180,6 +1232,7 @@ nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
                        sameHost: Bool, current: Self, hasPendingCommand: Bool) -> Self {
         guard mode.allowsCloud else { return .local }
         if hasPendingCommand { return current }
+        if mode == .cloudOnly { return .cloud }
         if !sameHost { return .cloud }
         if mode == .preferCloud { return cloudFresh ? .cloud : .local }
         return localFresh && sameHost ? .local : cloudFresh ? .cloud : .local

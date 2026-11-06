@@ -24,15 +24,12 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
     func openBoard(setup: Bool = false) {
         startsInSetup = setup; boardOpen = true
         let store = ScoreboardStore.shared
-        if ScoreboardDeviceMode.current.canHost && !store.isJoinedMatchActive && !store.isFollowingSessionHost {
-            store.setRemoteDisplayHostEnabled(true)
-            ScoreboardNearbyMatchService.shared.update(owner: store)
-        }
-        ScoreboardStore.shared.isShowingFileHome = false
+        store.resumeOpenMatchConnections()
+        ScoreboardNearbyMatchService.shared.update(owner: store)
         destination = nil
     }
     func goHome() {
-        do { try ScoreboardStore.shared.matchLibrary.save() }
+        do { try ScoreboardStore.shared.prepareForFileHome() }
         catch { fileImportError = error.localizedDescription; return }
         boardOpen = false; ScoreboardStore.shared.isShowingFileHome = true
         destination = nil

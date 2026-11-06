@@ -279,7 +279,8 @@ class ScoreboardUITestCase: XCTestCase {
         XCTAssertTrue(app.staticTexts["settings.title.general"].waitForExistence(timeout: 10))
     }
 
-    func selectSettingsSection(_ name: String) {
+    func selectSettingsSection(_ requested: String) {
+        let name = requested == "remoteDisplay" ? "cloud" : requested
         let gameSections = ["game", "players", "display"]
         if !gameSections.contains(name) && !app.buttons["appSettings.done"].exists {
             returnToBoard(); openAppSettings()
@@ -299,7 +300,7 @@ class ScoreboardUITestCase: XCTestCase {
             case "keyboardShortcuts": title = "Keyboard Shortcuts"
             case "game": title = "Game Setup"
             case "files": title = "Backup & Restore"
-            case "cloud": title = "Cloud Service"
+            case "cloud": title = "LAN & Cloud"
             default: title = name.capitalized
             }
             let menuItem = app.buttons[title].firstMatch

@@ -114,15 +114,13 @@ private struct RemoteScoreboardContentView: View {
 
     var body: some View {
         ZStack {
+            #if os(tvOS)
+            receiverContent
+            #else
             if receiver.isControlBoardDevice, !sessionStore.joinedAsDisplay, showsPairingControls, !showsConfiguration {
-                if ScoreboardKioskPresentation.usesSharedLayout {
-                    ScoreboardKioskControlView(receiver: receiver, showConnection: presentConnectionControls)
-                } else {
-                    #if !os(tvOS)
-                    ScoreboardRemoteControlView(receiver: receiver, showConnection: presentConnectionControls)
-                    #endif
-                }
+                ScoreboardRemoteControlView(receiver: receiver, showConnection: presentConnectionControls)
             } else { receiverContent }
+            #endif
         }
         #if os(tvOS)
         .onExitCommand(perform: tvExitHandler)

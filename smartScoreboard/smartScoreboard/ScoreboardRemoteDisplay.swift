@@ -2,6 +2,23 @@ import Combine
 import Foundation
 import SwiftUI
 import Network
+
+nonisolated enum ScoreboardNearbyNetworkError {
+    static func requiresPermission(_ error: NWError) -> Bool {
+        switch error {
+        case .dns(let code): return code == -65555 || code == -65570
+        case .posix(let code): return code == .EACCES || code == .EPERM
+        default: return false
+        }
+    }
+
+    static func message(for error: NWError) -> String {
+        if requiresPermission(error) {
+            return ScoreboardLocalization.string("Local network access is unavailable. Allow Smart Scoreboard in your device’s Local Network settings, then try again.")
+        }
+        return ScoreboardLocalization.string("Nearby discovery is unavailable. Check that Wi-Fi is on, then try again.")
+    }
+}
 import Darwin
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -143,6 +160,7 @@ nonisolated enum ScoreboardRemoteDisplayNetworkMode: String, CaseIterable, Codab
     case nearbyAndLocalNetwork
     case preferLocal
     case preferCloud
+    case cloudOnly
 
     var id: String { rawValue }
 
@@ -156,6 +174,8 @@ nonisolated enum ScoreboardRemoteDisplayNetworkMode: String, CaseIterable, Codab
             return "Prefer LAN + Nearby"
         case .preferCloud:
             return "Prefer Cloud"
+        case .cloudOnly:
+            return "Cloud Only"
         }
     }
 
@@ -169,13 +189,30 @@ nonisolated enum ScoreboardRemoteDisplayNetworkMode: String, CaseIterable, Codab
             return "Use LAN or nearby first, then cloud if this host's local connection is unavailable."
         case .preferCloud:
             return "Use cloud first, then LAN or nearby if the cloud connection is unavailable."
+        case .cloudOnly:
+            return "Use the cloud relay without LAN or nearby discovery or fallback."
         }
     }
 
     var includesPeerToPeer: Bool {
-        self != .localNetworkOnly
+        self == .nearbyAndLocalNetwork || self == .preferLocal || self == .preferCloud
     }
-    var allowsCloud: Bool { self == .preferLocal || self == .preferCloud }
+    var allowsCloud: Bool { self == .preferLocal || self == .preferCloud || self == .cloudOnly }
+    var allowsLocalNetwork: Bool { self != .cloudOnly }
+
+    static func available(localEnabled: Bool, cloudEnabled: Bool) -> [Self] {
+        if localEnabled && cloudEnabled { return [.preferLocal, .preferCloud] }
+        if localEnabled { return [.localNetworkOnly, .nearbyAndLocalNetwork] }
+        return cloudEnabled ? [.cloudOnly] : []
+    }
+
+    static func resolved(_ preferred: Self, localEnabled: Bool, cloudEnabled: Bool) -> Self? {
+        let choices = available(localEnabled: localEnabled, cloudEnabled: cloudEnabled)
+        if choices.contains(preferred) { return preferred }
+        if !localEnabled { return choices.first }
+        if !cloudEnabled { return .nearbyAndLocalNetwork }
+        return preferred == .cloudOnly ? .preferCloud : .preferLocal
+    }
 }
 
 nonisolated enum ScoreboardRemoteDisplayDeviceType: String, Codable, Equatable, Sendable {
@@ -183,6 +220,7 @@ nonisolated enum ScoreboardRemoteDisplayDeviceType: String, Codable, Equatable, 
     case ipad
     case appleTV
     case unknown
+    var supportsControl: Bool { self != .appleTV }
 
     static var current: ScoreboardRemoteDisplayDeviceType {
         #if os(tvOS)
@@ -1149,6 +1187,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     /// Discovery alone must never reconnect to clients or publish game state.
     func startDiscoveryOnly(networkMode: ScoreboardRemoteDisplayNetworkMode) {
         stop()
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         isDiscoveryOnly = true
         self.networkMode = networkMode
         startBrowser()
@@ -1159,6 +1198,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     /// Heartbeats keep the authenticated session channel open; no old state is sent.
     func startCommitRecovery(targetID: String, pairings: ScoreboardSessionPairingConfiguration,
                              networkMode: ScoreboardRemoteDisplayNetworkMode) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         installSessionPairings(pairings)
         commitRecoveryTargetID = targetID
         self.networkMode = networkMode
@@ -1209,6 +1249,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         currentImageResponsesProvider: (() -> [String: ScoreboardWebAPIImageResponse])? = nil
     ) {
         stop()
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         self.displayName = displayName
         self.networkMode = networkMode
         self.currentStateProvider = currentStateProvider
@@ -1543,6 +1584,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func startBrowser() {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         browser?.cancel()
         browser = nil
         let browser = NWBrowser(
@@ -1710,6 +1752,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func startReceiving(from endpoint: NWEndpoint) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         guard var display = displayConnectionsByEndpoint[endpoint], !display.isReceiving else {
             return
         }
@@ -2515,13 +2558,15 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     static let shared = ScoreboardRemoteDisplayReceiver()
     var connectedHostID: String? { pairedHostID ?? lastActiveOperatorID }
+    var connectedHostName: String? { pairedHostName ?? lastActiveOperatorName }
     private static let networkRecoveryInterval: TimeInterval = 1.0
 
     @Published private(set) var status: ScoreboardRemoteDisplayReceiverStatus = .waiting
     @Published private(set) var state: ScoreboardWebAPIState?
     @Published private(set) var lastReceivedAt: Date?
     @Published private(set) var lastHeartbeatAt: Date?
-    @Published private(set) var isRemoteControlAvailable = false
+    @Published private var controlPermission = false
+    var isRemoteControlAvailable: Bool { ScoreboardRemoteDisplayDeviceType.current.supportsControl && controlPermission }
     @Published private(set) var isControlBoardDevice = false
     @Published private(set) var isHostingSession = false
     var sessionMessageHandler: ((Data) -> Void)?
@@ -2575,6 +2620,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     var isControlConnectionReady: Bool {
+        guard ScoreboardRemoteDisplayDeviceType.current.supportsControl else { return false }
         if isCloudReceiver {
             return status.isLive && isRemoteControlAvailable && state?.control?.remoteEnabled == true
                 && lastReceivedAt.map { Date().timeIntervalSince($0) < 15 } == true
@@ -2718,7 +2764,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         masterClockOffset = 0
         roundTripSeconds = 0
         lastClockSyncAt = now
-        isRemoteControlAvailable = state.control?.remoteEnabled == true
+        controlPermission = state.control?.remoteEnabled == true
         isControlBoardDevice = isRemoteControlAvailable
         status = .paired(ScoreboardRemoteDisplayDeviceName.current ?? localizedRemoteDisplayString("This Device"))
         var assets: [String: ScoreboardRemoteDisplayImageAsset] = [:]
@@ -2763,7 +2809,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func clearControlConnection() {
-        isRemoteControlAvailable = false
+        controlPermission = false
         lastClockSyncAt = nil
         roundTripSeconds = nil
         if let id = pendingControlCommandID {
@@ -2795,7 +2841,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func setCloudControlAllowed(_ allowed: Bool) {
         guard isCloudReceiver else { return }
-        isRemoteControlAvailable = allowed
+        let allowed = allowed && ScoreboardRemoteDisplayDeviceType.current.supportsControl
+        controlPermission = allowed
         if let state { self.state = state.cloudControlPayload(allowed: allowed) }
         isControlBoardDevice = allowed
         if !allowed { pendingControlCommands.removeAll(); pendingControlCommandID = nil }
@@ -2890,6 +2937,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
         let needsRestart = self.networkMode.includesPeerToPeer != networkMode.includesPeerToPeer
         self.networkMode = networkMode
+        if !networkMode.allowsLocalNetwork {
+            suspendConnections()
+            return
+        }
+        if listener == nil && activeConsumerCount > 0 { start(networkMode: networkMode); return }
         if listener != nil && needsRestart {
             startOrRefreshListener(recreate: true)
         }
@@ -2906,7 +2958,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     func start(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
-        guard !isCloudReceiver else { return }
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork, !isCloudReceiver else { return }
         if isHostingSession {
             updateNetworkMode(networkMode)
             startOrRefreshListener()
@@ -2947,6 +2999,17 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         stopAdvertising(statusMessage: localizedRemoteDisplayString("Remote Display stopped."))
     }
 
+    func suspendConnections() {
+        guard !isCloudReceiver else { return }
+        stopAdvertising(statusMessage: "LAN and nearby connections are off on this device.")
+        discardReceivedScoreboard()
+    }
+
+    func resumeConnections() {
+        guard activeConsumerCount > 0 else { return }
+        start(networkMode: networkMode)
+    }
+
     private func stopAdvertising(statusMessage: String) {
         guard !isHostingSession else { return }
         isSessionOwnerDevice = false
@@ -2984,6 +3047,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func recoverReceiverNetworkingAfterFailure(error: NWError? = nil, force: Bool = false) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         if isHostingSession {
             cancelActiveConnections()
             startOrRefreshListener(recreate: true)
@@ -3279,6 +3343,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func startOrRefreshListener(recreate: Bool = false) {
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
         guard activeConsumerCount > 0 || isHostingSession else { return }
         let discoveryInfo = currentDiscoveryInfo()
         if let listener, !recreate, listenerNetworkMode?.includesPeerToPeer == networkMode.includesPeerToPeer {
@@ -3711,7 +3776,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             masterClockOffset = offset
             roundTripSeconds = trip
             lastClockSyncAt = Date()
-            isRemoteControlAvailable = message.remoteControlEnabled == true
+            controlPermission = message.remoteControlEnabled == true
             if !isRemoteControlAvailable {
                 pendingControlCommands.removeAll()
                 pendingControlCommandID = nil
@@ -4111,7 +4176,7 @@ extension ScoreboardRemoteDisplayReceiver {
         masterClockOffset = 0
         lastClockSyncAt = Date()
         lastReceivedAt = Date()
-        isRemoteControlAvailable = state.control?.remoteEnabled == true
+        controlPermission = state.control?.remoteEnabled == true
         isControlBoardDevice = isRemoteControlAvailable
     }
 

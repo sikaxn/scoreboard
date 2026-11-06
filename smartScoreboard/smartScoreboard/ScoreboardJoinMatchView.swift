@@ -1,5 +1,8 @@
 import SwiftUI
 import Combine
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor final class ScoreboardJoinCoordinator: ObservableObject {
     @Published private(set) var isJoining = false
@@ -10,15 +13,16 @@ import Combine
 
     func join(_ match: ScoreboardNearbyMatch, code: String, asDisplay: Bool, completion: @escaping () -> Void) {
         guard !isJoining else { return }
+        let displayOnly = asDisplay || !ScoreboardRemoteDisplayDeviceType.current.supportsControl
         let store = ScoreboardStore.shared
-        do { try store.prepareJoiningMatch(asDisplay: asDisplay) }
+        do { try store.prepareJoiningMatch(asDisplay: displayOnly) }
         catch { message = error.localizedDescription; return }
         isJoining = true; message = code.isEmpty ? "Waiting for the host to confirm…" : "Connecting to \(match.title)…"; self.completion = completion
         let receiver = ScoreboardRemoteDisplayReceiver.shared
         receiver.acquire(networkMode: store.remoteDisplayNetworkMode); acquiredReceiver = true
         receiver.setPairingScreenVisible(true)
         let beganAt = Date()
-        ScoreboardNearbyMatchService.shared.requestJoin(match, code: code, control: !asDisplay,
+        ScoreboardNearbyMatchService.shared.requestJoin(match, code: code, control: !displayOnly,
             mode: store.remoteDisplayNetworkMode) { [weak self] result in
             guard let self, self.isJoining else { return }
             switch result {
@@ -62,6 +66,8 @@ import Combine
 }
 
 struct ScoreboardNearbyJoinContent: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @ObservedObject private var nearby = ScoreboardNearbyMatchService.shared
     @ObservedObject private var store = ScoreboardStore.shared
     @StateObject private var join = ScoreboardJoinCoordinator()
@@ -77,7 +83,10 @@ struct ScoreboardNearbyJoinContent: View {
             Text("Nearby Matches").font(.title2.bold())
             Text("Join over your local network or nearby Wi-Fi. No internet or account is needed.")
                 .font(.callout).foregroundStyle(.secondary)
-            if nearby.matches.isEmpty {
+            if !store.localConnectionsEnabled {
+                Label("LAN and nearby connections are off.", systemImage: "network.slash").foregroundStyle(.secondary)
+                Text("Enable LAN & Nearby in App Settings to discover local scoreboards. Cloud joining remains available separately.").font(.callout)
+            } else if nearby.matches.isEmpty && nearby.discoveryError == nil {
                 Label("Looking for matches…", systemImage: "antenna.radiowaves.left.and.right")
                     .foregroundStyle(.secondary)
                 Text("Ask the host to open Connect Devices and allow nearby joining. Check Local Network permission if the match does not appear.")
@@ -116,10 +125,7 @@ struct ScoreboardNearbyJoinContent: View {
                     #endif
                     .accessibilityIdentifier("join.nearbyCode") }
                 #if os(tvOS)
-                HStack(spacing: 24) {
-                    RemotePairingActionButton(title: "Display", symbol: "tv", selected: asDisplay) { asDisplay = true }
-                    RemotePairingActionButton(title: "Control Board", symbol: "gamecontroller", detail: "Requires host approval", selected: !asDisplay) { asDisplay = false }
-                }.focusSection()
+                Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
                 #else
                 Picker("Join as", selection: $asDisplay) {
                     Text("Display").tag(true); Text("Controller · owner approval").tag(false)
@@ -131,7 +137,23 @@ struct ScoreboardNearbyJoinContent: View {
                     .disabled(join.isJoining || (usesPIN && (code.count != 6 || !code.allSatisfy(\.isNumber))))
                 if join.isJoining { Button("Cancel Connection", role: .cancel) { join.cancel() } }
             }
-            if let error = nearby.discoveryError { Text(error).font(.callout).foregroundStyle(.orange) }
+            if let error = nearby.discoveryError, store.localConnectionsEnabled {
+                Label("Nearby Discovery Unavailable", systemImage: "wifi.exclamationmark").font(.headline).foregroundStyle(.orange)
+                Text(error).font(.callout).foregroundStyle(.secondary).accessibilityIdentifier("join.discoveryError")
+                HStack {
+                    Button("Try Again", systemImage: "arrow.clockwise") { nearby.retryBrowser(mode: store.remoteDisplayNetworkMode) }
+                        .buttonStyle(.bordered).accessibilityIdentifier("join.retryDiscovery")
+                    #if os(macOS)
+                    if nearby.discoveryNeedsPermission {
+                        Button("Open System Settings") { openURL(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!) }.buttonStyle(.bordered)
+                    }
+                    #elseif os(iOS)
+                    if nearby.discoveryNeedsPermission {
+                        Button("Open Settings") { openURL(URL(string: UIApplication.openSettingsURLString)!) }.buttonStyle(.bordered)
+                    }
+                    #endif
+                }
+            }
             if !join.message.isEmpty { Text(join.message).font(.callout).accessibilityIdentifier("join.nearbyStatus") }
         }
         .onAppear {
@@ -140,6 +162,11 @@ struct ScoreboardNearbyJoinContent: View {
         }
         .onChange(of: store.remoteDisplayNetworkMode) { _, mode in
             if acquired { nearby.releaseBrowser(); nearby.acquireBrowser(mode: mode) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, acquired, nearby.discoveryError != nil {
+                nearby.retryBrowser(mode: store.remoteDisplayNetworkMode)
+            }
         }
         .onChange(of: nearby.matches.map(\.id)) { _, _ in selectInvitation() }
         .onChange(of: invitation) { _, _ in selectInvitation() }
@@ -196,8 +223,10 @@ struct ScoreboardJoinMatchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text(ScoreboardDeviceMode.current == .kiosk ? "Join as a display or controller. This device keeps no copy when you disconnect." : "Your local scoreboard stays saved on this device.").font(.callout).foregroundStyle(palette.secondaryText)
+                if store.localConnectionsEnabled {
                 ScoreboardCloudSection("Nearby") {
                     ScoreboardNearbyJoinContent(invitation: scannedNearby ?? nearbyInvitation, joined: finish).padding(.vertical, 12)
+                }
                 }
                 ScoreboardCloudSection("More Ways to Join") {
                     Button("Enter Code or Link", systemImage: "link") { showsInvitation = true }
@@ -206,9 +235,11 @@ struct ScoreboardJoinMatchView: View {
                     Divider()
                     Button("Scan QR", systemImage: "qrcode.viewfinder") { scans = true }.padding(.vertical, 12)
                     #endif
+                    if store.localConnectionsEnabled {
                     Divider()
                     NavigationLink("Show This Device’s Pairing Code") { ScoreboardWaitingForPairingView(joined: finish) }
                         .padding(.vertical, 12)
+                    }
                 }
                 if !feedback.isEmpty { Text(feedback).font(.callout).foregroundStyle(.orange) }
             }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)

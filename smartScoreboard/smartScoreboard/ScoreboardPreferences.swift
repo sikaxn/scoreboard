@@ -1,5 +1,13 @@
 import Foundation
 
+/// Checked at transport entry points, including recovery and restored backups.
+nonisolated enum ScoreboardConnectionPolicy {
+    static let preferenceKey = "scoreboard.localConnectionsEnabled"
+    static var allowsLocalNetworking: Bool {
+        ScoreboardPreferences.current.object(forKey: preferenceKey) as? Bool ?? true
+    }
+}
+
 /// One preference domain for the core, with an isolated domain in the test bundle.
 nonisolated enum ScoreboardPreferences {
     nonisolated(unsafe) static let current: UserDefaults = {

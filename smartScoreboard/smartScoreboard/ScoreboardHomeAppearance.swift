@@ -9,6 +9,7 @@ struct ScoreboardHomeStatusView: View {
     var fontSize: CGFloat? = nil
     private var version: ScoreboardRemoteDisplayAppVersion { .current }
     private var cloudLabel: String {
+        if !store.localConnectionsEnabled && !cloud.cloudEnabled { return "Local Only" }
         if !cloud.cloudEnabled { return "Cloud · Off" }
         if cloud.isLinking { return "Cloud · Signing In" }
         if cloud.isLinked && cloud.session?.enabled == false { return "Cloud · Sharing Paused" }
@@ -23,6 +24,7 @@ struct ScoreboardHomeStatusView: View {
         return ScoreboardDeviceMode.current == .kiosk ? "Cloud · Ready to Join" : "Cloud · Not Signed In"
     }
     private var statusColor: Color {
+        if !store.localConnectionsEnabled && !cloud.cloudEnabled { return .secondary }
         if !cloud.cloudEnabled { return .secondary }
         if cloud.isLinking || (cloud.isLinked && cloud.session?.enabled == false) { return .orange }
         if cloud.isConnected { return !cloud.isHost && cloud.session?.hostOnline == false ? .orange : .green }
