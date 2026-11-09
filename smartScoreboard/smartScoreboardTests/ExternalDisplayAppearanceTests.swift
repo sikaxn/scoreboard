@@ -6,7 +6,7 @@ extension ScoreboardTests {
     func gameFileDisplayAppearance() throws {
         store.setTheme(.sunlight)
         store.setExternalDisplayLayout(.venueRoster)
-        store.setExternalDisplayFont(.dotMatrix)
+        store.setExternalDisplayFont(.eightSegment)
         store.externalDisplayBackgroundMode = .clearUnderBoard
         let first = store.currentGameSnapshot()
         let url = ScoreboardTestEnvironment.root.appendingPathComponent("appearance.scoreboard")
@@ -19,7 +19,7 @@ extension ScoreboardTests {
         let decoded = try JSONDecoder().decode(ScoreboardGameSnapshot.self, from: Data(contentsOf: url))
         store.applyGameSnapshot(decoded)
         #expect(store.theme == .sunlight)
-        #expect(store.externalDisplayLayout == .venueRoster && store.externalDisplayFont == .dotMatrix)
+        #expect(store.externalDisplayLayout == .venueRoster && store.externalDisplayFont == .eightSegment)
         #expect(store.externalDisplayBackgroundMode == .clearUnderBoard)
 
         let editor = SetupNavigationFixture(store: store)
@@ -102,12 +102,12 @@ extension ScoreboardTests {
     func externalDisplayAppearanceCommands() {
         store.setRemoteControlAllowed(displayID: "test-mac", isAllowed: true)
         #expect(store.executeControlCommand(cmd("display.layout", text: "broadcast")).success)
-        #expect(store.executeControlCommand(cmd("display.font", text: "dotMatrix")).success)
+        #expect(store.executeControlCommand(cmd("display.font", text: "eightSegment")).success)
         #expect(store.externalDisplayLayout == .broadcast)
-        #expect(store.externalDisplayFont == .dotMatrix)
+        #expect(store.externalDisplayFont == .eightSegment)
         #expect(store.executeControlCommand(cmd("display.layout", text: "invalid")).error == "invalidCommand")
         #expect(store.executeControlCommand(cmd("display.font", text: "invalid")).error == "invalidCommand")
-        #expect(store.externalDisplayLayout == .broadcast && store.externalDisplayFont == .dotMatrix)
+        #expect(store.externalDisplayLayout == .broadcast && store.externalDisplayFont == .eightSegment)
 
         var routed: [ScoreboardControlCommand] = []
         let proxy = ScoreboardStore.makeRemoteControlStore(receiver: ScoreboardRemoteDisplayReceiver(), sendCommand: { routed.append($0) })
@@ -116,7 +116,7 @@ extension ScoreboardTests {
         #expect(routed.last?.action == "display.layout" && routed.last?.text == "arena")
         proxy.setExternalDisplayFont(.block)
         #expect(routed.last?.action == "display.font" && routed.last?.text == "block")
-        #expect(proxy.externalDisplayLayout == .broadcast && proxy.externalDisplayFont == .dotMatrix,
+        #expect(proxy.externalDisplayLayout == .broadcast && proxy.externalDisplayFont == .eightSegment,
                 "The receiver waits for the host's authoritative update")
     }
 

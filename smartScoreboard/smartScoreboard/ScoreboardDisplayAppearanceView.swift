@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A vector dot matrix stays sharp on projectors and scales down for the layout picker.
+/// Vector display fonts stay sharp on projectors and in the layout picker.
 struct ScoreboardDisplayNumber: View {
     let value: String
     let font: ExternalDisplayFont
@@ -10,7 +10,9 @@ struct ScoreboardDisplayNumber: View {
     var weight: Font.Weight = .black
 
     var body: some View {
-        if font == .dotMatrix, value.allSatisfy({ Self.glyphs[$0] != nil }) {
+        if font == .eightSegment, ScoreboardEightSegmentNumber.supports(value) {
+            ScoreboardEightSegmentNumber(value: value, fontSize: fontSize, color: color, minScale: minScale)
+        } else if font == .dotMatrix, value.allSatisfy({ Self.glyphs[$0] != nil }) {
             Canvas { context, size in
                 let glyphs = value.compactMap { Self.glyphs[$0] }
                 let columns = glyphs.reduce(0) { $0 + $1[0].count + 1 } - 1

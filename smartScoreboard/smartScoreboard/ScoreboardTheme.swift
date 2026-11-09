@@ -35,6 +35,7 @@ enum ExternalDisplayFont: String, Codable, CaseIterable, Identifiable, Sendable 
     case rounded
     case block
     case dotMatrix
+    case eightSegment
 
     var id: String { rawValue }
 
@@ -43,6 +44,7 @@ enum ExternalDisplayFont: String, Codable, CaseIterable, Identifiable, Sendable 
         case .rounded: "Rounded"
         case .block: "Block"
         case .dotMatrix: "Dot Matrix"
+        case .eightSegment: "8-Segment"
         }
     }
 
@@ -51,6 +53,7 @@ enum ExternalDisplayFont: String, Codable, CaseIterable, Identifiable, Sendable 
         case .rounded: "Soft, rounded score and timer digits."
         case .block: "Bold, straight-edged score and timer digits."
         case .dotMatrix: "Illuminated dot-matrix score and timer digits."
+        case .eightSegment: "Classic segmented score and timer digits with a decimal point."
         }
     }
 }

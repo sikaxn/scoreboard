@@ -506,157 +506,159 @@ struct ScoreboardFaceView: View {
         condensed: Bool,
         ultraCondensed: Bool
     ) -> some View {
-        let panelSpacing = teamPanelSpacing(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout)
+        ScoreboardViewBoundary {
+            let panelSpacing = teamPanelSpacing(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout)
 
-        return VStack(spacing: panelSpacing) {
-            VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
-                if let logoData {
-                    TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 10)
-                        .frame(
-                            width: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14,
-                            height: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14
-                        )
-                        .frame(maxWidth: .infinity)
-                        .transition(.scale(scale: 0.96).combined(with: .opacity))
+            VStack(spacing: panelSpacing) {
+                VStack(spacing: ultraCondensed ? 6 : condensed ? 10 : 12) {
+                    if let logoData {
+                        TeamLogoImageView(data: logoData, cornerRadius: ultraCondensed ? 8 : 10)
+                            .frame(
+                                width: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14,
+                                height: ultraCondensed ? base * 0.1 : condensed ? base * 0.12 : base * 0.14
+                            )
+                            .frame(maxWidth: .infinity)
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
+
+                    Text(role)
+                        .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.026 : base * 0.028, weight: .black, design: .rounded))
+                        .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
+                        .singleLineFitted(minScale: 0.8)
+                        .foregroundStyle(boardSecondaryTextColor)
+
+                    Text(resolvedTitle(title, placeholder: placeholder))
+                        .font(.system(size: ultraCondensed ? base * 0.034 : condensed ? base * 0.044 : base * 0.054, weight: .black, design: .rounded))
+                        .singleLineFitted(minScale: 0.35)
+                        .foregroundStyle(boardPrimaryTextColor)
+
+                    Capsule()
+                        .fill(accent)
+                        .frame(width: ultraCondensed ? base * 0.22 : condensed ? base * 0.26 : base * 0.24, height: ultraCondensed ? 5 : condensed ? 7 : 8)
                 }
 
-                Text(role)
-                    .font(.system(size: ultraCondensed ? base * 0.022 : condensed ? base * 0.026 : base * 0.028, weight: .black, design: .rounded))
-                    .tracking(ultraCondensed ? 1.5 : condensed ? 3 : 2)
-                    .singleLineFitted(minScale: 0.8)
-                    .foregroundStyle(boardSecondaryTextColor)
-
-                Text(resolvedTitle(title, placeholder: placeholder))
-                    .font(.system(size: ultraCondensed ? base * 0.034 : condensed ? base * 0.044 : base * 0.054, weight: .black, design: .rounded))
-                    .singleLineFitted(minScale: 0.35)
-                    .foregroundStyle(boardPrimaryTextColor)
-
-                Capsule()
-                    .fill(accent)
-                    .frame(width: ultraCondensed ? base * 0.22 : condensed ? base * 0.26 : base * 0.24, height: ultraCondensed ? 5 : condensed ? 7 : 8)
-            }
-
-            Spacer(minLength: 0)
-
-            if showsScore {
-                ScoreboardDisplayNumber(
-                    value: "\(score)", font: displayFont,
-                    fontSize: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout),
-                    color: displayLayout == .broadcast ? boardPrimaryTextColor : accent, minScale: 0.32
-                )
-                    .accessibilityIdentifier("public.score.\(side.rawValue)")
-                    .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
-                    .foregroundStyle(accent)
-                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, displayLayout == .arena ? base * 0.018 : 0)
-                    .overlay {
-                        if displayLayout == .arena {
-                            RoundedRectangle(cornerRadius: 9)
-                                .strokeBorder(accent.opacity(0.55), lineWidth: 1.5)
-                        }
-                    }
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
-            }
-
-            if showsPeriodWins {
-                setsWonStrip(
-                    setsWon: setsWon,
-                    accent: accent,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
-
-            if sport == .debate && showsDebatePrepTime {
-                debatePrepStrip(
-                    side: side,
-                    accent: accent,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
-
-            if shouldShowSubstitutionTracking, substitutionsAllowed > 0 {
-                substitutionLightStrip(
-                    used: substitutionsUsed,
-                    allowed: substitutionsAllowed,
-                    accent: accent,
-                    base: base,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
-
-            if shouldShowPauseTracking, pausesAllowed > 0 {
-                pauseLightStrip(
-                    used: pausesUsed,
-                    allowed: pausesAllowed,
-                    accent: accent,
-                    base: base,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
-
-            if rules.supportsTeamFouls {
-                teamFoulStrip(
-                    fouls: teamFouls,
-                    accent: accent,
-                    ultraCondensed: ultraCondensed,
-                    condensed: condensed
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
-
-            if rules.supportsHockeyPenalties {
-                hockeyPenaltyStrip(
-                    penaltyTimers: penaltyTimers,
-                    accent: accent,
-                    base: base,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed
-                )
-            }
-
-            if showsPlayerStrip, !rules.usesCenterPlayerStrip, !displayedPlayers.isEmpty, playerViewportHeight > 0 {
-                activeLineupStrip(
-                    displayedPlayers,
-                    accent: accent,
-                    base: base,
-                    condensed: condensed,
-                    ultraCondensed: ultraCondensed,
-                    viewportHeight: playerViewportHeight,
-                    overflowMode: playerOverflowMode
-                )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else {
                 Spacer(minLength: 0)
+
+                if showsScore {
+                    ScoreboardDisplayNumber(
+                        value: "\(score)", font: displayFont,
+                        fontSize: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout),
+                        color: displayLayout == .broadcast ? boardPrimaryTextColor : accent, minScale: 0.32
+                    )
+                        .accessibilityIdentifier("public.score.\(side.rawValue)")
+                        .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
+                        .foregroundStyle(accent)
+                        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, displayLayout == .arena ? base * 0.018 : 0)
+                        .overlay {
+                            if displayLayout == .arena {
+                                RoundedRectangle(cornerRadius: 9)
+                                    .strokeBorder(accent.opacity(0.55), lineWidth: 1.5)
+                            }
+                        }
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+
+                if showsPeriodWins {
+                    setsWonStrip(
+                        setsWon: setsWon,
+                        accent: accent,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if sport == .debate && showsDebatePrepTime {
+                    debatePrepStrip(
+                        side: side,
+                        accent: accent,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if shouldShowSubstitutionTracking, substitutionsAllowed > 0 {
+                    substitutionLightStrip(
+                        used: substitutionsUsed,
+                        allowed: substitutionsAllowed,
+                        accent: accent,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if shouldShowPauseTracking, pausesAllowed > 0 {
+                    pauseLightStrip(
+                        used: pausesUsed,
+                        allowed: pausesAllowed,
+                        accent: accent,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if rules.supportsTeamFouls {
+                    teamFoulStrip(
+                        fouls: teamFouls,
+                        accent: accent,
+                        ultraCondensed: ultraCondensed,
+                        condensed: condensed
+                    )
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                }
+
+                if rules.supportsHockeyPenalties {
+                    hockeyPenaltyStrip(
+                        penaltyTimers: penaltyTimers,
+                        accent: accent,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed
+                    )
+                }
+
+                if showsPlayerStrip, !rules.usesCenterPlayerStrip, !displayedPlayers.isEmpty, playerViewportHeight > 0 {
+                    activeLineupStrip(
+                        displayedPlayers,
+                        accent: accent,
+                        base: base,
+                        condensed: condensed,
+                        ultraCondensed: ultraCondensed,
+                        viewportHeight: playerViewportHeight,
+                        overflowMode: playerOverflowMode
+                    )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    Spacer(minLength: 0)
+                }
             }
+            .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
+            .background {
+                ScoreboardDisplayPanel(layout: displayLayout, fill: boardPanelBackgroundColor,
+                                       border: boardPanelBorderColor, accent: accent,
+                                       cornerRadius: panelRadius(ultraCondensed ? 20 : condensed ? 34 : 28))
+            }
+            .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
+            .animation(.spring(response: 0.36, dampingFraction: 0.82), value: logoData != nil)
+            .animation(.spring(response: 0.36, dampingFraction: 0.84), value: playerViewportHeight)
+            .animation(.spring(response: 0.3, dampingFraction: 0.84), value: playerOverflowMode)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesUsed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesAllowed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
+            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsScore)
+            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsDebatePrepTime)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displayedPlayers)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
         }
-        .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
-        .background {
-            ScoreboardDisplayPanel(layout: displayLayout, fill: boardPanelBackgroundColor,
-                                   border: boardPanelBorderColor, accent: accent,
-                                   cornerRadius: panelRadius(ultraCondensed ? 20 : condensed ? 34 : 28))
-        }
-        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
-        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: logoData != nil)
-        .animation(.spring(response: 0.36, dampingFraction: 0.84), value: playerViewportHeight)
-        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: playerOverflowMode)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsUsed)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: substitutionsAllowed)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesUsed)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pausesAllowed)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: teamFouls)
-        .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsScore)
-        .animation(.spring(response: 0.32, dampingFraction: 0.84), value: showsDebatePrepTime)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displayedPlayers)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
     }
 
     private func activeLineupStrip(
@@ -693,136 +695,147 @@ struct ScoreboardFaceView: View {
         includesEventBranding: Bool = true,
         includesPeriod: Bool = true
     ) -> some View {
-        VStack(spacing: ultraCondensed ? max(8, base * 0.014) : condensed ? max(12, base * 0.02) : max(20, base * 0.03)) {
-            Spacer(minLength: 0)
+        ScoreboardViewBoundary {
+            VStack(spacing: ultraCondensed ? max(8, base * 0.014) : condensed ? max(12, base * 0.02) : max(20, base * 0.03)) {
+                Spacer(minLength: 0)
 
-            if showsEventBranding && includesEventBranding {
-                eventBrandingHeader(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            if showsDualClocks {
-                HStack(spacing: ultraCondensed ? 8 : condensed ? 12 : 14) {
-                    headerBadge(
-                        title: (sport == .debate ? sideRoleLabel(for: .home) : resolvedTitle(homeTeamName, placeholder: "HOME")).uppercased(),
-                        value: formattedHomeChessClock,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed,
-                        valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
-                        valueMinScale: 0.42,
-                        valueColor: activeChessClockSide == .home ? palette.homeAccent : boardBadgeValueTextColor
-                    )
-
-                    headerBadge(
-                        title: (sport == .debate ? sideRoleLabel(for: .guest) : resolvedTitle(guestTeamName, placeholder: "GUEST")).uppercased(),
-                        value: formattedGuestChessClock,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed,
-                        valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
-                        valueMinScale: 0.42,
-                        valueColor: activeChessClockSide == .guest ? palette.guestAccent : boardBadgeValueTextColor
-                    )
-                }
-                .id("public-dual-\(debateSegmentTitle ?? "")")
-                .transition(.move(edge: .top).combined(with: .opacity))
-            } else if showsGameClock {
-                ScoreboardDisplayNumber(
-                    value: formattedClock, font: displayFont,
-                    fontSize: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19,
-                    color: isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor, weight: .heavy
-                )
-                    .accessibilityIdentifier("public.clock")
-                    .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
-                    .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
-                    .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
-                    .frame(maxWidth: .infinity)
-                    .id("public-master-\(debateSegmentTitle ?? "")")
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            VStack(spacing: ultraCondensed ? 8 : condensed ? 10 : 12) {
-                let shotClockValueSize = ultraCondensed ? base * 0.088 : condensed ? base * 0.118 : base * 0.132
-
-                if sport == .debate,
-                   let debateSegmentTitle,
-                   !debateSegmentTitle.isEmpty {
-                    debateSegmentBadge(
-                        value: localizedBoardString(debateSegmentTitle).uppercased(),
-                        base: base,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed
-                    )
-                        .id("public-segment-\(debateSegmentTitle)")
+                if showsEventBranding && includesEventBranding {
+                    eventBrandingHeader(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if rules.supportsShotClock {
-                    shotClockBadge(
-                        value: formattedShotClock,
-                        condensed: condensed,
-                        ultraCondensed: ultraCondensed,
-                        base: base,
-                        valueFontSize: shotClockValueSize,
-                        valueMinScale: 0.34,
-                        valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
-                    )
-                    .transition(.scale(scale: 0.96).combined(with: .opacity))
-                }
-
-                HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
-                    if showsDualClocks {
-                        headerBadge(title: "TURN", value: activeChessClockSide.map { sideRoleLabel(for: $0).uppercased() } ?? localizedBoardString("NONE"), condensed: condensed, ultraCondensed: ultraCondensed)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    } else if showsGameClock {
-                        headerBadge(title: "CLOCK", value: localizedBoardString(isClockRunning ? "RUNNING" : "STOPPED"), condensed: condensed, ultraCondensed: ultraCondensed)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                    if activeInjuryTimeMinutes > 0 {
+                if showsDualClocks {
+                    HStack(spacing: ultraCondensed ? 8 : condensed ? 12 : 14) {
                         headerBadge(
-                            title: "Added Time",
-                            value: localizedBoardFormat("+%d min", activeInjuryTimeMinutes),
+                            title: (sport == .debate ? sideRoleLabel(for: .home) : resolvedTitle(homeTeamName, placeholder: "HOME")).uppercased(),
+                            value: formattedHomeChessClock,
                             condensed: condensed,
                             ultraCondensed: ultraCondensed,
-                            valueColor: palette.dashboardWarningButton
+                            valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
+                            valueMinScale: 0.42,
+                            valueColor: activeChessClockSide == .home ? palette.homeAccent : boardBadgeValueTextColor
                         )
+
+                        headerBadge(
+                            title: (sport == .debate ? sideRoleLabel(for: .guest) : resolvedTitle(guestTeamName, placeholder: "GUEST")).uppercased(),
+                            value: formattedGuestChessClock,
+                            condensed: condensed,
+                            ultraCondensed: ultraCondensed,
+                            valueFontSize: ultraCondensed ? base * 0.058 : condensed ? base * 0.075 : base * 0.078,
+                            valueMinScale: 0.42,
+                            valueColor: activeChessClockSide == .guest ? palette.guestAccent : boardBadgeValueTextColor
+                        )
+                    }
+                    .id("public-dual-\(debateSegmentTitle ?? "")")
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                } else if showsGameClock {
+                    ScoreboardDisplayNumber(
+                        value: formattedClock, font: displayFont,
+                        fontSize: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19,
+                        color: isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor, weight: .heavy
+                    )
+                        .accessibilityIdentifier("public.clock")
+                        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
+                        .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
+                        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
+                        .frame(maxWidth: .infinity)
+                        .id("public-master-\(debateSegmentTitle ?? "")")
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                    if rules.supportsPeriod && includesPeriod {
-                        headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
-                    }
                 }
 
-                if showsCenterPlayerStrip {
-                    soccerCenterPlayerStrip(
-                        base: base,
+                VStack(spacing: ultraCondensed ? 8 : condensed ? 10 : 12) {
+                    let shotClockValueSize = ultraCondensed ? base * 0.088 : condensed ? base * 0.118 : base * 0.132
+
+                    if sport == .debate,
+                       let debateSegmentTitle,
+                       !debateSegmentTitle.isEmpty {
+                        debateSegmentBadge(
+                            value: localizedBoardString(debateSegmentTitle).uppercased(),
+                            base: base,
+                            condensed: condensed,
+                            ultraCondensed: ultraCondensed
+                        )
+                            .id("public-segment-\(debateSegmentTitle)")
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    if rules.supportsShotClock {
+                        shotClockBadge(
+                            value: formattedShotClock,
+                            condensed: condensed,
+                            ultraCondensed: ultraCondensed,
+                            base: base,
+                            valueFontSize: shotClockValueSize,
+                            valueMinScale: 0.34,
+                            valueColor: isDisplayShotClockAlertActive ? displayAlertColor : boardBadgeValueTextColor
+                        )
+                        .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
+
+                    centerClockStatusRow(condensed: condensed, ultraCondensed: ultraCondensed, includesPeriod: includesPeriod)
+
+                    if showsCenterPlayerStrip {
+                        soccerCenterPlayerStrip(
+                            base: base,
+                            condensed: condensed,
+                            ultraCondensed: ultraCondensed,
+                            viewportHeight: playerViewportHeight,
+                            overflowMode: playerOverflowMode
+                        )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
+            .background {
+                ScoreboardDisplayPanel(layout: displayLayout, fill: boardClockPanelBackgroundColor,
+                                       border: boardPanelBorderColor,
+                                       cornerRadius: panelRadius(ultraCondensed ? 22 : condensed ? 38 : 30))
+            }
+            .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
+            .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isDisplayShotClockAlertActive)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: period)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: activeInjuryTimeMinutes)
+            .animation(.spring(response: 0.34, dampingFraction: 0.84), value: showsEventBranding)
+            .animation(.spring(response: 0.34, dampingFraction: 0.84), value: trimmedEventName)
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
+            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
+        }
+    }
+
+    // iPad's external-display render exhausted its main-thread stack while
+    // instantiating this row's nested conditional types. Defer the row and each
+    // badge through concrete body boundaries instead of expanding them inline.
+    private func centerClockStatusRow(condensed: Bool, ultraCondensed: Bool, includesPeriod: Bool) -> some View {
+        ScoreboardViewBoundary {
+            HStack(spacing: ultraCondensed ? 8 : condensed ? 14 : 12) {
+                if showsDualClocks {
+                    headerBadge(title: "TURN", value: activeChessClockSide.map { sideRoleLabel(for: $0).uppercased() } ?? localizedBoardString("NONE"), condensed: condensed, ultraCondensed: ultraCondensed)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if showsGameClock {
+                    headerBadge(title: "CLOCK", value: localizedBoardString(isClockRunning ? "RUNNING" : "STOPPED"), condensed: condensed, ultraCondensed: ultraCondensed)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                if activeInjuryTimeMinutes > 0 {
+                    headerBadge(
+                        title: "Added Time",
+                        value: localizedBoardFormat("+%d min", activeInjuryTimeMinutes),
                         condensed: condensed,
                         ultraCondensed: ultraCondensed,
-                        viewportHeight: playerViewportHeight,
-                        overflowMode: playerOverflowMode
+                        valueColor: palette.dashboardWarningButton
                     )
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-
+                if rules.supportsPeriod && includesPeriod {
+                    headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
+                }
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
-        .background {
-            ScoreboardDisplayPanel(layout: displayLayout, fill: boardClockPanelBackgroundColor,
-                                   border: boardPanelBorderColor,
-                                   cornerRadius: panelRadius(ultraCondensed ? 22 : condensed ? 38 : 30))
-        }
-        .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
-        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isDisplayShotClockAlertActive)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: period)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: activeInjuryTimeMinutes)
-        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: showsEventBranding)
-        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: trimmedEventName)
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .home))
-        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: displayedPlayers(for: .guest))
     }
 
     private func eventBrandingHeader(base: CGFloat, condensed: Bool, ultraCondensed: Bool) -> some View {
@@ -1074,45 +1087,47 @@ struct ScoreboardFaceView: View {
         showsContainer: Bool = true,
         animatesValue: Bool = true
     ) -> some View {
-        VStack(spacing: ultraCondensed ? 3 : 6) {
-            localizedBoardText(title)
-                .font(.system(size: ultraCondensed ? 10 : condensed ? 13 : 14, weight: .black, design: .rounded))
-                .tracking(ultraCondensed ? 0.8 : 1.5)
-                .singleLineFitted(minScale: 0.75)
-                .foregroundStyle(boardBadgeTitleTextColor)
-                .frame(maxWidth: .infinity)
+        ScoreboardViewBoundary {
+            VStack(spacing: ultraCondensed ? 3 : 6) {
+                localizedBoardText(title)
+                    .font(.system(size: ultraCondensed ? 10 : condensed ? 13 : 14, weight: .black, design: .rounded))
+                    .tracking(ultraCondensed ? 0.8 : 1.5)
+                    .singleLineFitted(minScale: 0.75)
+                    .foregroundStyle(boardBadgeTitleTextColor)
+                    .frame(maxWidth: .infinity)
 
-            headerBadgeValueText(
-                value,
-                condensed: condensed,
-                ultraCondensed: ultraCondensed,
-                valueFontSize: valueFontSize,
-                valueMinScale: valueMinScale,
-                valueColor: valueColor,
-                animatesValue: animatesValue
+                headerBadgeValueText(
+                    value,
+                    condensed: condensed,
+                    ultraCondensed: ultraCondensed,
+                    valueFontSize: valueFontSize,
+                    valueMinScale: valueMinScale,
+                    valueColor: valueColor,
+                    animatesValue: animatesValue
+                )
+                .padding(.horizontal, valueHorizontalInset)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
+            .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 14)
+            .background(
+                Group {
+                    if showsContainer {
+                        RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
+                            .fill(boardBadgeBackgroundColor)
+                    }
+                }
             )
-            .padding(.horizontal, valueHorizontalInset)
+            .overlay(
+                Group {
+                    if showsContainer {
+                        RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
+                            .strokeBorder(boardBadgeBorderColor)
+                    }
+                }
+            )
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
-        .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 14)
-        .background(
-            Group {
-                if showsContainer {
-                    RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
-                        .fill(boardBadgeBackgroundColor)
-                }
-            }
-        )
-        .overlay(
-            Group {
-                if showsContainer {
-                    RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
-                        .strokeBorder(boardBadgeBorderColor)
-                }
-            }
-        )
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

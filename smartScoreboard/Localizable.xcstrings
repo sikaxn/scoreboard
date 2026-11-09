@@ -1221,6 +1221,16 @@
         }
       }
     },
+    "8-Segment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "8 段数码管"
+          }
+        }
+      }
+    },
     "A hockey penalty timer is added" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1849,6 +1859,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "动画样式"
+          }
+        }
+      }
+    },
+    "Classic segmented score and timer digits with a decimal point." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "经典数码管风格的比分和计时数字，带小数点。"
           }
         }
       }
