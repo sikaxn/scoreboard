@@ -5,6 +5,12 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
     case library, join, sharing, settings
     var id: String { rawValue }
 }
+nonisolated enum ScoreboardHomeTab: String, CaseIterable, Identifiable {
+    case open, new, connect
+    var id: String { rawValue }
+    var title: String { switch self { case .open: "Open Scoreboard"; case .new: "New Scoreboard"; case .connect: "Connect to Scoreboard" } }
+    var symbol: String { switch self { case .open: "folder"; case .new: "plus"; case .connect: "person.2" } }
+}
 
 /// Home owns file navigation. A received scoreboard never becomes a local document.
 @MainActor final class ScoreboardAppNavigation: ObservableObject {
@@ -12,6 +18,7 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
     @Published var destination: ScoreboardMatchDestination?
     @Published var boardOpen = false
     @Published var startsInSetup = false
+    @Published var homeTab: ScoreboardHomeTab = .open
     @Published var fileImportError: String?
     var settingsSection = "general"
     var invitation: ScoreboardMatchInvitation?
@@ -19,6 +26,12 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
 
     func open(_ destination: ScoreboardMatchDestination) {
         if destination == .library { goHome(); return }
+        if destination == .join, ScoreboardDeviceMode.current == .app {
+            goHome()
+            guard !boardOpen else { return }
+            homeTab = .connect
+            return
+        }
         self.destination = destination
     }
     func openBoard(setup: Bool = false) {
@@ -31,7 +44,7 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
     func goHome() {
         do { try ScoreboardStore.shared.prepareForFileHome() }
         catch { fileImportError = error.localizedDescription; return }
-        boardOpen = false; ScoreboardStore.shared.isShowingFileHome = true
+        boardOpen = false; homeTab = .open; ScoreboardStore.shared.isShowingFileHome = true
         destination = nil
     }
     func openSettings(_ section: String) { settingsSection = section; destination = .settings }
@@ -49,7 +62,7 @@ nonisolated enum ScoreboardMatchDestination: String, Identifiable {
         }
         invitation = ScoreboardMatchInvitation.parse(url.absoluteString)
         nearbyInvitation = ScoreboardNearbyInvitation.parse(url.absoluteString)
-        if invitation != nil || nearbyInvitation != nil { destination = .join }
+        if invitation != nil || nearbyInvitation != nil { open(.join) }
     }
     func didDismiss() { invitation = nil; nearbyInvitation = nil }
 }

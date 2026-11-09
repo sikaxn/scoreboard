@@ -31,6 +31,11 @@
 		A1A19C84F1BB44E7A1920010 /* Built App Info.plist in Copy App Test Metadata */ = {isa = PBXBuildFile; fileRef = A1A19C84F1BB44E7A1920011 /* Built App Info.plist */; };
 		A5C020260020000000000001 /* ScoreboardControlBoardConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */; };
 		A6C10D202611020000000001 /* ScoreboardCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C10D202611020000000002 /* ScoreboardCloudClient.swift */; };
+		A6C10D202611080000000001 /* ScoreboardCloudImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C10D202611080000000002 /* ScoreboardCloudImages.swift */; };
+		A6C10D202611080000000003 /* ScoreboardRecentMatches.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C10D202611080000000004 /* ScoreboardRecentMatches.swift */; };
+		A6C10D202611080100000001 /* SRP in Frameworks */ = {isa = PBXBuildFile; productRef = A6C10D202611080100000003 /* SRP */; };
+		A6C10D202611080100000002 /* SRP in Frameworks */ = {isa = PBXBuildFile; productRef = A6C10D202611080100000003 /* SRP */; };
+		A6C10D202611080100000005 /* smartScoreboard/ScoreboardNearbyCloudInvitation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C10D202611080100000006 /* smartScoreboard/ScoreboardNearbyCloudInvitation.swift */; };
 		B01BBAF70C4E491AA1CA35ED /* ScoreboardCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21DC973D7DBF439D9C49E356 /* ScoreboardCompanion.swift */; };
 		CD4E06D9E13C4CD6B5D31141 /* BuzzerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234AF4FAD681442891669A6A /* BuzzerPlayer.swift */; };
 		CECCE67C5CE4427A888EE6F8 /* ScoreboardLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BFA50A13A8402EBBBF2572 /* ScoreboardLiveActivityAttributes.swift */; };
@@ -133,6 +138,9 @@
 		A43479316DC3446980D4B514 /* DebateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebateModels.swift; sourceTree = "<group>"; };
 		A5C020260020000000000002 /* ScoreboardControlBoardConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardControlBoardConfiguration.swift; sourceTree = "<group>"; };
 		A6C10D202611020000000002 /* ScoreboardCloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardCloudClient.swift; sourceTree = "<group>"; };
+		A6C10D202611080000000002 /* ScoreboardCloudImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardCloudImages.swift; sourceTree = "<group>"; };
+		A6C10D202611080000000004 /* ScoreboardRecentMatches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardRecentMatches.swift; sourceTree = "<group>"; };
+		A6C10D202611080100000006 /* smartScoreboard/ScoreboardNearbyCloudInvitation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardNearbyCloudInvitation.swift; sourceTree = "<group>"; };
 		C281C4A174CF457D805B4A2 /* ScoreboardLiveActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardLiveActivityExtension.swift; sourceTree = "<group>"; };
 		D5901BF521044B119386D971 /* ScoreboardPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardPreferences.swift; sourceTree = "<group>"; };
 		D820B2122FCAA97400523B92 /* smartScoreboard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = smartScoreboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -167,6 +175,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				94E6089F2CAA4225BCF19776 /* LiveKitWebRTC in Frameworks */,
+				A6C10D202611080100000001 /* SRP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -189,6 +198,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E60117000000000000000001 /* LiveKitWebRTC in Frameworks */,
+				A6C10D202611080100000002 /* SRP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,6 +266,9 @@
 		F45E445093FF45D9A773A833 /* Core sources under test */ = {
 			isa = PBXGroup;
 			children = (
+				A6C10D202611080000000002 /* ScoreboardCloudImages.swift */,
+				A6C10D202611080000000004 /* ScoreboardRecentMatches.swift */,
+				A6C10D202611080100000006 /* smartScoreboard/ScoreboardNearbyCloudInvitation.swift */,
 				A6C10D202611020000000002 /* ScoreboardCloudClient.swift */,
 				8C58F7F5EFDD4593968E4307 /* ScoreboardSetupEditing.swift */,
 				015C8F3DDDA64DAE869EB781 /* ScoreboardStore.swift */,
@@ -308,6 +321,7 @@
 			name = smartScoreboardTests;
 			packageProductDependencies = (
 				E60117000000000000000002 /* LiveKitWebRTC */,
+				A6C10D202611080100000003 /* SRP */,
 			);
 			productName = smartScoreboardTests;
 			productReference = E9C87438FD4B4A0E95FB1FDB /* smartScoreboardTests.xctest */;
@@ -374,6 +388,7 @@
 			name = smartScoreboard;
 			packageProductDependencies = (
 				E60117000000000000000002 /* LiveKitWebRTC */,
+				A6C10D202611080100000003 /* SRP */,
 			);
 			productName = smartScoreboard;
 			productReference = D820B2122FCAA97400523B92 /* smartScoreboard.app */;
@@ -413,6 +428,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
+				A6C10D202611080100000004 /* XCRemoteSwiftPackageReference "swift-srp" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D820B2132FCAA97400523B92 /* Products */;
@@ -467,6 +483,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6C10D202611080000000001 /* ScoreboardCloudImages.swift in Sources */,
+				A6C10D202611080000000003 /* ScoreboardRecentMatches.swift in Sources */,
+				A6C10D202611080100000005 /* smartScoreboard/ScoreboardNearbyCloudInvitation.swift in Sources */,
 				A6C10D202611020000000001 /* ScoreboardCloudClient.swift in Sources */,
 				F3254BC109384B149A214844 /* ScoreboardStore.swift in Sources */,
 				00D647BF6B4145F7B2D1F3D3 /* ScoreboardControl.swift in Sources */,
@@ -957,6 +976,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A6C10D202611080100000004 /* XCRemoteSwiftPackageReference "swift-srp" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/adam-fowler/swift-srp.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.4.0;
+			};
+		};
 		E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/livekit/webrtc-xcframework.git";
@@ -968,6 +995,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A6C10D202611080100000003 /* SRP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6C10D202611080100000004 /* XCRemoteSwiftPackageReference "swift-srp" */;
+			productName = SRP;
+		};
 		E60117000000000000000002 /* LiveKitWebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E60117000000000000000003 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;

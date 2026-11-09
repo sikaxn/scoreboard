@@ -9,6 +9,8 @@ nonisolated struct ScoreboardNearbyMatch: Identifiable, Sendable {
     var ownerName: String
     var endpoint: NWEndpoint
     var pairingHostID: String? = nil
+    var cloudCode: String? = nil
+    var cloudServer: String? = nil
 }
 
 nonisolated struct ScoreboardNearbyInvitation: Equatable {
@@ -63,6 +65,14 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         var displayCode: String
         var control: Bool
         var name: String? = nil
+        var invitationRevision: String? = nil
+    }
+    private struct CloudHello: Codable {
+        var kind = "cloud-invitation-v1"
+        var matchID: UUID
+        var server: String
+        var code: String
+        var publicKey: Data
     }
     private struct Reply: Codable { var accepted: Bool; var message: String }
 
@@ -76,6 +86,8 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     func update(owner store: ScoreboardStore) {
         owner = store
         let enabled = !store.isShowingFileHome && ScoreboardConnectionPolicy.allowsLocalNetworking && ScoreboardDeviceMode.current.canHost && store.isRemoteDisplayHostEnabled && store.isSessionAuthority && (!store.isRemoteDisplayViewerModeEnabled || store.isDelegatedSessionHost)
+        let invitation = ScoreboardCloudClient.shared.nearbyInvitation
+        store.pruneInvitationPairings()
         guard enabled else {
             listener?.cancel(); listener = nil; advertisedMatchID = nil; lastAdvertisement = nil
             pending.values.forEach { $0.cancel() }; pending.removeAll()
@@ -114,6 +126,10 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         record["title"] = String(decoding: store.currentMatchTitle.utf8.prefix(160), as: UTF8.self)
         record["owner"] = String((ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard").prefix(60))
         record["pairingHostID"] = store.remoteDisplayHostID
+        if let invitation, invitation.matchID == store.currentMatchID, invitation.hostID == store.remoteDisplayHostID {
+            record["cloudCode"] = invitation.code; record["cloudServer"] = invitation.server
+            record["cloudPairing"] = "srp1"
+        }
         if lastAdvertisement != record.data {
             lastAdvertisement = record.data
             listener?.service = .init(name: "Scoreboard-\(store.localSessionDeviceID.prefix(8))", type: Self.serviceType, txtRecord: record.data)
@@ -138,7 +154,9 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                 guard case .bonjour(let txt) = result.metadata, txt["version"] == "1",
                       let id = txt["ownerID"], id != ScoreboardStore.shared.localSessionDeviceID,
                       let rawMatchID = txt["matchID"], let matchID = UUID(uuidString: rawMatchID) else { return nil }
-                return ScoreboardNearbyMatch(id: id, matchID: matchID, title: txt["title"] ?? "Match", ownerName: txt["owner"] ?? "Smart Scoreboard", endpoint: result.endpoint, pairingHostID: txt["pairingHostID"])
+                return ScoreboardNearbyMatch(id: id, matchID: matchID, title: txt["title"] ?? "Match", ownerName: txt["owner"] ?? "Smart Scoreboard", endpoint: result.endpoint, pairingHostID: txt["pairingHostID"],
+                    cloudCode: txt["cloudPairing"] == "srp1" ? txt["cloudCode"] : nil,
+                    cloudServer: txt["cloudPairing"] == "srp1" ? txt["cloudServer"] : nil)
             }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             self.matches = Dictionary(matches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 .values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -185,7 +203,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     }
 
     func requestJoin(_ match: ScoreboardNearbyMatch, code: String, control: Bool,
-                     mode: ScoreboardRemoteDisplayNetworkMode, completion: @escaping (Result<Void, Error>) -> Void) {
+                     mode: ScoreboardRemoteDisplayNetworkMode, invitationPassword: String? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
         guard ScoreboardConnectionPolicy.allowsLocalNetworking else {
             completion(.failure(error("Enable LAN & Nearby in App Settings first."))); return
         }
@@ -206,6 +224,20 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
             guard let self, let connection, self.requestConnection === connection else { return }
             switch state {
             case .ready:
+                if let invitationPassword {
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        do {
+                            try await self.authenticateInvitation(match, password: invitationPassword, request: data, on: connection)
+                            guard self.requestConnection === connection else { return }
+                            self.finishRequest(.success(()))
+                        } catch {
+                            guard self.requestConnection === connection else { return }
+                            self.finishRequest(.failure(error is DecodingError ? ScoreboardInvitationAuthenticationError.invalid : error))
+                        }
+                    }
+                    return
+                }
                 self.send(data, on: connection) { [weak self, weak connection] in
                     guard let connection else { return }
                     connection.receiveMessage { [weak self, weak connection] data, _, _, error in
@@ -265,6 +297,9 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         connection.receiveMessage { [weak self] data, _, _, _ in
             Task { @MainActor [weak self] in
             guard let self else { return }
+            if let data, data.count <= 4096, let hello = try? JSONDecoder().decode(CloudHello.self, from: data), hello.kind == "cloud-invitation-v1" {
+                await self.receiveCloudHello(hello, on: connection); return
+            }
             guard let data, data.count <= 4096, let request = try? JSONDecoder().decode(JoinRequest.self, from: data),
                   let owner = self.owner, owner.isSessionAuthority, owner.isRemoteDisplayHostEnabled,
                   request.version == 1, request.matchID == owner.currentMatchID else {
@@ -298,6 +333,85 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                 }
             } else { self.pair(request, connection: connection, remaining: 30) }
             }
+        }
+    }
+
+    /// Bonjour is only a hint. SRP authenticates the password and the host before
+    /// the guest releases its ephemeral device pairing PIN.
+    private func authenticateInvitation(_ match: ScoreboardNearbyMatch, password: String, request: Data, on connection: NWConnection) async throws {
+        guard let server = match.cloudServer, let code = match.cloudCode, let hostID = match.pairingHostID else {
+            throw ScoreboardInvitationAuthenticationError.invalid
+        }
+        let origin = try ScoreboardNearbyCloudInvitation.origin(server)
+        let exchange = ScoreboardInvitationPAKE()
+        let publicKey = try await exchange.beginClient()
+        try await sendMessage(JSONEncoder().encode(CloudHello(matchID: match.matchID, server: origin, code: code, publicKey: publicKey)), on: connection)
+        let challenge = try JSONDecoder().decode(ScoreboardInvitationPAKE.Challenge.self, from: await receiveMessage(on: connection))
+        let username = ScoreboardNearbyCloudInvitation.username(server: origin, code: code, matchID: match.matchID, hostID: hostID)
+        let proof = try await exchange.clientProof(challenge: challenge, password: password, username: username)
+        try await sendMessage(proof, on: connection)
+        let serverProof = try await receiveMessage(on: connection)
+        var payload = try JSONDecoder().decode(JoinRequest.self, from: request)
+        payload.invitationRevision = challenge.revision
+        let sealed = try await exchange.verifyServerAndSeal(serverProof, payload: JSONEncoder().encode(payload))
+        try await sendMessage(sealed, on: connection)
+        let reply = try JSONDecoder().decode(Reply.self, from: await receiveMessage(on: connection))
+        guard reply.accepted else { throw error(reply.message) }
+    }
+
+    private func receiveCloudHello(_ hello: CloudHello, on connection: NWConnection) async {
+        let key: String
+        if case .hostPort(let host, _) = connection.endpoint { key = String(describing: host) }
+        else { key = String(describing: connection.endpoint) }
+        failures = failures.filter { Date().timeIntervalSince($0.value.date) < 60 }
+        guard (failures[key]?.count ?? 0) < 5 else {
+            reply(false, "Too many attempts. Wait a minute and try again.", on: connection); return
+        }
+        failures[key] = ((failures[key]?.count ?? 0) + 1, Date())
+        do {
+            guard let owner, owner.isSessionAuthority, owner.isRemoteDisplayHostEnabled,
+                  !owner.isShowingFileHome, let invitation = ScoreboardCloudClient.shared.nearbyInvitation,
+                  invitation.matches(server: hello.server, code: hello.code, matchID: hello.matchID, hostID: owner.remoteDisplayHostID) else {
+                throw ScoreboardInvitationAuthenticationError.invalid
+            }
+            let exchange = ScoreboardInvitationPAKE()
+            let challenge = try await exchange.beginServer(clientKey: hello.publicKey, invitation: invitation)
+            try await sendMessage(JSONEncoder().encode(challenge), on: connection)
+            let proof = try await receiveMessage(on: connection)
+            let answer = try await exchange.verifyClient(proof, invitation: invitation)
+            try await sendMessage(answer, on: connection)
+            let sealed = try await receiveMessage(on: connection)
+            let payload = try await exchange.open(sealed)
+            let request = try JSONDecoder().decode(JoinRequest.self, from: payload)
+            guard pending[ObjectIdentifier(connection)] != nil, owner.isSessionAuthority,
+                  owner.currentMatchID == hello.matchID, request.version == 1, request.matchID == hello.matchID,
+                  request.invitationRevision == invitation.revision,
+                  ScoreboardCloudClient.shared.nearbyInvitation == invitation,
+                  request.displayID.utf8.count <= 100, !request.displayID.isEmpty,
+                  request.displayCode.count == 4, request.displayCode.allSatisfy(\.isNumber) else {
+                throw ScoreboardInvitationAuthenticationError.changed
+            }
+            failures.removeValue(forKey: key)
+            pair(request, connection: connection, remaining: 30)
+        } catch {
+            reply(false, ScoreboardInvitationAuthenticationError.invalid.localizedDescription, on: connection)
+        }
+    }
+    private func receiveMessage(on connection: NWConnection) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            connection.receiveMessage { data, _, _, error in
+                if let data, data.count <= 4096 { continuation.resume(returning: data) }
+                else { continuation.resume(throwing: error ?? URLError(.cannotDecodeContentData)) }
+            }
+        }
+    }
+    private func sendMessage(_ data: Data, on connection: NWConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .binary)
+            connection.send(content: data, contentContext: .init(identifier: "invitation-pairing", metadata: [metadata]),
+                isComplete: true, completion: .contentProcessed { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                })
         }
     }
 
@@ -335,6 +449,9 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     private func pair(_ request: JoinRequest, connection: NWConnection, remaining: Int, approvedControl: Bool = false) {
         guard pending[ObjectIdentifier(connection)] != nil, let owner,
               owner.currentMatchID == request.matchID, owner.isRemoteDisplayHostEnabled else { return }
+        if let revision = request.invitationRevision, ScoreboardCloudClient.shared.nearbyInvitation?.revision != revision {
+            reply(false, "The match invitation changed. Try joining again.", on: connection); return
+        }
         if let source = owner.remoteDisplaySources.first(where: { $0.id == request.displayID && !$0.isSessionInfrastructure && $0.allowsNewPairing }) {
             // Bonjour may still have the previous operator's advertisement.
             // Wait for the receiver's explicit join window instead of treating
@@ -345,7 +462,9 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
             }
             if request.control && !approvedControl { requestedControllers.insert(source.id); owner.noteLocalControlRequest(displayID: source.id) }
             owner.setRemoteControlAllowed(displayID: source.id, isAllowed: false)
-            owner.pairRemoteDisplay(source, pairingCode: request.displayCode, takeoverConfirmed: false)
+            owner.pairRemoteDisplay(source, pairingCode: request.displayCode, takeoverConfirmed: false,
+                invitationMatchID: request.invitationRevision == nil ? nil : request.matchID,
+                invitationRevision: request.invitationRevision)
             if approvedControl {
                 Task { @MainActor [weak owner] in
                     for _ in 0..<150 {

@@ -20,7 +20,6 @@ struct ScoreboardMatchLibraryView: View {
     @ObservedObject private var navigation = ScoreboardAppNavigation.shared
     @ObservedObject private var library = ScoreboardStore.shared.matchLibrary
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
-    @State private var showsNew = false
     @State private var showsAppMenu = false
     @State private var imports = false
     @State private var searches = false
@@ -38,97 +37,96 @@ struct ScoreboardMatchLibraryView: View {
     }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 30) {
-                    HStack(alignment: .top) {
-                        HStack(spacing: 16) {
-                            ScoreboardLogoView(size: compactHeader ? 44 : 64)
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Smart Scoreboard").font(compactHeader ? .title2.bold() : .largeTitle.bold()).lineLimit(2)
-                                Text("Your scoreboards, ready to play.").font(compactHeader ? .callout : .title3).foregroundStyle(palette.secondaryText)
-                            }.layoutPriority(1)
-                        }
-                        Spacer(minLength: 0)
-                        Button { showsAppMenu = true } label: { Image(systemName: "gearshape").font(.title2).padding(12) }
-                            .accessibilityLabel("Settings and Mode").accessibilityIdentifier("home.settings")
-                            .popover(isPresented: $showsAppMenu, arrowEdge: .top) {
-                                VStack(alignment: .leading, spacing: 18) {
-                                    Button("App Settings", systemImage: "gearshape") { showsAppMenu = false; navigation.openSettings("general") }
-                                    Button("LAN & Cloud", systemImage: "network") { showsAppMenu = false; navigation.openSettings("cloud") }
-                                    Divider()
-                                    Button("Switch to Kiosk Mode", systemImage: "display") { showsAppMenu = false; confirmsKiosk = true }
-                                }.buttonStyle(.plain).padding(24)
-                                    #if os(iOS)
-                                    .presentationCompactAdaptation(.popover)
-                                    #endif
-                            }
+            VStack(spacing: 0) {
+                header.padding(.horizontal, compactHeader ? 20 : 32).padding(.top, 24)
+                ScoreboardHomeStatusView().padding(.horizontal, compactHeader ? 20 : 32).padding(.vertical, 16)
+                HStack(spacing: 4) {
+                    ForEach(ScoreboardHomeTab.allCases) { tab in
+                        Button { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { navigation.homeTab = tab } } label: {
+                            VStack(spacing: 12) {
+                                HStack(spacing: 9) {
+                                    Image(systemName: tab.symbol).font(.system(size: 19, weight: .semibold))
+                                        .foregroundStyle(.white).frame(width: 36, height: 36)
+                                        .background(tab == .open ? Color.blue : tab == .new ? Color.orange : Color.teal,
+                                            in: RoundedRectangle(cornerRadius: 10))
+                                        .accessibilityHidden(true)
+                                    Text(LocalizedStringKey(compactHeader ? tab.rawValue.capitalized : tab.title)).font(.headline)
+                                }.frame(maxWidth: .infinity).padding(.top, 10)
+                                Capsule().fill(navigation.homeTab == tab ? palette.accent : .clear).frame(height: 3)
+                            }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .foregroundStyle(navigation.homeTab == tab ? palette.accent : palette.secondaryText)
+                            .accessibilityAddTraits(navigation.homeTab == tab ? .isSelected : [])
+                            .accessibilityIdentifier(tab == .open ? "home.tab.open" : tab == .new ? "home.new" : "home.connect")
                     }
-                    ScoreboardHomeStatusView().scoreboardHomeEntrance(order: 1)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: compactHeader ? 1 : 2), spacing: 16) {
-                        action("New Scoreboard", detail: "Choose a sport and get started", icon: "plus", color: .orange) { showsNew = true }
-                            .accessibilityIdentifier("home.new")
-                        action("Connect to Scoreboard", detail: store.localConnectionsEnabled ? "Nearby or with a cloud code" : cloud.cloudEnabled ? "Join with a cloud code" : "Enable LAN or cloud in App Settings", icon: "person.2", color: .teal) { navigation.open(.join) }
-                            .disabled(!store.localConnectionsEnabled && !cloud.cloudEnabled).accessibilityIdentifier("home.connect")
-                    }.scoreboardHomeEntrance(order: 2)
-                    if let current = library.workingMatch {
-                        HStack(spacing: 18) {
-                            Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.blue)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(current.title).font(.headline)
-                                Text("\(store.homeTeamName)  \(store.homeScore) – \(store.guestScore)  \(store.guestTeamName)")
-                                    .font(.callout).foregroundStyle(palette.secondaryText)
-                            }
-                            Spacer()
-                            Button("Continue") { navigation.openBoard() }.buttonStyle(.borderedProminent).accessibilityIdentifier("home.continue")
-                        }.padding(22).background(palette.cardBackground, in: RoundedRectangle(cornerRadius: 18))
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            Text("Open Scoreboard").font(.title2.bold())
-                            Spacer()
-                            Button("Open File…", systemImage: "folder") { imports = true }.accessibilityIdentifier("home.open")
+                }.padding(.horizontal, compactHeader ? 16 : 32)
+                Divider()
+                Group {
+                    switch navigation.homeTab {
+                    case .new:
+                        ScoreboardNewScoreboardView(embedded: true, cancel: { navigation.homeTab = .open }) { name, sport in
+                            try library.newMatch(keepLocalDevices: false)
+                            store.setSelectedSport(sport)
+                            if !name.isEmpty, let entry = library.workingMatch { try library.rename(entry, to: name) }
+                            try library.save(); navigation.openBoard(setup: true)
                         }
-                        if searches || !library.entries.isEmpty {
-                            TextField("Search scoreboards", text: $query).textFieldStyle(.roundedBorder).focused($searchFocused)
-                        }
-                        if entries.isEmpty {
-                            ContentUnavailableView(query.isEmpty ? "No Scoreboards Yet" : "No Matching Scoreboards", systemImage: "folder",
-                                description: Text("Create a scoreboard or import a .scoreboardgame file."))
-                        }
-                        ForEach(entries) { entry in
-                            HStack(spacing: 16) {
-                                Image(systemName: "doc.text").font(.title2).foregroundStyle(palette.accent)
-                                Button { resume(entry) } label: {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(entry.title).font(.headline).foregroundStyle(palette.primaryText)
-                                        Text(entry.loadError ?? "\(entry.home)  \(entry.homeScore) – \(entry.guestScore)  \(entry.guest)")
-                                            .font(.callout).foregroundStyle(entry.loadError == nil ? palette.secondaryText : .orange)
-                                        Text(entry.modifiedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(palette.secondaryText)
-                                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(entry.loadError != nil)
-                                Button { actionsEntryID = entry.id } label: { Image(systemName: "ellipsis").padding(12) }
-                                    .accessibilityLabel("Scoreboard Actions").accessibilityIdentifier("library.actions")
-                                    .popover(isPresented: Binding(get: { actionsEntryID == entry.id }, set: { if !$0 { actionsEntryID = nil } })) {
-                                        fileActions(entry)
+                    case .connect:
+                        ScoreboardJoinMatchView(initialInvitation: navigation.invitation, nearbyInvitation: navigation.nearbyInvitation, embedded: true)
+                    case .open:
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                if let current = library.workingMatch {
+                                    HStack(spacing: 18) {
+                                        Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.blue)
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(current.title).font(.headline)
+                                            Text("\(store.homeTeamName)  \(store.homeScore) – \(store.guestScore)  \(store.guestTeamName)")
+                                                .font(.callout).foregroundStyle(palette.secondaryText)
+                                        }
+                                        Spacer()
+                                        Button("Continue") { navigation.openBoard() }.buttonStyle(.borderedProminent).accessibilityIdentifier("home.continue")
+                                    }.padding(22).background(palette.cardBackground, in: RoundedRectangle(cornerRadius: 18))
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
+                                VStack(alignment: .leading, spacing: 16) {
+                                    HStack {
+                                        Text("Open Scoreboard").font(.title2.bold())
+                                        Spacer()
+                                        Button("Open File…", systemImage: "folder") { imports = true }.accessibilityIdentifier("home.open")
                                     }
-                            }.padding(18).background(palette.cardBackground, in: RoundedRectangle(cornerRadius: 14))
+                                    if searches || !library.entries.isEmpty {
+                                        TextField("Search scoreboards", text: $query).textFieldStyle(.roundedBorder).focused($searchFocused)
+                                    }
+                                    if entries.isEmpty {
+                                        ContentUnavailableView(query.isEmpty ? "No Scoreboards Yet" : "No Matching Scoreboards", systemImage: "folder",
+                                            description: Text("Create a scoreboard or import a .scoreboardgame file."))
+                                    }
+                                    ForEach(entries) { entry in
+                                        HStack(spacing: 16) {
+                                            Image(systemName: "doc.text").font(.title2).foregroundStyle(palette.accent)
+                                            Button { resume(entry) } label: {
+                                                VStack(alignment: .leading, spacing: 5) {
+                                                    Text(entry.title).font(.headline).foregroundStyle(palette.primaryText)
+                                                    Text(entry.loadError ?? "\(entry.home)  \(entry.homeScore) – \(entry.guestScore)  \(entry.guest)")
+                                                        .font(.callout).foregroundStyle(entry.loadError == nil ? palette.secondaryText : .orange)
+                                                    Text(entry.modifiedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(palette.secondaryText)
+                                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                                            }.buttonStyle(.plain).disabled(entry.loadError != nil)
+                                            Button { actionsEntryID = entry.id } label: { Image(systemName: "ellipsis").padding(12) }
+                                                .accessibilityLabel("Scoreboard Actions").accessibilityIdentifier("library.actions")
+                                                .popover(isPresented: Binding(get: { actionsEntryID == entry.id }, set: { if !$0 { actionsEntryID = nil } })) {
+                                                    fileActions(entry)
+                                                }
+                                        }.padding(18).background(palette.cardBackground, in: RoundedRectangle(cornerRadius: 14))
+                                    }
+                                }
+                                ScoreboardMatchSaveStatus(library: library)
+                            }.padding(compactHeader ? 20 : 32).frame(maxWidth: 1100).frame(maxWidth: .infinity)
                         }
                     }
-                    ScoreboardMatchSaveStatus(library: library)
-                }.padding(32).frame(maxWidth: 1100).frame(maxWidth: .infinity)
-                    .scoreboardHomeEntrance()
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: entries.map(\.id))
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(palette.detailBackground).foregroundStyle(palette.primaryText)
-            .sheet(isPresented: $showsNew) {
-                ScoreboardNewScoreboardView { name, sport in
-                    try library.newMatch(keepLocalDevices: false)
-                    store.setSelectedSport(sport)
-                    if !name.isEmpty, let entry = library.workingMatch { try library.rename(entry, to: name) }
-                    try library.save(); showsNew = false; navigation.openBoard(setup: true)
-                }.environmentObject(store)
-            }
             .fileImporter(isPresented: $imports, allowedContentTypes: [.scoreboardGame]) { result in
                 perform {
                     let url = try result.get(), access = url.startAccessingSecurityScopedResource()
@@ -159,6 +157,31 @@ struct ScoreboardMatchLibraryView: View {
             .onAppear { perform { try library.refresh() }; store.isShowingFileHome = true }
         }
     }
+    private var header: some View {
+        HStack(alignment: .top) {
+            HStack(spacing: 16) {
+                ScoreboardLogoView(size: compactHeader ? 44 : 64)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Smart Scoreboard").font(compactHeader ? .title2.bold() : .largeTitle.bold()).lineLimit(2)
+                    Text("Your scoreboards, ready to play.").font(compactHeader ? .callout : .title3).foregroundStyle(palette.secondaryText)
+                }.layoutPriority(1)
+            }
+            Spacer(minLength: 0)
+            Button { showsAppMenu = true } label: { Image(systemName: "gearshape").font(.title2).padding(12) }
+                .accessibilityLabel("Settings and Mode").accessibilityIdentifier("home.settings")
+                .popover(isPresented: $showsAppMenu, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Button("App Settings", systemImage: "gearshape") { showsAppMenu = false; navigation.openSettings("general") }
+                        Button("LAN & Cloud", systemImage: "network") { showsAppMenu = false; navigation.openSettings("cloud") }
+                        Divider()
+                        Button("Switch to Kiosk Mode", systemImage: "display") { showsAppMenu = false; confirmsKiosk = true }
+                    }.buttonStyle(.plain).padding(24)
+                        #if os(iOS)
+                        .presentationCompactAdaptation(.popover)
+                        #endif
+                }
+        }
+    }
     private func fileActions(_ entry: ScoreboardLibraryEntry) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Button("Open") { actionsEntryID = nil; resume(entry) }.disabled(entry.loadError != nil)
@@ -174,16 +197,5 @@ struct ScoreboardMatchLibraryView: View {
     }
     private func resume(_ entry: ScoreboardLibraryEntry) { perform { try library.resume(entry); navigation.openBoard() } }
     private func perform(_ work: () throws -> Void) { do { try work() } catch { self.error = error.localizedDescription } }
-    private func action(_ title: String, detail: String, icon: String, color: Color, run: @escaping () -> Void) -> some View {
-        Button(action: run) {
-            VStack(alignment: .leading, spacing: 14) {
-                Image(systemName: icon).font(.title2.bold()).frame(width: 54, height: 54).foregroundStyle(.white)
-                    .background(color, in: RoundedRectangle(cornerRadius: 16))
-                Text(title).font(.headline).foregroundStyle(palette.primaryText)
-                Text(detail).font(.callout).foregroundStyle(palette.secondaryText).fixedSize(horizontal: false, vertical: true)
-            }.frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading).padding(22)
-                .background(palette.cardBackground, in: RoundedRectangle(cornerRadius: 18))
-        }.buttonStyle(ScoreboardHomeButtonStyle())
-    }
 }
 #endif

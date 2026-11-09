@@ -6,20 +6,22 @@ import UniformTypeIdentifiers
 
 struct ScoreboardMatchGuestJoinForm: View {
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
+    @StateObject private var nearbyJoin = ScoreboardJoinCoordinator()
+    @State private var invitationServer: String?
+    @State private var appliedInvitationCode: String?
     var initialInvitation: ScoreboardMatchInvitation? = nil
     var beforeConnect: ((Bool) throws -> Void)? = nil
     var joined: (() -> Void)? = nil
     var failed: (() -> Void)? = nil
     var receivedNearbyInvitation: ((ScoreboardNearbyInvitation) -> Void)? = nil
+    var receivedNearbyPIN: ((String) -> Void)? = nil
     @State private var code = ""
     @State private var password = ""
-    @State private var server = ScoreboardCloudEndpoint.publicServiceURL
     @State private var requestsControl = false
     @State private var busy = false
     @State private var feedback = ""
     @State private var joinTask: Task<Void, Never>?
-    @State private var confirmsServer = false
-    private var usesConfiguredServer: Bool { ScoreboardDeviceMode.current == .kiosk }
+    private var nearbyCode: Bool { code.count == 6 && code.allSatisfy(\.isNumber) && receivedNearbyPIN != nil }
     private var controlRequested: Bool { requestsControl && ScoreboardRemoteDisplayDeviceType.current.supportsControl }
     #if !os(tvOS)
     @State private var importsQR = false
@@ -29,18 +31,17 @@ struct ScoreboardMatchGuestJoinForm: View {
     #endif
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Code or Link").font(.title2.bold())
-            Text("No account needed. Enter an invitation and choose how to participate.").font(.callout).foregroundStyle(.secondary)
+            Text("Use a nearby pairing PIN, cloud code, or invitation link. No account is needed.").font(.callout).foregroundStyle(.secondary)
             if !cloud.cloudEnabled {
                 Toggle("Allow Cloud Connections", isOn: $cloud.cloudEnabled).scoreboardCloudSettingsToggleStyle()
-                Text("Online invitations require an internet connection. Nearby joining works independently.").font(.caption).foregroundStyle(.secondary)
+                Text("Match codes and invitation links also work nearby, without internet or cloud setup on this device.").font(.caption).foregroundStyle(.secondary)
             }
             TextField("Match code or invitation link", text: $code).autocorrectionDisabled().scoreboardCloudSettingsField()
                 .accessibilityIdentifier("join.matchCode")
-            SecureField("Match password", text: $password).scoreboardCloudSettingsField().accessibilityIdentifier("join.password")
-            if !usesConfiguredServer {
-                TextField("Cloud server URL", text: $server).autocorrectionDisabled().scoreboardCloudSettingsField().accessibilityIdentifier("join.server")
+            if !nearbyCode {
+                SecureField("Match password", text: $password).scoreboardCloudSettingsField().accessibilityIdentifier("join.password")
             }
+            if cloud.cloudEnabled { Label("Cloud connections use \(cloud.connectionServiceName)", systemImage: "cloud").font(.caption).foregroundStyle(.secondary) }
             #if os(tvOS)
             Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
             #else
@@ -48,10 +49,14 @@ struct ScoreboardMatchGuestJoinForm: View {
                 .pickerStyle(.menu)
             #endif
             LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 12) {
-                Button(busy ? "Joining…" : "Join Match", systemImage: "arrow.right.circle") {
-                    if !usesConfiguredServer && server != cloud.serviceURL && !ScoreboardCloudEndpoint.isPublicService(server) { confirmsServer = true }
+                Button(busy ? "Joining…" : nearbyCode ? "Find Nearby Match" : "Join Match", systemImage: "arrow.right.circle") {
+                    if nearbyCode {
+                        if ScoreboardConnectionPolicy.allowsLocalNetworking {
+                            receivedNearbyPIN?(code); feedback = "Choose the nearby scoreboard below and join with this PIN."
+                        } else { feedback = "LAN & Nearby is off. Enable it in App Settings to use a nearby PIN." }
+                    }
                     else { submit() }
-                }.buttonStyle(.borderedProminent).disabled(busy || code.isEmpty || password.count < 6 || !cloud.cloudEnabled)
+                }.buttonStyle(.borderedProminent).disabled(busy || code.isEmpty || (!nearbyCode && password.count < 6))
                     .accessibilityIdentifier("join.submit")
                 #if os(iOS)
                 Button("Scan QR", systemImage: "qrcode.viewfinder") { scans = true }.buttonStyle(.bordered)
@@ -62,18 +67,16 @@ struct ScoreboardMatchGuestJoinForm: View {
             }
             if !feedback.isEmpty { Text(feedback).font(.callout).accessibilityIdentifier("join.feedback") }
         }
-        .onAppear { server = usesConfiguredServer ? cloud.serviceURL : (initialInvitation?.server ?? cloud.serviceURL); if let invitation = initialInvitation { apply(invitation) } }
+        .onAppear { if let invitation = initialInvitation { apply(invitation) } }
         .onChange(of: code) { _, value in
             if let invitation = ScoreboardMatchInvitation.parse(value) { apply(invitation) }
             else if let invitation = ScoreboardNearbyInvitation.parse(value), let receivedNearbyInvitation {
                 receivedNearbyInvitation(invitation); code = ""
+            } else if normalizedCode != appliedInvitationCode {
+                invitationServer = nil; appliedInvitationCode = nil
             }
         }
-        .onDisappear { joinTask?.cancel(); joinTask = nil }
-        .confirmationDialog("Join a Self-hosted Service?", isPresented: $confirmsServer, titleVisibility: .visible) {
-            Button("Join This Service") { submit() }
-            Button("Cancel", role: .cancel) {}
-        } message: { Text(server) }
+        .onDisappear { joinTask?.cancel(); joinTask = nil; nearbyJoin.cancel() }
         #if !os(tvOS)
         .fileImporter(isPresented: $importsQR, allowedContentTypes: [.image]) { result in
             do {
@@ -103,10 +106,8 @@ struct ScoreboardMatchGuestJoinForm: View {
         #endif
     }
     private func apply(_ invitation: ScoreboardMatchInvitation) {
-        if usesConfiguredServer, !ScoreboardCloudEndpoint.sameService(invitation.server, cloud.serviceURL) {
-            code = ""; feedback = "This invitation uses another cloud server. Change the server in App Settings first."; return
-        }
-        code = invitation.code; server = usesConfiguredServer ? cloud.serviceURL : invitation.server
+        invitationServer = invitation.server; appliedInvitationCode = invitation.code
+        code = invitation.code
         if let value = invitation.password { password = value }
     }
     private func receive(_ value: String) {
@@ -114,22 +115,94 @@ struct ScoreboardMatchGuestJoinForm: View {
         else if let invitation = ScoreboardNearbyInvitation.parse(value), let receivedNearbyInvitation { receivedNearbyInvitation(invitation) }
         else { feedback = "This QR code is not a match invitation. Use Add a Display or Device for device pairing codes." }
     }
+    private var normalizedCode: String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "")
+    }
+    private func nearbyMatch(code: String, server: String?, mode: ScoreboardRemoteDisplayNetworkMode) async throws -> ScoreboardNearbyMatch? {
+        let nearby = ScoreboardNearbyMatchService.shared
+        nearby.acquireBrowser(mode: mode)
+        defer { nearby.releaseBrowser() }
+        let expectedOrigin = try server.map { try ScoreboardNearbyCloudInvitation.origin($0) }
+        for _ in 0..<30 {
+            try Task.checkCancellation()
+            let candidates = nearby.matches.filter {
+                $0.cloudCode == code && $0.cloudServer != nil &&
+                (expectedOrigin == nil || (try? ScoreboardNearbyCloudInvitation.origin($0.cloudServer!)) == expectedOrigin)
+            }
+            guard candidates.count <= 1 else {
+                throw NSError(domain: "ScoreboardJoin", code: 409, userInfo: [NSLocalizedDescriptionKey:
+                    "More than one nearby host advertises this invitation. Ask the owner to keep one host active or join from Nearby."])
+            }
+            if let match = candidates.first { return match }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return nil
+    }
     private func submit() {
         busy = true; feedback = ""
+        let matchCode = normalizedCode, matchPassword = password, explicitServer = invitationServer
+        let store = ScoreboardStore.shared, mode = store.remoteDisplayNetworkMode
+        let allowLocal = ScoreboardConnectionPolicy.allowsLocalNetworking && mode.allowsLocalNetwork
+        let allowCloud = cloud.cloudEnabled && mode.allowsCloud &&
+            (explicitServer == nil || ScoreboardCloudEndpoint.sameService(explicitServer!, cloud.serviceURL))
         joinTask = Task { @MainActor in
             defer { busy = false }
             do {
-                try ScoreboardStore.shared.requireMatchReplacementAllowed()
-                try await cloud.joinInvitation(code: code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: ""),
-                    password: password, server: usesConfiguredServer ? cloud.serviceURL : server, requestControl: controlRequested,
-                    beforeConnect: { try beforeConnect?(controlRequested) })
-                joined?(); feedback = "Joined. Control requests need the owner's approval."
+                try store.requireMatchReplacementAllowed()
+                guard matchCode.count == 10, matchCode.allSatisfy({ "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains($0) }) else {
+                    throw NSError(domain: "ScoreboardJoin", code: 400, userInfo: [NSLocalizedDescriptionKey: "Enter the match's 10-character invitation code or invitation link."])
+                }
+                var cloudError: Error?
+                if mode == .preferCloud, allowCloud {
+                    feedback = "Connecting through the cloud…"
+                    do {
+                        try await cloud.joinInvitation(code: matchCode, password: matchPassword, server: cloud.serviceURL,
+                            requestControl: controlRequested, beforeConnect: { try beforeConnect?(controlRequested) })
+                        password = ""; joined?(); return
+                    } catch {
+                        try Task.checkCancellation()
+                        // A rejected password is authoritative; only connectivity
+                        // failure should fall back to a different transport.
+                        if (error as NSError).domain == "ScoreboardCloud", (400..<500).contains((error as NSError).code) { throw error }
+                        cloudError = error
+                    }
+                }
+                if allowLocal {
+                    feedback = "Looking for the invitation nearby…"
+                    if let match = try await nearbyMatch(code: matchCode, server: explicitServer, mode: mode) {
+                        feedback = "Verifying the nearby host…"
+                        do {
+                            try await nearbyJoin.joinInvitation(match, password: matchPassword, asDisplay: !controlRequested)
+                            if allowCloud, let server = match.cloudServer {
+                                cloud.prepareInvitationFailover(code: matchCode, password: matchPassword, server: server,
+                                    matchID: match.matchID, requestControl: controlRequested)
+                            }
+                            password = ""; joined?(); feedback = "Connected nearby."; return
+                        } catch {
+                            try Task.checkCancellation()
+                            guard allowCloud, error is URLError else { throw error }
+                        }
+                    }
+                }
+                if allowCloud, cloudError == nil {
+                    feedback = "Connecting through the cloud…"
+                    try await cloud.joinInvitation(code: matchCode, password: matchPassword, server: cloud.serviceURL,
+                        requestControl: controlRequested, beforeConnect: { try beforeConnect?(controlRequested) })
+                    password = ""; joined?(); feedback = "Joined. Control requests need the owner's approval."
+                } else if let cloudError { throw cloudError }
+                else {
+                    let detail = allowLocal
+                        ? "This invitation was not found nearby. Ask the host to open the scoreboard, enable nearby joining, and sync its invitation once. No internet or cloud setup is needed on this device."
+                        : "LAN & Nearby is off. Enable it in App Settings to use an invitation locally, or enable the matching cloud host for an online connection."
+                    throw NSError(domain: "ScoreboardJoin", code: 404, userInfo: [NSLocalizedDescriptionKey: detail])
+                }
             } catch {
                 failed?()
                 if !(error is CancellationError) { feedback = error.localizedDescription }
             }
         }
     }
+
 }
 
 #if !os(tvOS)

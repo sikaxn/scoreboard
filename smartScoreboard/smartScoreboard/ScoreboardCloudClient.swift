@@ -109,6 +109,7 @@ nonisolated struct ScoreboardCloudSession: Codable, Equatable, Sendable {
     var runtimeID: UUID? = nil
     var authorityEpoch: UInt64? = nil
     var invitationCode: String? = nil
+    var invitationRevision: String? = nil
     var pendingPublisherGrant: ScoreboardPendingPublisher? = nil
 }
 nonisolated struct ScoreboardPendingPublisher: Codable, Equatable, Sendable {
@@ -282,6 +283,77 @@ nonisolated private enum CloudKeychain {
         }
     }
     private var matchContext: ScoreboardCloudMatchContext?
+    var nearbyInvitationChangedHandler: (() -> Void)?
+    private var nearbyInvitationTask: Task<Void, Never>?
+    private var lastNearbyInvitationSync = Date.distantPast
+    private var nearbyInvitationCache: [String: ScoreboardNearbyCloudInvitation] = [:]
+    private var loadedNearbyInvitationCache = false
+    private var nearbyInvitationCacheKey: String? {
+        guard let context = matchContext, let hostID = localHostIDProvider?(),
+              let identity = publisherActive ? publisherGrant?.grantID : credential?.accountID,
+              let server = try? ScoreboardNearbyCloudInvitation.origin(publisherActive ? (publisherGrant?.serviceURL ?? serviceURL) : (credential?.serviceURL ?? serviceURL))
+        else { return nil }
+        return "\(server)|\(identity)|\(context.matchID)|\(hostID)"
+    }
+    var nearbyInvitation: ScoreboardNearbyCloudInvitation? {
+        guard canHostProvider?() == true, hasOwnerAccount || publisherActive,
+              let key = nearbyInvitationCacheKey else { return nil }
+        if !loadedNearbyInvitationCache {
+            loadedNearbyInvitationCache = true
+            #if !SCOREBOARD_TESTING
+            if let data = CloudKeychain.load(account: "nearby-invitations") {
+                nearbyInvitationCache = (try? JSONDecoder().decode([String: ScoreboardNearbyCloudInvitation].self, from: data)) ?? [:]
+            }
+            #endif
+        }
+        return nearbyInvitationCache[key]
+    }
+    private func setNearbyInvitation(_ value: ScoreboardNearbyCloudInvitation?, key: String) {
+        guard nearbyInvitationCache[key] != value else { return }
+        nearbyInvitationCache[key] = value
+        #if !SCOREBOARD_TESTING
+        try? CloudKeychain.save(JSONEncoder().encode(nearbyInvitationCache), account: "nearby-invitations")
+        #endif
+        nearbyInvitationChangedHandler?()
+    }
+    private func syncNearbyInvitation(force: Bool = false) {
+        guard isHost, canHostProvider?() == true, let room = session, let credential = transportCredential ?? credential,
+              let key = nearbyInvitationCacheKey, let hostID = localHostIDProvider?() else { return }
+        _ = nearbyInvitation // Load the host's offline cache before comparing revisions.
+        let changed = room.invitationRevision != nearbyInvitationCache[key]?.revision
+        if changed { setNearbyInvitation(nil, key: key) }
+        guard nearbyInvitationTask == nil, force || changed || Date().timeIntervalSince(lastNearbyInvitationSync) >= 15 else { return }
+        lastNearbyInvitationSync = Date()
+        let runID = connectionID
+        nearbyInvitationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { nearbyInvitationTask = nil }
+            do {
+                let input: ScoreboardInvitationVerifierResponse = try await get(base: ScoreboardCloudEndpoint.validate(credential.serviceURL),
+                    path: "api/sessions/\(room.id)/nearby-invitation", token: credential.token)
+                let verifier: ScoreboardNearbyCloudInvitation?
+                if input.enabled, let cached = nearbyInvitationCache[key], cached.revision == input.revision,
+                   cached.code == input.code, cached.matchID == input.matchID, cached.passwordSalt == input.salt {
+                    verifier = cached
+                } else if input.enabled {
+                    verifier = try await Task.detached {
+                        try ScoreboardInvitationPAKE.makeVerifier(input, server: credential.serviceURL, hostID: hostID)
+                    }.value
+                } else { verifier = nil }
+                guard !Task.isCancelled, connectionID == runID, nearbyInvitationCacheKey == key,
+                      input.matchID == nil || input.matchID == matchContext?.matchID,
+                      input.revision == nil || input.revision == session?.invitationRevision else { return }
+                setNearbyInvitation(verifier, key: key)
+            } catch {
+                // Connectivity loss preserves the last verified invitation. Explicit
+                // credential rejection revokes it; guests never need a cloud call.
+                let rejection = error as NSError
+                if rejection.domain == "ScoreboardCloud", [401, 403].contains(rejection.code), nearbyInvitationCacheKey == key {
+                    setNearbyInvitation(nil, key: key)
+                }
+            }
+        }
+    }
     private var isActivatingMatch = false
     @Published var serviceMode: ScoreboardCloudServiceMode {
         didSet { preferences.set(serviceMode.rawValue, forKey: "scoreboard.cloudServiceMode") }
@@ -291,6 +363,17 @@ nonisolated private enum CloudKeychain {
     }
     var serviceURL: String {
         serviceMode == .publicCloud ? ScoreboardCloudEndpoint.publicServiceURL : selfHostedURL
+    }
+    var connectionServiceName: String {
+        serviceMode == .publicCloud ? "Public Cloud (Experimental)" : "Self-hosted · \(URL(string: selfHostedURL)?.host ?? "Not configured")"
+    }
+    func invitationAvailability(codes: [String]) async throws -> [ScoreboardCloudInvitationStatus] {
+        guard cloudEnabled, !codes.isEmpty else { return [] }
+        struct Input: Encodable { var codes: [String] }
+        struct Result: Decodable { var invitations: [ScoreboardCloudInvitationStatus] }
+        let result: Result = try await call(base: ScoreboardCloudEndpoint.validate(serviceURL),
+            path: "api/invitations/status", body: Input(codes: Array(Set(codes)).prefix(20).map { $0 }))
+        return result.invitations
     }
     private let preferences: UserDefaults
     @Published var hostName: String = "" {
@@ -366,11 +449,22 @@ nonisolated private enum CloudKeychain {
     private var pendingState: ScoreboardWebAPIState?
     private var publishTask: Task<Void, Never>?
     private var stateProvider: (() -> ScoreboardWebAPIState?)?
+    private var imageProvider: (() -> [String: ScoreboardWebAPIImageResponse])?
+    private var transportCredential: CloudCredential?
+    private var imageSyncTask: Task<Void, Never>?
+    private var uploadedImages: [String: String] = [:]
+    private var lastImageSyncAt = Date.distantPast
+    @Published private(set) var imageSyncError: String?
     private var commentatorProvider: (() -> ScoreboardWebAPICommentatorPayload?)?
     private var commandHandler: ((ScoreboardControlCommand) -> ScoreboardControlResult)?
     private var canHostProvider: (() -> Bool)?
     private var localHostIDProvider: (() -> String)?
-    private var connectionID = UUID()
+    private var connectionID = UUID() {
+        didSet {
+            imageSyncTask?.cancel(); imageSyncTask = nil; transportCredential = nil
+            imageSyncError = nil; lastImageSyncAt = .distantPast
+        }
+    }
     private var linkRunID = UUID()
     private var pendingRemotePermissions: [String: Bool] = [:]
     private var remotePermissionTasks: [String: Task<Void, Never>] = [:]
@@ -404,6 +498,7 @@ nonisolated private enum CloudKeychain {
         let changed = matchContext?.matchID != context.matchID
         if changed { suspendTransport(); session = nil }
         matchContext = context
+        nearbyInvitationChangedHandler?()
         let record = ScoreboardMatchIndex.record(for: context.matchID)
         isActivatingMatch = true
         hostingEnabled = record.cloudEnabled
@@ -413,6 +508,7 @@ nonisolated private enum CloudKeychain {
 
     func authorityDidChange(_ context: ScoreboardCloudMatchContext, isAuthority: Bool) {
         matchContext = context
+        nearbyInvitationChangedHandler?()
         let shouldPublish = isAuthority && publisherGrant?.matchID == context.matchID && publisherGrant?.runtimeID == context.runtimeID && publisherGrant?.epoch == context.epoch
         if shouldPublish != publisherActive {
             publisherActive = shouldPublish
@@ -487,12 +583,14 @@ nonisolated private enum CloudKeychain {
                    commandHandler: @escaping (ScoreboardControlCommand) -> ScoreboardControlResult,
                    canHost: @escaping () -> Bool,
                    commentatorProvider: (() -> ScoreboardWebAPICommentatorPayload?)? = nil,
-                   localHostID: (() -> String)? = nil) {
+                   localHostID: (() -> String)? = nil,
+                   imageProvider: (() -> [String: ScoreboardWebAPIImageResponse])? = nil) {
         self.stateProvider = stateProvider
         self.commandHandler = commandHandler
         self.canHostProvider = canHost
         self.commentatorProvider = commentatorProvider
         self.localHostIDProvider = localHostID
+        self.imageProvider = imageProvider
         #if !SCOREBOARD_TESTING
         if let data = CloudKeychain.load(account: "publisher") {
             publisherGrant = try? JSONDecoder().decode(ScoreboardPublisherGrant.self, from: data)
@@ -607,7 +705,7 @@ nonisolated private enum CloudKeychain {
                     } else if credential.access != nil {
                         if remoteActive || isRemoteRegistration {
                             guard remoteActive && remoteAllowsCloud else { status = "Cloud pairing is ready."; return }
-                            if sessions.contains(where: { $0.id == selectedSessionID && $0.hostDeviceID == identity.deviceID }) {
+                            if sessions.contains(where: { $0.id == self.selectedSessionID && $0.hostDeviceID == identity.deviceID }) {
                                 selectedSessionID = ""; session = nil
                             }
                             guard !selectedSessionID.isEmpty else { status = "Choose a host session."; return }
@@ -660,6 +758,7 @@ nonisolated private enum CloudKeychain {
                     let task = URLSession.shared.webSocketTask(with: request)
                     task.maximumMessageSize = 1_048_576
                     socket = task
+                    transportCredential = credential
                     receiver.beginCloudConnection { [weak self] command in self?.sendCommand(command) }
                     task.resume()
                     startHeartbeat(task, runID: runID)
@@ -733,9 +832,10 @@ nonisolated private enum CloudKeychain {
         struct Joined: Decodable { var token: String; var sessionID: String; var deviceID: String; var session: ScoreboardCloudSession }
         let result: Joined = try await call(base: base, path: "api/invitations/join", body: Join(code: code, password: password,
             name: ScoreboardRemoteDisplayDeviceName.current ?? "Scoreboard", deviceID: ScoreboardRemoteDisplayReceiver.shared.displayID,
-            devicePublicKey: ScoreboardDeviceIdentity.publicKey, requestControl: requestControl, canControl: canControl))
+            devicePublicKey: ScoreboardDeviceIdentity.publicKey, requestControl: requestControl, canControl: canControl), timeout: 8)
         try Task.checkCancellation()
         try beforeConnect?()
+        ScoreboardRemoteConnectionRouter.shared.setJoinTarget(result.session.matchID)
         if let existing = credential, existing.access != "participant" {
             parkedOwnerCredential = existing
             #if !SCOREBOARD_TESTING
@@ -748,11 +848,28 @@ nonisolated private enum CloudKeychain {
             remoteHostLocalID: result.session.hostLocalID, requestControl: requestControl)
         try saveCredential(saved); selectService(for: server)
         deviceID = result.deviceID; isLinked = true; selectedSessionID = result.sessionID
+        ScoreboardRecentMatches.shared.record(title: result.session.name, matchID: result.session.matchID,
+            server: base.absoluteString, code: code)
         remoteActive = true; remoteAllowsCloud = true
         reconnect()
     }
 
+    private var invitationFailoverTask: Task<Void, Never>?
+    func prepareInvitationFailover(code: String, password: String, server: String, matchID: UUID, requestControl: Bool) {
+        guard cloudEnabled, ScoreboardCloudEndpoint.sameService(server, serviceURL) else { return }
+        invitationFailoverTask?.cancel()
+        invitationFailoverTask = Task { [weak self] in
+            guard let self else { return }
+            defer { invitationFailoverTask = nil }
+            try? await joinInvitation(code: code, password: password, server: server, requestControl: requestControl,
+                beforeConnect: {
+                    guard ScoreboardStore.shared.isJoinedMatchActive,
+                          ScoreboardRemoteConnectionRouter.shared.joinTarget == matchID else { throw CancellationError() }
+                })
+        }
+    }
     func leaveGuestMatch() {
+        invitationFailoverTask?.cancel(); invitationFailoverTask = nil
         guard credential?.access == "participant" else { return }
         suspendTransport(); session = nil; remoteActive = false
         #if !SCOREBOARD_TESTING
@@ -787,8 +904,10 @@ nonisolated private enum CloudKeychain {
     func makeInvitation(password: String, enabled: Bool = true) async throws -> ParticipantInvitation {
         guard let credential, let session, canManageMatch else { throw URLError(.userAuthenticationRequired) }
         struct Input: Encodable { var enabled: Bool; var password: String }
-        return try await call(base: ScoreboardCloudEndpoint.validate(credential.serviceURL), path: "api/sessions/\(session.id)/invitations",
+        let result: ParticipantInvitation = try await call(base: ScoreboardCloudEndpoint.validate(credential.serviceURL), path: "api/sessions/\(session.id)/invitations",
             body: Input(enabled: enabled, password: password), token: credential.token)
+        syncNearbyInvitation(force: true)
+        return result
     }
 
     struct ViewerSharing: Decodable { var enabled: Bool; var token: String? }
@@ -1025,9 +1144,16 @@ nonisolated private enum CloudKeychain {
         connectionID = UUID()
         linkRunID = UUID()
         linkTask?.cancel(); connectionTask?.cancel(); heartbeatTask?.cancel(); publishTask?.cancel()
+        invitationFailoverTask?.cancel(); invitationFailoverTask = nil
+        nearbyInvitationTask?.cancel(); nearbyInvitationTask = nil
         remotePermissionTasks.values.forEach { $0.cancel() }; remotePermissionTasks.removeAll(); pendingRemotePermissions.removeAll()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        nearbyInvitationCache.removeAll(); loadedNearbyInvitationCache = true
+        #if !SCOREBOARD_TESTING
+        try? CloudKeychain.save(nil, account: "nearby-invitations")
+        #endif
+        nearbyInvitationChangedHandler?()
         credential = nil
         parkedOwnerCredential = nil; publisherGrant = nil; publisherActive = false; preparedPublisherGrant = nil
         account = nil; sessions = []; registeredDevices = []; selectedSessionID = ""
@@ -1051,6 +1177,7 @@ nonisolated private enum CloudKeychain {
     // keeps stopped games alive without sending commands or running game logic.
     func publish(_ state: ScoreboardWebAPIState) {
         guard isHost, isConnected, session?.enabled != false else { return }
+        synchronizeImages(state)
         pendingState = state
         guard publishTask == nil else { return }
         publishTask = Task { [weak self] in
@@ -1079,6 +1206,7 @@ nonisolated private enum CloudKeychain {
                 guard let self, let task, connectionID == runID else { return }
                 reportConnectionStatus()
                 if isHost {
+                    syncNearbyInvitation()
                     guard let state = stateProvider?() else {
                         task.cancel(with: .goingAway, reason: nil)
                         status = "The local game host changed. Re-link the current host to a new cloud session."
@@ -1106,6 +1234,7 @@ nonisolated private enum CloudKeychain {
         if frame.type == "session", let room = frame.session {
             let newlyConnected = !isConnected
             session = room
+            syncNearbyInvitation(force: newlyConnected)
             isConnected = true
             reportConnectionStatus(force: newlyConnected)
             status = room.enabled == false ? "Online sharing is paused for this match." : (isHost ? "Hosting \(room.name) through the cloud." : "Connected to \(room.name).")
@@ -1129,6 +1258,7 @@ nonisolated private enum CloudKeychain {
         } else if frame.type == "state", let state = frame.state, !isHost {
             lastStateAt = Date()
             receiver.receiveCloudState(state, controlAllowed: canControl, hostName: session?.name ?? "Cloud host")
+            synchronizeImages(state)
         } else if frame.type == "command", isHost, frame.generation == session?.generation,
                   let command = frame.command, let clientID = frame.clientID, let requestID = frame.requestID {
             let result = canHostProvider?() == true ? commandHandler?(command) ?? .failure(command.id, "disabled", "Host unavailable.")
@@ -1144,6 +1274,51 @@ nonisolated private enum CloudKeychain {
               force || status != lastReportedConnectionStatus else { return }
         lastReportedConnectionStatus = status
         send(Frame(type: "client-connection", connectionStatus: status))
+    }
+
+    private func synchronizeImages(_ state: ScoreboardWebAPIState) {
+        guard imageSyncTask == nil, isConnected, let credential = transportCredential, let room = session,
+              Date().timeIntervalSince(lastImageSyncAt) >= 5 else { return }
+        let host = isHost, runID = connectionID
+        let images = state.cloudImageReferences.filter { image in
+            host ? uploadedImages[image.slot] != "\(room.id)|\(room.generation)|\(image.id)" : receiver.imageData(for: image.id) == nil
+        }
+        guard !images.isEmpty else { return }
+        lastImageSyncAt = Date()
+        let responses = host ? imageProvider?() ?? [:] : [:]
+        imageSyncTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if connectionID == runID { imageSyncTask = nil } }
+            do {
+                let base = try ScoreboardCloudEndpoint.validate(credential.serviceURL)
+                for image in images {
+                    try Task.checkCancellation()
+                    guard connectionID == runID else { return }
+                    var components = URLComponents(url: base.appendingPathComponent("api/sessions/\(room.id)/assets/\(image.slot)"), resolvingAgainstBaseURL: false)!
+                    components.queryItems = [.init(name: "asset", value: image.id)]
+                    var request = URLRequest(url: components.url!)
+                    request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+                    if host {
+                        guard let response = responses[image.path] else { continue }
+                        guard response.body.count <= 8 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
+                        request.httpMethod = "POST"; request.httpBody = response.body
+                        request.setValue(response.contentType, forHTTPHeaderField: "Content-Type")
+                    }
+                    try ScoreboardDeviceIdentity.sign(&request)
+                    let (data, response) = try await requestSession.data(for: request)
+                    guard connectionID == runID, !Task.isCancelled else { return }
+                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 8 * 1024 * 1024 else { throw URLError(.badServerResponse) }
+                    if host { uploadedImages[image.slot] = "\(room.id)|\(room.generation)|\(image.id)" }
+                    else {
+                        receiver.receiveCloudImage(.init(id: image.id, path: image.path,
+                            mimeType: http.mimeType ?? "image/png", data: data))
+                    }
+                }
+                imageSyncError = nil
+            } catch {
+                if !Task.isCancelled, connectionID == runID { imageSyncError = "Some cloud images could not be synchronized. Retrying…" }
+            }
+        }
     }
 
     private func sendCommand(_ input: ScoreboardControlCommand) {
@@ -1243,7 +1418,11 @@ extension ScoreboardWebAPIState {
 nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
     case local, cloud
     static func choose(mode: ScoreboardRemoteDisplayNetworkMode, localFresh: Bool, cloudFresh: Bool,
-                       sameHost: Bool, current: Self, hasPendingCommand: Bool) -> Self {
+                       sameHost: Bool, current: Self, hasPendingCommand: Bool,
+                       targetMatchID: UUID? = nil, localMatchID: UUID? = nil, cloudMatchID: UUID? = nil) -> Self {
+        let localFresh = localFresh && (targetMatchID == nil || localMatchID == targetMatchID)
+        let cloudFresh = cloudFresh && (targetMatchID == nil || cloudMatchID == targetMatchID)
+        let sameHost = targetMatchID != nil && !cloudFresh ? true : sameHost
         guard mode.allowsCloud else { return .local }
         if hasPendingCommand { return current }
         if mode == .cloudOnly { return .cloud }
@@ -1258,6 +1437,13 @@ nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
     @Published private(set) var route: ScoreboardRemoteRoute = .local
     private var consumers = 0
     private var timer: Timer?
+    private var expectedMatchID: UUID?
+    var joinTarget: UUID? { expectedMatchID }
+    func setJoinTarget(_ matchID: UUID?) {
+        expectedMatchID = matchID
+        local.bindJoinedMatch(matchID); cloud.receiver.bindJoinedMatch(matchID)
+        refresh()
+    }
     private var mode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork
     private let local = ScoreboardRemoteDisplayReceiver.shared
     private let cloud = ScoreboardCloudClient.shared
@@ -1293,7 +1479,7 @@ nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
         if consumers == 1 {
             local.acquire(networkMode: mode)
             timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
+                Task { @MainActor [weak self] in self?.refresh() }
             }
         }
         updateMode(mode)
@@ -1316,10 +1502,11 @@ nonisolated enum ScoreboardRemoteRoute: Equatable, Sendable {
         let sameIdentity = cloud.session?.matchID == nil || cloud.session?.matchID == local.state?.game.matchID
         let sameHost = cloud.selectedSessionID.isEmpty || (sameIdentity && cloud.selectedHostLocalID != nil && cloud.selectedHostLocalID == local.connectedHostID)
         // Never fall back to a different game simply because it is nearby.
-        let eligibleLocal = localFresh && (!mode.allowsCloud || sameHost)
+        let eligibleLocal = localFresh && (expectedMatchID != nil || !mode.allowsCloud || sameHost)
         let selected = ScoreboardRemoteRoute.choose(mode: mode, localFresh: eligibleLocal, cloudFresh: cloudFresh,
             sameHost: sameHost, current: route,
-            hasPendingCommand: local.pendingControlCommandID != nil || cloud.receiver.pendingControlCommandID != nil)
+            hasPendingCommand: local.pendingControlCommandID != nil || cloud.receiver.pendingControlCommandID != nil,
+            targetMatchID: expectedMatchID, localMatchID: local.state?.game.matchID, cloudMatchID: cloud.receiver.state?.game.matchID)
         if selected != route { route = selected }
     }
 }

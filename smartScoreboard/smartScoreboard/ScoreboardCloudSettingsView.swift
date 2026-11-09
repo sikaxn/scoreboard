@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ScoreboardCloudSettingsView: View {
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
-    @Environment(\.openURL) private var openURL
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -18,11 +17,6 @@ struct ScoreboardCloudSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onChange(of: cloud.verificationURL) { _, url in
-            #if !os(tvOS)
-            if let url, !cloud.isRemotePairing { openURL(url) }
-            #endif
-        }
     }
 
     private var serviceSection: some View {
@@ -48,9 +42,10 @@ struct ScoreboardCloudSettingsView: View {
             }
             ScoreboardCloudSettingsDivider()
             ScoreboardCloudSettingsRow("Status") {
-                Text(cloud.status)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("cloud.status")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(cloud.status).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("cloud.status")
+                    if let error = cloud.imageSyncError { Text(error).font(.caption).foregroundStyle(.orange) }
+                }
             }
         }
     }
@@ -109,7 +104,7 @@ struct ScoreboardCloudSettingsView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             ScoreboardPairingQRCode(value: url.absoluteString)
                             #if !os(tvOS)
-                            Link("Open Sign-in Page", destination: url)
+                            Link("Sign In in Browser", destination: url).buttonStyle(.borderedProminent)
                             #endif
                         }
                     }
@@ -124,7 +119,7 @@ struct ScoreboardCloudSettingsView: View {
                 }
             } else {
                 ScoreboardCloudSettingsRow("Account") {
-                    Button("Sign In with Browser") { cloud.beginLink() }
+                    Button("Sign In / Pair This Device") { cloud.beginLink() }
                         .disabled(cloud.isLinking).accessibilityIdentifier("cloud.link")
                 }
             }

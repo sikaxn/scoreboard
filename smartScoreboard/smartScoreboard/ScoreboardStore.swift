@@ -1270,6 +1270,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func leaveJoinedMatch() {
+        ScoreboardRemoteConnectionRouter.shared.setJoinTarget(nil)
         if joinedReceiverAcquired {
             joinedReceiverAcquired = false
             ScoreboardRemoteDisplayReceiver.shared.release()
@@ -6809,10 +6810,19 @@ final class ScoreboardStore: ObservableObject {
         }
     }
 
+    func pruneInvitationPairings() {
+        guard isSessionAuthority else { return }
+        let active = !isShowingFileHome && isRemoteDisplayHostEnabled
+        remoteDisplayHostService.removeExpiredInvitationPairings(matchID: active ? currentMatchID : nil,
+            revision: active ? ScoreboardCloudClient.shared.nearbyInvitation?.revision : nil)
+    }
+
     func pairRemoteDisplay(
         _ source: ScoreboardRemoteDisplaySource,
         pairingCode: String,
-        takeoverConfirmed: Bool = false
+        takeoverConfirmed: Bool = false,
+        invitationMatchID: UUID? = nil,
+        invitationRevision: String? = nil
     ) {
         if isFollowingSessionHost {
             sendSessionAdministration(.init(action: "pair", displayID: source.id,
@@ -6822,7 +6832,8 @@ final class ScoreboardStore: ObservableObject {
         remoteDisplayHostService.pair(
             with: source,
             pairingCode: pairingCode,
-            takeoverConfirmed: takeoverConfirmed
+            takeoverConfirmed: takeoverConfirmed,
+            invitationMatchID: invitationMatchID, invitationRevision: invitationRevision
         )
     }
 
@@ -7361,6 +7372,11 @@ final class ScoreboardStore: ObservableObject {
                     self?.scheduleStateSideEffectRefresh()
                 }
             }.store(in: &cancellables)
+        #if !SCOREBOARD_TESTING
+        ScoreboardCloudClient.shared.nearbyInvitationChangedHandler = { [weak self] in
+            if let self { ScoreboardNearbyMatchService.shared.update(owner: self) }
+        }
+        #endif
         ScoreboardCloudClient.shared.hostReadyHandler = { [weak self] in self?.provisionCloudFailoverForConnectedDevices() }
         ScoreboardCloudClient.shared.configure(stateProvider: { [weak self] in
             guard let self, !self.isShowingFileHome, self.isSessionAuthority else { return nil }
@@ -7369,7 +7385,8 @@ final class ScoreboardStore: ObservableObject {
             self?.performCloudControlCommand(command) ?? .failure(command.id, "disabled", "Host unavailable.")
         }, canHost: { [weak self] in ScoreboardDeviceMode.current.canHost && self?.isShowingFileHome == false && self?.isSessionAuthority == true },
         commentatorProvider: { [weak self] in self?.currentCloudCommentatorPayload() },
-        localHostID: { [weak self] in self?.remoteDisplayHostService.hostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID })
+        localHostID: { [weak self] in self?.remoteDisplayHostService.hostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID },
+        imageProvider: { [weak self] in self?.currentWebAPIImageResponses() ?? [:] })
     }
 
     private var cloudEnrollmentRuns = Set<String>()
@@ -7421,6 +7438,7 @@ final class ScoreboardStore: ObservableObject {
     private func startRemoteDisplayHostService() {
         guard !isShowingFileHome, ScoreboardConnectionPolicy.allowsLocalNetworking, ScoreboardDeviceMode.current.canHost else { return }
         guard isSessionAuthority else { return }
+        pruneInvitationPairings()
         remoteDisplayHostService.start(
             initialState: encodedRemoteDisplayStates(),
             displayName: remoteDisplayHostName,
@@ -7715,6 +7733,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func resetToFactoryDefaults() {
+        ScoreboardRecentMatches.shared.removeAll()
         ScoreboardPreferences.current.removeObject(forKey: ScoreboardConnectionPolicy.preferenceKey)
         localConnectionsEnabled = true
         ScoreboardCloudClient.shared.resetServiceSettings()

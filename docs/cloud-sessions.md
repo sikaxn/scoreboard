@@ -34,6 +34,16 @@ Online participants enter a fixed session code and password, without signing in.
 
 Cloud joining is staged: failed/cancelled joins preserve the personal document, and controls switch after joining. Nearby discovery and pairing do not need internet. Guests receive only match-scoped access, including cloud failover credentials where enabled.
 
+## Using a cloud invitation nearby
+
+A native guest can enter the same fixed cloud invitation code/password or scan its invitation link while offline. **Enable LAN & Nearby** on both devices and allow nearby joining on the open host scoreboard. The guest needs no account, internet connection, cloud setup, or matching cloud URL in its settings. A link identifies its own service for local matching; entering just the code discovers that service from the nearby host. Joining never changes the guest's configured cloud host.
+
+The publishing host must first synchronize this invitation with the updated Worker while online. It caches a salted SRP verifier in Keychain, scoped to the cloud account/service, local host and match. Both devices can subsequently use it without internet. Nearby-only six-digit PIN and owner-confirmed pairing remain available independently, including on hosts that have never used cloud.
+
+The nearby advertisement contains the invitation code and service origin, not a password or verifier. SRP-6a (3072-bit group, SHA-256) authenticates both sides, and an authenticated encrypted message supplies the guest's temporary device PIN. Controllers still require owner approval; Apple TV remains display-only. Invitation-derived trust is limited to the current match and password revision. Received scores and files stay in the joined workspace, separate from the guest's local scoreboard.
+
+With both routes enabled, the selected preference determines whether cloud or nearby is attempted first. A nearby join can prepare a matching cloud fallback in the background when that cloud service is enabled and configured; failing to prepare it does not block local use. Cloud-only mode never starts local discovery. Password changes/revocation take effect on offline hosts when they next synchronize; a host that has not synchronized cannot learn a remote change.
+
 ## Accounts, guests and relay access
 
 Only the match owner needs to sign in. Accounts have a User or Admin service role, plus an independent cloud relay entitlement. An entitlement can expire at a specific time or have no expiry. New accounts have no relay entitlement; Admin access alone does not grant relay access. Normal accounts list their own sessions. The backend is available to Admins and records account/entitlement changes in its audit log.

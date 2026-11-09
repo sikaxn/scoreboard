@@ -9,6 +9,8 @@ struct ScoreboardNewScoreboardView: View {
     @State private var name = ""
     @State private var sport: SportType = .simple
     @State private var error: String?
+    var embedded = false
+    var cancel: (() -> Void)? = nil
     let create: (String, SportType) throws -> Void
 
     private var palette: SettingsPalette { store.theme.palette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
@@ -39,7 +41,7 @@ struct ScoreboardNewScoreboardView: View {
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Sport").font(.headline)
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                             ForEach(SportType.allCases) { choice in
                                 Button { sport = choice } label: {
                                     HStack(spacing: 12) {
@@ -69,12 +71,12 @@ struct ScoreboardNewScoreboardView: View {
                             .font(.callout).foregroundStyle(store.theme.palette.destructiveTint)
                             .accessibilityIdentifier("home.newError")
                     }
-                }.padding(28).frame(maxWidth: 680, alignment: .leading).frame(maxWidth: .infinity)
+                }.padding(28).frame(maxWidth: embedded ? 900 : 680, alignment: .leading).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
             Divider()
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
-                Button("Cancel") { dismiss() }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
+                Button("Cancel") { if let cancel { cancel() } else { dismiss() } }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("home.cancelNew")
                 Button("Create Scoreboard", systemImage: "plus") {
                     do { try create(name.trimmingCharacters(in: .whitespacesAndNewlines), sport) }
@@ -86,7 +88,7 @@ struct ScoreboardNewScoreboardView: View {
         }
         .background(palette.detailBackground).foregroundStyle(palette.primaryText).tint(palette.accent)
         #if os(macOS)
-        .frame(minWidth: 380, idealWidth: 620, minHeight: 500, idealHeight: 690)
+        .frame(minWidth: embedded ? 0 : 380, idealWidth: embedded ? nil : 620, minHeight: embedded ? 0 : 500, idealHeight: embedded ? nil : 690)
         #else
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         #endif

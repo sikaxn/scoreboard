@@ -152,7 +152,7 @@ struct ScoreboardDevicePairingSection: View {
                 ScoreboardCloudSettingsRow(source.name, verbatim: true) {
                     HStack {
                         TextField("4-digit PIN", text: Binding(get: { nearbyCodes[source.id] ?? "" }, set: { nearbyCodes[source.id] = String($0.filter(\.isNumber).prefix(4)) }))
-                            .textFieldStyle(.roundedBorder).frame(maxWidth: 130)
+                            .scoreboardCloudSettingsField().frame(maxWidth: 130)
                             .accessibilityIdentifier("connection.pairingCode.\(source.id)")
                             #if os(iOS)
                             .keyboardType(.numberPad)

@@ -857,6 +857,8 @@ nonisolated struct ScoreboardRemoteDisplayTrustedPeer: Identifiable, Codable, Eq
     let deviceType: ScoreboardRemoteDisplayDeviceType?
     let pairingSecret: String?
     var devicePublicKey: String? = nil
+    var invitationMatchID: UUID? = nil
+    var invitationRevision: String? = nil
 
     init(
         id: String,
@@ -1309,7 +1311,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     func pair(
         with source: ScoreboardRemoteDisplaySource,
         pairingCode: String,
-        takeoverConfirmed: Bool = false
+        takeoverConfirmed: Bool = false,
+        invitationMatchID: UUID? = nil,
+        invitationRevision: String? = nil
     ) {
         guard browser != nil, !isDiscoveryOnly else {
             status = .failed(localizedRemoteDisplayString("Remote Display pairing is not running."))
@@ -1356,13 +1360,18 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             trustedReconnect: false,
             takeoverConfirmed: takeoverConfirmed
         )
-        let pendingTrustedDisplay = ScoreboardRemoteDisplayTrustedPeer(
+        var pendingTrustedDisplay = ScoreboardRemoteDisplayTrustedPeer(
             id: source.id,
             name: source.name,
             pairingSetID: source.pairingSetID,
             deviceType: source.deviceType,
             pairingSecret: pairingSecret
         )
+        // Independently paired devices retain their existing local permission.
+        if !trustedDisplays.contains(where: { $0.id == source.id && $0.invitationMatchID == nil }) {
+            pendingTrustedDisplay.invitationMatchID = invitationMatchID
+            pendingTrustedDisplay.invitationRevision = invitationRevision
+        }
         connect(to: source, request: request, pendingTrustedDisplay: pendingTrustedDisplay)
         lastTrustedInviteAttemptByID[source.id] = Date()
         updateBrowsingStatus()
@@ -1397,6 +1406,27 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
         operatorDisconnectedDisplayIDs.remove(source.id)
         inviteTrustedDisplayIfNeeded(source, force: true, takeoverConfirmed: takeoverConfirmed)
+    }
+
+    /// Invitation guests are scoped to one match and password revision. Remove
+    /// both established and in-flight reverse pairings before publishing state.
+    func removeExpiredInvitationPairings(matchID: UUID?, revision: String?) {
+        func expired(_ peer: ScoreboardRemoteDisplayTrustedPeer) -> Bool {
+            peer.invitationMatchID != nil && (peer.invitationMatchID != matchID || peer.invitationRevision != revision)
+        }
+        let expiredIDs = Set(trustedDisplays.filter(expired).map(\.id))
+        let endpoints = displayConnectionsByEndpoint.compactMap { endpoint, display in
+            expiredIDs.contains(display.displayID) || display.pendingTrustedDisplay.map(expired) == true ? endpoint : nil
+        }
+        for endpoint in endpoints {
+            if let display = displayConnectionsByEndpoint.removeValue(forKey: endpoint) {
+                invitedPeerIDs.remove(display.displayID)
+                display.rtcPeer?.close(notifyRemote: false)
+                display.connection.cancel()
+            }
+        }
+        for id in expiredIDs { removeTrustedDisplay(id: id) }
+        if !endpoints.isEmpty { updateBrowsingStatus() }
     }
 
     func removeTrustedDisplay(id displayID: String) {
@@ -1925,7 +1955,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
                 ?? sources.first { $0.id == displayID }?.deviceType
                 ?? message.deviceType.flatMap(ScoreboardRemoteDisplayDeviceType.init(rawValue:))
                 ?? trustedDisplays.first { $0.id == displayID }?.deviceType
-            trustDisplay(id: displayID, name: displayName, pairingSetID: pairingSetID, deviceType: deviceType, pairingSecret: pairingSecret)
+            trustDisplay(id: displayID, name: displayName, pairingSetID: pairingSetID, deviceType: deviceType, pairingSecret: pairingSecret,
+                invitationMatchID: pendingTrustedDisplay != nil ? pendingTrustedDisplay?.invitationMatchID : trustedDisplays.first { $0.id == displayID }?.invitationMatchID,
+                invitationRevision: pendingTrustedDisplay != nil ? pendingTrustedDisplay?.invitationRevision : trustedDisplays.first { $0.id == displayID }?.invitationRevision)
         }
         if let receivedAt = message.receivedAt, receivedAt.isFinite, latency < 2 {
             // The midpoint of the host's round trip estimates when the display received the ping.
@@ -2249,7 +2281,9 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
         name displayName: String,
         pairingSetID: String?,
         deviceType: ScoreboardRemoteDisplayDeviceType?,
-        pairingSecret: String?
+        pairingSecret: String?,
+        invitationMatchID: UUID? = nil,
+        invitationRevision: String? = nil
     ) {
         guard !displayID.isEmpty, pairingSecret?.isEmpty == false else {
             return
@@ -2265,6 +2299,10 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             deviceType: deviceType,
             pairingSecret: pairingSecret
         ))
+        if let index = updatedDisplays.firstIndex(where: { $0.id == displayID }) {
+            updatedDisplays[index].invitationMatchID = invitationMatchID
+            updatedDisplays[index].invitationRevision = invitationRevision
+        }
         updatedDisplays.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         trustedDisplays = updatedDisplays
         if sessionOwnerHostID == nil { ScoreboardRemoteDisplayPairingStore.saveTrustedDisplays(trustedDisplays) }
@@ -2882,14 +2920,26 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         if !allowed { pendingControlCommands.removeAll(); pendingControlCommandID = nil }
     }
 
+    private var joinedMatchID: UUID?
+    func bindJoinedMatch(_ matchID: UUID?) {
+        joinedMatchID = matchID
+        if let matchID, let state, state.game.matchID != matchID { discardReceivedScoreboard() }
+    }
+
     func receiveCloudState(_ state: ScoreboardWebAPIState, controlAllowed: Bool, hostName: String) {
-        guard isCloudReceiver else { return }
+        guard isCloudReceiver, joinedMatchID == nil || joinedMatchID == state.game.matchID else { return }
+        let imageIDs = Set(state.cloudImageReferences.map(\.id))
+        imageAssetsByID = imageAssetsByID.filter { imageIDs.contains($0.key) }
         self.state = state.cloudControlPayload(allowed: controlAllowed)
         lastReceivedAt = Date()
         lastHeartbeatAt = lastReceivedAt
         masterClockOffset = nil
         setCloudControlAllowed(controlAllowed)
         status = .paired(hostName)
+    }
+    func receiveCloudImage(_ asset: ScoreboardRemoteDisplayImageAsset) {
+        guard isCloudReceiver, state?.cloudImageReferences.contains(where: { $0.id == asset.id }) == true else { return }
+        imageAssetsByID[asset.id] = asset
     }
 
     func receiveCloudResult(_ result: ScoreboardControlResult) {
@@ -2913,6 +2963,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         state = nil
         lastReceivedAt = nil
         lastHeartbeatAt = nil
+        imageAssetsByID.removeAll()
     }
 
     private var displayName = ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard Display"
@@ -3628,7 +3679,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
-        guard acceptsStateUpdate(from: connection) else {
+        guard acceptsStateUpdate(from: connection), joinedMatchID == nil || joinedMatchID == decodedState.game.matchID else {
             return
         }
 
@@ -4247,7 +4298,8 @@ enum ScoreboardControlTestTransport {
 extension ScoreboardRemoteDisplayHostService {
     func refreshControlTestTrustedDisplay(_ peer: ScoreboardRemoteDisplayTrustedPeer) {
         trustDisplay(id: peer.id, name: peer.name, pairingSetID: peer.pairingSetID,
-                     deviceType: peer.deviceType, pairingSecret: peer.pairingSecret)
+                     deviceType: peer.deviceType, pairingSecret: peer.pairingSecret,
+                     invitationMatchID: peer.invitationMatchID, invitationRevision: peer.invitationRevision)
     }
 }
 
