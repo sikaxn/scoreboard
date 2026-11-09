@@ -169,6 +169,8 @@ nonisolated struct ScoreboardWebAPIRuntime: Codable, Sendable {
 
 nonisolated struct ScoreboardWebAPIDisplay: Codable, Sendable {
     let theme: ScoreboardTheme
+    var layout: ExternalDisplayLayout? = nil
+    var font: ExternalDisplayFont? = nil
     let backgroundMode: ExternalDisplayBackgroundMode
     let backgroundImage: ScoreboardWebAPIBackgroundImage?
     let animatedLogoStyle: ExternalDisplayAnimatedLogoStyle?
@@ -1570,6 +1572,7 @@ nonisolated struct ScoreboardRemoteDisplayEncodedStates: Sendable {
 extension ScoreboardWebAPIState {
     var remoteDisplayPayload: ScoreboardWebAPIState {
         let shouldIncludeFullRoster = display?.resolvedViewMode == .playerView || control?.remoteEnabled == true
+            || (display?.layout == .venueRoster && display?.resolvedViewMode == .scoreboard)
 
         return ScoreboardWebAPIState(
             schemaVersion: schemaVersion,
@@ -1719,6 +1722,8 @@ extension ScoreboardWebAPIDisplay {
     var v2ImagePathPayload: ScoreboardWebAPIDisplay {
         ScoreboardWebAPIDisplay(
             theme: theme,
+            layout: layout,
+            font: font,
             backgroundMode: backgroundMode,
             backgroundImage: backgroundImage?.v2ImagePathPayload,
             animatedLogoStyle: animatedLogoStyle,
@@ -3235,6 +3240,8 @@ extension ScoreboardStore {
             ),
             display: ScoreboardWebAPIDisplay(
                 theme: theme,
+                layout: externalDisplayLayout,
+                font: externalDisplayFont,
                 backgroundMode: externalDisplayBackgroundMode.resolvedForRendering,
                 backgroundImage: webAPIBackgroundImageMetadata(),
                 animatedLogoStyle: externalDisplayAnimatedLogoStyle,

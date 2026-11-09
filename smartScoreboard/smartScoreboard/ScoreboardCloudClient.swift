@@ -42,9 +42,7 @@ nonisolated struct ScoreboardMatchInvitation: Equatable, Sendable {
 
 @MainActor enum ScoreboardDeviceIdentity {
     private static let key: P256.Signing.PrivateKey = {
-        #if SCOREBOARD_TESTING
-        return P256.Signing.PrivateKey()
-        #else
+        if ScoreboardPreferences.usesIsolatedCredentialStorage { return P256.Signing.PrivateKey() }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "smartScoreboard.device-identity", kSecAttrAccount as String: "signing",
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
@@ -57,7 +55,6 @@ nonisolated struct ScoreboardMatchInvitation: Equatable, Sendable {
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         _ = SecItemAdd(item as CFDictionary, nil)
         return generated
-        #endif
     }()
     static var publicKey: String { key.publicKey.x963Representation.base64EncodedString() }
     static func sign(_ request: inout URLRequest) throws {
@@ -230,6 +227,39 @@ nonisolated struct ScoreboardPublisherGrant: Codable, Sendable {
         return try AES.GCM.open(AES.GCM.SealedBox(combined: envelope.ciphertext), using: key, authenticating: aad)
     }
 }
+nonisolated struct ScoreboardCloudAgreement: Codable, Equatable, Sendable {
+    var version: String
+    var title: String
+    var content: String
+    var publishedAt: Double
+    var placeholder: Bool
+}
+nonisolated struct ScoreboardCloudAgreementAcceptance: Codable, Equatable, Sendable {
+    var origin: String
+    var version: String
+    var receipt: String
+    var acceptedAt: Double
+    static func serviceOrigin(for url: URL) throws -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+        if components.scheme?.lowercased() == "wss" { components.scheme = "https" }
+        else if components.scheme?.lowercased() == "ws" { components.scheme = "http" }
+        components.path = ""; components.query = nil; components.fragment = nil
+        guard let address = components.string else { throw URLError(.badURL) }
+        return try ScoreboardNearbyCloudInvitation.origin(address)
+    }
+    func isCurrent(_ document: ScoreboardCloudAgreement, origin: String, now: Date = Date()) -> Bool {
+        self.origin == origin && version == document.version && !receipt.isEmpty &&
+            now.timeIntervalSince1970 * 1000 - acceptedAt < 360 * 86400_000
+    }
+}
+nonisolated enum ScoreboardCloudConsentStep: Equatable {
+    case disclosure, loading, agreement(ScoreboardCloudAgreement), failed(String)
+}
+nonisolated enum ScoreboardCloudAgreementError: LocalizedError {
+    case required
+    var errorDescription: String? { "Read and accept the cloud agreement to continue. LAN and nearby connections remain available." }
+}
+
 nonisolated private struct CloudCredential: Codable {
     var serviceURL: String
     var token: String
@@ -245,6 +275,7 @@ nonisolated private struct CloudCredential: Codable {
 nonisolated private enum CloudKeychain {
     private static let service = "smartScoreboard.cloud-session"
     static func load(account: String = "current") -> Data? {
+        guard !ScoreboardPreferences.usesIsolatedCredentialStorage else { return nil }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrAccount as String: account,
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
@@ -253,6 +284,7 @@ nonisolated private enum CloudKeychain {
         return result as? Data
     }
     static func save(_ data: Data?, account: String = "current") throws {
+        guard !ScoreboardPreferences.usesIsolatedCredentialStorage else { return }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrAccount as String: account]
         if let data {
@@ -278,9 +310,138 @@ nonisolated private enum CloudKeychain {
     @Published var cloudEnabled = false {
         didSet {
             preferences.set(cloudEnabled, forKey: "scoreboard.cloudEnabled")
-            if !cloudEnabled { suspendConnections(); status = "Cloud is disabled." }
-            else if !oldValue { reconnect() }
+            if !cloudEnabled {
+                agreementRun = UUID(); agreementCheckTask?.cancel(); agreementCheckTask = nil
+                checkedCloudAgreementOrigin = nil; cloudConsent = nil
+                suspendConnections(); status = "Cloud is disabled."
+            } else if !oldValue { showCloudDisclosure() }
         }
+    }
+    @Published private(set) var cloudConsent: ScoreboardCloudConsentStep?
+    @Published private(set) var acceptingCloudAgreement = false
+    private var cloudAgreements: [String: ScoreboardCloudAgreementAcceptance] = [:]
+    private var checkedCloudAgreementOrigin: String?
+    private var agreementCheckTask: Task<Bool, Never>?
+    private var agreementRun = UUID()
+    private var disclosedCloudServices: [String] {
+        get { preferences.stringArray(forKey: "scoreboard.cloudDisclosureServices") ?? [] }
+        set { preferences.set(newValue, forKey: "scoreboard.cloudDisclosureServices") }
+    }
+    private var cloudAgreementOrigin: String? { try? ScoreboardNearbyCloudInvitation.origin(serviceURL) }
+    private var cloudAgreementReady: Bool {
+        guard let origin = cloudAgreementOrigin else { return false }
+        return checkedCloudAgreementOrigin == origin && cloudAgreements[origin] != nil
+    }
+    private func showCloudDisclosure() {
+        checkedCloudAgreementOrigin = nil
+        cloudConsent = .disclosure
+        status = "Review cloud data sharing before enabling connections."
+    }
+    func continueCloudDisclosure() {
+        guard cloudEnabled, let origin = cloudAgreementOrigin else {
+            cloudConsent = .failed("Enter a valid cloud service URL in App Settings first."); return
+        }
+        if !disclosedCloudServices.contains(origin) { disclosedCloudServices += [origin] }
+        cloudConsent = nil
+        Task { [weak self] in
+            guard let self else { return }
+            if await checkCloudAgreement() { reconnect() }
+        }
+    }
+    func cancelCloudAgreement() { cloudEnabled = false }
+    func retryCloudAgreement() {
+        cloudConsent = nil
+        Task { [weak self] in
+            guard let self else { return }
+            if await checkCloudAgreement() { reconnect() }
+        }
+    }
+    private func checkCloudAgreement() async -> Bool {
+        guard cloudEnabled, let origin = cloudAgreementOrigin else { return false }
+        if cloudAgreementReady { return true }
+        if case .disclosure = cloudConsent { return false }
+        if case .agreement = cloudConsent { return false }
+        guard disclosedCloudServices.contains(origin) else { showCloudDisclosure(); return false }
+        if let task = agreementCheckTask { return await task.value }
+        let run = agreementRun
+        let task = Task { @MainActor [weak self] () -> Bool in
+            guard let self else { return false }
+            cloudConsent = .loading
+            do {
+                let base = try ScoreboardCloudEndpoint.validate(serviceURL)
+                var request = URLRequest(url: base.appendingPathComponent("api/eula"))
+                request.timeoutInterval = 20
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let (data, response) = try await requestSession.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 100_000 else { throw URLError(.badServerResponse) }
+                let document = try JSONDecoder().decode(ScoreboardCloudAgreement.self, from: data)
+                guard !document.version.isEmpty, !document.content.isEmpty, !Task.isCancelled,
+                      cloudEnabled, agreementRun == run, cloudAgreementOrigin == origin else { return false }
+                if let accepted = cloudAgreements[origin], accepted.isCurrent(document, origin: origin) {
+                    checkedCloudAgreementOrigin = origin; cloudConsent = nil
+                    return true
+                }
+                cloudConsent = .agreement(document)
+                status = "Accept this cloud service's agreement to continue."
+            } catch {
+                if agreementRun == run, cloudEnabled, !Task.isCancelled {
+                    cloudConsent = .failed("Unable to load the cloud agreement. Cloud connections are paused. \(error.localizedDescription)")
+                }
+            }
+            return false
+        }
+        agreementCheckTask = task
+        let ready = await task.value
+        if agreementRun == run { agreementCheckTask = nil }
+        return ready
+    }
+    func acceptCloudAgreement() async {
+        guard case .agreement(let document) = cloudConsent, cloudEnabled, !acceptingCloudAgreement,
+              let origin = cloudAgreementOrigin else { return }
+        acceptingCloudAgreement = true
+        let run = agreementRun
+        defer { acceptingCloudAgreement = false }
+        do {
+            struct Input: Encodable { var client = "native"; var version: String; var deviceID: String; var devicePublicKey: String }
+            struct Acceptance: Decodable { var version: String; var receipt: String; var acceptedAt: Double }
+            var request = URLRequest(url: try ScoreboardCloudEndpoint.validate(serviceURL).appendingPathComponent("api/eula/accept"))
+            request.httpMethod = "POST"; request.timeoutInterval = 20
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(Input(version: document.version, deviceID: receiver.displayID, devicePublicKey: ScoreboardDeviceIdentity.publicKey))
+            try ScoreboardDeviceIdentity.sign(&request)
+            let (data, response) = try await requestSession.data(for: request)
+            guard agreementRun == run, cloudEnabled, cloudAgreementOrigin == origin else { return }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                if (response as? HTTPURLResponse)?.statusCode == 409 {
+                    cloudConsent = nil; _ = await checkCloudAgreement(); return
+                }
+                throw URLError(.badServerResponse)
+            }
+            let accepted = try JSONDecoder().decode(Acceptance.self, from: data)
+            guard accepted.version == document.version, !accepted.receipt.isEmpty else { throw URLError(.badServerResponse) }
+            cloudAgreements[origin] = .init(origin: origin, version: accepted.version, receipt: accepted.receipt, acceptedAt: accepted.acceptedAt)
+            #if !SCOREBOARD_TESTING
+            try CloudKeychain.save(JSONEncoder().encode(cloudAgreements), account: "eula-acceptances")
+            #endif
+            checkedCloudAgreementOrigin = origin; cloudConsent = nil
+            status = "Cloud agreement accepted."
+            reconnect()
+        } catch {
+            if agreementRun == run { status = "Unable to record agreement acceptance. Please try again. \(error.localizedDescription)" }
+        }
+    }
+    private func addCloudAgreement(to request: inout URLRequest) throws {
+        guard let url = request.url else { throw URLError(.badURL) }
+        let origin = try ScoreboardCloudAgreementAcceptance.serviceOrigin(for: url)
+        guard checkedCloudAgreementOrigin == origin, let accepted = cloudAgreements[origin] else { throw ScoreboardCloudAgreementError.required }
+        request.setValue(accepted.receipt, forHTTPHeaderField: "X-Scoreboard-EULA")
+    }
+    private func cloudAgreementChanged() {
+        checkedCloudAgreementOrigin = nil
+        if let origin = cloudAgreementOrigin { cloudAgreements.removeValue(forKey: origin) }
+        suspendTransport()
+        cloudConsent = nil
+        Task { [weak self] in _ = await self?.checkCloudAgreement() }
     }
     private var matchContext: ScoreboardCloudMatchContext?
     var nearbyInvitationChangedHandler: (() -> Void)?
@@ -356,10 +517,16 @@ nonisolated private enum CloudKeychain {
     }
     private var isActivatingMatch = false
     @Published var serviceMode: ScoreboardCloudServiceMode {
-        didSet { preferences.set(serviceMode.rawValue, forKey: "scoreboard.cloudServiceMode") }
+        didSet {
+            preferences.set(serviceMode.rawValue, forKey: "scoreboard.cloudServiceMode")
+            if oldValue != serviceMode, cloudEnabled { cloudEnabled = false }
+        }
     }
     @Published var selfHostedURL: String {
-        didSet { preferences.set(selfHostedURL, forKey: "scoreboard.cloudSelfHostedURL") }
+        didSet {
+            preferences.set(selfHostedURL, forKey: "scoreboard.cloudSelfHostedURL")
+            if serviceMode == .selfHosted, !ScoreboardCloudEndpoint.sameService(oldValue, selfHostedURL), cloudEnabled { cloudEnabled = false }
+        }
     }
     var serviceURL: String {
         serviceMode == .publicCloud ? ScoreboardCloudEndpoint.publicServiceURL : selfHostedURL
@@ -470,8 +637,14 @@ nonisolated private enum CloudKeychain {
     private var remotePermissionTasks: [String: Task<Void, Never>] = [:]
     private var acceptedEnrollments = Set<UUID>()
 
-    init(preferences: UserDefaults = ScoreboardPreferences.current) {
+    init(preferences: UserDefaults = ScoreboardPreferences.current, requestSession: URLSession? = nil) {
         self.preferences = preferences
+        if let requestSession { self.requestSession = requestSession }
+        #if !SCOREBOARD_TESTING
+        if let data = CloudKeychain.load(account: "eula-acceptances") {
+            cloudAgreements = (try? JSONDecoder().decode([String: ScoreboardCloudAgreementAcceptance].self, from: data)) ?? [:]
+        }
+        #endif
         cloudEnabled = preferences.object(forKey: "scoreboard.cloudEnabled") as? Bool ?? preferences.bool(forKey: "scoreboard.cloudHostingEnabled")
         hostName = preferences.string(forKey: "scoreboard.cloudHostName") ?? ScoreboardRemoteDisplayDeviceName.current ?? "Scoreboard Host"
         hostingEnabled = preferences.bool(forKey: "scoreboard.cloudHostingEnabled")
@@ -570,6 +743,10 @@ nonisolated private enum CloudKeychain {
     func resetServiceSettings() {
         cloudEnabled = false
         disconnect()
+        cloudAgreements.removeAll(); disclosedCloudServices = []
+        #if !SCOREBOARD_TESTING
+        try? CloudKeychain.save(nil, account: "eula-acceptances")
+        #endif
         hostingEnabled = false; cloudFailoverEnabled = false
         hostName = ScoreboardRemoteDisplayDeviceName.current ?? "Scoreboard Host"
         serviceMode = .publicCloud
@@ -663,6 +840,13 @@ nonisolated private enum CloudKeychain {
 
     func reconnect() {
         guard cloudEnabled else { status = "Cloud is disabled."; return }
+        guard cloudAgreementReady else {
+            Task { [weak self] in
+                guard let self else { return }
+                if await checkCloudAgreement() { reconnect() }
+            }
+            return
+        }
         let publishing = publisherGrant.flatMap { grant -> CloudCredential? in
             guard publisherActive, canHostProvider?() == true, grant.matchID == matchContext?.matchID,
                   grant.runtimeID == matchContext?.runtimeID, grant.epoch == matchContext?.epoch else { return nil }
@@ -754,6 +938,7 @@ nonisolated private enum CloudKeychain {
                     components.scheme = base.scheme == "https" ? "wss" : "ws"
                     var request = URLRequest(url: components.url!)
                     request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+                    try addCloudAgreement(to: &request)
                     try ScoreboardDeviceIdentity.sign(&request)
                     let task = URLSession.shared.webSocketTask(with: request)
                     task.maximumMessageSize = 1_048_576
@@ -1266,7 +1451,10 @@ nonisolated private enum CloudKeychain {
             send(Frame(type: "result", generation: session?.generation, clientID: clientID, requestID: requestID, result: result))
             if let state = stateProvider?() { publish(state) }
         } else if frame.type == "result", let result = frame.result { receiver.receiveCloudResult(result) }
-        else if frame.type == "error" { status = frame.message ?? "Cloud request failed." }
+        else if frame.type == "error" {
+            status = frame.message ?? "Cloud request failed."
+            if frame.error == "eula_required" { cloudAgreementChanged() }
+        }
     }
 
     private func reportConnectionStatus(force: Bool = false) {
@@ -1304,9 +1492,11 @@ nonisolated private enum CloudKeychain {
                         request.httpMethod = "POST"; request.httpBody = response.body
                         request.setValue(response.contentType, forHTTPHeaderField: "Content-Type")
                     }
+                    try addCloudAgreement(to: &request)
                     try ScoreboardDeviceIdentity.sign(&request)
                     let (data, response) = try await requestSession.data(for: request)
                     guard connectionID == runID, !Task.isCancelled else { return }
+                    if (response as? HTTPURLResponse)?.statusCode == 428 { cloudAgreementChanged(); throw ScoreboardCloudAgreementError.required }
                     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 8 * 1024 * 1024 else { throw URLError(.badServerResponse) }
                     if host { uploadedImages[image.slot] = "\(room.id)|\(room.generation)|\(image.id)" }
                     else {
@@ -1361,10 +1551,13 @@ nonisolated private enum CloudKeychain {
     }
     private func response<Result: Decodable>(_ request: URLRequest) async throws -> Result {
         guard cloudEnabled else { throw URLError(.cancelled) }
+        guard await checkCloudAgreement() else { throw ScoreboardCloudAgreementError.required }
         var request = request
+        try addCloudAgreement(to: &request)
         try ScoreboardDeviceIdentity.sign(&request)
         let (data, response) = try await requestSession.data(for: request)
         guard cloudEnabled else { throw URLError(.cancelled) }
+        if (response as? HTTPURLResponse)?.statusCode == 428 { cloudAgreementChanged(); throw ScoreboardCloudAgreementError.required }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(Failure.self, from: data))?.message ?? "Cloud request failed."
             throw NSError(domain: "ScoreboardCloud", code: (response as? HTTPURLResponse)?.statusCode ?? 0,
@@ -1377,6 +1570,7 @@ nonisolated private enum CloudKeychain {
     nonisolated private struct Failure: Decodable { var message: String }
     nonisolated private struct Incoming: Decodable {
         var type: String
+        var error: String?
         var session: ScoreboardCloudSession?
         var state: ScoreboardWebAPIState?
         var command: ScoreboardControlCommand?

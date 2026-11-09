@@ -1033,7 +1033,10 @@ final class ScoreboardStore: ObservableObject {
     @Published var isDebatePlayerCardsEnabled = false
     @Published var homePenaltyTimers: [HockeyPenaltyTimer] = []
     @Published var guestPenaltyTimers: [HockeyPenaltyTimer] = []
+    // Cached active-game appearance; each game file carries its own values.
     @Published var theme: ScoreboardTheme = .classic
+    @Published var externalDisplayLayout: ExternalDisplayLayout = .standard
+    @Published var externalDisplayFont: ExternalDisplayFont = .rounded
     @Published var showsLiveActivityWhenTimerRunning = true
     @Published var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode = .blurred
     @Published var externalDisplayBackgroundImage: ExternalDisplayBackgroundImage?
@@ -4939,7 +4942,7 @@ final class ScoreboardStore: ObservableObject {
 
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
-            fileVersion: 13,
+            fileVersion: ScoreboardGameSnapshot.currentFileVersion,
             matchID: currentMatchID,
             ownerDeviceID: matchOwnerDeviceID ?? localSessionDeviceID,
             sport: selectedSport,
@@ -5010,6 +5013,9 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers: supportsHockeyPenalties ? guestPenaltyTimers : [],
             homeRoster: homeRoster,
             guestRoster: guestRoster,
+            theme: theme,
+            externalDisplayLayout: externalDisplayLayout,
+            externalDisplayFont: externalDisplayFont,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode,
             externalDisplayBackgroundImage: embeddedExternalDisplayBackgroundImage(),
             externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
@@ -5230,6 +5236,9 @@ final class ScoreboardStore: ObservableObject {
             guestPenaltyTimers = supportsHockeyPenalties ? (snapshot.guestPenaltyTimers ?? []) : []
             homeRoster = normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam)
+            theme = snapshot.theme ?? .classic
+            externalDisplayLayout = snapshot.externalDisplayLayout ?? .standard
+            externalDisplayFont = snapshot.externalDisplayFont ?? .rounded
             externalDisplayAnimatedLogoStyle = snapshot.externalDisplayAnimatedLogoStyle ?? .horizontalMarquee
             externalDisplayAnimatedLogoBackgroundColor = snapshot.externalDisplayAnimatedLogoBackgroundColor ?? .themeBackground
             setExternalDisplayAnimatedLogoSpeed(snapshot.externalDisplayAnimatedLogoSpeed ?? Self.defaultAnimatedLogoSpeed)
@@ -7592,6 +7601,8 @@ final class ScoreboardStore: ObservableObject {
             $homeRoster.map { _ in () }.eraseToAnyPublisher(),
             $guestRoster.map { _ in () }.eraseToAnyPublisher(),
             $theme.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayLayout.map { _ in () }.eraseToAnyPublisher(),
+            $externalDisplayFont.map { _ in () }.eraseToAnyPublisher(),
             $showsLiveActivityWhenTimerRunning.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.map { _ in () }.eraseToAnyPublisher(),
             $externalDisplayBackgroundImage.map { _ in () }.eraseToAnyPublisher(),
@@ -7899,6 +7910,8 @@ final class ScoreboardStore: ObservableObject {
             homeRoster = normalizedRoster(persistedState.homeRoster, fallbackCount: rosterSizePerTeam)
             guestRoster = normalizedRoster(persistedState.guestRoster, fallbackCount: rosterSizePerTeam)
             theme = persistedState.theme
+            externalDisplayLayout = persistedState.externalDisplayLayout
+            externalDisplayFont = persistedState.externalDisplayFont
             externalDisplayBackgroundImage = nil
             externalDisplayAnimatedLogoStyle = persistedState.externalDisplayAnimatedLogoStyle
             externalDisplayAnimatedLogoBackgroundColor = persistedState.externalDisplayAnimatedLogoBackgroundColor
@@ -8255,6 +8268,8 @@ final class ScoreboardStore: ObservableObject {
             homeRoster: homeRoster,
             guestRoster: guestRoster,
             theme: theme,
+            externalDisplayLayout: externalDisplayLayout,
+            externalDisplayFont: externalDisplayFont,
             showsLiveActivityWhenTimerRunning: showsLiveActivityWhenTimerRunning,
             externalDisplayBackgroundMode: externalDisplayBackgroundMode == .image || externalDisplayBackgroundMode == .animatedLogo ? .blurred : externalDisplayBackgroundMode,
             externalDisplayAnimatedLogoStyle: externalDisplayAnimatedLogoStyle,
@@ -8558,6 +8573,8 @@ private struct PersistedState: Codable {
     var homeRoster: TeamRoster
     var guestRoster: TeamRoster
     var theme: ScoreboardTheme
+    var externalDisplayLayout: ExternalDisplayLayout
+    var externalDisplayFont: ExternalDisplayFont
     var showsLiveActivityWhenTimerRunning: Bool
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode
     var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle
@@ -8677,6 +8694,8 @@ private struct PersistedState: Codable {
         case homeRoster
         case guestRoster
         case theme
+        case externalDisplayLayout
+        case externalDisplayFont
         case showsLiveActivityWhenTimerRunning
         case externalDisplayBackgroundMode
         case externalDisplayAnimatedLogoStyle
@@ -8796,6 +8815,8 @@ private struct PersistedState: Codable {
         homeRoster: TeamRoster,
         guestRoster: TeamRoster,
         theme: ScoreboardTheme,
+        externalDisplayLayout: ExternalDisplayLayout = .standard,
+        externalDisplayFont: ExternalDisplayFont = .rounded,
         showsLiveActivityWhenTimerRunning: Bool,
         externalDisplayBackgroundMode: ExternalDisplayBackgroundMode,
         externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle,
@@ -8911,6 +8932,8 @@ private struct PersistedState: Codable {
         self.homeRoster = homeRoster
         self.guestRoster = guestRoster
         self.theme = theme
+        self.externalDisplayLayout = externalDisplayLayout
+        self.externalDisplayFont = externalDisplayFont
         self.showsLiveActivityWhenTimerRunning = showsLiveActivityWhenTimerRunning
         self.externalDisplayBackgroundMode = externalDisplayBackgroundMode
         self.externalDisplayAnimatedLogoStyle = externalDisplayAnimatedLogoStyle
@@ -9043,6 +9066,8 @@ private struct PersistedState: Codable {
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster) ?? TeamRoster(players: ScoreboardStore.makeDefaultRosterPlayers(count: rosterSizePerTeam))
         theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme) ?? .classic
+        externalDisplayLayout = try container.decodeIfPresent(ExternalDisplayLayout.self, forKey: .externalDisplayLayout) ?? .standard
+        externalDisplayFont = try container.decodeIfPresent(ExternalDisplayFont.self, forKey: .externalDisplayFont) ?? .rounded
         showsLiveActivityWhenTimerRunning = try container.decodeIfPresent(Bool.self, forKey: .showsLiveActivityWhenTimerRunning) ?? true
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode) ?? .blurred
         externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle) ?? .horizontalMarquee
@@ -9202,6 +9227,8 @@ private struct PersistedState: Codable {
         try container.encode(homeRoster, forKey: .homeRoster)
         try container.encode(guestRoster, forKey: .guestRoster)
         try container.encode(theme, forKey: .theme)
+        try container.encode(externalDisplayLayout, forKey: .externalDisplayLayout)
+        try container.encode(externalDisplayFont, forKey: .externalDisplayFont)
         try container.encode(showsLiveActivityWhenTimerRunning, forKey: .showsLiveActivityWhenTimerRunning)
         try container.encode(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encode(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)
@@ -9514,6 +9541,9 @@ extension ScoreboardStore {
             self?.scheduleOwnerSettingsSync()
         }.store(in: &cancellables)
         let visualChanges: [AnyPublisher<String, Never>] = [
+            $theme.dropFirst().map { _ in "theme" }.eraseToAnyPublisher(),
+            $externalDisplayLayout.dropFirst().map { _ in "layout" }.eraseToAnyPublisher(),
+            $externalDisplayFont.dropFirst().map { _ in "font" }.eraseToAnyPublisher(),
             $externalDisplayBackgroundMode.dropFirst().map { _ in "backgroundMode" }.eraseToAnyPublisher(),
             $externalDisplayBackgroundImage.dropFirst().map { _ in "backgroundImage" }.eraseToAnyPublisher(),
             $externalDisplayAnimatedLogoStyle.dropFirst().map { _ in "logoStyle" }.eraseToAnyPublisher(),
@@ -10497,6 +10527,9 @@ extension ScoreboardStore {
     private func currentSessionVisualSnapshot() -> ScoreboardGameSnapshot {
         let current = currentGameSnapshot()
         var visual = ScoreboardGameSnapshot.empty
+        visual.theme = current.theme
+        visual.externalDisplayLayout = current.externalDisplayLayout
+        visual.externalDisplayFont = current.externalDisplayFont
         visual.externalDisplayBackgroundMode = current.externalDisplayBackgroundMode
         visual.externalDisplayBackgroundImage = current.externalDisplayBackgroundImage
         visual.externalDisplayAnimatedLogoStyle = current.externalDisplayAnimatedLogoStyle
@@ -10552,6 +10585,9 @@ extension ScoreboardStore {
     private func applySessionVisualSnapshot(_ visual: ScoreboardGameSnapshot, fields: Set<String>) {
         guard isSessionAuthority else { return }
         isApplyingSessionUpdate = true
+        if fields.contains("theme") { theme = visual.theme ?? .classic }
+        if fields.contains("layout") { externalDisplayLayout = visual.externalDisplayLayout ?? .standard }
+        if fields.contains("font") { externalDisplayFont = visual.externalDisplayFont ?? .rounded }
         if fields.contains("backgroundImage") {
             externalDisplayBackgroundImage = visual.externalDisplayBackgroundImage.flatMap(ExternalDisplayBackgroundImage.init(embeddedImage:))
         }
@@ -10781,6 +10817,16 @@ extension ScoreboardStore {
         self.theme = theme
     }
 
+    func setExternalDisplayLayout(_ layout: ExternalDisplayLayout) {
+        if routeRemoteControlCommand("display.layout", text: layout.rawValue) { return }
+        externalDisplayLayout = layout
+    }
+
+    func setExternalDisplayFont(_ font: ExternalDisplayFont) {
+        if routeRemoteControlCommand("display.font", text: font.rawValue) { return }
+        externalDisplayFont = font
+    }
+
     func turnDebateClockHere(_ side: TeamSide) {
         if routeRemoteControlCommand("debate.turn", side: side) { return }
         if debateActiveTimer != .segment { returnToDebateSegmentTimer() }
@@ -10860,6 +10906,8 @@ extension ScoreboardStore {
         // operator buttons always show the main board's display control mode.
         assignRemoteValue(\.publicDisplayViewMode, state.control?.mainDisplayMode ?? state.display?.viewMode ?? .scoreboard)
         assignRemoteValue(\.theme, state.display?.theme ?? theme)
+        assignRemoteValue(\.externalDisplayLayout, state.display?.layout ?? .standard)
+        assignRemoteValue(\.externalDisplayFont, state.display?.font ?? .rounded)
         assignRemoteValue(\.isSoundEnabled, state.control?.isSoundEnabled ?? true)
         assignRemoteValue(\.isClockRunning, state.runtime.isClockRunning)
         assignRemoteValue(\.isShotClockRunning, state.runtime.isShotClockRunning)

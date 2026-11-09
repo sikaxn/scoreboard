@@ -21,7 +21,8 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
 }
 
 struct ScoreboardGameSnapshot: Equatable, Sendable {
-    var fileVersion = 13
+    nonisolated static let currentFileVersion = 14
+    var fileVersion = Self.currentFileVersion
     var matchID: UUID? = nil
     var ownerDeviceID: String? = nil
     var sport: SportType?
@@ -92,6 +93,9 @@ struct ScoreboardGameSnapshot: Equatable, Sendable {
     var guestPenaltyTimers: [HockeyPenaltyTimer]?
     var homeRoster: TeamRoster?
     var guestRoster: TeamRoster?
+    var theme: ScoreboardTheme? = nil
+    var externalDisplayLayout: ExternalDisplayLayout? = nil
+    var externalDisplayFont: ExternalDisplayFont? = nil
     var externalDisplayBackgroundMode: ExternalDisplayBackgroundMode? = nil
     var externalDisplayBackgroundImage: ScoreboardGameEmbeddedImage? = nil
     var externalDisplayAnimatedLogoStyle: ExternalDisplayAnimatedLogoStyle? = nil
@@ -273,6 +277,9 @@ extension ScoreboardGameSnapshot: Codable {
         case guestPenaltyTimers
         case homeRoster
         case guestRoster
+        case theme
+        case externalDisplayLayout
+        case externalDisplayFont
         case externalDisplayBackgroundMode
         case externalDisplayBackgroundImage
         case externalDisplayAnimatedLogoStyle
@@ -367,6 +374,9 @@ extension ScoreboardGameSnapshot: Codable {
         guestPenaltyTimers = try container.decodeIfPresent([HockeyPenaltyTimer].self, forKey: .guestPenaltyTimers)
         homeRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .homeRoster)
         guestRoster = try container.decodeIfPresent(TeamRoster.self, forKey: .guestRoster)
+        theme = try container.decodeIfPresent(ScoreboardTheme.self, forKey: .theme)
+        externalDisplayLayout = try container.decodeIfPresent(ExternalDisplayLayout.self, forKey: .externalDisplayLayout)
+        externalDisplayFont = try container.decodeIfPresent(ExternalDisplayFont.self, forKey: .externalDisplayFont)
         externalDisplayBackgroundMode = try container.decodeIfPresent(ExternalDisplayBackgroundMode.self, forKey: .externalDisplayBackgroundMode)
         externalDisplayBackgroundImage = try container.decodeIfPresent(ScoreboardGameEmbeddedImage.self, forKey: .externalDisplayBackgroundImage)
         externalDisplayAnimatedLogoStyle = try container.decodeIfPresent(ExternalDisplayAnimatedLogoStyle.self, forKey: .externalDisplayAnimatedLogoStyle)
@@ -461,6 +471,9 @@ extension ScoreboardGameSnapshot: Codable {
         try container.encodeIfPresent(guestPenaltyTimers, forKey: .guestPenaltyTimers)
         try container.encodeIfPresent(homeRoster, forKey: .homeRoster)
         try container.encodeIfPresent(guestRoster, forKey: .guestRoster)
+        try container.encodeIfPresent(theme, forKey: .theme)
+        try container.encodeIfPresent(externalDisplayLayout, forKey: .externalDisplayLayout)
+        try container.encodeIfPresent(externalDisplayFont, forKey: .externalDisplayFont)
         try container.encodeIfPresent(externalDisplayBackgroundMode, forKey: .externalDisplayBackgroundMode)
         try container.encodeIfPresent(externalDisplayBackgroundImage, forKey: .externalDisplayBackgroundImage)
         try container.encodeIfPresent(externalDisplayAnimatedLogoStyle, forKey: .externalDisplayAnimatedLogoStyle)

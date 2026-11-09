@@ -111,14 +111,34 @@ struct ScoreboardFaceView: View {
     let homePlayers: [TrackedPlayer]
     let guestPlayers: [TrackedPlayer]
     let compact: Bool
+    var displayLayout: ExternalDisplayLayout = .standard
+    var displayFont: ExternalDisplayFont = .rounded
 
     private var palette: ThemePalette { theme.palette }
     private var usesTransparentBoardSurfaces: Bool { backgroundStyle == .transparent }
     private var boardPrimaryTextColor: Color { usesTransparentBoardSurfaces ? .white : palette.boardPrimaryText }
     private var boardSecondaryTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.72) : palette.boardSecondaryText }
-    private var boardPanelBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.78) : palette.boardPanelBackground }
-    private var boardClockPanelBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.84) : palette.boardClockPanelBackground }
-    private var boardPanelBorderColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.16) : palette.boardPanelBorder }
+    private var boardPanelBackgroundColor: Color {
+        if usesTransparentBoardSurfaces { return .black.opacity(displayLayout == .standard ? 0.78 : 0.86) }
+        return displayLayout == .standard ? palette.boardPanelBackground : palette.externalDisplayBackground.opacity(0.94)
+    }
+    private var boardClockPanelBackgroundColor: Color {
+        if usesTransparentBoardSurfaces { return .black.opacity(displayLayout == .standard ? 0.84 : 0.88) }
+        return displayLayout == .standard ? palette.boardClockPanelBackground : palette.externalDisplayBackground.opacity(0.96)
+    }
+    private var boardPanelBorderColor: Color {
+        if displayLayout == .arena { return boardPrimaryTextColor.opacity(0.72) }
+        return usesTransparentBoardSurfaces ? .white.opacity(0.16) : palette.boardPanelBorder
+    }
+
+    private func panelRadius(_ standard: CGFloat) -> CGFloat {
+        switch displayLayout {
+        case .standard: standard
+        case .arena: 14
+        case .broadcast: 6
+        case .venueRoster: 4
+        }
+    }
     private var boardBadgeBackgroundColor: Color { usesTransparentBoardSurfaces ? .black.opacity(0.68) : palette.boardBadgeBackground }
     private var boardBadgeBorderColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.18) : palette.boardBadgeBorder }
     private var boardBadgeTitleTextColor: Color { usesTransparentBoardSurfaces ? .white.opacity(0.76) : palette.boardBadgeTitleText }
@@ -205,6 +225,10 @@ struct ScoreboardFaceView: View {
                 Group {
                     if usesDedicatedDualClockLayout {
                         chessBoard(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
+                    } else if displayLayout == .venueRoster {
+                        venueRosterBoard(size: size, base: base, padding: outerPadding)
+                    } else if displayLayout == .arena && boardAspect >= 1.55 {
+                        arenaBoard(size: size, base: base, padding: outerPadding)
                     } else {
                         HStack(spacing: columnSpacing) {
                             teamPanel(
@@ -279,6 +303,172 @@ struct ScoreboardFaceView: View {
         }
     }
 
+    private func arenaBoard(size: CGSize, base: CGFloat, padding: CGFloat) -> some View {
+        let left = sidePanelData(for: displayDirection.leftSide)
+        let right = sidePanelData(for: displayDirection.rightSide)
+        let rosterHeight = max(28, (size.height - padding * 2) * 0.38)
+        let rosterWidth = (size.width - padding * 2) * 0.23
+        let hasPlayers = !displayedPlayers(for: left.side).isEmpty || !displayedPlayers(for: right.side).isEmpty
+
+        return VStack(spacing: max(8, base * 0.02)) {
+            if showsEventBranding {
+                eventBrandingHeader(base: base, condensed: true, ultraCondensed: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
+            }
+            HStack(spacing: max(8, base * 0.02)) {
+                venueTeamSummary(side: left.side, base: base)
+                if rules.supportsPeriod {
+                    headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)",
+                                condensed: true, ultraCondensed: true, valueFontSize: base * 0.12,
+                                valueColor: palette.dashboardWarningButton, showsContainer: false)
+                        .frame(width: size.width * 0.15)
+                        .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: 12))
+                }
+                venueTeamSummary(side: right.side, base: base)
+            }
+            HStack(spacing: max(8, base * 0.02)) {
+                if hasPlayers {
+                    venueRosterPanel(team: left, base: base, height: rosterHeight)
+                        .frame(width: rosterWidth, height: rosterHeight)
+                }
+                centerClockPanel(base: base, condensed: true, ultraCondensed: true,
+                                 showsCenterPlayerStrip: false, playerViewportHeight: 0,
+                                 playerOverflowMode: .fit, includesEventBranding: false, includesPeriod: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if hasPlayers {
+                    venueRosterPanel(team: right, base: base, height: rosterHeight)
+                        .frame(width: rosterWidth, height: rosterHeight)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func venueRosterBoard(size: CGSize, base: CGFloat, padding: CGFloat) -> some View {
+        let left = sidePanelData(for: displayDirection.leftSide)
+        let right = sidePanelData(for: displayDirection.rightSide)
+        let narrow = size.width < size.height * 1.25
+        let hasPlayers = !displayedPlayers(for: left.side).isEmpty || !displayedPlayers(for: right.side).isEmpty
+        let availableHeight = max(1, size.height - padding * 2)
+        let rosterHeight = narrow ? availableHeight * 0.30 : availableHeight
+        let rosterWidth = max(1, (size.width - padding * 2) * 0.24)
+        let gap = max(8, base * 0.016)
+
+        return VStack(spacing: gap) {
+            if showsEventBranding {
+                eventBrandingHeader(base: base, condensed: true, ultraCondensed: narrow)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: 4))
+            }
+            if narrow {
+                venueMatchSummary(base: base * 0.75)
+                if hasPlayers {
+                    HStack(spacing: gap) {
+                        venueRosterPanel(team: left, base: base, height: rosterHeight)
+                        venueRosterPanel(team: right, base: base, height: rosterHeight)
+                    }
+                    .frame(height: rosterHeight)
+                }
+            } else {
+                HStack(spacing: gap) {
+                    if hasPlayers {
+                        venueRosterPanel(team: left, base: base, height: rosterHeight - (showsEventBranding ? base * 0.12 : 0))
+                            .frame(width: rosterWidth)
+                    }
+                    venueMatchSummary(base: base)
+                        .frame(maxWidth: .infinity)
+                    if hasPlayers {
+                        venueRosterPanel(team: right, base: base, height: rosterHeight - (showsEventBranding ? base * 0.12 : 0))
+                            .frame(width: rosterWidth)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func venueRosterPanel(team: SidePanelData, base: CGFloat, height: CGFloat) -> some View {
+        playerLineupColumn(
+            title: resolvedTitle(team.title, placeholder: team.role),
+            players: displayedPlayers(for: team.side), accent: team.accent,
+            base: base, condensed: true, ultraCondensed: true, style: .side,
+            viewportHeight: max(28, height - 28),
+            overflowMode: resolvedPlayerLineupOverflowMode(hasLogo: team.logoData != nil)
+        )
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            ScoreboardDisplayPanel(layout: displayLayout, fill: boardPanelBackgroundColor,
+                                   border: boardPanelBorderColor, cornerRadius: 4)
+        }
+    }
+
+    private func venueMatchSummary(base: CGFloat) -> some View {
+        VStack(spacing: max(8, base * 0.018)) {
+            HStack(alignment: .top, spacing: max(8, base * 0.018)) {
+                venueTeamSummary(side: displayDirection.leftSide, base: base)
+                venueTeamSummary(side: displayDirection.rightSide, base: base)
+            }
+            centerClockPanel(base: base, condensed: true, ultraCondensed: true,
+                             showsCenterPlayerStrip: false, playerViewportHeight: 0,
+                             playerOverflowMode: .fit, includesEventBranding: false)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func venueTeamSummary(side: TeamSide, base: CGFloat) -> some View {
+        let team = sidePanelData(for: side)
+        return VStack(spacing: max(5, base * 0.01)) {
+            if let data = team.logoData {
+                TeamLogoImageView(data: data, cornerRadius: 6)
+                    .frame(width: base * 0.07, height: base * 0.07)
+            }
+            Text(resolvedTitle(team.title, placeholder: team.role))
+                .font(.system(size: base * 0.032, weight: .bold))
+                .foregroundStyle(team.accent)
+                .singleLineFitted(minScale: 0.35)
+            if showsScore {
+                ScoreboardDisplayNumber(value: "\(team.score)", font: displayFont,
+                                        fontSize: base * 0.17, color: team.accent)
+                    .accessibilityIdentifier("public.score.\(side.rawValue)")
+                    .frame(maxWidth: .infinity)
+            }
+            if showsPeriodWins {
+                setsWonStrip(setsWon: volleyballSetsWon(for: side), accent: team.accent,
+                             condensed: true, ultraCondensed: true)
+            }
+            if sport == .debate && showsDebatePrepTime {
+                debatePrepStrip(side: side, accent: team.accent, condensed: true, ultraCondensed: true)
+            }
+            HStack(spacing: 5) {
+                if rules.supportsTeamFouls {
+                    headerBadge(title: "FOULS", value: "\(teamFouls(for: side))", condensed: true, ultraCondensed: true)
+                }
+                if pausesAllowed(for: side) > 0 {
+                    headerBadge(title: "PAUSES", value: "\(pausesUsed(for: side))/\(pausesAllowed(for: side))",
+                                condensed: true, ultraCondensed: true)
+                }
+            }
+            if substitutionsAllowed(for: side) > 0 {
+                substitutionLightStrip(used: substitutionsUsed(for: side), allowed: substitutionsAllowed(for: side),
+                                       accent: team.accent, base: base, condensed: true, ultraCondensed: true)
+            }
+            if rules.supportsHockeyPenalties {
+                hockeyPenaltyStrip(penaltyTimers: penaltyTimers(for: side), accent: team.accent,
+                                   base: base, condensed: true, ultraCondensed: true)
+            }
+        }
+        .padding(max(8, base * 0.018))
+        .frame(maxWidth: .infinity)
+        .background {
+            ScoreboardDisplayPanel(layout: displayLayout, fill: boardPanelBackgroundColor,
+                                   border: team.accent.opacity(0.45), cornerRadius: 4)
+        }
+    }
+
     @ViewBuilder
     private func scoreboardBackground(leftAccent: Color, rightAccent: Color) -> some View {
         if backgroundStyle == .blurred {
@@ -349,15 +539,23 @@ struct ScoreboardFaceView: View {
             Spacer(minLength: 0)
 
             if showsScore {
-                Text("\(score)")
+                ScoreboardDisplayNumber(
+                    value: "\(score)", font: displayFont,
+                    fontSize: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout),
+                    color: displayLayout == .broadcast ? boardPrimaryTextColor : accent, minScale: 0.32
+                )
                     .accessibilityIdentifier("public.score.\(side.rawValue)")
-                    .font(.system(size: teamScoreFontSize(base: base, condensed: condensed, ultraCondensed: ultraCondensed, usesCrowdedLayout: usesCrowdedLayout), weight: .black, design: .rounded))
-                    .singleLineFitted(minScale: 0.32)
-                    .contentTransition(.numericText())
                     .animation(.spring(response: 0.28, dampingFraction: 0.76), value: score)
                     .foregroundStyle(accent)
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, displayLayout == .arena ? base * 0.018 : 0)
+                    .overlay {
+                        if displayLayout == .arena {
+                            RoundedRectangle(cornerRadius: 9)
+                                .strokeBorder(accent.opacity(0.55), lineWidth: 1.5)
+                        }
+                    }
                     .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
 
@@ -441,11 +639,11 @@ struct ScoreboardFaceView: View {
             }
         }
         .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
-        .background(boardPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 20 : condensed ? 34 : 28, style: .continuous)
-                .strokeBorder(boardPanelBorderColor)
-        )
+        .background {
+            ScoreboardDisplayPanel(layout: displayLayout, fill: boardPanelBackgroundColor,
+                                   border: boardPanelBorderColor, accent: accent,
+                                   cornerRadius: panelRadius(ultraCondensed ? 20 : condensed ? 34 : 28))
+        }
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.30) : .clear, radius: 18, y: 8)
         .animation(.spring(response: 0.36, dampingFraction: 0.82), value: logoData != nil)
         .animation(.spring(response: 0.36, dampingFraction: 0.84), value: playerViewportHeight)
@@ -491,12 +689,14 @@ struct ScoreboardFaceView: View {
         ultraCondensed: Bool,
         showsCenterPlayerStrip: Bool,
         playerViewportHeight: CGFloat,
-        playerOverflowMode: PlayerLineupOverflowMode
+        playerOverflowMode: PlayerLineupOverflowMode,
+        includesEventBranding: Bool = true,
+        includesPeriod: Bool = true
     ) -> some View {
         VStack(spacing: ultraCondensed ? max(8, base * 0.014) : condensed ? max(12, base * 0.02) : max(20, base * 0.03)) {
             Spacer(minLength: 0)
 
-            if showsEventBranding {
+            if showsEventBranding && includesEventBranding {
                 eventBrandingHeader(base: base, condensed: condensed, ultraCondensed: ultraCondensed)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -526,12 +726,12 @@ struct ScoreboardFaceView: View {
                 .id("public-dual-\(debateSegmentTitle ?? "")")
                 .transition(.move(edge: .top).combined(with: .opacity))
             } else if showsGameClock {
-                Text(formattedClock)
+                ScoreboardDisplayNumber(
+                    value: formattedClock, font: displayFont,
+                    fontSize: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19,
+                    color: isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor, weight: .heavy
+                )
                     .accessibilityIdentifier("public.clock")
-                    .font(.system(size: ultraCondensed ? base * 0.115 : condensed ? base * 0.17 : base * 0.19, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .singleLineFitted(minScale: 0.24)
-                    .contentTransition(.numericText())
                     .animation(.spring(response: 0.34, dampingFraction: 0.84), value: formattedClock)
                     .foregroundStyle(isDisplayGameClockAlertActive ? displayAlertColor : boardPrimaryTextColor)
                     .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.35) : .clear, radius: 12, y: 4)
@@ -587,7 +787,7 @@ struct ScoreboardFaceView: View {
                         )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    if rules.supportsPeriod {
+                    if rules.supportsPeriod && includesPeriod {
                         headerBadge(title: localizedBoardString(rules.periodTitle).uppercased(), value: "\(period)", condensed: condensed, ultraCondensed: ultraCondensed)
                     }
                 }
@@ -608,11 +808,11 @@ struct ScoreboardFaceView: View {
             Spacer(minLength: 0)
         }
         .padding(ultraCondensed ? 14 : condensed ? 20 : 24)
-        .background(boardClockPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 22 : condensed ? 38 : 30, style: .continuous)
-                .strokeBorder(boardPanelBorderColor)
-        )
+        .background {
+            ScoreboardDisplayPanel(layout: displayLayout, fill: boardClockPanelBackgroundColor,
+                                   border: boardPanelBorderColor,
+                                   cornerRadius: panelRadius(ultraCondensed ? 22 : condensed ? 38 : 30))
+        }
         .shadow(color: usesTransparentBoardSurfaces ? .black.opacity(0.34) : .clear, radius: 18, y: 8)
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isPlayerOverlayPaused)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: debateSegmentTitle)
@@ -718,9 +918,9 @@ struct ScoreboardFaceView: View {
         }
         .padding(.horizontal, ultraCondensed ? 10 : condensed ? 16 : 18)
         .padding(.vertical, ultraCondensed ? 8 : condensed ? 12 : 14)
-        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous))
+        .background(boardBadgeBackgroundColor, in: RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+            RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
                 .strokeBorder(boardBadgeBorderColor)
         )
     }
@@ -823,11 +1023,9 @@ struct ScoreboardFaceView: View {
                 .singleLineFitted(minScale: 0.5)
                 .foregroundStyle(boardPrimaryTextColor)
 
-            Text(clock)
-                .font(.system(size: ultraCondensed ? base * 0.16 : condensed ? base * 0.22 : base * 0.2, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: 0.18)
-                .foregroundStyle(accent)
+            ScoreboardDisplayNumber(value: clock, font: displayFont,
+                                    fontSize: ultraCondensed ? base * 0.16 : condensed ? base * 0.22 : base * 0.2,
+                                    color: accent, minScale: 0.18, weight: .heavy)
                 .frame(maxWidth: .infinity)
 
             localizedBoardText(isActive ? "ACTIVE" : "WAITING")
@@ -836,11 +1034,11 @@ struct ScoreboardFaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(ultraCondensed ? 18 : 28)
-        .background(boardClockPanelBackgroundColor, in: RoundedRectangle(cornerRadius: ultraCondensed ? 22 : 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: ultraCondensed ? 22 : 30, style: .continuous)
-                .strokeBorder(boardPanelBorderColor)
-        )
+        .background {
+            ScoreboardDisplayPanel(layout: displayLayout, fill: boardClockPanelBackgroundColor,
+                                   border: boardPanelBorderColor, accent: accent,
+                                   cornerRadius: panelRadius(ultraCondensed ? 22 : 30))
+        }
     }
 
     private func shotArrowSlot(
@@ -901,7 +1099,7 @@ struct ScoreboardFaceView: View {
         .background(
             Group {
                 if showsContainer {
-                    RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
                         .fill(boardBadgeBackgroundColor)
                 }
             }
@@ -909,7 +1107,7 @@ struct ScoreboardFaceView: View {
         .overlay(
             Group {
                 if showsContainer {
-                    RoundedRectangle(cornerRadius: ultraCondensed ? 12 : condensed ? 22 : 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: panelRadius(ultraCondensed ? 12 : condensed ? 22 : 18), style: .continuous)
                         .strokeBorder(boardBadgeBorderColor)
                 }
             }
@@ -927,12 +1125,11 @@ struct ScoreboardFaceView: View {
         valueColor: Color?,
         animatesValue: Bool
     ) -> some View {
-        let text = Text(value)
-            .font(.system(size: valueFontSize ?? (ultraCondensed ? 18 : condensed ? 28 : 28), weight: .heavy, design: .rounded))
-            .monospacedDigit()
-            .allowsTightening(true)
-            .singleLineFitted(minScale: valueMinScale)
-            .foregroundStyle(valueColor ?? boardBadgeValueTextColor)
+        let text = ScoreboardDisplayNumber(
+            value: value, font: displayFont,
+            fontSize: valueFontSize ?? (ultraCondensed ? 18 : 28),
+            color: valueColor ?? boardBadgeValueTextColor, minScale: valueMinScale, weight: .heavy
+        )
             .frame(maxWidth: .infinity)
 
         if animatesValue {
@@ -1048,11 +1245,9 @@ struct ScoreboardFaceView: View {
                 .tracking(ultraCondensed ? 0.8 : 1.4)
                 .foregroundStyle(boardSecondaryTextColor)
 
-            Text("\(setsWon)")
-                .font(.system(size: ultraCondensed ? 20 : condensed ? 24 : 28, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(accent)
-                .contentTransition(.numericText())
+            ScoreboardDisplayNumber(value: "\(setsWon)", font: displayFont,
+                                    fontSize: ultraCondensed ? 20 : condensed ? 24 : 28, color: accent, minScale: 1)
+                .frame(width: CGFloat(String(setsWon).count) * (ultraCondensed ? 16 : 22))
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, ultraCondensed ? 10 : 12)
@@ -1136,10 +1331,10 @@ struct ScoreboardFaceView: View {
                         .singleLineFitted(minScale: 0.6)
                         .foregroundStyle(boardPrimaryTextColor)
                     Spacer(minLength: 0)
-                    Text(ScoreboardStore.formatGameClock(timer.remainingSeconds))
-                        .font(.system(size: ultraCondensed ? base * 0.02 : base * 0.022, weight: .black, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(timer.isRunning ? accent : boardBadgeValueTextColor)
+                    ScoreboardDisplayNumber(value: ScoreboardStore.formatGameClock(timer.remainingSeconds),
+                                            font: displayFont, fontSize: ultraCondensed ? base * 0.02 : base * 0.022,
+                                            color: timer.isRunning ? accent : boardBadgeValueTextColor)
+                        .frame(width: base * 0.10)
                 }
             }
 
@@ -2035,11 +2230,9 @@ struct ScoreboardFaceView: View {
 
             Spacer(minLength: 0)
 
-            Text(value)
-                .font(.system(size: valueFontSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .singleLineFitted(minScale: showsScore ? 0.72 : 0.82)
-                .foregroundStyle(isActive ? accent : boardBadgeValueTextColor)
+            ScoreboardDisplayNumber(value: value, font: displayFont, fontSize: valueFontSize,
+                                    color: isActive ? accent : boardBadgeValueTextColor,
+                                    minScale: showsScore ? 0.72 : 0.82, weight: .heavy)
         }
         .padding(.horizontal, ultraCondensed ? 10 : 12)
         .padding(.vertical, ultraCondensed ? 8 : 10)

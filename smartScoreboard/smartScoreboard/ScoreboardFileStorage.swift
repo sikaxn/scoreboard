@@ -68,7 +68,7 @@ nonisolated struct ScoreboardMatchRecord: Codable, Equatable, Sendable {
 extension ScoreboardGameSnapshot {
     nonisolated func asNewMatch(ownerDeviceID: String) -> Self {
         var copy = self
-        copy.fileVersion = 13; copy.matchID = UUID(); copy.ownerDeviceID = ownerDeviceID
+        copy.fileVersion = ScoreboardGameSnapshot.currentFileVersion; copy.matchID = UUID(); copy.ownerDeviceID = ownerDeviceID
         return copy
     }
 }
@@ -160,7 +160,7 @@ nonisolated enum ScoreboardMatchFiles {
                 let backup = entry.url.appendingPathExtension("identity-backup")
                 if !FileManager.default.fileExists(atPath: backup.path) { try FileManager.default.copyItem(at: entry.url, to: backup) }
                 snapshot.matchID = store.currentMatchID; snapshot.ownerDeviceID = store.localSessionDeviceID
-                snapshot.fileVersion = 13
+                snapshot.fileVersion = ScoreboardGameSnapshot.currentFileVersion
                 try ScoreboardMatchFiles.write(snapshot, to: entry.url)
             } else {
                 snapshot = try ScoreboardMatchFiles.load(entry.url, ownerDeviceID: store.localSessionDeviceID)

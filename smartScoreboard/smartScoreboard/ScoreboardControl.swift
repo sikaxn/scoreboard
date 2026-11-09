@@ -130,6 +130,8 @@ nonisolated struct ScoreboardControlOperation: Codable, Identifiable, Sendable {
         .init(id: "player.clear", title: "Clear player state", parameters: ["side", "playerID"], capability: "supportsPlayerTracking"),
         .init(id: "debate.turn", title: "Debate turn here", parameters: ["side"], capability: "debateDualClock"),
         .init(id: "display.theme", title: "Theme", parameters: ["text"], capability: ""),
+        .init(id: "display.layout", title: "External Display Layout", parameters: ["text"], capability: ""),
+        .init(id: "display.font", title: "Scoreboard Font", parameters: ["text"], capability: ""),
         .init(id: "display.mode", title: "Display mode", parameters: ["text"], capability: ""),
         .init(id: "display.direction", title: "External display direction", parameters: ["text"], capability: ""),
         .init(id: "display.broadcast", title: "Broadcast display mode", parameters: ["value", "text"], capability: ""),
@@ -238,6 +240,8 @@ extension ScoreboardStore {
         case "player.card": guard PlayerCardStatus(rawValue: text) != nil else { return fail("invalidCommand", "Use none, yellow or red.") }
         case "possession.set": guard PossessionDirection(rawValue: text) != nil else { return fail("invalidCommand", "Use none, home or guest.") }
         case "display.theme": guard ScoreboardTheme(rawValue: text) != nil else { return fail("invalidCommand", "Unknown theme.") }
+        case "display.layout": guard ExternalDisplayLayout(rawValue: text) != nil else { return fail("invalidCommand", "Unknown display layout.") }
+        case "display.font": guard ExternalDisplayFont(rawValue: text) != nil else { return fail("invalidCommand", "Unknown display font.") }
         case "display.mode": guard ScoreboardDisplayViewMode(rawValue: text) != nil else { return fail("invalidCommand", "Unknown display mode.") }
         case "display.direction": guard ScoreboardDisplayDirection(rawValue: text) != nil else { return fail("invalidCommand", "Use homeLeft or guestLeft.") }
         case "display.broadcast":
@@ -348,6 +352,8 @@ extension ScoreboardStore {
         case "player.clear": clearTrackedPlayerState(for: side, playerID: command.playerID!)
         case "debate.turn": turnDebateClockHere(side)
         case "display.theme": theme = ScoreboardTheme(rawValue: text)!
+        case "display.layout": externalDisplayLayout = ExternalDisplayLayout(rawValue: text)!
+        case "display.font": externalDisplayFont = ExternalDisplayFont(rawValue: text)!
         case "display.mode": publicDisplayViewMode = ScoreboardDisplayViewMode(rawValue: text)!
         case "display.direction": externalDisplayDirection = ScoreboardDisplayDirection(rawValue: text)!
         case "display.broadcast": setWebAPIBroadcastDisplayMode(ScoreboardWebAPIBroadcastDisplayMode(rawValue: text)!, for: value)
@@ -371,6 +377,8 @@ extension ScoreboardControlOperation {
         case "possession.set": return ["none", "home", "guest"]
         case "display.direction": return ["homeLeft", "guestLeft"]
         case "display.theme": return ScoreboardTheme.allCases.map(\.rawValue)
+        case "display.layout": return ExternalDisplayLayout.allCases.map(\.rawValue)
+        case "display.font": return ExternalDisplayFont.allCases.map(\.rawValue)
         case "display.mode": return ScoreboardDisplayViewMode.allCases.map(\.rawValue)
         case "display.broadcast": return ScoreboardWebAPIBroadcastDisplayMode.allCases.map(\.rawValue)
         case "sound.play": return ScoreboardSoundEffect.allCases.map(\.rawValue)

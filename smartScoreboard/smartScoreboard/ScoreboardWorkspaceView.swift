@@ -41,6 +41,7 @@ struct ScoreboardWorkspaceView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: mode)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: navigation.boardOpen)
         .scoreboardNearbyJoinNotifications()
+        .scoreboardCloudConsentPresentation()
         .task(id: mode) {
             guard !kiosk else {
                 if !store.isDelegatedSessionHost { store.setRemoteDisplayHostEnabled(false) }
@@ -75,6 +76,7 @@ struct ScoreboardWorkspaceView: View {
             }
             .environmentObject(store).environmentObject(PublicBoardState.shared)
             .scoreboardNearbyJoinNotifications()
+            .scoreboardCloudConsentPresentation()
             .defaultAppStorage(ScoreboardPreferences.current)
             .frame(minWidth: 320, idealWidth: 1000, minHeight: 550)
         }

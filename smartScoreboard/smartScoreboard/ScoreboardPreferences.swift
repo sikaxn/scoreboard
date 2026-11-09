@@ -10,6 +10,17 @@ nonisolated enum ScoreboardConnectionPolicy {
 
 /// One preference domain for the core, with an isolated domain in the test bundle.
 nonisolated enum ScoreboardPreferences {
+    /// Tests and fixture launches must never request access to the user's Keychain.
+    static var usesIsolatedCredentialStorage: Bool {
+        #if SCOREBOARD_TESTING
+        return true
+        #elseif DEBUG
+        return ScoreboardUITestLaunch.isEnabled
+        #else
+        return false
+        #endif
+    }
+
     nonisolated(unsafe) static let current: UserDefaults = {
         #if SCOREBOARD_TESTING
         return ScoreboardTestEnvironment.defaults

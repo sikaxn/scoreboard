@@ -96,7 +96,9 @@ struct ExternalScoreboardView: View {
             guestDisplayedPlayers: store.displayedGuestPlayers,
             homeRosterPlayers: store.homeRoster.players,
             guestRosterPlayers: store.guestRoster.players,
-            pauseTimer: store.pauseTimer
+            pauseTimer: store.pauseTimer,
+            displayLayout: store.externalDisplayLayout,
+            displayFont: store.externalDisplayFont
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
@@ -150,7 +152,7 @@ struct ExternalScoreboardView: View {
                 palette: palette
             )
         case .none:
-            Color.clear
+            Color.black
         }
     }
 
@@ -169,7 +171,7 @@ struct ExternalScoreboardView: View {
         case .animatedLogo:
             return store.externalDisplayBackgroundImage == nil ? .blurred : .transparent
         case .none:
-            return .clear
+            return .transparent
         }
     }
 }
@@ -272,6 +274,8 @@ struct PublicScoreboardDisplayView: View {
     let homeRosterPlayers: [TrackedPlayer]
     let guestRosterPlayers: [TrackedPlayer]
     var pauseTimer: ScoreboardPauseTimer? = nil
+    var displayLayout: ExternalDisplayLayout = .standard
+    var displayFont: ExternalDisplayFont = .rounded
     var compactBoardOverride: Bool? = nil
     var animatesAnimatedLogoBackground = true
     @State private var foregroundViewMode: ScoreboardDisplayViewMode = .scoreboard
@@ -591,9 +595,11 @@ struct PublicScoreboardDisplayView: View {
             guestTeamFouls: guestTeamFouls,
             homePenaltyTimers: homePenaltyTimers,
             guestPenaltyTimers: guestPenaltyTimers,
-            homePlayers: homeDisplayedPlayers,
-            guestPlayers: guestDisplayedPlayers,
-            compact: usesCompactBoard
+            homePlayers: displayLayout == .venueRoster ? homeRosterPlayers : homeDisplayedPlayers,
+            guestPlayers: displayLayout == .venueRoster ? guestRosterPlayers : guestDisplayedPlayers,
+            compact: usesCompactBoard,
+            displayLayout: displayLayout,
+            displayFont: displayFont
         )
     }
 
@@ -636,7 +642,7 @@ struct PublicScoreboardDisplayView: View {
                 animates: animatesAnimatedLogoBackground
             )
         case .none:
-            Color.clear
+            Color.black
         }
     }
 
@@ -655,7 +661,7 @@ struct PublicScoreboardDisplayView: View {
         case .animatedLogo:
             return backgroundImage == nil ? .blurred : .transparent
         case .none:
-            return .clear
+            return .transparent
         }
     }
 
@@ -1231,9 +1237,8 @@ struct PublicBoardWindowConfigurator: NSViewRepresentable {
                 window.collectionBehavior.insert([.fullScreenPrimary, .fullScreenAllowsTiling])
             }
 
-            let usesClearWindow = backgroundMode == .none && displayViewMode != .blackScreen
-            window.isOpaque = !usesClearWindow
-            window.backgroundColor = usesClearWindow ? .clear : .black
+            window.isOpaque = true
+            window.backgroundColor = .black
 
             if placedWindowNumbers.insert(window.windowNumber).inserted {
                 placeWindowOnSecondaryDisplayIfAvailable(window)

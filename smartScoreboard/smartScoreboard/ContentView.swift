@@ -429,6 +429,9 @@ struct ContentView: View, ScoreboardSetupEditing {
             .onReceive(store.$isDebatePrepTimeEnabled) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$homeRoster) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$guestRoster) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$theme) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayLayout) { _ in autosaveSelectedGameFile() }
+            .onReceive(store.$externalDisplayFont) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$externalDisplayBackgroundMode) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$externalDisplayBackgroundImage) { _ in autosaveSelectedGameFile() }
             .onReceive(store.$externalDisplayAnimatedLogoStyle) { _ in autosaveSelectedGameFile() }
@@ -549,7 +552,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 } else if pane == .integration, selectedIntegrationDetail == .bitfocusCompanion {
                     selectedCompanionSettingsSport = setupSport
                 }
-                if pane != .theme {
+                if pane != .display {
                     isExternalBackgroundImageEditorVisible = false
                 }
                 if pane != .game {
@@ -1284,11 +1287,11 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .players:
             return "Use Players to prepare roster details and decide which player data should appear during the game. This page controls roster size, active lineup state, fouls, cards, overlay pause behavior, and CSV roster import or export when the selected sport supports player tracking."
         case .display:
-            return "Use Display to shape the public scoreboard presentation without changing the live game state. These options control lineup overflow, team and event logos, foul highlighting, and clock warning colors shown on external, public, and remote displays."
+            return "Use Display to choose the theme, layout, font, background, logos, lineup display, and clock warnings for this scoreboard. These presentation settings are saved in the game file and follow it to other devices."
         case .sound:
             return "Use Sound to decide whether the app can play audio and which tones fire for each sport event. Sound settings are global to the app, while sport event assignments let different game types use different start, stop, warning, and expiration cues."
         case .theme:
-            return "Theme, Live Activity, and physical display directions are preferences for this app. Backgrounds, logos, and date/time overlays are saved with the scoreboard in Game Settings."
+            return "Live Activity, local control layout, and physical display directions are preferences for this device. Theme, scoreboard layout, font, backgrounds, and logos are saved in each game file under Display."
         case .files:
             return "Back up or restore this device’s app preferences, local scoreboard files, and logs. Create and open individual scoreboards from Home."
         case .logs:
@@ -1515,7 +1518,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         case .sound:
             ScoreboardViewBoundary { settingsSoundPane(layout: layout) }
         case .theme:
-            ScoreboardViewBoundary { settingsThemePane() }
+            ScoreboardViewBoundary { settingsDeviceDisplayPane() }
         case .files:
             ScoreboardViewBoundary { settingsBackupSection(layout: layout) }
         case .logs:
@@ -2818,65 +2821,50 @@ struct ContentView: View, ScoreboardSetupEditing {
         }
     }
 
-    @ViewBuilder
-    private func settingsThemePane() -> some View {
-        if isExternalBackgroundImageEditorVisible {
-            externalBackgroundImageEditorPage()
-        } else {
-            VStack(alignment: .leading, spacing: 22) {
-                #if os(iOS)
-                settingsSection(title: "Live Activity", footer: "Shows a Live Activity and Dynamic Island status while a primary game timer is running.") {
-                    settingsToggleRow(title: "Show Activity When Timer Is Running", isOn: Binding(
-                        get: { store.showsLiveActivityWhenTimerRunning },
-                        set: { store.showsLiveActivityWhenTimerRunning = $0 }
-                    ))
-                }
-                #endif
-
-                settingsSection(title: "Local Display") {
-                    settingsToggleRow(title: "Merged View (Beta)", isOn: mergedViewBinding)
-                }
-
-                settingsSection(title: "Scoreboard Theme", footer: "Themes update the setup screen, live control board, preview, and external scoreboard together.") {
-                    ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
-                        themeSelectionRow(theme)
-
-                        if index < ScoreboardTheme.allCases.count - 1 {
-                            settingsDivider()
-                        }
-                    }
-                }
-
-                settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. Each receiving device can choose its own display direction.") {
-                    settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control.", systemImage: "arrow.left.and.right")
-                    settingsDivider()
-
-                    settingsPickerRow(
-                        title: "Control Board",
-                        selection: Binding(
-                            get: { store.controlBoardDisplayDirection },
-                            set: { store.setControlBoardDisplayDirection($0) }
-                        ),
-                        options: ScoreboardDisplayDirection.allCases
-                    ) { direction in
-                        direction.title
-                    }
-
-                    settingsDivider()
-
-                    settingsPickerRow(
-                        title: "External Display",
-                        selection: Binding(
-                            get: { store.externalDisplayDirection },
-                            set: { store.externalDisplayDirection = $0 }
-                        ),
-                        options: ScoreboardDisplayDirection.allCases
-                    ) { direction in
-                        direction.title
-                    }
-                }
-
+    private func settingsDeviceDisplayPane() -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            #if os(iOS)
+            settingsSection(title: "Live Activity", footer: "Shows a Live Activity and Dynamic Island status while a primary game timer is running.") {
+                settingsToggleRow(title: "Show Activity When Timer Is Running", isOn: Binding(
+                    get: { store.showsLiveActivityWhenTimerRunning },
+                    set: { store.showsLiveActivityWhenTimerRunning = $0 }
+                ))
             }
+            #endif
+
+            settingsSection(title: "Local Display") {
+                settingsToggleRow(title: "Merged View (Beta)", isOn: mergedViewBinding)
+            }
+
+            settingsSection(title: "Display Direction", footer: "Choose the base left/right orientation for each screen. Swap Sides still flips the live layout during the game. Each receiving device can choose its own display direction.") {
+                settingsOptionTip("Display Direction is the base left/right orientation for the screen you are setting up. A control board, projector, TV, or paired Remote Display may face the court, field, stage, or players from different sides, so Home Left on one screen may need to be Guest Left on another. Swap Sides is still a live-game control: it flips the current matchup on top of each screen's base direction, including Remote Displays that have their own direction set in Remote Display & Control.", systemImage: "arrow.left.and.right")
+                settingsDivider()
+
+                settingsPickerRow(
+                    title: "Control Board",
+                    selection: Binding(
+                        get: { store.controlBoardDisplayDirection },
+                        set: { store.setControlBoardDisplayDirection($0) }
+                    ),
+                    options: ScoreboardDisplayDirection.allCases
+                ) { direction in
+                    direction.title
+                }
+
+                settingsDivider()
+
+                settingsPickerRow(
+                    title: "External Display",
+                    selection: Binding(
+                        get: { store.externalDisplayDirection },
+                        set: { store.externalDisplayDirection = $0 }
+                    ),
+                    options: ScoreboardDisplayDirection.allCases
+                ) { direction in
+                    direction.title
+                }
+            }
+
         }
     }
 
@@ -2987,7 +2975,35 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func settingsFilePresentation() -> some View {
         VStack(alignment: .leading, spacing: 22) {
-                settingsSection(title: "External Display Background", footer: "Controls only the public/external display. The preview stays unchanged.") {
+                settingsSection(title: "Scoreboard Theme", footer: "The theme is saved in this game file and updates its controls, preview, and external scoreboard.") {
+                    ForEach(Array(ScoreboardTheme.allCases.enumerated()), id: \.element.id) { index, theme in
+                        themeSelectionRow(theme)
+
+                        if index < ScoreboardTheme.allCases.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+
+                settingsSection(title: "External Display Layout", footer: "Choose the panel arrangement for previews and external displays. Every layout follows the selected theme and background.") {
+                    ForEach(Array(ExternalDisplayLayout.allCases.enumerated()), id: \.element.id) { index, layout in
+                        externalDisplayLayoutRow(layout)
+                        if index < ExternalDisplayLayout.allCases.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+
+                settingsSection(title: "Scoreboard Font", footer: "Choose score and timer digits independently of the display layout.") {
+                    ForEach(Array(ExternalDisplayFont.allCases.enumerated()), id: \.element.id) { index, font in
+                        externalDisplayFontRow(font)
+                        if index < ExternalDisplayFont.allCases.count - 1 {
+                            settingsDivider()
+                        }
+                    }
+                }
+
+                settingsSection(title: "External Display Background", footer: "The background is saved in this game file and appears in previews and external displays.") {
                     let backgroundModes = ExternalDisplayBackgroundMode.selectableThemeModes
                     ForEach(Array(backgroundModes.enumerated()), id: \.element.id) { index, mode in
                         externalBackgroundModeRow(mode)
@@ -7272,6 +7288,75 @@ struct ContentView: View, ScoreboardSetupEditing {
         .buttonStyle(.plain)
     }
 
+    private func externalDisplayLayoutRow(_ layout: ExternalDisplayLayout) -> some View {
+        let isSelected = store.externalDisplayLayout == layout
+        return Button {
+            store.setExternalDisplayLayout(layout)
+        } label: {
+            settingsRowLayout {
+                VStack(alignment: .leading, spacing: 5) {
+                    localizedAppText(layout.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                    localizedAppText(layout.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
+                HStack(spacing: 14) {
+                    ZStack {
+                        externalBackgroundPreview(store.externalDisplayBackgroundMode, palette: themePalette)
+                        ScoreboardDisplayLayoutPreview(layout: layout, font: store.externalDisplayFont, palette: themePalette)
+                    }
+                    .frame(width: 152, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(isSelected ? settingsPalette.accent : settingsPalette.secondaryText)
+                }
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.displayLayout.\(layout.rawValue)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func externalDisplayFontRow(_ font: ExternalDisplayFont) -> some View {
+        let isSelected = store.externalDisplayFont == font
+        return Button {
+            store.setExternalDisplayFont(font)
+        } label: {
+            settingsRowLayout {
+                VStack(alignment: .leading, spacing: 5) {
+                    localizedAppText(font.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(settingsPalette.primaryText)
+                    localizedAppText(font.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(settingsPalette.secondaryText)
+                }
+                if !usesStackedSettingsRows { Spacer(minLength: 0) }
+                HStack(spacing: 14) {
+                    ScoreboardDisplayNumber(value: "98 12:00", font: font, fontSize: 25, color: themePalette.boardPrimaryText)
+                        .frame(width: 140, height: 54)
+                        .padding(.horizontal, 6)
+                        .background(themePalette.externalDisplayBackground, in: RoundedRectangle(cornerRadius: 9))
+                        .accessibilityHidden(true)
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(isSelected ? settingsPalette.accent : settingsPalette.secondaryText)
+                }
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.displayFont.\(font.rawValue)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     private func externalBackgroundModeRow(_ mode: ExternalDisplayBackgroundMode) -> some View {
         let isSelected = store.externalDisplayBackgroundMode == mode
 
@@ -7920,7 +8005,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             )
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.clear)
+                .fill(Color.black)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(settingsPalette.cardBorder, lineWidth: 1)
@@ -14481,6 +14566,8 @@ struct ContentView: View, ScoreboardSetupEditing {
             homeRosterPlayers: store.homeRoster.players,
             guestRosterPlayers: store.guestRoster.players,
             pauseTimer: store.pauseTimer,
+            displayLayout: store.externalDisplayLayout,
+            displayFont: store.externalDisplayFont,
             animatesAnimatedLogoBackground: false
         )
     }
@@ -15321,7 +15408,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .sound:
             return "Sound"
         case .theme:
-            return "Theme"
+            return "Device Display"
         case .files:
             return "Backup & Restore"
         case .logs:
@@ -15344,7 +15431,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .players:
             return "Configure roster size, player identities, active lineup, and foul tracking."
         case .display:
-            return "Configure public scoreboard lineup display, foul highlighting, and red alert timing."
+            return "Choose the theme, layout, font, background, and presentation saved in this game file."
         case .remoteDisplay:
             return "Choose the preferred route for connections on this device."
         case .cloud:
@@ -15352,7 +15439,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .sound:
             return "Control global audio and preview sport-specific timer sounds."
         case .theme:
-            return "Choose the look for both the operator controls and public scoreboard."
+            return "Configure Live Activity, local controls, and screen directions for this device."
         case .files:
             return "Back up or restore this device. Open scoreboards from Home."
         case .logs:
@@ -15383,7 +15470,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .sound:
             return "speaker.wave.2"
         case .theme:
-            return "paintpalette"
+            return "display"
         case .files:
             return "books.vertical"
         case .logs:

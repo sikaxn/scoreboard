@@ -4,6 +4,57 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ExternalDisplayLayout: String, Codable, CaseIterable, Identifiable, Sendable {
+    case standard
+    case arena
+    case broadcast
+    case venueRoster
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .arena: "Arena"
+        case .broadcast: "Broadcast"
+        case .venueRoster: "Venue Roster"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .standard: "Rounded panels with the familiar scoreboard layout."
+        case .arena: "Scores across the top with a lower clock and central period."
+        case .broadcast: "Team color rails and crisp broadcast panels."
+        case .venueRoster: "Full team rosters flank a central score and clock display."
+        }
+    }
+}
+
+enum ExternalDisplayFont: String, Codable, CaseIterable, Identifiable, Sendable {
+    case rounded
+    case block
+    case dotMatrix
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .rounded: "Rounded"
+        case .block: "Block"
+        case .dotMatrix: "Dot Matrix"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .rounded: "Soft, rounded score and timer digits."
+        case .block: "Bold, straight-edged score and timer digits."
+        case .dotMatrix: "Illuminated dot-matrix score and timer digits."
+        }
+    }
+}
+
 enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable {
     case blurred
     case clear
@@ -68,7 +119,7 @@ enum ExternalDisplayBackgroundMode: String, Codable, CaseIterable, Identifiable 
             }
             return "Tile the selected background photo as an animated logo pattern."
         case .none:
-            return "Leave the external display background unfilled outside the scoreboard."
+            return "Use a solid black background on the external display."
         }
     }
 

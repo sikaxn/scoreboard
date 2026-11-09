@@ -447,7 +447,9 @@ private struct RemoteScoreboardFace: View {
             guestDisplayedPlayers: state.players.guestDisplayed,
             homeRosterPlayers: state.players.homeRoster.players,
             guestRosterPlayers: state.players.guestRoster.players,
-            pauseTimer: projection.pauseTimer
+            pauseTimer: projection.pauseTimer,
+            displayLayout: state.display?.layout ?? .standard,
+            displayFont: state.display?.font ?? .rounded
         )
     }
 
@@ -496,7 +498,7 @@ private struct RemoteScoreboardFace: View {
                 palette: palette
             )
         case .none:
-            Color.clear
+            Color.black
         }
     }
 
@@ -515,7 +517,7 @@ private struct RemoteScoreboardFace: View {
         case .animatedLogo:
             return backgroundImageData == nil ? .blurred : .transparent
         case .none:
-            return .clear
+            return .transparent
         }
     }
 

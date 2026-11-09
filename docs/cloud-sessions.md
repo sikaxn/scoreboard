@@ -44,6 +44,14 @@ The nearby advertisement contains the invitation code and service origin, not a 
 
 With both routes enabled, the selected preference determines whether cloud or nearby is attempted first. A nearby join can prepare a matching cloud fallback in the background when that cloud service is enabled and configured; failing to prepare it does not block local use. Cloud-only mode never starts local discovery. Password changes/revocation take effect on offline hosts when they next synchronize; a host that has not synchronized cannot learn a remote change.
 
+## Cloud agreement consent
+
+Enabling Cloud first shows a data-sharing disclosure. Continuing fetches the selected service's versioned agreement; no match/API traffic starts until explicit acceptance. Receipts are saved per service in Keychain. A different self-hosted service needs its own agreement. Failure to load the policy keeps cloud paused, and declining leaves cloud disabled. Local files, scoring, LAN and nearby pairing do not require cloud consent.
+
+The initial cloud placeholder is the supplied Managed Cloud AUP, labelled version **0.1**. Service admins can publish replacement versions from the web Administration page; published versions cannot be changed or reused. Every new version requires fresh account/device acceptance and pauses active cloud connections. Google signup also requires acceptance. Public viewing links remain read-only and login-free.
+
+Deploy the matching app and Worker together. The Worker enforces agreement acceptance on protected API requests, uploads and relay connections, and records the accepted version and timestamp. No deployment secrets or dashboard variables are changed.
+
 ## Accounts, guests and relay access
 
 Only the match owner needs to sign in. Accounts have a User or Admin service role, plus an independent cloud relay entitlement. An entitlement can expire at a specific time or have no expiry. New accounts have no relay entitlement; Admin access alone does not grant relay access. Normal accounts list their own sessions. The backend is available to Admins and records account/entitlement changes in its audit log.
