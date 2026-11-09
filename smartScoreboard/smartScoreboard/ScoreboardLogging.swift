@@ -511,6 +511,7 @@ final class ScoreboardLogManager {
     private var pendingPersistWorkItem: DispatchWorkItem?
     private var pendingSessionWrites: [UUID: (session: ScoreboardLogSession, url: URL)] = [:]
     private var replicatedSessions: [UUID: (session: ScoreboardLogSession, url: URL)] = [:]
+    private var transientSessions: [UUID: ScoreboardLogSession] = [:]
     private var receivedSessionID: UUID?
 
     private init() {
@@ -598,6 +599,13 @@ final class ScoreboardLogManager {
         }
         let url = try storageURL ?? sessionURL(for: snapshot)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let transient = transientSessions[snapshot.sessionID] {
+            guard transient.startedAt.ISO8601Format() == snapshot.startedAt.ISO8601Format(),
+                  historiesAgree(transient.entries, snapshot.entries),
+                  snapshot.entries.count >= transient.entries.count else {
+                throw ScoreboardSessionLogError.conflictingHistory
+            }
+        }
         if let existing = try knownSession(id: snapshot.sessionID, url: url) {
             guard existing.startedAt.ISO8601Format() == snapshot.startedAt.ISO8601Format(),
                   historiesAgree(existing.entries, snapshot.entries) else {
@@ -615,6 +623,7 @@ final class ScoreboardLogManager {
         currentSession = snapshot
         currentSessionURL = url
         replicatedSessions.removeValue(forKey: snapshot.sessionID)
+        transientSessions.removeValue(forKey: snapshot.sessionID)
         setCurrentGameDisplayName(gameDisplayName)
         notifyCurrentSessionChange()
         requestPersistCurrentSession()
@@ -665,6 +674,7 @@ final class ScoreboardLogManager {
     }
 
     func receivedLogCursor(for sessionID: UUID) -> ScoreboardSessionLogCursor? {
+        if let session = transientSessions[sessionID] { return logCursor(for: session) }
         if let session = replicatedSessions[sessionID]?.session { return logCursor(for: session) }
         if let currentSession, currentSession.sessionID == sessionID { return logCursor(for: currentSession) }
         return nil
@@ -673,7 +683,7 @@ final class ScoreboardLogManager {
     /// Merge only contiguous history. Gaps return the last accepted cursor, so
     /// reconnects and out-of-order delivery retry without losing any entries.
     @discardableResult
-    func mergeReplicatedLogBatch(_ batch: ScoreboardSessionLogBatch) throws -> ScoreboardSessionLogCursor {
+    func mergeReplicatedLogBatch(_ batch: ScoreboardSessionLogBatch, persist: Bool = true) throws -> ScoreboardSessionLogCursor {
         guard batch.startIndex >= 0, batch.totalEntryCount >= 0,
               batch.startIndex <= batch.totalEntryCount,
               batch.entries.count <= 32,
@@ -686,8 +696,13 @@ final class ScoreboardLogManager {
         }
         var session = ScoreboardLogSession(fileVersion: batch.fileVersion, sessionID: batch.sessionID,
             startedAt: batch.startedAt, lastUpdatedAt: batch.lastUpdatedAt, entries: [])
-        let url = try sessionURL(for: session)
-        if let known = try knownSession(id: batch.sessionID, url: url) {
+        // Guest history belongs only to the active connection. It never reads
+        // or queues writes to the personal log library, even if IDs coincide.
+        let url = persist ? try sessionURL(for: session) : nil
+        let known: ScoreboardLogSession?
+        if let url { known = try knownSession(id: batch.sessionID, url: url) }
+        else { known = transientSessions[batch.sessionID] }
+        if let known {
             // Existing disk files use ISO 8601 dates with second precision.
             guard known.startedAt.ISO8601Format() == batch.startedAt.ISO8601Format() else {
                 throw ScoreboardSessionLogError.conflictingHistory
@@ -708,6 +723,10 @@ final class ScoreboardLogManager {
         }
         session.lastUpdatedAt = max(session.lastUpdatedAt, batch.lastUpdatedAt)
         receivedSessionID = session.sessionID
+        guard let url else {
+            transientSessions[session.sessionID] = session
+            return logCursor(for: session)
+        }
         if currentSession?.sessionID == session.sessionID {
             if session.entries.count != oldCount {
                 currentSession = session
@@ -724,6 +743,11 @@ final class ScoreboardLogManager {
             }
         }
         return logCursor(for: session)
+    }
+
+    func discardTransientSessionLogs() {
+        if let receivedSessionID, transientSessions[receivedSessionID] != nil { self.receivedSessionID = nil }
+        transientSessions.removeAll()
     }
 
     func listSessions() throws -> [StoredLogSession] {
@@ -816,6 +840,7 @@ final class ScoreboardLogManager {
         try validateBackupFiles(files)
         cancelPendingPersist()
         replicatedSessions.removeAll()
+        transientSessions.removeAll()
         receivedSessionID = nil
 
         let directoryURL = try logsDirectory()

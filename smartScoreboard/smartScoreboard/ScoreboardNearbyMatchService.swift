@@ -8,6 +8,7 @@ nonisolated struct ScoreboardNearbyMatch: Identifiable, Sendable {
     var title: String
     var ownerName: String
     var endpoint: NWEndpoint
+    var pairingHostID: String? = nil
 }
 
 nonisolated struct ScoreboardNearbyInvitation: Equatable {
@@ -32,14 +33,10 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
 @MainActor final class ScoreboardNearbyMatchService: ObservableObject {
     static let shared = ScoreboardNearbyMatchService()
     static let serviceType = "_scorebrd-join._tcp"
-    struct Approval: Identifiable {
-        var id: String
-        var name: String
-        var requestsControl: Bool
-        var matchID: UUID
-    }
+    typealias Approval = ScoreboardNearbyJoinApproval
     @Published private(set) var approvals: [Approval] = []
     private var approvalConnections: [String: (JoinRequest, NWConnection)] = [:]
+    private var approvalTimeouts: [String: Task<Void, Never>] = [:]
     @Published private(set) var matches: [ScoreboardNearbyMatch] = []
     @Published private(set) var joinCode = String(format: "%06d", Int.random(in: 0...999_999))
     @Published private(set) var requestedControllers: Set<String> = []
@@ -82,12 +79,14 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         guard enabled else {
             listener?.cancel(); listener = nil; advertisedMatchID = nil; lastAdvertisement = nil
             pending.values.forEach { $0.cancel() }; pending.removeAll()
+            approvalTimeouts.values.forEach { $0.cancel() }; approvalTimeouts.removeAll()
             approvals = []; approvalConnections.removeAll()
             return
         }
         let peerToPeer = store.remoteDisplayNetworkMode.includesPeerToPeer
         if advertisedMatchID != store.currentMatchID {
             pending.values.forEach { $0.cancel() }; pending.removeAll()
+            approvalTimeouts.values.forEach { $0.cancel() }; approvalTimeouts.removeAll()
             approvals = []; approvalConnections.removeAll()
             joinCode = String(format: "%06d", Int.random(in: 0...999_999)); requestedControllers = []
         }
@@ -114,6 +113,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         record["matchID"] = store.currentMatchID.uuidString
         record["title"] = String(decoding: store.currentMatchTitle.utf8.prefix(160), as: UTF8.self)
         record["owner"] = String((ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard").prefix(60))
+        record["pairingHostID"] = store.remoteDisplayHostID
         if lastAdvertisement != record.data {
             lastAdvertisement = record.data
             listener?.service = .init(name: "Scoreboard-\(store.localSessionDeviceID.prefix(8))", type: Self.serviceType, txtRecord: record.data)
@@ -138,7 +138,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                 guard case .bonjour(let txt) = result.metadata, txt["version"] == "1",
                       let id = txt["ownerID"], id != ScoreboardStore.shared.localSessionDeviceID,
                       let rawMatchID = txt["matchID"], let matchID = UUID(uuidString: rawMatchID) else { return nil }
-                return ScoreboardNearbyMatch(id: id, matchID: matchID, title: txt["title"] ?? "Match", ownerName: txt["owner"] ?? "Smart Scoreboard", endpoint: result.endpoint)
+                return ScoreboardNearbyMatch(id: id, matchID: matchID, title: txt["title"] ?? "Match", ownerName: txt["owner"] ?? "Smart Scoreboard", endpoint: result.endpoint, pairingHostID: txt["pairingHostID"])
             }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             self.matches = Dictionary(matches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 .values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -191,10 +191,14 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         }
         cancelRequest()
         let receiver = ScoreboardRemoteDisplayReceiver.shared
+        receiver.beginNearbyMatchJoin(hostID: match.pairingHostID)
         let request = JoinRequest(matchID: match.matchID, code: code,
             displayID: receiver.displayID, displayCode: receiver.pairingCode, control: control, name: ScoreboardRemoteDisplayDeviceName.current ?? "Nearby device")
         // matchID is also verified by the owner; use the latest discovery metadata.
-        guard let data = try? JSONEncoder().encode(request) else { return }
+        guard let data = try? JSONEncoder().encode(request) else {
+            receiver.finishNearbyMatchJoin(connected: false)
+            completion(.failure(error("Unable to prepare the nearby connection."))); return
+        }
         let connection = NWConnection(to: match.endpoint, using: Self.parameters(peerToPeer: mode.includesPeerToPeer))
         requestConnection = connection; requestCompletion = completion
         connection.stateUpdateHandler = { [weak self, weak connection] state in
@@ -232,6 +236,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     func cancelRequest() { finishRequest(.failure(CancellationError())) }
 
     private func finishRequest(_ result: Result<Void, Error>) {
+        if case .failure = result { ScoreboardRemoteDisplayReceiver.shared.finishNearbyMatchJoin(connected: false) }
         let completion = requestCompletion; requestCompletion = nil
         requestTimeout?.cancel(); requestTimeout = nil
         requestConnection?.cancel(); requestConnection = nil
@@ -283,27 +288,47 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                     self.reply(false, "A request from this device is already waiting.", on: connection); return
                 }
                 self.approvalConnections[request.displayID] = (request, connection)
-                self.approvals.append(Approval(id: request.displayID, name: String((request.name ?? "Nearby device").prefix(80)),
-                    requestsControl: request.control, matchID: request.matchID))
+                let approval = Approval(id: request.displayID, name: String((request.name ?? "Nearby device").prefix(80)),
+                    requestsControl: request.control, matchID: request.matchID)
+                self.approvals.append(approval)
+                self.approvalTimeouts[approval.id] = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(60))
+                    guard !Task.isCancelled else { return }
+                    self?.expireApproval(approval, at: Date())
+                }
             } else { self.pair(request, connection: connection, remaining: 30) }
             }
         }
     }
 
     func approve(_ approval: Approval) {
-        guard let (request, connection) = approvalConnections.removeValue(forKey: approval.id),
-              owner?.currentMatchID == approval.matchID else { return }
+        guard approvals.contains(where: { $0.id == approval.id && $0.expiresAt == approval.expiresAt }) else { return }
+        guard approval.remainingSeconds(at: Date()) > 0 else { expireApproval(approval, at: Date()); return }
+        guard owner?.currentMatchID == approval.matchID else { decline(approval); return }
+        guard let (request, connection) = approvalConnections.removeValue(forKey: approval.id) else { return }
+        approvalTimeouts.removeValue(forKey: approval.id)?.cancel()
         approvals.removeAll { $0.id == approval.id }
         pair(request, connection: connection, remaining: 30, approvedControl: approval.requestsControl)
     }
     func decline(_ approval: Approval) {
+        guard approvals.contains(where: { $0.id == approval.id && $0.expiresAt == approval.expiresAt }) else { return }
         guard let (_, connection) = approvalConnections.removeValue(forKey: approval.id) else { return }
+        approvalTimeouts.removeValue(forKey: approval.id)?.cancel()
         approvals.removeAll { $0.id == approval.id }
         reply(false, "The host declined this request.", on: connection)
     }
+
+    private func expireApproval(_ approval: Approval, at date: Date) {
+        guard approval.remainingSeconds(at: date) == 0,
+              approvals.contains(where: { $0.id == approval.id && $0.expiresAt == approval.expiresAt }),
+              let (_, connection) = approvalConnections.removeValue(forKey: approval.id) else { return }
+        approvalTimeouts.removeValue(forKey: approval.id)?.cancel()
+        approvals.removeAll { $0.id == approval.id }
+        reply(false, "The join request expired. Try joining again.", on: connection)
+    }
     private func removeApproval(for connection: NWConnection) {
         let ids = approvalConnections.filter { $0.value.1 === connection }.map(\.key)
-        for id in ids { approvalConnections.removeValue(forKey: id) }
+        for id in ids { approvalConnections.removeValue(forKey: id); approvalTimeouts.removeValue(forKey: id)?.cancel() }
         approvals.removeAll { ids.contains($0.id) }
     }
 
@@ -311,8 +336,12 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         guard pending[ObjectIdentifier(connection)] != nil, let owner,
               owner.currentMatchID == request.matchID, owner.isRemoteDisplayHostEnabled else { return }
         if let source = owner.remoteDisplaySources.first(where: { $0.id == request.displayID && !$0.isSessionInfrastructure && $0.allowsNewPairing }) {
-            guard !source.needsTakeoverConfirmation(currentOperatorID: owner.remoteDisplayHostID) else {
-                reply(false, "This device is paired elsewhere. Forget that pairing before joining.", on: connection); return
+            // Bonjour may still have the previous operator's advertisement.
+            // Wait for the receiver's explicit join window instead of treating
+            // this user-initiated connection as an unsolicited takeover.
+            if source.needsTakeoverConfirmation(currentOperatorID: owner.remoteDisplayHostID) {
+                retryPair(request, connection: connection, remaining: remaining, approvedControl: approvedControl)
+                return
             }
             if request.control && !approvedControl { requestedControllers.insert(source.id); owner.noteLocalControlRequest(displayID: source.id) }
             owner.setRemoteControlAllowed(displayID: source.id, isAllowed: false)
@@ -330,7 +359,11 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                 }
             }
             reply(true, "Pairing", on: connection)
-        } else if remaining > 0 {
+        } else { retryPair(request, connection: connection, remaining: remaining, approvedControl: approvedControl) }
+    }
+
+    private func retryPair(_ request: JoinRequest, connection: NWConnection, remaining: Int, approvedControl: Bool) {
+        if remaining > 0 {
             Task { [weak self, weak connection] in
                 try? await Task.sleep(for: .milliseconds(300))
                 if let connection { self?.pair(request, connection: connection, remaining: remaining - 1, approvedControl: approvedControl) }

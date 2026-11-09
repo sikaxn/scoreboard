@@ -116,8 +116,7 @@ struct ScoreboardDevicePairingSection: View {
     @State private var feedback = ""
     @State private var pendingNearby: (String, String)?
     @State private var selectedNearby: ScoreboardRemoteDisplaySource?
-    @State private var nearbyCode = ""
-    @State private var asksNearbyCode = false
+    @State private var nearbyCodes: [String: String] = [:]
     @State private var asksTakeover = false
     #if !os(tvOS)
     @State private var importsQR = false
@@ -126,13 +125,13 @@ struct ScoreboardDevicePairingSection: View {
     @State private var scansQR = false
     #endif
     var body: some View {
-        ScoreboardCloudSection("Nearby Devices", footer: "Pair displays or controllers on your local network. No cloud account is required.") {
+        ScoreboardCloudSection("Add a Nearby Device", footer: "Open the pairing screen on the other device, then enter its 4-digit device PIN. No cloud account is required.") {
             #if !os(tvOS)
             ScoreboardCloudSettingsDivider()
             ScoreboardCloudSettingsRow("Pairing QR Code") {
                 VStack(alignment: .leading, spacing: 10) {
                     #if os(iOS)
-                    if DataScannerViewController.isSupported {
+                    if AVCaptureDevice.default(for: .video) != nil {
                         Button("Scan Pairing QR Code", systemImage: "qrcode.viewfinder") { scansQR = true }
                     }
                     #endif
@@ -148,10 +147,20 @@ struct ScoreboardDevicePairingSection: View {
                     Button("Discover Nearby Devices") { store.setRemoteDisplayHostEnabled(true) }
                 }
             }
-            ForEach(store.remoteDisplaySources.filter { !$0.isSessionInfrastructure && $0.allowsNewPairing }) { source in
+            ForEach(store.remoteDisplaySources.filter { !$0.isSessionInfrastructure && $0.allowsNewPairing && !store.isTrustedRemoteDisplay($0) }) { source in
                 ScoreboardCloudSettingsDivider()
                 ScoreboardCloudSettingsRow(source.name, verbatim: true) {
-                    Button("Pair Nearby") { selectedNearby = source; nearbyCode = ""; asksNearbyCode = true }
+                    HStack {
+                        TextField("4-digit PIN", text: Binding(get: { nearbyCodes[source.id] ?? "" }, set: { nearbyCodes[source.id] = String($0.filter(\.isNumber).prefix(4)) }))
+                            .textFieldStyle(.roundedBorder).frame(maxWidth: 130)
+                            .accessibilityIdentifier("connection.pairingCode.\(source.id)")
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                        Button("Pair") { pendingNearby = (source.id, nearbyCodes[source.id] ?? ""); tryNearby() }
+                            .disabled(nearbyCodes[source.id]?.count != 4)
+                            .accessibilityIdentifier("connection.pair.\(source.id)")
+                    }
                 }
             }
             if !feedback.isEmpty {
@@ -162,13 +171,6 @@ struct ScoreboardDevicePairingSection: View {
             }
         }
         .onChange(of: store.remoteDisplaySources.map(\.id)) { _, _ in tryNearby() }
-        .alert("Nearby Pairing Code", isPresented: $asksNearbyCode) {
-            TextField("4-digit code", text: $nearbyCode)
-            Button("Pair") {
-                if let source = selectedNearby { pendingNearby = (source.id, nearbyCode); tryNearby() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { Text("Enter the code shown on the remote device.") }
         .confirmationDialog("Replace This Device's Existing Pairing?", isPresented: $asksTakeover, titleVisibility: .visible) {
             Button("Replace Pairing", role: .destructive) { finishNearby(takeover: true) }
             Button("Cancel", role: .cancel) { pendingNearby = nil }
@@ -206,7 +208,7 @@ struct ScoreboardDevicePairingSection: View {
         guard let pendingNearby, let source = store.remoteDisplaySources.first(where: { $0.id == pendingNearby.0 }) else { return }
         selectedNearby = source
         guard source.allowsNewPairing else { feedback = "Open the pairing screen on this device first."; return }
-        let operatorID = store.sessionDescriptor?.ownerHostID ?? ScoreboardRemoteDisplayReceiver.shared.displayID
+        let operatorID = store.remoteDisplayHostID
         if source.needsTakeoverConfirmation(currentOperatorID: operatorID) { asksTakeover = true }
         else { finishNearby(takeover: false) }
     }
@@ -216,49 +218,3 @@ struct ScoreboardDevicePairingSection: View {
         self.pendingNearby = nil; feedback = "Pairing with \(source.name)…"
     }
 }
-
-#if os(iOS)
-struct ScoreboardQRScannerView: View {
-    var found: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var allowed = false
-    var body: some View {
-        NavigationStack {
-            Group {
-                if allowed && DataScannerViewController.isAvailable { ScoreboardQRScanner(found: found) }
-                else { ContentUnavailableView("Camera Unavailable", systemImage: "camera", description: Text("Use the pairing code or import a QR image instead.")) }
-            }
-            .navigationTitle("Scan Pairing Code")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-        }
-        .task { allowed = await AVCaptureDevice.requestAccess(for: .video) }
-    }
-}
-private struct ScoreboardQRScanner: UIViewControllerRepresentable {
-    var found: (String) -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(found: found) }
-    func makeUIViewController(context: Context) -> DataScannerViewController {
-        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])],
-            qualityLevel: .balanced, recognizesMultipleItems: false, isHighFrameRateTrackingEnabled: false,
-            isPinchToZoomEnabled: true, isGuidanceEnabled: true, isHighlightingEnabled: true)
-        scanner.delegate = context.coordinator
-        try? scanner.startScanning()
-        return scanner
-    }
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: DataScannerViewController, coordinator: Coordinator) { controller.stopScanning() }
-    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
-        let found: (String) -> Void
-        private var finished = false
-        init(found: @escaping (String) -> Void) { self.found = found }
-        func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
-            guard !finished else { return }
-            for item in addedItems {
-                if case .barcode(let barcode) = item, let value = barcode.payloadStringValue {
-                    finished = true; found(value); return
-                }
-            }
-        }
-    }
-}
-#endif

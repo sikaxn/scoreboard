@@ -117,6 +117,12 @@ nonisolated struct ScoreboardPendingPublisher: Codable, Equatable, Sendable {
 
 nonisolated enum ScoreboardCloudEndpoint {
     static let publicServiceURL = "https://scoreboardcloud.studenttechsupport.com"
+    static func publicViewingURL(base: URL, sessionID: String, token: String) -> URL? {
+        var url = URLComponents(url: base.appendingPathComponent("views/match.html"), resolvingAgainstBaseURL: false)
+        url?.queryItems = [.init(name: "session", value: sessionID)]
+        url?.fragment = "view=\(token)"
+        return url?.url
+    }
 
     static func isPublicService(_ value: String) -> Bool {
         guard let url = try? validate(value), let publicURL = URL(string: publicServiceURL) else { return false }
@@ -768,6 +774,16 @@ nonisolated private enum CloudKeychain {
     }
 
     struct ParticipantInvitation: Decodable { var code: String; var url: String; var enabled: Bool }
+    func revokeParticipant(memberID: String) async -> Bool {
+        guard let credential, let session, canManageMatch else { return false }
+        do {
+            struct Input: Encodable { var deviceID: String }
+            struct Result: Decodable { var success: Bool }
+            let _: Result = try await call(base: ScoreboardCloudEndpoint.validate(credential.serviceURL),
+                path: "api/sessions/\(session.id)/participants/revoke", body: Input(deviceID: memberID), token: credential.token)
+            return true
+        } catch { status = error.localizedDescription; return false }
+    }
     func makeInvitation(password: String, enabled: Bool = true) async throws -> ParticipantInvitation {
         guard let credential, let session, canManageMatch else { throw URLError(.userAuthenticationRequired) }
         struct Input: Encodable { var enabled: Bool; var password: String }
@@ -782,9 +798,7 @@ nonisolated private enum CloudKeychain {
         let base = try ScoreboardCloudEndpoint.validate(credential.serviceURL)
         let result: ViewerSharing = try await call(base: base, path: "api/sessions/\(session.id)/sharing", body: Input(enabled: enabled, rotate: rotate), token: credential.token)
         guard let token = result.token else { return nil }
-        var url = URLComponents(url: base.appendingPathComponent("views/scoreboard.html"), resolvingAgainstBaseURL: false)!
-        url.queryItems = [.init(name: "session", value: session.id)]; url.fragment = "view=\(token)"
-        return url.url
+        return ScoreboardCloudEndpoint.publicViewingURL(base: base, sessionID: session.id, token: token)
     }
 
     func setRemoteActive(_ active: Bool, allowsCloud: Bool = true) {

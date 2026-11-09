@@ -36,6 +36,7 @@ import UIKit
                         if receiver.lastReceivedAt.map({ $0 >= beganAt }) == true,
                            receiver.state?.game.matchID == match.matchID,
                            descriptor?.ownerDeviceID == match.id || descriptor?.hostDeviceID == match.id {
+                            receiver.finishNearbyMatchJoin(connected: true)
                             store.commitJoinedMatch(); self.isJoining = false
                             self.releaseReceiver(); self.completion?(); self.completion = nil
                             return

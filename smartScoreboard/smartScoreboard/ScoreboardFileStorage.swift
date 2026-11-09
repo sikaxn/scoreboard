@@ -201,6 +201,7 @@ nonisolated enum ScoreboardMatchFiles {
         guard ScoreboardDeviceMode.current.canCreateScoreboards else { return }
         guard isStarted, !isSwitching, let store, !store.isRemoteControlProxy,
               !store.isJoinedMatchActive, !store.isPreparingMatchJoin, !store.isDelegatedSessionHost else { return }
+        guard !store.isRemoteDisplayViewerModeEnabled || store.isFollowingSessionHost else { return }
         guard hasOpenDocument || store.didCompleteSetup else { return }
         hasOpenDocument = true
         do {

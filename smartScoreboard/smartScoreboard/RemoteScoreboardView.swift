@@ -117,7 +117,7 @@ private struct RemoteScoreboardContentView: View {
             #if os(tvOS)
             receiverContent
             #else
-            if receiver.isControlBoardDevice, !sessionStore.joinedAsDisplay, showsPairingControls, !showsConfiguration {
+            if receiver.presentsControlBoard, showsPairingControls, !showsConfiguration {
                 ScoreboardRemoteControlView(receiver: receiver, showConnection: presentConnectionControls)
             } else { receiverContent }
             #endif

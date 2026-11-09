@@ -109,7 +109,7 @@ private struct ExternalDisplayRootView: View {
     var body: some View {
         if store.isShowingFileHome {
             ScoreboardWaitingDisplayView()
-        } else if store.isRemoteDisplayViewerModeEnabled || store.isFollowingSessionHost {
+        } else if store.usesRemoteScoreboardPresentation {
             RemoteScoreboardView(
                 networkMode: store.remoteDisplayNetworkMode,
                 setNetworkMode: {

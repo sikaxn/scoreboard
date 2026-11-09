@@ -320,7 +320,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                     ScoreboardConnectionSheet(receiver: remoteControlReceiver, returnToRemoteControl: returnToRemoteControl)
                         .environmentObject(store)
                         .defaultAppStorage(ScoreboardPreferences.current)
-                        .frame(minWidth: 320, idealWidth: 900, minHeight: 550)
                 }
         }
     }

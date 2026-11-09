@@ -2,6 +2,51 @@ import Foundation
 import Testing
 
 extension ScoreboardTests {
+    @Test("Joined log history stays in memory through flush, is discarded on leave, and becomes durable only on host transfer")
+    func joinedSessionLogIsolation() throws {
+        let manager = ScoreboardLogManager.shared
+        let original = try #require(manager.currentSessionSnapshot())
+        defer {
+            manager.discardTransientSessionLogs()
+            try? manager.adoptAuthoritativeSession(original)
+        }
+        let before = try manager.backupFiles()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = ScoreboardLogEntry(id: UUID(), timestamp: date,
+            operation: ScoreboardLogOperation(kind: .scoreAdjustment, summary: "Remote score"),
+            context: store.currentLogContext(), outcome: .applied)
+        let remote = ScoreboardLogSession(startedAt: date, lastUpdatedAt: date, entries: [entry])
+        let batch = ScoreboardSessionLogBatch(fileVersion: remote.fileVersion, sessionID: remote.sessionID,
+            startedAt: remote.startedAt, lastUpdatedAt: remote.lastUpdatedAt, startIndex: 0,
+            totalEntryCount: remote.entries.count, entries: remote.entries)
+        let cursor = try manager.mergeReplicatedLogBatch(batch, persist: false)
+        #expect(cursor.sessionID == remote.sessionID && cursor.nextIndex == 1)
+        #expect(try manager.mergeReplicatedLogBatch(batch, persist: false) == cursor)
+        #expect(manager.currentSessionSnapshot()?.sessionID == original.sessionID)
+        #expect(manager.currentSessionSnapshot()?.entries.map(\.id) == original.entries.map(\.id))
+        #expect(try manager.listSessions().allSatisfy { $0.session.sessionID != remote.sessionID })
+        let after = try manager.backupFiles() // Also forces all pending writes to flush.
+        #expect(Dictionary(uniqueKeysWithValues: before.map { ($0.filename, $0.data) }) ==
+                Dictionary(uniqueKeysWithValues: after.map { ($0.filename, $0.data) }))
+        manager.discardTransientSessionLogs()
+        #expect(manager.receivedLogCursor(for: remote.sessionID) == nil)
+        #expect(manager.currentReceivedLogCursor == nil)
+
+        // Even a remote ID colliding with a personal log must stay isolated.
+        var colliding = batch
+        colliding.sessionID = original.sessionID
+        _ = try manager.mergeReplicatedLogBatch(colliding, persist: false)
+        #expect(manager.currentSessionSnapshot()?.entries.map(\.id) == original.entries.map(\.id))
+        manager.discardTransientSessionLogs()
+
+        _ = try manager.mergeReplicatedLogBatch(batch, persist: false)
+        var stale = remote; stale.entries = []
+        #expect(throws: (any Error).self) { try manager.adoptAuthoritativeSession(stale) }
+        try manager.adoptAuthoritativeSession(remote)
+        manager.flushPendingWrites()
+        #expect(try manager.listSessions().contains { $0.session.sessionID == remote.sessionID })
+    }
+
     @Test("Session log paging, replication, and promotion")
     func sessionLogReplication() throws {
         let manager = ScoreboardLogManager.shared

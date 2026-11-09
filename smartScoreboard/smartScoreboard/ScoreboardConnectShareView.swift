@@ -157,7 +157,7 @@ struct ScoreboardMatchGuestJoinForm: View {
     var peers: [ScoreboardSessionPeer] {
         if store.isJoinedMatchActive, !store.isRemoteControlProxy, let control = receiver.state?.control {
             let peers = control.devices ?? []
-            return control.session?.clientPeers(from: peers, ownerConnected: control.ownerConnected) ?? peers
+            return control.session?.clientPeers(from: peers, ownerConnected: control.ownerConnected) ?? ScoreboardSessionPeer.uniqueDevices(peers)
         }
         return store.remoteSessionDevices ?? []
     }
@@ -228,6 +228,7 @@ struct ScoreboardConnectedDevicesSection: View {
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
     @ObservedObject var receiver: ScoreboardRemoteDisplayReceiver
     @State private var feedback: String?
+    @State private var removing: ScoreboardSessionPeer?
     private var overview: ScoreboardConnectionOverview { .init(store: store, receiver: receiver) }
     private var canManage: Bool { !store.isRemoteControlProxy && (store.isSessionAuthority || store.isFollowingSessionHost) && !store.isJoinedMatchActive }
     var body: some View {
@@ -243,24 +244,69 @@ struct ScoreboardConnectedDevicesSection: View {
             ForEach(overview.peers, id: \.id) { peer in
                 VStack(alignment: .leading, spacing: 12) {
                     deviceDetails(peer)
-                    let member = cloud.session?.members.first { $0.id == peer.id && $0.role != "host" }
+                    let member = cloudMember(for: peer)
                     let paired = store.remoteDisplayTrustedDisplays.contains { $0.id == peer.id }
                     if canManage, peer.deviceType.supportsControl, peer.supportsControl != false,
                        peer.id != overview.session?.ownerDeviceID, paired || member != nil {
                         Toggle((peer.requestedControl == true || member?.requestedControl == true) && peer.controlEnabled != true ? "Approve Control Request" : "Allow Control", isOn: Binding(
                             get: { peer.controlEnabled == true }, set: { allowed in
                                 if paired { store.setRemoteControlAllowed(displayID: peer.id, isAllowed: allowed) }
-                                else if let member { Task { if !(await cloud.setCloudPermission(memberID: member.id, allowed: allowed)) { feedback = cloud.status } } }
+                                if let member { Task { if !(await cloud.setCloudPermission(memberID: member.id, allowed: allowed)) { feedback = cloud.status } } }
                             }))
                             .accessibilityIdentifier("connection.control.\(peer.id)")
                     } else if let allowed = peer.controlEnabled {
                         Label(allowed ? "Control enabled" : "Remote Display", systemImage: allowed ? "gamecontroller" : "eye").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if canManage, paired || member != nil {
+                        Menu("Device Options", systemImage: "ellipsis.circle") {
+                            if peer.connected, peer.supportsHosting {
+                                Button("Move Hosting to This Device", systemImage: "server.rack") { store.assignSessionHost(displayID: peer.id) }
+                                    .disabled(!store.canChangeSessionHost)
+                            }
+                            if paired {
+                                if !peer.connected, let source = store.remoteDisplaySources.first(where: { $0.id == peer.id }) {
+                                    Button("Connect", systemImage: "link") { store.connectTrustedRemoteDisplay(source) }
+                                }
+                                Menu("Display Direction") {
+                                    Picker("On-device Display", selection: Binding(get: { store.remoteDisplayDirection(displayID: peer.id) }, set: { store.setRemoteDisplayDirection(displayID: peer.id, direction: $0) })) {
+                                        ForEach(ScoreboardDisplayDirection.allCases) { Text($0.title).tag($0) }
+                                    }
+                                    if peer.deviceType == .ipad || peer.deviceType == .mac {
+                                        Picker("External Display", selection: Binding(get: { store.remoteDisplayExternalDirection(displayID: peer.id) }, set: { store.setRemoteDisplayExternalDirection(displayID: peer.id, direction: $0) })) {
+                                            ForEach(ScoreboardDisplayDirection.allCases) { Text($0.title).tag($0) }
+                                        }
+                                    }
+                                }
+                                Button("Sound Test", systemImage: "speaker.wave.2") { store.sendRemoteDisplaySoundTest(displayID: peer.id) }
+                                    .disabled(!peer.connected || store.isRemoteDisplayMuted(displayID: peer.id))
+                                Button(store.isRemoteDisplayMuted(displayID: peer.id) ? "Unmute" : "Mute", systemImage: "speaker.slash") {
+                                    store.setRemoteDisplayMuted(displayID: peer.id, isMuted: !store.isRemoteDisplayMuted(displayID: peer.id))
+                                }
+                                Button("Disconnect", systemImage: "xmark.circle") { store.disconnectRemoteDisplay(displayID: peer.id) }
+                                    .disabled(!peer.connected)
+                            }
+                            Button("Remove Device", systemImage: "trash", role: .destructive) { removing = peer }
+                        }.accessibilityIdentifier("connection.options.\(peer.id)")
                     }
                 }.padding(.vertical, 14).accessibilityElement(children: .contain)
                     .accessibilityIdentifier("connection.client.\(peer.id)")
                 Divider()
             }
             if let feedback { Text(feedback).font(.caption).foregroundStyle(.orange).padding(.vertical, 10) }
+        }
+        .confirmationDialog("Remove This Device?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
+            if let peer = removing {
+                Button("Remove Device", role: .destructive) {
+                    store.removeRemoteDisplayPairing(displayID: peer.id)
+                    if let member = cloudMember(for: peer) { Task { if !(await cloud.revokeParticipant(memberID: member.id)) { feedback = cloud.status } } }
+                    removing = nil
+                }
+            }
+        } message: { Text("The device will need to pair or join again.") }
+    }
+    private func cloudMember(for peer: ScoreboardSessionPeer) -> ScoreboardCloudMember? {
+        cloud.session?.members.first { member in
+            member.role != "host" && (member.id == peer.id || (peer.devicePublicKey?.isEmpty == false && peer.devicePublicKey == member.devicePublicKey))
         }
     }
     private func deviceDetails(_ peer: ScoreboardSessionPeer) -> some View {
@@ -294,14 +340,34 @@ struct ScoreboardConnectedDevicesSection: View {
 
 struct ScoreboardSessionRecoveryControls: View {
     @EnvironmentObject private var store: ScoreboardStore
+    @State private var confirmsDisconnect = false
+    @State private var confirmsRecovery = false
     var body: some View {
         if store.isSessionOwner && !store.isRemoteControlProxy && (store.isRemoteDisplayHostEnabled || store.isFollowingSessionHost) {
-            ScoreboardCloudSection("Session Host") {
-                Button("Host Here & Disconnect Others", role: .destructive) { store.hostOnOwnerAndDisconnectOthers() }
-                    .buttonStyle(.bordered).padding(.vertical, 12).disabled(!store.canHostOnOwnerAndDisconnectOthers)
+            ScoreboardCloudSection("Manage Hosting") {
+                Text("To move hosting to another device, choose Device Options on that connected device.")
+                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
+                if store.isFollowingSessionHost {
+                    Button("Move Hosting Here", systemImage: "server.rack") { store.assignSessionHost(displayID: store.localSessionDeviceID) }
+                        .disabled(!store.canChangeSessionHost).padding(.vertical, 10)
+                    Text("Move hosting here before disconnecting or removing the current host. Other clients stay connected during the move.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Host Here and Disconnect Other Devices", role: .destructive) { confirmsDisconnect = true }
+                    .padding(.vertical, 12).disabled(!store.canHostOnOwnerAndDisconnectOthers)
+                if store.canRecoverSessionHost {
+                    Button("Recover Hosting Here") { confirmsRecovery = true }.padding(.vertical, 10)
+                }
+                if store.sessionTransferInProgress { ProgressView("Moving hosting…").padding(.vertical, 10) }
                 if store.isAnyTimerRunning { Text("Stop all timers before moving the session host.").font(.caption).foregroundStyle(.secondary) }
                 if let message = store.sessionStatusMessage { Text(ScoreboardLocalization.remoteSessionMessage(message)).font(.caption).foregroundStyle(.secondary) }
             }
+            .confirmationDialog("Disconnect Other Devices?", isPresented: $confirmsDisconnect, titleVisibility: .visible) {
+                Button("Host Here and Disconnect Other Devices", role: .destructive) { store.hostOnOwnerAndDisconnectOthers() }
+            } message: { Text("This device will host the scoreboard and disconnect all other clients. To keep clients connected, use Move Hosting instead.") }
+            .confirmationDialog("Recover Hosting Here?", isPresented: $confirmsRecovery, titleVisibility: .visible) {
+                Button("Recover Hosting Here", role: .destructive) { store.recoverSessionHostOnOwner() }
+            } message: { Text("Use this only when the current host is unavailable. Reconnect to the owner before resuming the match on an old host.") }
         }
     }
 }
@@ -318,11 +384,32 @@ struct ScoreboardHostConnectionsView: View {
     @State private var feedback = ""
     @State private var busy = false
     @State private var confirmsStop = false
+    var wideLayout = false
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             Text(store.currentMatchTitle).font(.title2.bold())
+            if wideLayout {
+                HStack(alignment: .top, spacing: 24) {
+                    connectionOptions.frame(maxWidth: .infinity)
+                    deviceManagement.frame(maxWidth: .infinity)
+                }
+            } else {
+                ScoreboardConnectionOverviewSection(receiver: receiver)
+                connectionOptions
+                ScoreboardConnectedDevicesSection(receiver: receiver)
+                ScoreboardSessionRecoveryControls()
+            }
+        }.frame(maxWidth: 1280).frame(maxWidth: .infinity)
+    }
+    private var deviceManagement: some View {
+        VStack(alignment: .leading, spacing: 26) {
             ScoreboardConnectionOverviewSection(receiver: receiver)
             ScoreboardConnectedDevicesSection(receiver: receiver)
+            ScoreboardSessionRecoveryControls()
+        }
+    }
+    private var connectionOptions: some View {
+        VStack(alignment: .leading, spacing: 26) {
             ScoreboardCloudSection("Nearby", footer: "Works without internet. Other devices discover this scoreboard and ask you to confirm, or enter the pairing PIN.") {
                 Toggle("Allow Nearby Connections", isOn: Binding(get: { store.isRemoteDisplayHostEnabled }, set: {
                     if !$0 && store.remoteSessionDevices?.contains(where: \.connected) == true { confirmsStop = true }
@@ -343,9 +430,6 @@ struct ScoreboardHostConnectionsView: View {
                             ScoreboardPairingQRCode(value: value.absoluteString, size: 110)
                         }
                     }.padding(.vertical, 14)
-                    NavigationLink("Pair Using the Kiosk’s Device PIN") {
-                        ScrollView { ScoreboardDevicePairingSection().padding(24) }.navigationTitle("Pair Device")
-                    }.padding(.vertical, 10)
                 }
                 ForEach(nearby.approvals) { request in
                     HStack {
@@ -356,6 +440,7 @@ struct ScoreboardHostConnectionsView: View {
                     }.padding(.vertical, 12)
                 }
             }
+            if store.isRemoteDisplayHostEnabled { ScoreboardDevicePairingSection() }
             ScoreboardCloudSection("Cloud", footer: "Only the host signs in. Guests join with this session’s fixed code and password.") {
                 Button("LAN & Cloud Settings") { dismiss(); ScoreboardAppNavigation.shared.openSettings("cloud") }
                     .padding(.vertical, 12)
@@ -395,10 +480,10 @@ struct ScoreboardHostConnectionsView: View {
                         }
                     }.padding(.vertical, 12)
                     if let publicURL {
-                        ForEach(["scoreboard", "obs", "commentator"], id: \.self) { mode in
+                        ForEach(["match", "scoreboard", "obs", "commentator"], id: \.self) { mode in
                             if let url = viewingURL(publicURL, mode: mode) {
                                 HStack {
-                                    Link(mode == "obs" ? "OBS Overlay" : mode == "scoreboard" ? "Fullscreen Scoreboard" : "Commentator", destination: url)
+                                    Link(mode == "match" ? "Match Center" : mode == "obs" ? "OBS Overlay" : mode == "scoreboard" ? "Fullscreen Scoreboard" : "Commentator", destination: url)
                                     Spacer(); ShareLink("Share", item: url)
                                 }.padding(.vertical, 10)
                             }
@@ -413,7 +498,6 @@ struct ScoreboardHostConnectionsView: View {
                 }
             }
             ScoreboardCloudFailoverSettings()
-            ScoreboardSessionRecoveryControls()
             if !feedback.isEmpty { Text(feedback).font(.callout).foregroundStyle(.orange) }
         }
         .confirmationDialog("Disconnect Nearby Devices?", isPresented: $confirmsStop, titleVisibility: .visible) {

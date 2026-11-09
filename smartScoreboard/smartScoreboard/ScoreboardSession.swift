@@ -78,6 +78,34 @@ nonisolated struct ScoreboardSessionPeer: Codable, Equatable, Sendable {
     var cloudPairingPublicKey: String? = nil
     var requestedControl: Bool? = nil
     var supportsControl: Bool? = nil
+
+    /// Coalesce authenticated physical devices across transports, never by name.
+    static func uniqueDevices(_ peers: [Self]) -> [Self] {
+        var result: [Self] = []
+        for peer in peers {
+            let index = result.firstIndex { saved in
+                saved.id == peer.id || (peer.devicePublicKey?.isEmpty == false && peer.devicePublicKey == saved.devicePublicKey)
+            }
+            guard let index else { result.append(peer); continue }
+            var combined = result[index]
+            combined.connected = combined.connected || peer.connected
+            combined.supportsHosting = combined.supportsHosting || peer.supportsHosting
+            combined.devicePublicKey = combined.devicePublicKey ?? peer.devicePublicKey
+            combined.cloudPairingPublicKey = combined.cloudPairingPublicKey ?? peer.cloudPairingPublicKey
+            if combined.deviceType == .unknown { combined.deviceType = peer.deviceType }
+            if let status = peer.connectionStatus {
+                let previous = combined.connectionStatus
+                let available = ((previous?.available ?? []) + status.available).reduce(into: [ScoreboardConnectionInfo]()) {
+                    if !$0.contains($1.normalized) { $0.append($1.normalized) }
+                }
+                combined.connectionStatus = .init(active: previous?.active ?? status.active,
+                    available: available,
+                    activeHostID: previous?.activeHostID ?? status.activeHostID)
+            }
+            result[index] = combined
+        }
+        return result
+    }
 }
 
 extension ScoreboardSessionDescriptor {
@@ -85,7 +113,7 @@ extension ScoreboardSessionDescriptor {
     /// device the host, and older hosts may have omitted the owner's row.
     nonisolated func clientPeers(from peers: [ScoreboardSessionPeer], ownerConnected: Bool?) -> [ScoreboardSessionPeer] {
         var clients: [String: ScoreboardSessionPeer] = [:]
-        for peer in peers where peer.id != hostDeviceID { clients[peer.id] = peer }
+        for peer in ScoreboardSessionPeer.uniqueDevices(peers) where peer.id != hostDeviceID { clients[peer.id] = peer }
         if ownerDeviceID != hostDeviceID {
             var owner = clients[ownerDeviceID] ?? ScoreboardSessionPeer(
                 id: ownerDeviceID, name: ownerName, deviceType: .unknown,

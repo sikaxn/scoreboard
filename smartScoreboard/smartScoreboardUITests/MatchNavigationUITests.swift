@@ -2,6 +2,24 @@ import XCTest
 
 @MainActor
 final class MatchNavigationUITests: ScoreboardUITestCase {
+    func testNewScoreboardSharedLayout() {
+        launch("setup", opensBoard: false)
+        tap(app.buttons["home.new"])
+        let name = app.textFields["home.newName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home.newSport.simple"].isHittable)
+        XCTAssertTrue(app.buttons["home.newSport.basketball"].isHittable)
+        XCTAssertTrue(app.buttons["home.cancelNew"].isHittable)
+        XCTAssertTrue(app.buttons["home.create"].isHittable)
+        tap(app.buttons["home.newSport.basketball"])
+        XCTAssertTrue(app.buttons["home.newSport.basketball"].isSelected)
+        capture("Shared New Scoreboard sport selection")
+        tap(name); name.typeText("Court One")
+        capture("Shared New Scoreboard layout")
+        tap(app.buttons["home.create"])
+        XCTAssertTrue(app.staticTexts["settings.title.game"].waitForExistence(timeout: 10))
+    }
+
     func testUnifiedConnectionManagerEntryPoints() {
         launch()
         tap(app.buttons["connection.statusButton"])

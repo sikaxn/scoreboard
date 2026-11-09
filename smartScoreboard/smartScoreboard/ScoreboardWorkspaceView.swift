@@ -20,7 +20,6 @@ struct ScoreboardWorkspaceView: View {
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
-    @ObservedObject private var nearby = ScoreboardNearbyMatchService.shared
     @State private var startupError: String?
 
     private var kiosk: Bool { ScoreboardDeviceMode.current == .kiosk }
@@ -41,14 +40,7 @@ struct ScoreboardWorkspaceView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: navigation.destination == .settings)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: mode)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: navigation.boardOpen)
-        .confirmationDialog("Nearby Join Request", isPresented: Binding(get: { !nearby.approvals.isEmpty }, set: { _ in }), titleVisibility: .visible) {
-            if let request = nearby.approvals.first {
-                Button(request.requestsControl ? "Allow as Controller" : "Allow as Display") { nearby.approve(request) }
-                Button("Decline", role: .cancel) { nearby.decline(request) }
-            }
-        } message: {
-            if let request = nearby.approvals.first { Text("\(request.name) wants to join \(store.currentMatchTitle).") }
-        }
+        .scoreboardNearbyJoinNotifications()
         .task(id: mode) {
             guard !kiosk else {
                 if !store.isDelegatedSessionHost { store.setRemoteDisplayHostEnabled(false) }
@@ -82,6 +74,7 @@ struct ScoreboardWorkspaceView: View {
                 }
             }
             .environmentObject(store).environmentObject(PublicBoardState.shared)
+            .scoreboardNearbyJoinNotifications()
             .defaultAppStorage(ScoreboardPreferences.current)
             .frame(minWidth: 320, idealWidth: 1000, minHeight: 550)
         }
@@ -165,7 +158,19 @@ struct ScoreboardConnectionSheet: View {
     private var activeReceiver: ScoreboardRemoteDisplayReceiver { receiver ?? router.receiver }
     private var isParticipant: Bool { store.isJoinedMatchActive || store.isRemoteControlProxy || store.isFollowingSessionHost }
     var body: some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            connectionContent.presentationSizing(.page)
+        } else {
+            connectionContent
+        }
+        #else
+        connectionContent.frame(minWidth: 320, idealWidth: 1100, minHeight: 550, idealHeight: 760)
+        #endif
+    }
+    private var connectionContent: some View {
         NavigationStack {
+            GeometryReader { geometry in
             ScrollView {
                 if isParticipant {
                     VStack(alignment: .leading, spacing: 24) {
@@ -187,9 +192,10 @@ struct ScoreboardConnectionSheet: View {
                             Button("Return to Remote Control") { dismiss(); returnToRemoteControl() }
                         }
                     }.padding(24)
-                } else { ScoreboardHostConnectionsView(receiver: activeReceiver).padding(24) }
+                } else { ScoreboardHostConnectionsView(receiver: activeReceiver, wideLayout: geometry.size.width >= 900).padding(24) }
             }.accessibilityIdentifier("connection.status").navigationTitle("Connect Devices")
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("connection.done") } }
+            }
         }
     }
 }

@@ -554,6 +554,16 @@ nonisolated struct ScoreboardRemoteDisplayDisconnectNotice: Identifiable, Equata
     var id: String { "\(displayID)-\(sequence)" }
 }
 
+nonisolated struct ScoreboardNearbyJoinApproval: Identifiable, Sendable {
+    var id: String
+    var name: String
+    var requestsControl: Bool
+    var matchID: UUID
+    var expiresAt = Date().addingTimeInterval(60)
+
+    func remainingSeconds(at date: Date) -> Int { max(0, Int(ceil(expiresAt.timeIntervalSince(date)))) }
+}
+
 nonisolated struct ScoreboardRemoteDisplayPairingRequest: Codable, Sendable {
     let pairingCode: String?
     let hostID: String
@@ -954,7 +964,9 @@ enum ScoreboardRemoteDisplayPairingStore {
 
     static func saveLastActiveOperator(_ peer: ScoreboardRemoteDisplayTrustedPeer?) {
         guard let peer else {
-            ScoreboardPreferences.current.removeObject(forKey: lastActiveOperatorKey)
+            if ScoreboardPreferences.current.object(forKey: lastActiveOperatorKey) != nil {
+                ScoreboardPreferences.current.removeObject(forKey: lastActiveOperatorKey)
+            }
             return
         }
         save([peer], key: lastActiveOperatorKey)
@@ -1030,6 +1042,9 @@ enum ScoreboardRemoteDisplayPairingStore {
 
     private static func save(_ peers: [ScoreboardRemoteDisplayTrustedPeer], key: String) {
         let sortedPeers = peers.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // Heartbeats refresh the live connection, but unchanged trust should
+        // not rewrite preferences (JSON object key order is not stable).
+        guard load(key: key) != sortedPeers else { return }
         if let data = try? JSONEncoder().encode(sortedPeers) {
             ScoreboardPreferences.current.set(data, forKey: key)
         }
@@ -1641,14 +1656,22 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
     }
 
     private func handleBrowserResults(_ results: Set<NWBrowser.Result>) {
-        sources = results.compactMap { result -> ScoreboardRemoteDisplaySource? in
+        let discovered = results.compactMap { result -> ScoreboardRemoteDisplaySource? in
             let discoveryInfo = ScoreboardRemoteDisplayNetworkTransport.discoveryInfo(from: result)
-            guard !isLocalReceiverAdvertisement(discoveryInfo: discoveryInfo) else {
+            guard discoveryInfo?["displayID"]?.isEmpty == false,
+                  !isLocalReceiverAdvertisement(discoveryInfo: discoveryInfo) else {
                 return nil
             }
             return ScoreboardRemoteDisplaySource(endpoint: result.endpoint, discoveryInfo: discoveryInfo)
         }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        .sorted { $0.endpoint.debugDescription < $1.endpoint.debugDescription }
+        var unique: [String: ScoreboardRemoteDisplaySource] = [:]
+        for source in discovered {
+            if unique[source.id] == nil || displayConnectionsByEndpoint[source.endpoint]?.lastAckAt != nil {
+                unique[source.id] = source
+            }
+        }
+        sources = unique.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
         for source in sources where !isDiscoveryOnly {
             removeResetTrustedDisplayIfNeeded(source)
@@ -2249,7 +2272,7 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
 
     private func updateBrowsingStatus() {
         let now = Date()
-        connectedDisplays = displayConnectionsByEndpoint.values
+        let connections = displayConnectionsByEndpoint.values
             .filter { $0.isReady && $0.lastAckAt != nil && $0.pendingTrustedDisplay == nil
                 && $0.displayID != localDisplayID && !endpointsResettingPairing.contains($0.endpoint) }
             .map { display in
@@ -2275,10 +2298,19 @@ final class ScoreboardRemoteDisplayHostService: ObservableObject {
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
-        status = .browsing(
+        var unique: [String: ScoreboardRemoteDisplayConnection] = [:]
+        for connection in connections {
+            if unique[connection.id] == nil || (connection.lastHandshakeAgeSeconds ?? .max) < (unique[connection.id]?.lastHandshakeAgeSeconds ?? .max) {
+                unique[connection.id] = connection
+            }
+        }
+        let devices = unique.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if connectedDisplays != devices { connectedDisplays = devices }
+        let updatedStatus = ScoreboardRemoteDisplayHostStatus.browsing(
             displayCount: sources.count,
             pairedCount: connectedDisplays.count
         )
+        if status != updatedStatus { status = updatedStatus }
     }
 
     private var readyEndpoints: [NWEndpoint] {
@@ -2568,6 +2600,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     @Published private var controlPermission = false
     var isRemoteControlAvailable: Bool { ScoreboardRemoteDisplayDeviceType.current.supportsControl && controlPermission }
     @Published private(set) var isControlBoardDevice = false
+    var presentsControlBoard: Bool { isControlBoardDevice && isRemoteControlAvailable }
     @Published private(set) var isHostingSession = false
     var sessionMessageHandler: ((Data) -> Void)?
     var authenticatedSessionOwnerHostID: String? {
@@ -2818,6 +2851,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         pendingControlCommands.removeAll()
         pendingControlCommandID = nil
         if ScoreboardDeviceMode.current == .kiosk {
+            isControlBoardDevice = false
             state = nil; lastReceivedAt = nil
             imageAssetsByID.removeAll(); requestedImageAssetIDs.removeAll()
             soundTestPlayer.stop()
@@ -2911,11 +2945,14 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     private var lastActiveOperatorID: String?
     private var lastActiveOperatorName: String?
     private var isPairingScreenVisible = false
+    private var isJoiningNearbyMatch = false
+    private var nearbyJoinHostID: String?
     private var isDisconnectingFromOperator = false
     private var isForgettingTrustedHosts = false
     private var requestedImageAssetIDs = Set<String>()
     private var failedPairingAttemptsByHostID: [String: [Date]] = [:]
     private var lastNetworkRecoveryAt: Date?
+    private var networkRecoveryTask: Task<Void, Never>?
     private let soundTestPlayer = BuzzerPlayer()
 
     func acquire(displayName: String? = nil, networkMode: ScoreboardRemoteDisplayNetworkMode = .nearbyAndLocalNetwork) {
@@ -3012,6 +3049,9 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private func stopAdvertising(statusMessage: String) {
         guard !isHostingSession else { return }
+        networkRecoveryTask?.cancel(); networkRecoveryTask = nil
+        isJoiningNearbyMatch = false
+        nearbyJoinHostID = nil
         isSessionOwnerDevice = false
         pairingCodeTimer?.invalidate()
         pairingCodeTimer = nil
@@ -3048,11 +3088,6 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private func recoverReceiverNetworkingAfterFailure(error: NWError? = nil, force: Bool = false) {
         guard ScoreboardConnectionPolicy.allowsLocalNetworking, networkMode.allowsLocalNetwork else { return }
-        if isHostingSession {
-            cancelActiveConnections()
-            startOrRefreshListener(recreate: true)
-            return
-        }
         guard activeConsumerCount > 0 || isHostingSession else {
             return
         }
@@ -3060,10 +3095,25 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         let now = Date()
         if !force, let lastNetworkRecoveryAt,
            now.timeIntervalSince(lastNetworkRecoveryAt) < Self.networkRecoveryInterval {
+            if networkRecoveryTask == nil {
+                let delay = max(0.1, Self.networkRecoveryInterval - now.timeIntervalSince(lastNetworkRecoveryAt))
+                networkRecoveryTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled, let self else { return }
+                    self.networkRecoveryTask = nil
+                    self.recoverReceiverNetworkingAfterFailure()
+                }
+            }
             return
         }
 
+        networkRecoveryTask?.cancel(); networkRecoveryTask = nil
         lastNetworkRecoveryAt = now
+        if isHostingSession {
+            cancelActiveConnections()
+            startOrRefreshListener(recreate: true)
+            return
+        }
         let operatorName = pairedHostName ?? lastActiveOperatorName
         cancelActiveConnections()
         listener?.cancel()
@@ -3093,6 +3143,37 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
         }
         isPairingScreenVisible = isVisible
         startOrRefreshListener()
+    }
+
+    /// Selecting Join is consent to switch this receiver, not to erase its
+    /// remembered hosts. Advertise a fresh pairing window for that request.
+    func beginNearbyMatchJoin(hostID: String?) {
+        guard !isHostingSession, !isCloudReceiver else { return }
+        isJoiningNearbyMatch = true
+        nearbyJoinHostID = hostID
+        disconnectFromOperator()
+        cancelActiveConnections()
+        pairingCode = Self.makePairingCode()
+        status = .waiting
+        startOrRefreshListener()
+    }
+
+    func finishNearbyMatchJoin(connected: Bool) {
+        guard isJoiningNearbyMatch else { return }
+        isJoiningNearbyMatch = false
+        nearbyJoinHostID = nil
+        if !connected {
+            if pairedHostID != nil { disconnectFromOperator() }
+            pairingCode = Self.makePairingCode()
+        }
+        startOrRefreshListener()
+    }
+
+    private func acceptsNearbyJoinPairing(_ request: ScoreboardRemoteDisplayPairingRequest) -> Bool {
+        guard isJoiningNearbyMatch else { return true }
+        // Old trusted hosts cannot reconnect into an explicit join. A legacy
+        // host without discovery identity still needs the freshly generated PIN.
+        return !request.trustedReconnect && (nearbyJoinHostID == nil || nearbyJoinHostID == request.hostID)
     }
 
     func resetPairingCode() {
@@ -3150,6 +3231,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     func forgetTrustedHosts() {
         guard !isHostingSession else { return }
+        isJoiningNearbyMatch = false
+        nearbyJoinHostID = nil
         isSessionOwnerDevice = false
         isControlBoardDevice = false
         isForgettingTrustedHosts = true
@@ -3221,7 +3304,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private func rotatePairingCodeIfNeeded() {
-        guard pairedConnection == nil else {
+        guard pairedConnection == nil, !isJoiningNearbyMatch else {
             return
         }
         pairingCode = Self.makePairingCode()
@@ -3279,6 +3362,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
 
     private var advertisedState: ScoreboardRemoteDisplayReceiverAdvertisedState {
         if isHostingSession { return .running }
+        if isJoiningNearbyMatch { return .waitingUnpaired }
         if pairedHostID != nil {
             return isPairingScreenVisible ? .runningPairing : .running
         }
@@ -3420,8 +3504,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     }
 
     private static func isLocalNetworkPermissionError(_ error: NWError) -> Bool {
-        if case .posix(let code) = error { return code == .EACCES || code == .EPERM }
-        return false
+        ScoreboardNearbyNetworkError.requiresPermission(error)
     }
 
     private func handleNewConnection(_ connection: NWConnection) {
@@ -3593,6 +3676,7 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             connection.cancel()
             return
         }
+        guard acceptsNearbyJoinPairing(request) else { connection.cancel(); return }
         let requesterHostID = request.hostID
         let hostName = request.hostName
         let isDisplayMatch = request.displayID == nil || request.displayID == displayID
@@ -4053,9 +4137,11 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
-        trustedHosts.removeAll { $0.id == hostID }
-        trustedHosts.append(ScoreboardRemoteDisplayTrustedPeer(id: hostID, name: hostName, pairingSecret: pairingSecret))
-        trustedHosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        var peers = trustedHosts.filter { $0.id != hostID }
+        peers.append(ScoreboardRemoteDisplayTrustedPeer(id: hostID, name: hostName, pairingSecret: pairingSecret))
+        peers.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        guard peers != trustedHosts else { return }
+        trustedHosts = peers
         ScoreboardRemoteDisplayPairingStore.saveTrustedHosts(trustedHosts)
     }
 
@@ -4064,8 +4150,8 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
             return
         }
 
-        lastActiveOperatorID = operatorID
-        lastActiveOperatorName = operatorName
+        if lastActiveOperatorID != operatorID { lastActiveOperatorID = operatorID }
+        if lastActiveOperatorName != operatorName { lastActiveOperatorName = operatorName }
         ScoreboardRemoteDisplayPairingStore.saveLastActiveOperator(
             ScoreboardRemoteDisplayTrustedPeer(id: operatorID, name: operatorName, pairingSecret: pairingSecret)
         )
@@ -4167,6 +4253,32 @@ extension ScoreboardRemoteDisplayHostService {
 
 @MainActor
 extension ScoreboardRemoteDisplayReceiver {
+    func networkRecoveryBurstIsThrottledForTest() -> Bool {
+        isHostingSession = true
+        lastNetworkRecoveryAt = Date()
+        for _ in 0..<30 { recoverReceiverNetworkingAfterFailure() }
+        let deferred = networkRecoveryTask != nil && listener == nil
+        isHostingSession = false
+        stop()
+        return deferred && networkRecoveryTask == nil
+    }
+
+    func configureNearbyJoinTestHistory(hostID: String) {
+        trustedHosts = [.init(id: hostID, name: "Previous host", pairingSecret: "previous-secret")]
+        setLastActiveOperator(id: hostID, name: "Previous host", pairingSecret: "previous-secret")
+    }
+
+    var nearbyJoinTestDiscovery: [String: String] { currentDiscoveryInfo() }
+
+    func rotateNearbyJoinTestPIN() { rotatePairingCodeIfNeeded() }
+
+    func receiveNearbyJoinTestPairing(hostID: String, code: String, trusted: Bool = false) -> Bool {
+        let connection = NWConnection(host: "127.0.0.1", port: 1, using: .tcp)
+        handlePairingRequest(.init(pairingCode: code, hostID: hostID, hostName: "Selected host", displayID: displayID,
+            pairingSecret: trusted ? "previous-secret" : "new-secret", trustedReconnect: trusted, takeoverConfirmed: false), from: connection)
+        return pairedHostID == hostID
+    }
+
     func configureControlTestConnection(state: ScoreboardWebAPIState) {
         self.state = state
         status = .paired("Test main board")

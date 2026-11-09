@@ -25,8 +25,6 @@ struct ScoreboardMatchLibraryView: View {
     @State private var imports = false
     @State private var searches = false
     @State private var query = ""
-    @State private var name = ""
-    @State private var sport: SportType = .simple
     @State private var error: String?
     @State private var renamed: ScoreboardLibraryEntry?
     @State private var rename = ""
@@ -67,7 +65,7 @@ struct ScoreboardMatchLibraryView: View {
                     }
                     ScoreboardHomeStatusView().scoreboardHomeEntrance(order: 1)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: compactHeader ? 1 : 2), spacing: 16) {
-                        action("New Scoreboard", detail: "Choose a sport and get started", icon: "plus", color: .orange) { name = ""; showsNew = true }
+                        action("New Scoreboard", detail: "Choose a sport and get started", icon: "plus", color: .orange) { showsNew = true }
                             .accessibilityIdentifier("home.new")
                         action("Connect to Scoreboard", detail: store.localConnectionsEnabled ? "Nearby or with a cloud code" : cloud.cloudEnabled ? "Join with a cloud code" : "Enable LAN or cloud in App Settings", icon: "person.2", color: .teal) { navigation.open(.join) }
                             .disabled(!store.localConnectionsEnabled && !cloud.cloudEnabled).accessibilityIdentifier("home.connect")
@@ -124,26 +122,12 @@ struct ScoreboardMatchLibraryView: View {
             }
             .background(palette.detailBackground).foregroundStyle(palette.primaryText)
             .sheet(isPresented: $showsNew) {
-                NavigationStack {
-                    Form {
-                        TextField("Scoreboard name (optional)", text: $name).accessibilityIdentifier("home.newName")
-                        Picker("Sport", selection: $sport) { ForEach(SportType.allCases) { Text($0.title).tag($0) } }
-                        Text("Saved on this device. You can connect other devices after opening the scoreboard.").font(.callout).foregroundStyle(.secondary)
-                    }.navigationTitle("New Scoreboard")
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showsNew = false } }
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Create") { perform {
-                                    try library.newMatch(keepLocalDevices: false)
-                                    store.setSelectedSport(sport)
-                                    if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        if let entry = library.workingMatch { try library.rename(entry, to: name) }
-                                    }
-                                    try library.save(); showsNew = false; navigation.openBoard(setup: true)
-                                }}.accessibilityIdentifier("home.create")
-                            }
-                        }
-                }.frame(minWidth: 320, idealWidth: 500, minHeight: 320)
+                ScoreboardNewScoreboardView { name, sport in
+                    try library.newMatch(keepLocalDevices: false)
+                    store.setSelectedSport(sport)
+                    if !name.isEmpty, let entry = library.workingMatch { try library.rename(entry, to: name) }
+                    try library.save(); showsNew = false; navigation.openBoard(setup: true)
+                }.environmentObject(store)
             }
             .fileImporter(isPresented: $imports, allowedContentTypes: [.scoreboardGame]) { result in
                 perform {

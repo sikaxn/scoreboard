@@ -141,7 +141,7 @@ private struct MacPublicScoreboardRootView: View {
     @ObservedObject private var receiver = ScoreboardRemoteDisplayReceiver.shared
 
     private var followsRemoteScoreboard: Bool {
-        store.isRemoteDisplayViewerModeEnabled || store.isFollowingSessionHost
+        store.usesRemoteScoreboardPresentation
     }
 
     var body: some View {
