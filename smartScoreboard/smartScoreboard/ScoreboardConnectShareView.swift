@@ -6,7 +6,11 @@ import UniformTypeIdentifiers
 
 struct ScoreboardMatchGuestJoinForm: View {
     @ObservedObject private var cloud = ScoreboardCloudClient.shared
+    @ObservedObject private var nearby = ScoreboardNearbyMatchService.shared
+    @ObservedObject private var store = ScoreboardStore.shared
+    @ObservedObject private var receiver = ScoreboardRemoteDisplayReceiver.shared
     @StateObject private var nearbyJoin = ScoreboardJoinCoordinator()
+    @State private var browsingForReconnect = false
     @State private var invitationServer: String?
     @State private var appliedInvitationCode: String?
     var initialInvitation: ScoreboardMatchInvitation? = nil
@@ -23,6 +27,14 @@ struct ScoreboardMatchGuestJoinForm: View {
     @State private var joinTask: Task<Void, Never>?
     private var nearbyCode: Bool { code.count == 6 && code.allSatisfy(\.isNumber) && receivedNearbyPIN != nil }
     private var controlRequested: Bool { requestsControl && ScoreboardRemoteDisplayDeviceType.current.supportsControl }
+    private var rememberedNearby: ScoreboardNearbyMatch? {
+        guard store.localConnectionsEnabled, store.remoteDisplayNetworkMode.allowsLocalNetwork else { return nil }
+        let matches = nearby.matches.filter {
+            $0.cloudCode == normalizedCode && nearbyJoin.canReconnect($0) &&
+                (invitationServer == nil || $0.cloudServer.map { ScoreboardCloudEndpoint.sameService($0, invitationServer!) } == true)
+        }
+        return matches.count == 1 ? matches.first : nil
+    }
     #if !os(tvOS)
     @State private var importsQR = false
     #endif
@@ -38,7 +50,10 @@ struct ScoreboardMatchGuestJoinForm: View {
             }
             TextField("Match code or invitation link", text: $code).autocorrectionDisabled().scoreboardCloudSettingsField()
                 .accessibilityIdentifier("join.matchCode")
-            if !nearbyCode {
+            if let rememberedNearby {
+                Label("Previously paired with \(rememberedNearby.title) · no password needed nearby", systemImage: "checkmark.shield")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if !nearbyCode {
                 SecureField("Match password", text: $password).scoreboardCloudSettingsField().accessibilityIdentifier("join.password")
             }
             if cloud.cloudEnabled { Label("Cloud connections use \(cloud.connectionServiceName)", systemImage: "cloud").font(.caption).foregroundStyle(.secondary) }
@@ -56,7 +71,7 @@ struct ScoreboardMatchGuestJoinForm: View {
                         } else { feedback = "LAN & Nearby is off. Enable it in App Settings to use a nearby PIN." }
                     }
                     else { submit() }
-                }.buttonStyle(.borderedProminent).disabled(busy || code.isEmpty || (!nearbyCode && password.count < 6))
+                }.buttonStyle(.borderedProminent).disabled(busy || code.isEmpty || (!nearbyCode && rememberedNearby == nil && password.count < 6))
                     .accessibilityIdentifier("join.submit")
                 #if os(iOS)
                 Button("Scan QR", systemImage: "qrcode.viewfinder") { scans = true }.buttonStyle(.bordered)
@@ -67,7 +82,9 @@ struct ScoreboardMatchGuestJoinForm: View {
             }
             if !feedback.isEmpty { Text(feedback).font(.callout).accessibilityIdentifier("join.feedback") }
         }
-        .onAppear { if let invitation = initialInvitation { apply(invitation) } }
+        .onAppear { updateReconnectDiscovery(); if let invitation = initialInvitation { apply(invitation) } }
+        .onChange(of: store.localConnectionsEnabled) { _, _ in updateReconnectDiscovery() }
+        .onChange(of: store.remoteDisplayNetworkMode) { _, _ in updateReconnectDiscovery() }
         .onChange(of: code) { _, value in
             if let invitation = ScoreboardMatchInvitation.parse(value) { apply(invitation) }
             else if let invitation = ScoreboardNearbyInvitation.parse(value), let receivedNearbyInvitation {
@@ -76,7 +93,10 @@ struct ScoreboardMatchGuestJoinForm: View {
                 invitationServer = nil; appliedInvitationCode = nil
             }
         }
-        .onDisappear { joinTask?.cancel(); joinTask = nil; nearbyJoin.cancel() }
+        .onDisappear {
+            joinTask?.cancel(); joinTask = nil; nearbyJoin.cancel()
+            if browsingForReconnect { nearby.releaseBrowser(); browsingForReconnect = false }
+        }
         #if !os(tvOS)
         .fileImporter(isPresented: $importsQR, allowedContentTypes: [.image]) { result in
             do {
@@ -118,6 +138,12 @@ struct ScoreboardMatchGuestJoinForm: View {
     private var normalizedCode: String {
         code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "")
     }
+    private func updateReconnectDiscovery() {
+        if browsingForReconnect { nearby.releaseBrowser(); browsingForReconnect = false }
+        if store.localConnectionsEnabled && store.remoteDisplayNetworkMode.allowsLocalNetwork {
+            nearby.acquireBrowser(mode: store.remoteDisplayNetworkMode); browsingForReconnect = true
+        }
+    }
     private func nearbyMatch(code: String, server: String?, mode: ScoreboardRemoteDisplayNetworkMode) async throws -> ScoreboardNearbyMatch? {
         let nearby = ScoreboardNearbyMatchService.shared
         nearby.acquireBrowser(mode: mode)
@@ -141,6 +167,7 @@ struct ScoreboardMatchGuestJoinForm: View {
     private func submit() {
         busy = true; feedback = ""
         let matchCode = normalizedCode, matchPassword = password, explicitServer = invitationServer
+        let rememberedMatch = rememberedNearby
         let store = ScoreboardStore.shared, mode = store.remoteDisplayNetworkMode
         let allowLocal = ScoreboardConnectionPolicy.allowsLocalNetworking && mode.allowsLocalNetwork
         let allowCloud = cloud.cloudEnabled && mode.allowsCloud &&
@@ -151,6 +178,11 @@ struct ScoreboardMatchGuestJoinForm: View {
                 try store.requireMatchReplacementAllowed()
                 guard matchCode.count == 10, matchCode.allSatisfy({ "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains($0) }) else {
                     throw NSError(domain: "ScoreboardJoin", code: 400, userInfo: [NSLocalizedDescriptionKey: "Enter the match's 10-character invitation code or invitation link."])
+                }
+                if let match = rememberedMatch, mode != .preferCloud || !allowCloud || matchPassword.isEmpty {
+                    feedback = "Reconnecting to the paired nearby host…"
+                    try await nearbyJoin.joinInvitation(match, password: "", asDisplay: !controlRequested)
+                    password = ""; joined?(); feedback = "Reconnected nearby."; return
                 }
                 var cloudError: Error?
                 if mode == .preferCloud, allowCloud {

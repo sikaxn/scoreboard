@@ -11,6 +11,11 @@ import UIKit
     private var acquiredReceiver = false
     private var completion: ((Result<Void, Error>) -> Void)?
 
+    func canReconnect(_ match: ScoreboardNearbyMatch) -> Bool {
+        match.supportsTrustedReconnect &&
+            ScoreboardRemoteDisplayReceiver.shared.savedNearbyPairing(hostID: match.pairingHostID) != nil
+    }
+
     func join(_ match: ScoreboardNearbyMatch, code: String, asDisplay: Bool, completion: @escaping () -> Void) {
         start(match, code: code, asDisplay: asDisplay) { result in
             if case .success = result { completion() }
@@ -28,21 +33,25 @@ import UIKit
                        completion: @escaping (Result<Void, Error>) -> Void) {
         guard !isJoining else { completion(.failure(URLError(.cancelled))); return }
         let displayOnly = asDisplay || !ScoreboardRemoteDisplayDeviceType.current.supportsControl
+        let reconnecting = canReconnect(match)
         let store = ScoreboardStore.shared
         do { try store.prepareJoiningMatch(asDisplay: displayOnly) }
         catch { message = error.localizedDescription; completion(.failure(error)); return }
         ScoreboardRemoteConnectionRouter.shared.setJoinTarget(match.matchID)
-        isJoining = true; message = code.isEmpty && password == nil ? "Waiting for the host to confirm…" : "Connecting to \(match.title)…"
+        isJoining = true
+        message = reconnecting ? "Reconnecting to \(match.title)…" : code.isEmpty && password == nil ? "Waiting for the host to confirm…" : "Connecting to \(match.title)…"
         self.completion = completion
         let receiver = ScoreboardRemoteDisplayReceiver.shared
         receiver.acquire(networkMode: store.remoteDisplayNetworkMode); acquiredReceiver = true
         receiver.setPairingScreenVisible(true)
         let beganAt = Date()
         ScoreboardNearbyMatchService.shared.requestJoin(match, code: code, control: !displayOnly,
-            mode: store.remoteDisplayNetworkMode, invitationPassword: password) { [weak self] result in
+            mode: store.remoteDisplayNetworkMode, invitationPassword: password, reconnecting: reconnecting) { [weak self] result in
             guard let self, self.isJoining else { return }
             switch result {
-            case .failure(let error): self.finish(.failure(error))
+            case .failure(let error):
+                if error is ScoreboardNearbyReconnectError { receiver.requireNewNearbyPairing(hostID: match.pairingHostID) }
+                self.finish(.failure(error))
             case .success:
                 self.timeout = Task { [weak self] in
                     for _ in 0..<150 {
@@ -53,8 +62,7 @@ import UIKit
                            receiver.state?.game.matchID == match.matchID,
                            descriptor?.ownerDeviceID == match.id || descriptor?.hostDeviceID == match.id {
                             receiver.finishNearbyMatchJoin(connected: true)
-                            ScoreboardRecentMatches.shared.record(title: match.title, matchID: match.matchID, nearbyOwnerID: match.id,
-                                server: password == nil ? nil : match.cloudServer, code: password == nil ? nil : match.cloudCode)
+                            ScoreboardRecentMatches.shared.recordNearby(match)
                             store.commitJoinedMatch(); self.finish(.success(()))
                             return
                         }
@@ -89,6 +97,7 @@ struct ScoreboardNearbyJoinContent: View {
     @Environment(\.openURL) private var openURL
     @ObservedObject private var nearby = ScoreboardNearbyMatchService.shared
     @ObservedObject private var store = ScoreboardStore.shared
+    @ObservedObject private var receiver = ScoreboardRemoteDisplayReceiver.shared
     @StateObject private var join = ScoreboardJoinCoordinator()
     var invitation: ScoreboardNearbyInvitation? = nil
     var initialCode = ""
@@ -130,6 +139,10 @@ struct ScoreboardNearbyJoinContent: View {
                 }.buttonStyle(.bordered).disabled(join.isJoining)
             }
             if let selected {
+                if join.canReconnect(selected) {
+                    Label("Previously paired · no PIN or approval needed", systemImage: "checkmark.shield")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else {
                 #if os(tvOS)
                 HStack(spacing: 24) {
                     RemotePairingActionButton(title: "Enter Pairing PIN", symbol: "number", selected: usesPIN) { usesPIN = true }
@@ -146,6 +159,7 @@ struct ScoreboardNearbyJoinContent: View {
                     .keyboardType(.numberPad)
                     #endif
                     .accessibilityIdentifier("join.nearbyCode") }
+                }
                 #if os(tvOS)
                 Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
                 #else
@@ -153,10 +167,10 @@ struct ScoreboardNearbyJoinContent: View {
                     Text("Display").tag(true); Text("Controller · owner approval").tag(false)
                 }.pickerStyle(.menu)
                 #endif
-                Button(join.isJoining ? "Connecting…" : "Join \(selected.title)", systemImage: "arrow.right.circle") {
+                Button(join.isJoining ? "Connecting…" : join.canReconnect(selected) ? "Reconnect to \(selected.title)" : "Join \(selected.title)", systemImage: "arrow.right.circle") {
                     join.join(selected, code: usesPIN ? code : "", asDisplay: asDisplay, completion: joined)
                 }.buttonStyle(.borderedProminent)
-                    .disabled(join.isJoining || (usesPIN && (code.count != 6 || !code.allSatisfy(\.isNumber))))
+                    .disabled(join.isJoining || (!join.canReconnect(selected) && usesPIN && (code.count != 6 || !code.allSatisfy(\.isNumber))))
                 if join.isJoining { Button("Cancel Connection", role: .cancel) { join.cancel() } }
             }
             if let error = nearby.discoveryError, store.localConnectionsEnabled {
@@ -227,6 +241,10 @@ struct ScoreboardJoinMatchView: View {
     @State private var nearbyPIN = ""
     @State private var availability: [String: ScoreboardCloudInvitationStatus] = [:]
     @State private var browsingForRecents = false
+    @State private var recentJoinTask: Task<Void, Never>?
+    @State private var joiningRecent = false
+    @StateObject private var recentNearbyJoin = ScoreboardJoinCoordinator()
+    private var isReconnectingRecent: Bool { joiningRecent || recentNearbyJoin.isJoining }
     private var palette: SettingsPalette { store.theme.palette.settingsPalette(for: store.theme, colorScheme: colorScheme) }
     var body: some View {
         Group {
@@ -242,6 +260,8 @@ struct ScoreboardJoinMatchView: View {
             if browsingForRecents { nearby.retryBrowser(mode: mode) }
         }
         .onDisappear {
+            recentJoinTask?.cancel(); recentJoinTask = nil
+            recentNearbyJoin.cancel()
             if browsingForRecents { nearby.releaseBrowser(); browsingForRecents = false }
         }
         .onChange(of: initialInvitation) { _, invitation in scannedCloud = invitation }
@@ -260,10 +280,17 @@ struct ScoreboardJoinMatchView: View {
                         receivedNearbyInvitation: { scannedNearby = $0; nearbyPIN = $0.code },
                         receivedNearbyPIN: { nearbyPIN = $0 })
                         .id(scannedCloud?.url?.absoluteString ?? initialInvitation?.url?.absoluteString ?? "join-code")
+                        .disabled(isReconnectingRecent)
                         .padding(.vertical, 12)
                 }
                 if !recents.matches.isEmpty, ScoreboardDeviceMode.current == .app {
                     ScoreboardCloudSection("Recent Connections", footer: "Connection details only. Passwords and received game data are not saved.") {
+                        HStack {
+                            Spacer()
+                            Button("Clear Recent Connections", role: .destructive) {
+                                recents.removeAll(); feedback = ""
+                            }.buttonStyle(.borderless).disabled(isReconnectingRecent)
+                        }.padding(.vertical, 8)
                         ForEach(recents.matches) { recent in
                             Button { chooseRecent(recent) } label: {
                                 HStack {
@@ -273,7 +300,7 @@ struct ScoreboardJoinMatchView: View {
                                     }
                                     Spacer(); Image(systemName: "chevron.right")
                                 }.padding(.vertical, 12).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).disabled(isReconnectingRecent)
                                 .contextMenu { Button("Remove from Recents", role: .destructive) { recents.remove(recent.id) } }
                             if recent.id != recents.matches.last?.id { Divider() }
                         }
@@ -282,7 +309,7 @@ struct ScoreboardJoinMatchView: View {
                 if store.localConnectionsEnabled {
                 ScoreboardCloudSection("Nearby") {
                     ScoreboardNearbyJoinContent(invitation: scannedNearby ?? nearbyInvitation, initialCode: nearbyPIN,
-                        preferredMatchID: recentMatchID, joined: finish).padding(.vertical, 12)
+                        preferredMatchID: recentMatchID, joined: finish).padding(.vertical, 12).disabled(isReconnectingRecent)
                 }
                 }
                 if store.localConnectionsEnabled {
@@ -291,7 +318,14 @@ struct ScoreboardJoinMatchView: View {
                             .padding(.vertical, 12)
                     }
                 }
+                if isReconnectingRecent {
+                    HStack {
+                        ProgressView()
+                        Button("Cancel Connection", role: .cancel) { recentJoinTask?.cancel(); recentNearbyJoin.cancel() }
+                    }
+                }
                 if !feedback.isEmpty { Text(feedback).font(.callout).foregroundStyle(.orange) }
+                if !recentNearbyJoin.message.isEmpty { Text(recentNearbyJoin.message).font(.callout) }
             }.padding(24).frame(maxWidth: 780).frame(maxWidth: .infinity)
         }
         .background(palette.detailBackground).foregroundStyle(palette.primaryText)
@@ -299,7 +333,7 @@ struct ScoreboardJoinMatchView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .task(id: cloud.cloudEnabled.description + cloud.serviceURL + recents.matches.map(\.id).joined()) { await checkRecents() }
+        .task(id: recentAvailabilityKey) { await checkRecents() }
         .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } } }
     }
     private func finish() { if let finished { finished() } else { dismiss() } }
@@ -310,27 +344,69 @@ struct ScoreboardJoinMatchView: View {
         }
     }
     private func chooseRecent(_ recent: ScoreboardRecentMatch) {
-        if nearby.matches.contains(where: { $0.matchID == recent.matchID }), store.localConnectionsEnabled {
-            recentMatchID = recent.matchID; nearbyPIN = ""; scannedNearby = nil
-        } else if let server = recent.server, let code = recent.code {
+        feedback = ""
+        let nearbyAvailable = store.localConnectionsEnabled && nearby.matches.contains { $0.matchID == recent.matchID }
+        let route = recent.preferredRoute(nearbyAvailable: nearbyAvailable, cloudEnabled: cloud.cloudEnabled,
+            serviceURL: cloud.serviceURL, mode: store.remoteDisplayNetworkMode)
+        if route == .local {
+            if let match = nearby.matches.first(where: { $0.matchID == recent.matchID }), recentNearbyJoin.canReconnect(match) {
+                recentNearbyJoin.join(match, code: "", asDisplay: true, completion: finish)
+            } else { recentMatchID = recent.matchID; nearbyPIN = ""; scannedNearby = nil }
+        } else if route == .cloud, cloud.hasSavedParticipation(for: recent) {
+            joiningRecent = true; feedback = "Reconnecting through the cloud…"
+            recentJoinTask = Task { @MainActor in
+                defer { joiningRecent = false; recentJoinTask = nil }
+                do {
+                    if try await cloud.resumeRecentMatch(recent, beforeConnect: { control in
+                        try store.prepareJoiningMatch(asDisplay: !control)
+                    }) {
+                        store.commitJoinedMatch(); finish()
+                    } else { showRecentInvitation(recent) }
+                } catch {
+                    if store.isPreparingMatchJoin { store.leaveJoinedMatch() }
+                    if !(error is CancellationError) { feedback = error.localizedDescription }
+                }
+            }
+        } else { showRecentInvitation(recent) }
+    }
+    private func showRecentInvitation(_ recent: ScoreboardRecentMatch) {
+        if let server = recent.server, let code = recent.code {
             scannedCloud = .init(server: server, code: code)
-        } else { feedback = "This scoreboard is offline. Enable nearby connections and ask its host to open the match." }
+            if !cloud.cloudEnabled { feedback = "Enable cloud connections above to reconnect online, or join when the host is nearby." }
+            else if !ScoreboardCloudEndpoint.sameService(server, cloud.serviceURL) {
+                feedback = "This match uses another cloud host. Select that host in App Settings to reconnect online."
+            } else { feedback = "Enter the match password above to join again." }
+        } else if recent.server != nil, !cloud.cloudEnabled {
+            feedback = "Enable cloud connections above to reconnect this paired device online."
+        } else {
+            feedback = "This scoreboard is not nearby and has no usable cloud invitation. Ask the host to share its cloud code and password, or enable nearby connections."
+        }
     }
     private func recentStatus(_ recent: ScoreboardRecentMatch) -> String {
         if store.localConnectionsEnabled, nearby.matches.contains(where: { $0.matchID == recent.matchID }) { return "Nearby · Available" }
-        guard let server = recent.server, let code = recent.code else { return "Offline · Not nearby" }
+        guard let server = recent.server else { return "Offline · Not nearby" }
         guard cloud.cloudEnabled else { return "Offline · Cloud is off" }
         guard ScoreboardCloudEndpoint.sameService(server, cloud.serviceURL) else { return "Offline · Another cloud host" }
-        guard let status = availability[code] else { return "Cloud · Not checked" }
+        guard let code = recent.code, let status = availability[code] else {
+            return cloud.hasSavedParticipation(for: recent) ? "Cloud · Paired device" : "Cloud · Not checked"
+        }
         return status.available && status.hostOnline == true ? "Via Cloud · Available" : "Offline · Host unavailable"
     }
     private func checkRecents() async {
         availability = [:]
+        guard cloud.cloudEnabled else { return }
+        if cloud.isRemoteRegistration { await cloud.refreshSessions() }
+        guard !Task.isCancelled else { return }
         let codes = recents.matches.filter { $0.server.map { ScoreboardCloudEndpoint.sameService($0, cloud.serviceURL) } == true }.compactMap(\.code)
-        guard cloud.cloudEnabled, !codes.isEmpty else { return }
+        guard !codes.isEmpty else { return }
         if let statuses = try? await cloud.invitationAvailability(codes: codes), !Task.isCancelled {
             availability = Dictionary(uniqueKeysWithValues: statuses.map { ($0.code, $0) })
         }
+    }
+    private var recentAvailabilityKey: String {
+        cloud.cloudEnabled.description + cloud.serviceURL + recents.matches.map {
+            "\($0.id)|\($0.server ?? "")|\($0.code ?? "")|\($0.cloudSessionID ?? "")"
+        }.joined()
     }
 }
 

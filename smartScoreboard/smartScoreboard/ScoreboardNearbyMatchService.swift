@@ -2,17 +2,6 @@ import Foundation
 import Combine
 import Network
 
-nonisolated struct ScoreboardNearbyMatch: Identifiable, Sendable {
-    var id: String
-    var matchID: UUID
-    var title: String
-    var ownerName: String
-    var endpoint: NWEndpoint
-    var pairingHostID: String? = nil
-    var cloudCode: String? = nil
-    var cloudServer: String? = nil
-}
-
 nonisolated struct ScoreboardNearbyInvitation: Equatable {
     var ownerID: String
     var code: String
@@ -74,7 +63,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         var code: String
         var publicKey: Data
     }
-    private struct Reply: Codable { var accepted: Bool; var message: String }
+    private struct Reply: Codable { var accepted: Bool; var message: String; var pairingRequired: Bool? = nil }
 
     private static func parameters(peerToPeer: Bool) -> NWParameters {
         let params = NWParameters.tcp
@@ -126,6 +115,7 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         record["title"] = String(decoding: store.currentMatchTitle.utf8.prefix(160), as: UTF8.self)
         record["owner"] = String((ScoreboardRemoteDisplayDeviceName.current ?? "Smart Scoreboard").prefix(60))
         record["pairingHostID"] = store.remoteDisplayHostID
+        record["reconnect"] = "challenge1"
         if let invitation, invitation.matchID == store.currentMatchID, invitation.hostID == store.remoteDisplayHostID {
             record["cloudCode"] = invitation.code; record["cloudServer"] = invitation.server
             record["cloudPairing"] = "srp1"
@@ -142,7 +132,11 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     }
 
     private func startBrowser(mode: ScoreboardRemoteDisplayNetworkMode) {
-        guard ScoreboardConnectionPolicy.allowsLocalNetworking, mode.allowsLocalNetwork else { return }
+        guard ScoreboardConnectionPolicy.allowsLocalNetworking, mode.allowsLocalNetwork else {
+            browser?.cancel(); browser = nil; matches = []
+            discoveryError = nil; discoveryNeedsPermission = false
+            return
+        }
         guard browser == nil else { return }
         discoveryError = nil; discoveryNeedsPermission = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil),
@@ -156,7 +150,8 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
                       let rawMatchID = txt["matchID"], let matchID = UUID(uuidString: rawMatchID) else { return nil }
                 return ScoreboardNearbyMatch(id: id, matchID: matchID, title: txt["title"] ?? "Match", ownerName: txt["owner"] ?? "Smart Scoreboard", endpoint: result.endpoint, pairingHostID: txt["pairingHostID"],
                     cloudCode: txt["cloudPairing"] == "srp1" ? txt["cloudCode"] : nil,
-                    cloudServer: txt["cloudPairing"] == "srp1" ? txt["cloudServer"] : nil)
+                    cloudServer: txt["cloudPairing"] == "srp1" ? txt["cloudServer"] : nil,
+                    supportsTrustedReconnect: txt["reconnect"] == "challenge1")
             }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             self.matches = Dictionary(matches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 .values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -203,13 +198,14 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
     }
 
     func requestJoin(_ match: ScoreboardNearbyMatch, code: String, control: Bool,
-                     mode: ScoreboardRemoteDisplayNetworkMode, invitationPassword: String? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
+                     mode: ScoreboardRemoteDisplayNetworkMode, invitationPassword: String? = nil, reconnecting: Bool = false,
+                     completion: @escaping (Result<Void, Error>) -> Void) {
         guard ScoreboardConnectionPolicy.allowsLocalNetworking else {
             completion(.failure(error("Enable LAN & Nearby in App Settings first."))); return
         }
         cancelRequest()
         let receiver = ScoreboardRemoteDisplayReceiver.shared
-        receiver.beginNearbyMatchJoin(hostID: match.pairingHostID)
+        receiver.beginNearbyMatchJoin(hostID: match.pairingHostID, reconnecting: reconnecting)
         let request = JoinRequest(matchID: match.matchID, code: code,
             displayID: receiver.displayID, displayCode: receiver.pairingCode, control: control, name: ScoreboardRemoteDisplayDeviceName.current ?? "Nearby device")
         // matchID is also verified by the owner; use the latest discovery metadata.
@@ -224,6 +220,20 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
             guard let self, let connection, self.requestConnection === connection else { return }
             switch state {
             case .ready:
+                if reconnecting {
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        do {
+                            try await self.authenticateReconnect(match, request: data, on: connection)
+                            guard self.requestConnection === connection else { return }
+                            self.finishRequest(.success(()))
+                        } catch {
+                            guard self.requestConnection === connection else { return }
+                            self.finishRequest(.failure(error is DecodingError ? ScoreboardNearbyReconnectError.pairingRequired : error))
+                        }
+                    }
+                    return
+                }
                 if let invitationPassword {
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -297,6 +307,9 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         connection.receiveMessage { [weak self] data, _, _, _ in
             Task { @MainActor [weak self] in
             guard let self else { return }
+            if let data, data.count <= 4096, let hello = try? JSONDecoder().decode(ScoreboardNearbyReconnect.Hello.self, from: data), hello.kind == "trusted-reconnect-v1" {
+                await self.receiveReconnectHello(hello, on: connection); return
+            }
             if let data, data.count <= 4096, let hello = try? JSONDecoder().decode(CloudHello.self, from: data), hello.kind == "cloud-invitation-v1" {
                 await self.receiveCloudHello(hello, on: connection); return
             }
@@ -334,6 +347,83 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
             } else { self.pair(request, connection: connection, remaining: 30) }
             }
         }
+    }
+
+    private func authenticateReconnect(_ match: ScoreboardNearbyMatch, request: Data, on connection: NWConnection) async throws {
+        let receiver = ScoreboardRemoteDisplayReceiver.shared
+        guard let peer = receiver.savedNearbyPairing(hostID: match.pairingHostID), let secret = peer.pairingSecret else {
+            throw ScoreboardNearbyReconnectError.pairingRequired
+        }
+        let hello = ScoreboardNearbyReconnect.Hello(matchID: match.matchID, hostID: peer.id, displayID: receiver.displayID)
+        try await sendMessage(JSONEncoder().encode(hello), on: connection)
+        let data = try await receiveMessage(on: connection)
+        if let reply = try? JSONDecoder().decode(Reply.self, from: data), !reply.accepted {
+            if reply.pairingRequired == true { throw ScoreboardNearbyReconnectError.pairingRequired }
+            throw error(reply.message)
+        }
+        let challenge = try JSONDecoder().decode(ScoreboardNearbyReconnect.Challenge.self, from: data)
+        let response = try ScoreboardNearbyReconnect.response(to: challenge, hello: hello, secret: secret, request: request)
+        try await sendMessage(JSONEncoder().encode(response), on: connection)
+        let reply = try JSONDecoder().decode(Reply.self, from: await receiveMessage(on: connection))
+        guard reply.accepted else {
+            if reply.pairingRequired == true { throw ScoreboardNearbyReconnectError.pairingRequired }
+            throw error(reply.message)
+        }
+    }
+
+    private func reconnectPeer(_ hello: ScoreboardNearbyReconnect.Hello) -> ScoreboardRemoteDisplayTrustedPeer? {
+        guard let owner, owner.isSessionAuthority, owner.isRemoteDisplayHostEnabled, !owner.isShowingFileHome,
+              owner.currentMatchID == hello.matchID, owner.remoteDisplayHostID == hello.hostID else { return nil }
+        owner.pruneInvitationPairings()
+        return owner.remoteDisplayTrustedDisplays.first {
+            $0.id == hello.displayID && $0.allowsNearbyReconnect(matchID: hello.matchID,
+                invitationRevision: ScoreboardCloudClient.shared.nearbyInvitation?.revision)
+        }
+    }
+
+    private func receiveReconnectHello(_ hello: ScoreboardNearbyReconnect.Hello, on connection: NWConnection) async {
+        guard let peer = reconnectPeer(hello), let secret = peer.pairingSecret else {
+            reply(false, "This pairing is no longer available. Pair again.", on: connection, pairingRequired: true); return
+        }
+        do {
+            let challenge = try ScoreboardNearbyReconnect.challenge(hello: hello, secret: secret)
+            try await sendMessage(JSONEncoder().encode(challenge), on: connection)
+            let response = try JSONDecoder().decode(ScoreboardNearbyReconnect.Response.self, from: await receiveMessage(on: connection))
+            let data = try ScoreboardNearbyReconnect.verify(response, challenge: challenge, hello: hello, secret: secret)
+            let request = try JSONDecoder().decode(JoinRequest.self, from: data)
+            guard request.version == 1, request.matchID == hello.matchID, request.displayID == hello.displayID,
+                  reconnectPeer(hello)?.pairingSecret == secret else { throw ScoreboardNearbyReconnectError.pairingRequired }
+            reconnect(request, hello: hello, secret: secret, connection: connection, remaining: 30)
+        } catch { reply(false, "The saved pairing could not be verified. Pair again.", on: connection, pairingRequired: true) }
+    }
+
+    private func reconnect(_ request: JoinRequest, hello: ScoreboardNearbyReconnect.Hello, secret: String,
+                           connection: NWConnection, remaining: Int) {
+        guard pending[ObjectIdentifier(connection)] != nil else { return }
+        guard let owner, reconnectPeer(hello)?.pairingSecret == secret else {
+            reply(false, "This pairing is no longer available. Pair again.", on: connection, pairingRequired: true); return
+        }
+        if let source = owner.remoteDisplaySources.first(where: { $0.id == request.displayID && !$0.isSessionInfrastructure }),
+           !owner.isTrustedRemoteDisplay(source) {
+            reply(false, "This device's pairing has changed. Pair again.", on: connection, pairingRequired: true); return
+        }
+        if let source = owner.remoteDisplaySources.first(where: { $0.id == request.displayID && !$0.isSessionInfrastructure }),
+           owner.isTrustedRemoteDisplay(source), !source.needsTakeoverConfirmation(currentOperatorID: owner.remoteDisplayHostID),
+           !source.isInUseByOtherOperator(currentOperatorID: owner.remoteDisplayHostID) {
+            if request.control && !owner.isRemoteControlAllowed(displayID: source.id) {
+                requestedControllers.insert(source.id); owner.noteLocalControlRequest(displayID: source.id)
+            }
+            // Keep the existing secret and approved role. A reconnect must not
+            // run pair(), which rotates trust and revokes control permission.
+            owner.connectTrustedRemoteDisplay(source)
+            reply(true, "Reconnecting", on: connection)
+        } else if remaining > 0 {
+            Task { @MainActor [weak self, weak connection] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let connection else { return }
+                self?.reconnect(request, hello: hello, secret: secret, connection: connection, remaining: remaining - 1)
+            }
+        } else { reply(false, "Could not reconnect to your paired device. Check Local Network permission and try again.", on: connection) }
     }
 
     /// Bonjour is only a hint. SRP authenticates the password and the host before
@@ -490,8 +580,8 @@ nonisolated struct ScoreboardNearbyInvitation: Equatable {
         } else { reply(false, "Could not discover your device. Check Local Network permission and try again.", on: connection) }
     }
 
-    private func reply(_ accepted: Bool, _ message: String, on connection: NWConnection) {
-        if let data = try? JSONEncoder().encode(Reply(accepted: accepted, message: message)) {
+    private func reply(_ accepted: Bool, _ message: String, on connection: NWConnection, pairingRequired: Bool = false) {
+        if let data = try? JSONEncoder().encode(Reply(accepted: accepted, message: message, pairingRequired: pairingRequired ? true : nil)) {
             send(data, on: connection) { connection.cancel() }
         } else { connection.cancel() }
     }

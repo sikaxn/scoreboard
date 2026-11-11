@@ -43,7 +43,7 @@ struct ScoreboardCloudConsentView: View {
                 }
             case .loading:
                 ProgressView("Loading cloud agreement…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                Button("Cancel", role: .cancel) { cloud.cancelCloudAgreement() }.buttonStyle(.bordered)
+                Button("Use App Offline", role: .cancel) { cloud.postponeCloudAgreement() }.buttonStyle(.bordered)
             case .agreement(let document):
                 Text(document.title).font(.title2.bold())
                 Text("Version \(document.version)").font(.headline)
@@ -83,7 +83,7 @@ struct ScoreboardCloudConsentView: View {
                 Text("Local scoreboards and nearby pairing remain available.").foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 HStack {
-                    Button("Keep Cloud Off", role: .cancel) { cloud.cancelCloudAgreement() }.buttonStyle(.bordered)
+                    Button("Use App Offline", role: .cancel) { cloud.postponeCloudAgreement() }.buttonStyle(.bordered)
                     Spacer()
                     Button("Try Again") { cloud.retryCloudAgreement() }.buttonStyle(.borderedProminent)
                 }
@@ -93,7 +93,14 @@ struct ScoreboardCloudConsentView: View {
         .padding(4)
         .onChange(of: cloud.cloudConsent) { _, _ in agrees = false }
         #if os(tvOS)
-        .onExitCommand { if !cloud.acceptingCloudAgreement { cloud.cancelCloudAgreement() } }
+        .onExitCommand {
+            if !cloud.acceptingCloudAgreement {
+                switch cloud.cloudConsent {
+                case .loading, .failed: cloud.postponeCloudAgreement()
+                default: cloud.cancelCloudAgreement()
+                }
+            }
+        }
         #endif
     }
 }

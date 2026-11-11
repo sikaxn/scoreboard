@@ -1,7 +1,32 @@
 import Foundation
 import Testing
+import Network
 
 extension ScoreboardTests {
+    @Test("A PIN or confirmed nearby join keeps its cloud route after a relaunch with no nearby radios")
+    func recentNearbyCloudRelaunch() throws {
+        let preferences = ScoreboardPreferences.current, key = "scoreboard.recentJoins.v1"
+        let previous = preferences.data(forKey: key)
+        defer {
+            if let previous { preferences.set(previous, forKey: key) } else { preferences.removeObject(forKey: key) }
+        }
+        preferences.removeObject(forKey: key)
+        let match = ScoreboardNearbyMatch(id: "nearby-owner", matchID: UUID(), title: "Court", ownerName: "Mac",
+            endpoint: .hostPort(host: "localhost", port: 1234), cloudCode: "ABCDEFGHJK", cloudServer: "https://scores.example.test")
+        ScoreboardRecentMatches().recordNearby(match)
+        let restored = try #require(ScoreboardRecentMatches().matches.first)
+        #expect(restored.matchID == match.matchID && restored.nearbyOwnerID == match.id)
+        #expect(restored.server == match.cloudServer && restored.code == match.cloudCode)
+        #expect(restored.preferredRoute(nearbyAvailable: false, cloudEnabled: true, serviceURL: match.cloudServer!, mode: .preferLocal) == .cloud)
+        #expect(restored.preferredRoute(nearbyAvailable: true, cloudEnabled: true, serviceURL: match.cloudServer!, mode: .preferLocal) == .local)
+        #expect(restored.preferredRoute(nearbyAvailable: true, cloudEnabled: true, serviceURL: match.cloudServer!, mode: .preferCloud) == .cloud)
+        #expect(restored.preferredRoute(nearbyAvailable: false, cloudEnabled: false, serviceURL: match.cloudServer!, mode: .nearbyAndLocalNetwork) == nil)
+        #expect(restored.preferredRoute(nearbyAvailable: false, cloudEnabled: true, serviceURL: "https://another.example.test", mode: .preferLocal) == nil)
+        #expect(restored.preferredRoute(nearbyAvailable: false, cloudEnabled: true, serviceURL: match.cloudServer!, mode: .localNetworkOnly) == nil)
+        let wire = String(decoding: try #require(preferences.data(forKey: key)), as: UTF8.self)
+        #expect(!wire.contains("password") && !wire.contains("token"))
+    }
+
     @Test("Recent connections merge nearby and cloud metadata without saving secrets or kiosk history")
     func recentConnectionMetadataIsolation() throws {
         let preferences = ScoreboardPreferences.current, key = "scoreboard.recentJoins.v1"

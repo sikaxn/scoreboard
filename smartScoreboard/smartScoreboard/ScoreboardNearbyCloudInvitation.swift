@@ -3,6 +3,60 @@ import CryptoKit
 import CommonCrypto
 import SRP
 
+/// A fresh challenge proves both ends still hold the original pairing secret.
+/// IDs and the exact join request are authenticated; Bonjour alone grants nothing.
+nonisolated enum ScoreboardNearbyReconnect {
+    struct Hello: Codable, Sendable {
+        var kind = "trusted-reconnect-v1"
+        var matchID: UUID
+        var hostID: String
+        var displayID: String
+    }
+    struct Challenge: Codable, Sendable { var nonce: Data; var proof: Data }
+    struct Response: Codable, Sendable { var request: Data; var proof: Data }
+    private struct Context: Encodable {
+        var hello: Hello; var nonce: Data; var role: String; var request: Data
+    }
+    static func challenge(hello: Hello, secret: String) throws -> Challenge {
+        let nonce = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        return .init(nonce: nonce, proof: try proof(hello: hello, nonce: nonce, role: "host", request: Data(), secret: secret))
+    }
+    static func response(to challenge: Challenge, hello: Hello, secret: String, request: Data) throws -> Response {
+        guard challenge.nonce.count == 32,
+              try verifies(challenge.proof, hello: hello, nonce: challenge.nonce, role: "host", request: Data(), secret: secret) else {
+            throw ScoreboardNearbyReconnectError.pairingRequired
+        }
+        return .init(request: request, proof: try proof(hello: hello, nonce: challenge.nonce, role: "client", request: request, secret: secret))
+    }
+    static func verify(_ response: Response, challenge: Challenge, hello: Hello, secret: String) throws -> Data {
+        guard challenge.nonce.count == 32, response.request.count <= 2048,
+              try verifies(response.proof, hello: hello, nonce: challenge.nonce, role: "client", request: response.request, secret: secret) else {
+            throw ScoreboardNearbyReconnectError.pairingRequired
+        }
+        return response.request
+    }
+    private static func context(hello: Hello, nonce: Data, role: String, request: Data, secret: String) throws -> Data {
+        guard hello.kind == "trusted-reconnect-v1", !hello.hostID.isEmpty, !hello.displayID.isEmpty, !secret.isEmpty else {
+            throw ScoreboardNearbyReconnectError.pairingRequired
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(Context(hello: hello, nonce: nonce, role: role, request: request))
+    }
+    private static func proof(hello: Hello, nonce: Data, role: String, request: Data, secret: String) throws -> Data {
+        Data(HMAC<SHA256>.authenticationCode(for: try context(hello: hello, nonce: nonce, role: role, request: request, secret: secret),
+            using: SymmetricKey(data: Data(secret.utf8))))
+    }
+    private static func verifies(_ proof: Data, hello: Hello, nonce: Data, role: String, request: Data, secret: String) throws -> Bool {
+        HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: try context(hello: hello, nonce: nonce, role: role, request: request, secret: secret),
+            using: SymmetricKey(data: Data(secret.utf8)))
+    }
+}
+
+nonisolated enum ScoreboardNearbyReconnectError: LocalizedError {
+    case pairingRequired
+    var errorDescription: String? { "The saved pairing could not be verified. Pair again using the host's PIN or confirmation." }
+}
+
 /// Only the publishing native host receives this material over its signed cloud connection.
 nonisolated struct ScoreboardInvitationVerifierResponse: Decodable, Sendable {
     var enabled: Bool

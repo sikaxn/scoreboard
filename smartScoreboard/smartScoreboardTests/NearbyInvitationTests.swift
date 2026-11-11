@@ -96,6 +96,11 @@ extension ScoreboardTests {
         var guest = ScoreboardRemoteDisplayTrustedPeer(id: "invited-display", name: "Guest", pairingSecret: "ephemeral-guest-secret")
         guest.invitationMatchID = matchID; guest.invitationRevision = "revision-1"
         let independent = ScoreboardRemoteDisplayTrustedPeer(id: "local-display", name: "Independent", pairingSecret: "local-secret")
+        #expect(guest.allowsNearbyReconnect(matchID: matchID, invitationRevision: "revision-1"))
+        #expect(!guest.allowsNearbyReconnect(matchID: UUID(), invitationRevision: "revision-1"))
+        #expect(!guest.allowsNearbyReconnect(matchID: matchID, invitationRevision: "revision-2"))
+        #expect(!guest.allowsNearbyReconnect(matchID: matchID, invitationRevision: nil))
+        #expect(independent.allowsNearbyReconnect(matchID: UUID(), invitationRevision: nil))
         host.refreshControlTestTrustedDisplay(guest); host.refreshControlTestTrustedDisplay(independent)
         host.removeExpiredInvitationPairings(matchID: matchID, revision: "revision-1")
         #expect(host.trustedDisplays.contains { $0.id == guest.id })
