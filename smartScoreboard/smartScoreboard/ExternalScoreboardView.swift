@@ -97,6 +97,7 @@ struct ExternalScoreboardView: View {
             homeRosterPlayers: store.homeRoster.players,
             guestRosterPlayers: store.guestRoster.players,
             pauseTimer: store.pauseTimer,
+            completion: store.gameCompletion,
             displayLayout: store.externalDisplayLayout,
             displayFont: store.externalDisplayFont
         )
@@ -274,6 +275,7 @@ struct PublicScoreboardDisplayView: View {
     let homeRosterPlayers: [TrackedPlayer]
     let guestRosterPlayers: [TrackedPlayer]
     var pauseTimer: ScoreboardPauseTimer? = nil
+    var completion: ScoreboardGameCompletion? = nil
     var displayLayout: ExternalDisplayLayout = .standard
     var displayFont: ExternalDisplayFont = .rounded
     var compactBoardOverride: Bool? = nil
@@ -325,6 +327,11 @@ struct PublicScoreboardDisplayView: View {
                     ScoreboardPauseOverlay(pause: pauseTimer,
                         title: pauseTimer.title(homeTeamName: homeTeamName, guestTeamName: guestTeamName),
                         logoData: pauseTimer.logoData(homeTeamLogoData: homeTeamLogoData, guestTeamLogoData: guestTeamLogoData, eventLogoData: eventLogoData))
+                        .allowsHitTesting(false)
+                }
+
+                if let completion, displayedForegroundVisible {
+                    ScoreboardCompletionOverlay(completion: completion)
                         .allowsHitTesting(false)
                 }
 
@@ -1333,5 +1340,41 @@ struct ScoreboardPauseOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// A shared final-result presentation for local, paired, cloud and kiosk displays.
+struct ScoreboardCompletionOverlay: View {
+    let completion: ScoreboardGameCompletion
+
+    var body: some View {
+        GeometryReader { proxy in
+            let base = min(proxy.size.width, proxy.size.height)
+            ZStack {
+                Color.black.opacity(0.78)
+                VStack(spacing: max(12, base * 0.035)) {
+                    Text(ScoreboardLocalization.string("Final Result"))
+                        .font(.system(size: max(16, base * 0.04), weight: .bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                    Text(completion.resultTitle)
+                        .font(.system(size: max(24, base * 0.075), weight: .black, design: .rounded))
+                        .multilineTextAlignment(.center)
+                    if completion.showsScore {
+                        Text(completion.scoreLine)
+                            .font(.system(size: max(40, base * 0.16), weight: .black, design: .rounded))
+                            .monospacedDigit()
+                        HStack(spacing: 24) {
+                            Text(completion.homeName)
+                            Text(completion.guestName)
+                        }.font(.system(size: max(16, base * 0.035), weight: .semibold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(max(20, base * 0.06))
+                .frame(maxWidth: proxy.size.width * 0.9)
+                .minimumScaleFactor(0.4)
+            }
+        }
+        .accessibilityIdentifier("display.finalResult")
     }
 }

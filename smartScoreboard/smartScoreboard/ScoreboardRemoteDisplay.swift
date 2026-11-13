@@ -2643,7 +2643,9 @@ final class ScoreboardRemoteDisplayReceiver: ObservableObject {
     @Published private var controlPermission = false
     var isRemoteControlAvailable: Bool { ScoreboardRemoteDisplayDeviceType.current.supportsControl && controlPermission }
     @Published private(set) var isControlBoardDevice = false
-    var presentsControlBoard: Bool { isControlBoardDevice && isRemoteControlAvailable }
+    var presentsControlBoard: Bool {
+        ScoreboardDeviceMode.current != .kiosk && ScoreboardRemoteDisplayDeviceType.current.supportsControl && state != nil
+    }
     @Published private(set) var isHostingSession = false
     var sessionMessageHandler: ((Data) -> Void)?
     var authenticatedSessionOwnerHostID: String? {

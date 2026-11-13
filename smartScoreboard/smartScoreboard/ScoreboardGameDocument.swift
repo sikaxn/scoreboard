@@ -20,9 +20,39 @@ struct ScoreboardGameEmbeddedImage: Codable, Equatable, Sendable {
     var data: Data
 }
 
+nonisolated enum ScoreboardGameOutcome: String, Codable, CaseIterable, Sendable {
+    case homeWin, guestWin, tie, aborted
+
+    func title(homeName: String, guestName: String) -> String {
+        switch self {
+        case .homeWin, .guestWin:
+            return String(format: ScoreboardLocalization.string("%@ wins"), self == .homeWin ? homeName : guestName)
+        case .tie: return ScoreboardLocalization.string("Tie")
+        case .aborted: return ScoreboardLocalization.string("Game aborted")
+        }
+    }
+}
+
+/// Frozen at completion and carried by saved games and every display transport.
+nonisolated struct ScoreboardGameCompletion: Codable, Equatable, Sendable {
+    var outcome: ScoreboardGameOutcome
+    var homeName: String
+    var guestName: String
+    var homeScore: Int
+    var guestScore: Int
+    var homePeriodWins: Int?
+    var guestPeriodWins: Int?
+    var showsScore: Bool
+    var completedAtUnixTime: TimeInterval
+
+    var resultTitle: String { outcome.title(homeName: homeName, guestName: guestName) }
+    var scoreLine: String { "\(homePeriodWins ?? homeScore) – \(guestPeriodWins ?? guestScore)" }
+}
+
 struct ScoreboardGameSnapshot: Equatable, Sendable {
-    nonisolated static let currentFileVersion = 14
+    nonisolated static let currentFileVersion = 15
     var fileVersion = Self.currentFileVersion
+    var completion: ScoreboardGameCompletion? = nil
     var matchID: UUID? = nil
     var ownerDeviceID: String? = nil
     var sport: SportType?
@@ -207,6 +237,7 @@ struct ScoreboardGameSnapshot: Equatable, Sendable {
 extension ScoreboardGameSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
         case fileVersion
+        case completion
         case matchID
         case ownerDeviceID
         case sport
@@ -303,6 +334,7 @@ extension ScoreboardGameSnapshot: Codable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        completion = try container.decodeIfPresent(ScoreboardGameCompletion.self, forKey: .completion)
         fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
         matchID = try container.decodeIfPresent(UUID.self, forKey: .matchID)
         ownerDeviceID = try container.decodeIfPresent(String.self, forKey: .ownerDeviceID)
@@ -400,6 +432,7 @@ extension ScoreboardGameSnapshot: Codable {
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(completion, forKey: .completion)
         try container.encodeIfPresent(matchID, forKey: .matchID)
         try container.encodeIfPresent(ownerDeviceID, forKey: .ownerDeviceID)
         try container.encode(fileVersion, forKey: .fileVersion)

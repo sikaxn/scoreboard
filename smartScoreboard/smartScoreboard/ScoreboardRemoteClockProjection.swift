@@ -11,6 +11,7 @@ struct RemoteScoreboardProjection {
         now: Date
     ) {
         self.state = state
+        if state.game.completion != nil { elapsedSeconds = 0; return }
         if
             let generatedAtUnixTime = state.generatedAtUnixTime,
             let masterClockOffset
@@ -104,7 +105,7 @@ struct RemoteScoreboardProjection {
     }
 
     var isClockRunning: Bool {
-        guard state.runtime.isClockRunning else {
+        guard state.game.completion == nil, state.runtime.isClockRunning else {
             return false
         }
 

@@ -161,10 +161,10 @@ struct ScoreboardNearbyJoinContent: View {
                     .accessibilityIdentifier("join.nearbyCode") }
                 }
                 #if os(tvOS)
-                Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
+                Label("Apple TV joins in View Only mode.", systemImage: "tv").foregroundStyle(.secondary)
                 #else
                 Picker("Join as", selection: $asDisplay) {
-                    Text("Display").tag(true); Text("Controller · owner approval").tag(false)
+                    Text("View Only").tag(true); Text("Controller · owner approval").tag(false)
                 }.pickerStyle(.menu)
                 #endif
                 Button(join.isJoining ? "Connecting…" : join.canReconnect(selected) ? "Reconnect to \(selected.title)" : "Join \(selected.title)", systemImage: "arrow.right.circle") {
@@ -269,7 +269,7 @@ struct ScoreboardJoinMatchView: View {
     private var joinContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text(ScoreboardDeviceMode.current == .kiosk ? "Join as a display or controller. This device keeps no copy when you disconnect." : "Your local scoreboard stays saved on this device.").font(.callout).foregroundStyle(palette.secondaryText)
+                Text(ScoreboardDeviceMode.current == .kiosk ? "Join in View Only mode or as a controller. Kiosk Mode opens the fullscreen scoreboard." : "Your local scoreboard stays saved on this device.").font(.callout).foregroundStyle(palette.secondaryText)
                 ScoreboardCloudSection("Code or Link") {
                     ScoreboardMatchGuestJoinForm(initialInvitation: scannedCloud ?? initialInvitation,
                         beforeConnect: { control in
@@ -426,7 +426,7 @@ private struct ScoreboardWaitingForPairingView: View {
                 Text("Ask the owner to add this device from Connect Devices.").multilineTextAlignment(.center)
                 if prepared {
                     Picker("Join as", selection: $displayOnly) {
-                        Text("Display").tag(true); Text("Controller · owner approval").tag(false)
+                        Text("View Only").tag(true); Text("Controller · owner approval").tag(false)
                     }.pickerStyle(.menu)
                     Text(receiver.pairingCode).font(.system(size: 64, weight: .bold, design: .rounded)).monospacedDigit()
                     ScoreboardPairingQRCode(value: ScoreboardPairingLink.nearbyURL(deviceID: receiver.displayID, code: receiver.pairingCode), size: 180)

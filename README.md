@@ -4,7 +4,7 @@
   <img src="icon.png" alt="Scoreboard app icon" width="160">
 </p>
 
-Scoreboard is a SwiftUI scoreboard app for iPhone, iPad, Mac, and Apple TV. iPhone, iPad, and Mac include the operator controls; Apple TV can display a paired scoreboard and run the game as the session host.
+Scoreboard is a SwiftUI scoreboard app for iPhone, iPad, Mac, and Apple TV. iPhone, iPad, and Mac include the operator controls; Apple TV shows a paired scoreboard fullscreen in Kiosk Mode.
 
 This project use AI generated contents.
 
@@ -15,6 +15,8 @@ This project use AI generated contents.
 Scoreboard turns your iPhone, iPad, or Mac into a flexible, easy-to-control scoreboard for games, practices, tournaments, and debate rounds.
 
 Track scores, clocks, periods, shot clocks, possession, fouls, cards, substitutions, rosters, soccer injury time, chess clocks, hockey penalty timers, and debate prep time from one clean control board. Show a full-screen public scoreboard on an external display, through AirPlay, or on one or more paired Remote Display devices while keeping the controls private on the operator device.
+
+Choose **Complete game** in any sport or control-board mode, then declare either team the winner, a tie, or an aborted game. The existing **Game State** box shows the final result and score. Game editing controls lock until **Undo completion** is used; undo preserves scores and leaves timers paused. The top bar, board layout selector, full-screen display, settings navigation, and player lists remain available for viewing. **Resets & Swap Sides** is collapsed inside the clock controls. Saved games, paired/cloud clients, the API, and browser displays retain the result. Non-kiosk **View Only** clients show the board with editing controls disabled; Kiosk Mode opens the fullscreen scoreboard.
 
 Choose **Local Display → Full Screen** for a presentation display, or **Merged View (Beta)** to operate the game and watch the scoreboard in the same window. The combined view keeps the scoreboard above compact, scrollable controls in both orientations, adapting the control columns to iPhone, iPad, and Mac window sizes.
 

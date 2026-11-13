@@ -52,6 +52,7 @@ final class EventModeUITests: ScoreboardUITestCase {
             XCTAssertEqual(text(metric(period)), "2")
         }
         let total = steps.reduce(0, +)
+        showResetAndSideControls()
         tap(action("Zero Scores"))
         respondToConfirmation("Cancel")
         assertScores(home: total, guest: total - 1)
@@ -119,6 +120,7 @@ final class EventModeUITests: ScoreboardUITestCase {
         XCTAssertEqual(clockSeconds(text(sideClock("home"))), minutes * 60)
         XCTAssertEqual(clockSeconds(text(sideClock("guest"))), (minutes + 1) * 60)
         exerciseSideClocks()
+        showResetAndSideControls()
         tap(action("Reset Clocks"))
         respondToConfirmation("Cancel")
         XCTAssertLessThan(clockSeconds(text(sideClock("guest"))), (minutes + 1) * 60)

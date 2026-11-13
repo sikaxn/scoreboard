@@ -964,6 +964,9 @@ final class ScoreboardStore: ObservableObject {
     @Published var homeTeamName = ""
     @Published var guestTeamName = ""
     @Published var eventName = ""
+    @Published private(set) var gameCompletion: ScoreboardGameCompletion?
+    var isGameCompleted: Bool { gameCompletion != nil }
+
     @Published var homeScore = 0
     @Published var guestScore = 0
     @Published var period = 1
@@ -1696,6 +1699,8 @@ final class ScoreboardStore: ObservableObject {
     private var remoteControlState: ScoreboardWebAPIState?
 
     var isRemoteControlProxy: Bool { remoteControlReceiver != nil }
+    var canControlGame: Bool { remoteControlReceiver?.isControlConnectionReady ?? true }
+    var isGameViewOnly: Bool { isGameCompleted || !canControlGame }
 
     static func makeRemoteControlStore(receiver: ScoreboardRemoteDisplayReceiver,
                                        sendCommand: ((ScoreboardControlCommand) -> Void)? = nil) -> ScoreboardStore {
@@ -3518,6 +3523,60 @@ final class ScoreboardStore: ObservableObject {
         sessionDescriptor?.logSessionID = logManager.currentSessionSnapshot()?.sessionID
     }
 
+    func completeGame(outcome: ScoreboardGameOutcome) {
+        if routeRemoteControlCommand("game.complete", text: outcome.rawValue) { return }
+        guard !isGameCompleted else { return }
+        reconcileRunningTimersWithWallClock()
+        stopTimersForCompletion()
+        clearQueuedEventActions()
+        stopTestSound()
+        let completion = ScoreboardGameCompletion(
+            outcome: outcome,
+            homeName: homeTeamName.isEmpty ? sideRoleLabel(for: .home) : homeTeamName,
+            guestName: guestTeamName.isEmpty ? sideRoleLabel(for: .guest) : guestTeamName,
+            homeScore: homeScore, guestScore: guestScore,
+            homePeriodWins: supportsPeriodWinTracking && !volleyballSetResults.isEmpty ? homePeriodWins : nil,
+            guestPeriodWins: supportsPeriodWinTracking && !volleyballSetResults.isEmpty ? guestPeriodWins : nil,
+            showsScore: supportsScore || supportsPeriodWinTracking,
+            completedAtUnixTime: Date().timeIntervalSince1970)
+        gameCompletion = completion
+        recordLog(kind: .gameComplete, summary: completion.resultTitle, outcome: .applied,
+                  notes: completion.scoreLine)
+        saveCompletionChange()
+    }
+
+    func undoGameCompletion() {
+        if routeRemoteControlCommand("game.undoComplete") { return }
+        guard isGameCompleted else { return }
+        gameCompletion = nil
+        // Reopening never restarts timers or an interrupted pause automatically.
+        stopTimersForCompletion()
+        recordLog(kind: .gameCompletionUndo, summary: localizedStoreString("Undo completion"), outcome: .applied)
+        saveCompletionChange()
+    }
+
+    private func stopTimersForCompletion() {
+        isClockRunning = false
+        isShotClockRunning = false
+        isDebatePrepClockRunning = false
+        pauseTimer = nil
+        for side in TeamSide.allCases {
+            updatePenaltyTimers(for: side) { timers in
+                for index in timers.indices { timers[index].isRunning = false }
+            }
+        }
+        updateTimerState()
+        refreshPrimaryTimerPersistence()
+    }
+
+    private func saveCompletionChange() {
+        requestGameClockAutosave()
+        matchLibrary.saveAfterChange()
+        persistState()
+        refreshWebAPIState()
+        refreshRemoteDisplayState()
+    }
+
     func resetScores() {
         if routeRemoteControlCommand("score.reset") { return }
         guard supportsScore else {
@@ -4943,6 +5002,7 @@ final class ScoreboardStore: ObservableObject {
     func currentGameSnapshot() -> ScoreboardGameSnapshot {
         ScoreboardGameSnapshot(
             fileVersion: ScoreboardGameSnapshot.currentFileVersion,
+            completion: gameCompletion,
             matchID: currentMatchID,
             ownerDeviceID: matchOwnerDeviceID ?? localSessionDeviceID,
             sport: selectedSport,
@@ -5130,6 +5190,8 @@ final class ScoreboardStore: ObservableObject {
     }
 
     func applyGameSnapshot(_ snapshot: ScoreboardGameSnapshot) {
+        if isGameCompleted, snapshot.matchID == currentMatchID,
+           !isApplyingSessionUpdate, !isApplyingRemoteControlState { return }
         if isFollowingSessionHost && !isApplyingSessionUpdate && !isApplyingRemoteControlState {
             sendOwnerGameSnapshot(snapshot)
             return
@@ -5146,6 +5208,7 @@ final class ScoreboardStore: ObservableObject {
                 clearQueuedEventActions()
             }
 
+            gameCompletion = nil
             let snapshotSport = snapshot.sport ?? .basketball
             customSportConfig = snapshot.customSportConfig ?? .default
             customDebatePreset = snapshot.customDebatePreset ?? .customDefault
@@ -5292,6 +5355,8 @@ final class ScoreboardStore: ObservableObject {
             }
             updateTimerState()
             normalizeInjuryTimeState()
+            gameCompletion = snapshot.completion
+            if isGameCompleted { stopTimersForCompletion() }
             didCompleteSetup = true
         }
     }
@@ -5382,6 +5447,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startClock() {
+        guard !isGameCompleted else { return }
         guard pauseTimer == nil else { return }
         if usesChessClocks {
             guard activeChessClockSide != nil else {
@@ -5434,6 +5500,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func startShotClock() {
+        guard !isGameCompleted else { return }
         guard pauseTimer == nil else { return }
         guard supportsShotClock else {
             return
@@ -5557,6 +5624,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func tick(elapsed: TimeInterval) {
+        guard !isGameCompleted else { return }
         var soundEvents: [ScoreboardSoundEvent] = []
         var clockEventDispatches: [ScoreboardEventDispatch] = []
 
@@ -7531,6 +7599,7 @@ final class ScoreboardStore: ObservableObject {
             $homeTeamName.map { _ in () }.eraseToAnyPublisher(),
             $guestTeamName.map { _ in () }.eraseToAnyPublisher(),
             $eventName.map { _ in () }.eraseToAnyPublisher(),
+            $gameCompletion.map { _ in () }.eraseToAnyPublisher(),
             $homeScore.map { _ in () }.eraseToAnyPublisher(),
             $guestScore.map { _ in () }.eraseToAnyPublisher(),
             $period.map { _ in () }.eraseToAnyPublisher(),
@@ -7808,6 +7877,7 @@ final class ScoreboardStore: ObservableObject {
 
     private func applyPersistedState(_ persistedState: PersistedState) {
         performWithoutAuditLogging {
+            gameCompletion = nil
             currentMatchID = persistedState.matchID ?? UUID()
             matchOwnerDeviceID = persistedState.matchOwnerDeviceID ?? localSessionDeviceID
             pauseClock()
@@ -7979,6 +8049,8 @@ final class ScoreboardStore: ObservableObject {
             areTipsEnabled = persistedState.areTipsEnabled
             showGettingStartedOnStartup = persistedState.showGettingStartedOnStartup
             didAutoShowGettingStarted = persistedState.didAutoShowGettingStarted
+            gameCompletion = persistedState.completion
+            if isGameCompleted { stopTimersForCompletion() }
             updateTimerState()
             refreshWebAPIState()
             refreshRemoteDisplayState()
@@ -8037,6 +8109,7 @@ final class ScoreboardStore: ObservableObject {
     }
 
     private func restorePrimaryTimerPersistenceIfNeeded() {
+        guard !isGameCompleted else { clearPrimaryTimerPersistence(); return }
         guard sessionDescriptor == nil else { return }
         guard pauseTimer == nil else { clearPrimaryTimerPersistence(); return }
         guard
@@ -8315,6 +8388,7 @@ final class ScoreboardStore: ObservableObject {
             isTeamPauseIndefinite: isTeamPauseIndefinite
         )
         result.matchID = currentMatchID
+        result.completion = gameCompletion
         result.matchOwnerDeviceID = matchOwnerDeviceID
         return result
     }
@@ -8502,6 +8576,7 @@ private struct PrimaryTimerPersistenceSnapshot: Codable {
 private struct PersistedState: Codable {
     var matchID: UUID? = nil
     var matchOwnerDeviceID: String? = nil
+    var completion: ScoreboardGameCompletion? = nil
     var selectedSport: SportType
     var customSportConfig: CustomSportConfig
     var homeTeamName: String
@@ -8620,7 +8695,7 @@ private struct PersistedState: Codable {
     var isTeamPauseIndefinite: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case matchID, matchOwnerDeviceID
+        case matchID, matchOwnerDeviceID, completion
         case homeTeamName
         case selectedSport
         case customSportConfig
@@ -8981,6 +9056,7 @@ private struct PersistedState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        completion = try container.decodeIfPresent(ScoreboardGameCompletion.self, forKey: .completion)
         matchID = try container.decodeIfPresent(UUID.self, forKey: .matchID)
         matchOwnerDeviceID = try container.decodeIfPresent(String.self, forKey: .matchOwnerDeviceID)
         selectedSport = try container.decodeIfPresent(SportType.self, forKey: .selectedSport) ?? .basketball
@@ -9153,6 +9229,7 @@ private struct PersistedState: Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(completion, forKey: .completion)
         try container.encodeIfPresent(matchID, forKey: .matchID)
         try container.encodeIfPresent(matchOwnerDeviceID, forKey: .matchOwnerDeviceID)
         try container.encode(selectedSport, forKey: .selectedSport)
@@ -10045,7 +10122,7 @@ extension ScoreboardStore {
             }
             if let name = message.gameName { currentGameDisplayName = name; logManager.setCurrentGameDisplayName(name) }
         case .game:
-            guard !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
+            guard !isGameCompleted, !fromHost, senderID == sessionDescriptor?.ownerDeviceID, isSessionAuthority,
                   message.descriptor.epoch == sessionDescriptor?.epoch,
                   let snapshot = message.game else { return }
             isApplyingSessionUpdate = true
@@ -10183,9 +10260,9 @@ extension ScoreboardStore {
         publicDisplayViewMode = checkpoint.mainDisplayMode
         areSidesSwapped = checkpoint.runtime.areSidesSwapped
         possessionDirection = checkpoint.runtime.possessionDirection
-        isClockRunning = checkpoint.runtime.isClockRunning
-        isShotClockRunning = checkpoint.runtime.isShotClockRunning
-        isDebatePrepClockRunning = checkpoint.runtime.isDebatePrepClockRunning
+        isClockRunning = !isGameCompleted && checkpoint.runtime.isClockRunning
+        isShotClockRunning = !isGameCompleted && checkpoint.runtime.isShotClockRunning
+        isDebatePrepClockRunning = !isGameCompleted && checkpoint.runtime.isDebatePrepClockRunning
         accumulatedGameClockElapsed = checkpoint.gameElapsed
         accumulatedShotClockElapsed = checkpoint.shotElapsed
         accumulatedPenaltyElapsed = checkpoint.penaltyElapsed
@@ -10776,6 +10853,7 @@ extension ScoreboardStore {
     func routeRemoteControlCommand(_ action: String, side: TeamSide? = nil, value: Int? = nil,
                                    text: String? = nil, enabled: Bool? = nil,
                                    playerID: UUID? = nil, timerID: UUID? = nil) -> Bool {
+        if isGameCompleted && action != "game.undoComplete" { return true }
         if !isRemoteControlProxy, !isDelegatedSessionHost, isPreparingMatchJoin { return true }
         if !isRemoteControlProxy, !isDelegatedSessionHost, isJoinedMatchActive {
             let receiver = ScoreboardRemoteConnectionRouter.shared.receiver
@@ -10859,8 +10937,12 @@ extension ScoreboardStore {
         remoteControlState = state
         assignRemoteValue(\.currentGameDisplayName, state.control?.gameName)
         var snapshot = state.game
-        snapshot.homeRoster = state.players.homeRoster
-        snapshot.guestRoster = state.players.guestRoster
+        // View-only transports may supply only the public lineup. Show those
+        // players without manufacturing editable default roster entries.
+        let homeUsesPublicRoster = state.control?.remoteEnabled != true && state.players.homeRoster.players.isEmpty
+        let guestUsesPublicRoster = state.control?.remoteEnabled != true && state.players.guestRoster.players.isEmpty
+        snapshot.homeRoster = homeUsesPublicRoster ? TeamRoster(players: state.players.homeDisplayed) : state.players.homeRoster
+        snapshot.guestRoster = guestUsesPublicRoster ? TeamRoster(players: state.players.guestDisplayed) : state.players.guestRoster
         let pendingCommands = remoteControlReceiver?.pendingCommandsForDisplay ?? []
         // Overlay text in the value snapshot before publishing. Incoming packets
         // must not briefly replace in-flight edits with older roster text.
@@ -10909,13 +10991,15 @@ extension ScoreboardStore {
         assignRemoteValue(\.externalDisplayLayout, state.display?.layout ?? .standard)
         assignRemoteValue(\.externalDisplayFont, state.display?.font ?? .rounded)
         assignRemoteValue(\.isSoundEnabled, state.control?.isSoundEnabled ?? true)
-        assignRemoteValue(\.isClockRunning, state.runtime.isClockRunning)
-        assignRemoteValue(\.isShotClockRunning, state.runtime.isShotClockRunning)
-        assignRemoteValue(\.isDebatePrepClockRunning, state.runtime.isDebatePrepClockRunning)
+        assignRemoteValue(\.isClockRunning, !isGameCompleted && state.runtime.isClockRunning)
+        assignRemoteValue(\.isShotClockRunning, !isGameCompleted && state.runtime.isShotClockRunning)
+        assignRemoteValue(\.isDebatePrepClockRunning, !isGameCompleted && state.runtime.isDebatePrepClockRunning)
         assignRemoteValue(\.areSidesSwapped, state.runtime.areSidesSwapped)
         assignRemoteValue(\.possessionDirection, state.runtime.possessionDirection)
-        assignRemoteValue(\.homeRoster, normalizedRoster(snapshot.homeRoster, fallbackCount: rosterSizePerTeam))
-        assignRemoteValue(\.guestRoster, normalizedRoster(snapshot.guestRoster, fallbackCount: rosterSizePerTeam))
+        assignRemoteValue(\.homeRoster, normalizedRoster(snapshot.homeRoster,
+            fallbackCount: homeUsesPublicRoster ? state.players.homeDisplayed.count : rosterSizePerTeam))
+        assignRemoteValue(\.guestRoster, normalizedRoster(snapshot.guestRoster,
+            fallbackCount: guestUsesPublicRoster ? state.players.guestDisplayed.count : rosterSizePerTeam))
         if isRemoteControlProxy {
             assignRemoteValue(\.isCompanionVisible, false)
             assignRemoteValue(\.isCompanionEnabled, false)
@@ -10933,7 +11017,7 @@ extension ScoreboardStore {
         }
         // Pending absolute values are safe to display over older snapshots. They
         // are discarded at acknowledgement/disconnect and never run game logic.
-        for command in pendingCommands {
+        for command in pendingCommands where !isGameCompleted {
             switch command.action {
             case "clock.running": isClockRunning = command.enabled ?? isClockRunning
             case "shot.running": isShotClockRunning = command.enabled ?? isShotClockRunning

@@ -168,6 +168,8 @@ struct ContentView: View, ScoreboardSetupEditing {
     @State private var localScoreboardReturnHintDismissTask: Task<Void, Never>?
     @State private var dashboardTourSignatureSnapshot = ""
     @State private var dashboardCurrentTourTipID: String?
+    @State private var showsGameCompletion = false
+    @State private var showsResetAndSideControls = false
     @State private var pendingGameConfirmation: GameConfirmationAction?
     @State private var pendingBackupRestore: PendingBackupRestore?
     @State private var pendingLogDeletion: StoredLogSession?
@@ -712,6 +714,21 @@ struct ContentView: View, ScoreboardSetupEditing {
                 // A restored local selection must not rename the live host's game.
                 guard !store.isFollowingSessionHost else { return }
                 store.setCurrentGameDisplayName(name)
+            }
+            .onChange(of: store.isGameCompleted) { _, completed in
+                if completed { dashboardPage = .main; showsGameCompletion = false }
+            }
+            .confirmationDialog("Complete game", isPresented: $showsGameCompletion, titleVisibility: .visible) {
+                ForEach(ScoreboardGameOutcome.allCases, id: \.self) { outcome in
+                    Button(outcome.title(
+                        homeName: store.homeTeamName.isEmpty ? store.sideRoleLabel(for: .home) : store.homeTeamName,
+                        guestName: store.guestTeamName.isEmpty ? store.sideRoleLabel(for: .guest) : store.guestTeamName)) {
+                        store.completeGame(outcome: outcome)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Choose the final result. All timers will stop and the game will be locked until you undo completion.")
             }
         }
     }
@@ -1511,10 +1528,13 @@ struct ContentView: View, ScoreboardSetupEditing {
         switch selectedSettingsPane {
         case .game:
             ScoreboardViewBoundary { settingsGamePane(layout: layout) }
+                .disabled(store.isGameViewOnly)
         case .players:
             ScoreboardViewBoundary { settingsPlayersPane(layout: layout) }
+                .disabled(store.isGameViewOnly)
         case .display:
             ScoreboardViewBoundary { settingsDisplayPane() }
+                .disabled(store.isGameViewOnly)
         case .sound:
             ScoreboardViewBoundary { settingsSoundPane(layout: layout) }
         case .theme:
@@ -7192,8 +7212,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .padding(.vertical, 9)
                 .background(tint, in: Capsule())
         }
-        .opacity(isEnabled ? 1 : 0.42)
-        .disabled(!isEnabled)
+        .opacity(isEnabled && !store.isGameViewOnly ? 1 : 0.42)
+        .disabled(!isEnabled || store.isGameViewOnly)
         .buttonStyle(.plain)
     }
 
@@ -8303,6 +8323,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 Label(localizedAppString(store.isSoundEnabled ? "Sound On" : "Sound Off"),
                       systemImage: store.isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
             }
+            .disabled(store.isGameViewOnly)
             Menu {
                 ForEach(ScoreboardTheme.allCases) { theme in
                     Button {
@@ -8312,6 +8333,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     } label: {
                         Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
                     }
+                    .disabled(store.isGameViewOnly)
                 }
             } label: {
                 Label(localizedAppString("Theme"), systemImage: store.theme.systemImage)
@@ -8328,6 +8350,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                     Label(localizedAppString(store.isCompanionEnabled ? "Companion On" : "Companion Off"),
                           systemImage: IntegrationSettingsDetail.bitfocusCompanion.systemImage)
                 }
+                .disabled(store.isGameViewOnly)
             }
             if !store.isRemoteControlProxy {
                 Button { openSettingsFromLiveBoard() } label: {
@@ -8831,6 +8854,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString(title))
         .help(localizedAppString(title))
+        .disabled(store.isGameViewOnly)
     }
 
     private func themeHeaderMenu(layout: InterfaceLayout) -> some View {
@@ -8843,6 +8867,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 } label: {
                     Label(localizedAppString(theme.title), systemImage: store.theme == theme ? "checkmark.circle.fill" : theme.systemImage)
                 }
+                .disabled(store.isGameViewOnly)
             }
         } label: {
             headerIconButtonLabel(
@@ -8901,6 +8926,7 @@ struct ContentView: View, ScoreboardSetupEditing {
         .buttonStyle(.plain)
         .accessibilityLabel(localizedAppString(title))
         .help(localizedAppString(title))
+        .disabled(store.isGameViewOnly && store.isCompanionVisible)
     }
 
     @ViewBuilder
@@ -9067,6 +9093,9 @@ struct ContentView: View, ScoreboardSetupEditing {
             padding: layout.controlCardPadding,
             cornerRadius: layout.controlCardCornerRadius
         )
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1)
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.shotClockControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
     }
 
@@ -9091,19 +9120,86 @@ struct ContentView: View, ScoreboardSetupEditing {
         })
     }
 
+    private var showsGameStateSummary: Bool { controlBoardConfiguration.showsCenterSummary || store.isGameCompleted }
+
     private var stationSides: [TeamSide] {
         let sides = controlBoardConfiguration.teams.sides
         return sides.count == 2 && store.resolvedControlBoardDisplayDirection.leftSide == .guest ? sides.reversed().map { $0 } : sides
     }
 
     private func controlPane(layout: InterfaceLayout) -> some View {
-        Group {
-            if controlBoardMode == .full || dashboardPage == .preview {
-                standardControlPane(layout: layout)
-            } else {
-                stationControlPane(layout: layout)
+        VStack(spacing: layout.sectionSpacing) {
+            if !store.isGameCompleted && !store.canControlGame {
+                HStack {
+                    Label("View Only", systemImage: "eye")
+                        .font(.headline).foregroundStyle(themePalette.dashboardMutedText)
+                    Spacer()
+                    if let returnToRemoteControl {
+                        Button("Connection", action: returnToRemoteControl).buttonStyle(.bordered)
+                    }
+                }
+            } else if !store.isGameCompleted && controlBoardMode != .full && dashboardPage != .preview &&
+                        !controlBoardConfiguration.visibleModules(for: controlBoardCapabilities).contains(.matchTimer) {
+                completeGameButton(layout: layout)
+            }
+            Group {
+                if controlBoardMode == .full || dashboardPage == .preview || dashboardPage == .players {
+                    standardControlPane(layout: layout)
+                } else {
+                    stationControlPane(layout: layout)
+                }
             }
         }
+
+    }
+
+    private func completeGameButton(layout: InterfaceLayout) -> some View {
+        actionButton("Complete game", tint: themePalette.dashboardSuccessButton,
+                     foreground: themePalette.dashboardSuccessButtonText,
+                     verticalPadding: layout.advancedButtonVerticalPadding,
+                     isEnabled: !store.isGameViewOnly) { showsGameCompletion = true }
+            .accessibilityIdentifier("live.completeGame")
+    }
+
+    private func completionSummary(_ completion: ScoreboardGameCompletion, layout: InterfaceLayout) -> some View {
+        VStack(spacing: layout.isCombinedDisplay ? 8 : 16) {
+            HStack {
+                Text("Game State").font(.title3.weight(.bold))
+                Spacer(minLength: 4)
+                Image(systemName: "lock.fill")
+            }
+            Text("Final Result").font(.subheadline.weight(.semibold))
+                .foregroundStyle(themePalette.dashboardMutedText)
+            Text(completion.resultTitle)
+                .font(.title2.bold()).multilineTextAlignment(.center)
+                .accessibilityIdentifier("live.finalOutcome")
+            if completion.showsScore {
+                Text(completion.scoreLine)
+                    .font(.system(size: layout.centerScoreSize, weight: .black, design: .rounded))
+                    .monospacedDigit().minimumScaleFactor(0.4).lineLimit(1)
+                HStack {
+                    Text(completion.homeName)
+                    Spacer(minLength: 8)
+                    Text(completion.guestName)
+                }.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.5)
+            }
+            if store.usesChessClocks { compactDualClockRow(layout: layout) }
+            Text("View Only").font(.caption).foregroundStyle(themePalette.dashboardMutedText)
+            if store.isPlayerTrackingEnabled {
+                Button("Open Players", systemImage: "person.3") { dashboardPage = .players }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("live.openPlayers")
+            }
+            Button("Undo completion") { store.undoGameCompletion() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!store.canControlGame)
+                .accessibilityIdentifier("live.undoCompletion")
+        }
+        .foregroundStyle(themePalette.dashboardPrimaryText)
+        .frame(maxWidth: .infinity)
+        .controlCardStyle(backgroundColor: themePalette.dashboardCardBackground,
+                          borderColor: themePalette.dashboardCardBorder,
+                          padding: layout.controlCardPadding, cornerRadius: layout.controlCardCornerRadius)
     }
 
     private func stationControlPane(layout: InterfaceLayout) -> some View {
@@ -9137,7 +9233,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             : stationSides
         let hasTeams = usesFullBoardControls || !teamModules.isEmpty
         let plan = ScoreboardControlBoardLayout(width: Double(layout.size.width), teamCount: hasTeams ? sides.count : 0,
-            showsSummary: controlBoardConfiguration.showsCenterSummary, includesRoster: teamModules.contains(.roster))
+            showsSummary: showsGameStateSummary, includesRoster: teamModules.contains(.roster))
         let summaryWidth = layout.centerStatusWidth
         let teamWidth = max(0, (layout.size.width - summaryWidth - 2 * layout.sectionSpacing) / 2)
         let sidebarSummary = plan.canPlaceSummaryBesideControls && !sharedModules.isEmpty
@@ -9167,7 +9263,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                                 layout: controlColumnLayout(width: max(0, layout.size.width - sidebarWidth - layout.sectionSpacing), parent: layout),
                                 usesFullBoardControls: usesFullBoardControls)
                         }
-                    } else if controlBoardConfiguration.showsCenterSummary {
+                    } else if showsGameStateSummary {
                         controlBoardSummary(layout: layout)
                             .frame(maxWidth: max(summaryWidth, 380))
                             .frame(maxWidth: .infinity)
@@ -9263,6 +9359,9 @@ struct ContentView: View, ScoreboardSetupEditing {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("station.team.\(side.rawValue)")
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1)
     }
 
     @ViewBuilder
@@ -9352,6 +9451,9 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
 
                 playerTrackingPanel(layout: layout)
+                    .disabled(store.isGameViewOnly)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("live.playerEdits")
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .padding(.bottom, layout.sectionSpacing)
@@ -9378,10 +9480,12 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
 
                 displayPresetPanel(layout: layout)
+                    .disabled(store.isGameViewOnly)
                     .transition(.move(edge: .top).combined(with: .opacity))
 
                 if store.isCustomDisplayControlVisible {
                     broadcastDisplayControlPanel(layout: layout)
+                        .disabled(store.isGameViewOnly)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -9881,6 +9985,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                         .background(themePalette.dashboardNeutralButton, in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("live.players.back")
 
                 Button {
                     store.togglePlayerOverlayPaused()
@@ -9893,6 +9998,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                         .background((store.isPlayerOverlayPaused ? themePalette.dashboardSuccessButton : themePalette.dashboardNeutralButton), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(store.isGameViewOnly)
+                .accessibilityIdentifier("live.players.overlay")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9932,7 +10039,7 @@ struct ContentView: View, ScoreboardSetupEditing {
 
         if layout.topControlUsesVerticalFlow {
             return AnyView(VStack(spacing: layout.sectionSpacing) {
-                if controlBoardConfiguration.showsCenterSummary {
+                if showsGameStateSummary {
                     controlBoardSummary(layout: layout, allowsPlayerNavigation: true)
                 }
 
@@ -9960,7 +10067,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 )
                 .frame(maxWidth: .infinity)
 
-                if controlBoardConfiguration.showsCenterSummary {
+                if showsGameStateSummary {
                     controlBoardSummary(layout: layout, allowsPlayerNavigation: true)
                         .frame(maxWidth: layout.centerStatusWidth)
                 }
@@ -9977,6 +10084,9 @@ struct ContentView: View, ScoreboardSetupEditing {
     }
 
     private func centeredStatusWidget(layout: InterfaceLayout, allowsPlayerNavigation: Bool = true) -> some View {
+        if let completion = store.gameCompletion {
+            return AnyView(completionSummary(completion, layout: layout))
+        }
         if usesDedicatedDualClockLayout {
             return AnyView(chessStatusWidget(layout: layout))
         }
@@ -10301,7 +10411,10 @@ struct ContentView: View, ScoreboardSetupEditing {
         let tintText = teamAccentText(for: side)
 
         if usesDedicatedDualClockLayout {
-            return AnyView(chessTeamControls(side: side, tint: tint, layout: layout))
+            return AnyView(chessTeamControls(side: side, tint: tint, layout: layout)
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1))
         }
 
         return AnyView(VStack(alignment: .leading, spacing: layout.isCombinedDisplay ? 8 : 12) {
@@ -10384,6 +10497,9 @@ struct ContentView: View, ScoreboardSetupEditing {
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.supportsHockeyPenalties)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.showsDebatePrepTime)
         .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.debateActiveTimer)
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1)
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.scoreControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
         )
     }
@@ -10454,7 +10570,7 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(themePalette.dashboardPrimaryText)
 
-            if !layout.isCombinedDisplay && !controlBoardConfiguration.showsCenterSummary {
+            if !layout.isCombinedDisplay && !showsGameStateSummary {
                 Text(clockText)
                     .accessibilityIdentifier("live.chess.\(side.rawValue)")
                     .font(.system(size: layout.centerMetricValueSize + 6, weight: .black, design: .rounded))
@@ -10850,6 +10966,9 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private func officialPauseControls(layout: InterfaceLayout) -> some View {
         officialPauseBar(layout: layout)
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1)
     }
 
     private func officialPauseBar(layout: InterfaceLayout) -> some View {
@@ -10987,6 +11106,17 @@ struct ContentView: View, ScoreboardSetupEditing {
             } else {
                 standardGameControls(layout: layout, includesScoreReset: includesScoreReset, includesOfficialPause: includesOfficialPause)
             }
+            DisclosureGroup(isExpanded: $showsResetAndSideControls) {
+                buttonGrid(columns: 2, buttons: resetAndSideButtons(includesScoreReset: includesScoreReset),
+                           dense: layout.denseControls, compactVerticalPadding: layout.advancedButtonVerticalPadding)
+                    .padding(.top, 8)
+            } label: {
+                Label("Resets & Swap Sides", systemImage: "slider.horizontal.3")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("live.resetAndSides")
+            completeGameButton(layout: layout)
         }
         .controlCardStyle(
             backgroundColor: themePalette.dashboardCardBackground,
@@ -10996,7 +11126,29 @@ struct ContentView: View, ScoreboardSetupEditing {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("live.gameControls")
+        .disabled(store.isGameViewOnly)
+        .saturation(store.isGameViewOnly ? 0 : 1)
+        .opacity(store.isGameViewOnly ? 0.5 : 1)
         .scoreboardPopoverTip(dashboardCurrentTourTip(matching: ScoreboardTips.matchControls), isEnabled: arePopoverTipsEnabled, arrowEdge: .top)
+    }
+
+    private func resetAndSideButtons(includesScoreReset: Bool) -> [ActionDescriptor] {
+        var buttons = [ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton,
+                                        foreground: themePalette.dashboardNeutralButtonText) { store.swapSides() }]
+        if store.isDebateMode {
+            buttons += [
+                ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) { requestGameConfirmation(.resetDebateSegment) },
+                ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) { requestGameConfirmation(.resetDebateRound) }
+            ]
+        } else if store.usesChessClocks {
+            buttons.append(ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) { requestGameConfirmation(.resetChessClocks) })
+        } else if store.showsGameClock {
+            buttons.append(ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) { requestGameConfirmation(.resetClock) })
+        }
+        if store.supportsScore && includesScoreReset {
+            buttons.append(ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) { requestGameConfirmation(.zeroScores) })
+        }
+        return buttons
     }
 
     private func standardGameControls(layout: InterfaceLayout, includesScoreReset: Bool, includesOfficialPause: Bool) -> some View {
@@ -11090,22 +11242,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                     )
                 }
             }
-
-            buttonGrid(
-                columns: store.showsGameClock && includesScoreReset ? 2 : 1,
-                buttons: (store.showsGameClock ? [
-                    ActionDescriptor(title: localizedAppFormat("Reset %@", formatClock(store.defaultClockSeconds)), tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
-                        requestGameConfirmation(.resetClock)
-                    }
-                ] : []) + (includesScoreReset ? [
-                    ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
-                        requestGameConfirmation(.zeroScores)
-                    }
-                ] : []),
-                style: .compact,
-                dense: layout.denseControls,
-                compactVerticalPadding: layout.advancedButtonVerticalPadding
-            )
         }
     }
 
@@ -11145,37 +11281,10 @@ struct ContentView: View, ScoreboardSetupEditing {
 
             clockAdjustmentControls(layout: layout, includesOfficialPause: includesOfficialPause)
 
-            buttonGrid(
-                columns: 2,
-                buttons: [
-                    ActionDescriptor(title: "Swap Side", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                        store.swapSides()
-                    },
-                    ActionDescriptor(title: "Reset Clocks", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .resetChessClocks
-                    }
-                ],
-                dense: layout.denseControls
-            )
-
             if store.supportsPeriod {
                 buttonGrid(
                     columns: matchNavigationButtons.count,
                     buttons: matchNavigationButtons,
-                    dense: layout.denseControls,
-                    compactVerticalPadding: layout.advancedButtonVerticalPadding
-                )
-            }
-
-            if store.supportsScore && includesScoreReset {
-                buttonGrid(
-                    columns: 1,
-                    buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
-                            requestGameConfirmation(.zeroScores)
-                        }
-                    ],
-                    style: .compact,
                     dense: layout.denseControls,
                     compactVerticalPadding: layout.advancedButtonVerticalPadding
                 )
@@ -11383,34 +11492,6 @@ struct ContentView: View, ScoreboardSetupEditing {
                 ],
                 dense: layout.denseControls
             )
-
-            buttonGrid(
-                columns: 2,
-                buttons: [
-                    ActionDescriptor(title: "Reset Segment", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .resetDebateSegment
-                    },
-                    ActionDescriptor(title: "Reset Round", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isResetInterlockActive) {
-                        pendingGameConfirmation = .resetDebateRound
-                    }
-                ],
-                dense: layout.denseControls
-            )
-
-            if store.supportsScore && includesScoreReset {
-                buttonGrid(
-                    columns: 1,
-                    buttons: [
-                        ActionDescriptor(title: "Zero Scores", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
-                            pendingGameConfirmation = .zeroScores
-                        }
-                    ],
-                    style: .compact,
-                    dense: layout.denseControls,
-                    compactVerticalPadding: layout.advancedButtonVerticalPadding
-                )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
-            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: store.supportsScore)
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: store.debateCurrentSegmentIndex)
@@ -11676,19 +11757,12 @@ struct ContentView: View, ScoreboardSetupEditing {
 
     private var matchNavigationButtons: [ActionDescriptor] {
         if !store.supportsPeriod || store.supportsPeriodWinTracking {
-            return [
-                ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                    store.swapSides()
-                }
-            ]
+            return []
         }
 
         return [
             ActionDescriptor(title: "Prev Period", tint: themePalette.destructiveTint, foreground: destructiveText, isEnabled: !isGameClockResetInterlockActive) {
                 requestGameConfirmation(.previousPeriod)
-            },
-            ActionDescriptor(title: "Swap Sides", tint: themePalette.dashboardNeutralButton, foreground: themePalette.dashboardNeutralButtonText) {
-                store.swapSides()
             },
             ActionDescriptor(title: localizedAppFormat("Next %@", localizedAppString(store.periodTitle)), tint: themePalette.dashboardWarningButton, foreground: themePalette.dashboardWarningButtonText) {
                 store.adjustPeriod(by: 1)
@@ -11751,8 +11825,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .opacity(isEnabled ? 1 : 0.42)
-        .disabled(!isEnabled)
+        .opacity(isEnabled && !store.isGameViewOnly ? 1 : 0.42)
+        .disabled(!isEnabled || store.isGameViewOnly)
         .buttonStyle(.plain)
         .accessibilityIdentifier("action.\(title)")
     }
@@ -11774,8 +11848,8 @@ struct ContentView: View, ScoreboardSetupEditing {
                 .padding(.vertical, verticalPadding)
                 .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .opacity(isEnabled ? 1 : 0.42)
-        .disabled(!isEnabled)
+        .opacity(isEnabled && !store.isGameViewOnly ? 1 : 0.42)
+        .disabled(!isEnabled || store.isGameViewOnly)
         .buttonStyle(.plain)
         .accessibilityIdentifier("action.\(title)")
     }
@@ -12054,7 +12128,7 @@ struct ContentView: View, ScoreboardSetupEditing {
             addPenaltyTimer: { side, seconds in addPenaltyTimer(side: side, seconds: seconds) },
             togglePlayersPage: {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                    dashboardPage = controlBoardMode == .full && dashboardPage != .players ? .players : .main
+                    dashboardPage = dashboardPage != .players ? .players : .main
                 }
             },
             controlBoardConfiguration: controlBoardConfiguration

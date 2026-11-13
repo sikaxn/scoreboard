@@ -137,12 +137,16 @@ nonisolated struct ScoreboardControlOperation: Codable, Identifiable, Sendable {
         .init(id: "display.broadcast", title: "Broadcast display mode", parameters: ["value", "text"], capability: ""),
         .init(id: "sound.enabled", title: "Sound enabled", parameters: ["enabled"], capability: ""),
         .init(id: "sound.play", title: "Play sound effect", parameters: ["text"], capability: ""),
+        .init(id: "game.complete", title: "Complete game", parameters: ["text"], capability: ""),
+        .init(id: "game.undoComplete", title: "Undo completion", parameters: [], capability: "completedGame"),
         .init(id: "game.new", title: "New game", parameters: [], capability: ""),
     ]
 
     func isAvailable(in state: ScoreboardWebAPIState) -> Bool {
+        if state.game.completion != nil { return id == "game.undoComplete" }
         let r = state.rules
         switch capability {
+        case "completedGame": return false
         case "supportsScore": return r.supportsScore
         case "supportsPeriod": return r.supportsPeriod
         case "supportsPeriodWins": return r.supportsPeriodWins == true
@@ -177,6 +181,9 @@ extension ScoreboardStore {
             .failure(command.id, code, message)
         }
         guard isSessionAuthority else { return fail("disabled", "This device is not the session host.") }
+        guard !isGameCompleted || command.action == "game.undoComplete" else {
+            return fail("conflict", "Game complete. Undo completion before making changes.")
+        }
         guard command.sport == selectedSport else { return fail("conflict", "The sport changed. Refresh state before controlling.") }
         guard let operation = ScoreboardControlOperation.all.first(where: { $0.id == command.action }) else {
             return fail("invalidCommand", "Unknown operation.")
@@ -237,6 +244,7 @@ extension ScoreboardStore {
         // Validate all enum inputs before any mutation or timer compensation.
         let text = command.text ?? ""
         switch command.action {
+        case "game.complete": guard ScoreboardGameOutcome(rawValue: text) != nil else { return fail("invalidCommand", "Choose homeWin, guestWin, tie or aborted.") }
         case "player.card": guard PlayerCardStatus(rawValue: text) != nil else { return fail("invalidCommand", "Use none, yellow or red.") }
         case "possession.set": guard PossessionDirection(rawValue: text) != nil else { return fail("invalidCommand", "Use none, home or guest.") }
         case "display.theme": guard ScoreboardTheme(rawValue: text) != nil else { return fail("invalidCommand", "Unknown theme.") }
@@ -359,6 +367,8 @@ extension ScoreboardStore {
         case "display.broadcast": setWebAPIBroadcastDisplayMode(ScoreboardWebAPIBroadcastDisplayMode(rawValue: text)!, for: value)
         case "sound.enabled": setSoundEnabled(enabled)
         case "sound.play": playControlSound(ScoreboardSoundEffect(rawValue: text)!)
+        case "game.complete": completeGame(outcome: ScoreboardGameOutcome(rawValue: text)!)
+        case "game.undoComplete": undoGameCompletion()
         case "game.new": newGame()
         default: return fail("invalidCommand", "Unknown operation.")
         }
@@ -373,6 +383,7 @@ extension ScoreboardStore {
 extension ScoreboardControlOperation {
     nonisolated static func textOptions(for action: String) -> [String] {
         switch action {
+        case "game.complete": return ScoreboardGameOutcome.allCases.map(\.rawValue)
         case "player.card": return ["none", "yellow", "red"]
         case "possession.set": return ["none", "home", "guest"]
         case "display.direction": return ["homeLeft", "guestLeft"]

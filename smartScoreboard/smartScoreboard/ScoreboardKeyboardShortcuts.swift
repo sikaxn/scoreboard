@@ -436,6 +436,8 @@ enum ScoreboardKeyboardShortcutAction: String, Codable, CaseIterable, Identifiab
         isResetInterlockActive: Bool,
         isGameClockResetInterlockActive: Bool
     ) -> Bool {
+        if self == .togglePlayersPage { return store.isPlayerTrackingEnabled }
+        guard !store.isGameViewOnly else { return false }
         if store.pauseTimer != nil {
             switch self {
             case .togglePrimaryTimer, .secondaryTimerPrimary, .homeSecondaryPrimary, .homeSecondaryAlternate,
@@ -554,7 +556,7 @@ struct ScoreboardKeyboardShortcutExecutionContext {
     var controlBoardConfiguration: ScoreboardControlBoardConfiguration? = nil
 
     func perform(_ action: ScoreboardKeyboardShortcutAction) {
-        if let controlBoardConfiguration {
+        if let controlBoardConfiguration, action != .togglePlayersPage {
             let capabilities = ScoreboardControlBoardCapabilities(rules: store.currentRules, showsPrepTime: store.showsDebatePrepTime)
             guard controlBoardConfiguration.allows(action, capabilities: capabilities) else { return }
         }

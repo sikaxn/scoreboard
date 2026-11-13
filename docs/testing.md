@@ -31,6 +31,7 @@ not apply.
 
 | File in `smartScoreboard/smartScoreboardTests` | Regression coverage |
 | --- | --- |
+| `GameCompletionTests.swift` | All sports and station preferences, custom/debate timer configurations, every final outcome, editing/command locks with read-only settings and player navigation, frozen scores, stopped timers, undo, documents/backups, remote/v2 state, view-only permissions, kiosk routing, and shared cloud/LAN control |
 | `ScoringTests.swift` | Score corrections, team independence, new-game reset, timer fractions and expiry, storage isolation |
 | `RosterCSVTests.swift` | CSV escaping, Unicode, player state, and malformed rows |
 | `ControlBoardModeTests.swift` | Per-sport presets and capability changes, custom module ordering, team scope, shortcut execution, default summary visibility/persistence, pane-width column layouts, empty layouts, preference reset and legacy/future data |

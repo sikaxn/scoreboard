@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 private func localizedRemoteDisplayString(_ key: String) -> String {
@@ -122,6 +124,15 @@ private struct RemoteScoreboardContentView: View {
             } else { receiverContent }
             #endif
         }
+        #if os(macOS)
+        .background {
+            if ScoreboardDeviceMode.current == .kiosk, receiver.state != nil, !showsConfiguration {
+                ScoreboardKioskFullscreenWindow()
+            }
+        }
+        #elseif os(iOS)
+        .statusBar(hidden: ScoreboardDeviceMode.current == .kiosk && receiver.state != nil && !showsConfiguration)
+        #endif
         #if os(tvOS)
         .onExitCommand(perform: tvExitHandler)
         #endif
@@ -448,6 +459,7 @@ private struct RemoteScoreboardFace: View {
             homeRosterPlayers: state.players.homeRoster.players,
             guestRosterPlayers: state.players.guestRoster.players,
             pauseTimer: projection.pauseTimer,
+            completion: state.game.completion,
             displayLayout: state.display?.layout ?? .standard,
             displayFont: state.display?.font ?? .rounded
         )
@@ -1649,3 +1661,18 @@ private struct RemoteDisplayLiveBadge: View {
         .focusable(true)
     }
 }
+
+#if os(macOS)
+private struct ScoreboardKioskFullscreenWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window, !context.coordinator.requested else { return }
+            context.coordinator.requested = true
+            if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var requested = false }
+}
+#endif

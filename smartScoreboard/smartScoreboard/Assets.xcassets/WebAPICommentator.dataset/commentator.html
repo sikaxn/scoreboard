@@ -533,7 +533,8 @@
     }
     #pauseBanner { display:flex; align-items:center; justify-content:center; gap:12px; text-align:center; }
     #pauseBannerLogo { width:64px; height:64px; object-fit:contain; }
-    #pauseBanner[hidden] { display:none; }
+    #pauseBanner[hidden], #completionBanner[hidden] { display:none; }
+    #completionBanner { text-align:center; font-size:24px; font-weight:700; }
   </style>
 </head>
 <body>
@@ -549,6 +550,7 @@
       </div>
     </header>
 
+    <section id="completionBanner" class="panel" role="status" hidden></section>
     <section id="pauseBanner" class="panel" role="status" hidden><img id="pauseBannerLogo" class="hidden" alt=""><span id="pauseBannerText"></span></section>
 
     <section class="score-strip">
@@ -1102,7 +1104,15 @@
       const rules = v2State.rules || {};
       const teams = v2State.teams || {};
       const clocks = v2State.clocks || {};
-      const pause = clocks.pauseTimer;
+      const completion = v2State.game ? v2State.game.completion : summary.completion;
+      el('completionBanner').hidden = !completion;
+      if (completion) {
+        const zh = language === 'zh', winner = completion.outcome === 'homeWin' ? completion.homeName : completion.guestName;
+        const result = completion.outcome === 'tie' ? (zh ? '平局' : 'Tie') : completion.outcome === 'aborted' ? (zh ? '比赛中止' : 'Game aborted') : `${winner}${zh ? '获胜' : ' wins'}`;
+        const score = completion.showsScore ? ` · ${completion.homeName} ${completion.homePeriodWins ?? completion.homeScore} – ${completion.guestPeriodWins ?? completion.guestScore} ${completion.guestName}` : '';
+        el('completionBanner').textContent = `${zh ? '最终结果' : 'Final Result'} · ${result}${score}`;
+      }
+      const pause = completion ? null : clocks.pauseTimer;
       el('pauseBanner').hidden = !pause;
       if (pause) {
         const side = pause.side;

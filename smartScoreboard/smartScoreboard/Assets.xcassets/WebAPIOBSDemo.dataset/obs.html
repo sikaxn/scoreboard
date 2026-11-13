@@ -411,9 +411,12 @@
     #pauseStatus { grid-column:1 / -1; color:rgba(255,255,255,.8); }
     #pauseStatus:empty { display:none; }
     @media(max-width:800px) { .pause-overlay { left:20px; top:20px; width:calc(100vw - 40px); } }
-  </style>
+      #completionOverlay{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3vh;padding:5vw;box-sizing:border-box;background:rgba(0,0,0,.86);color:white;text-align:center;font:700 clamp(18px,4vw,60px) system-ui}
+    #completionOverlay[hidden]{display:none}#completionScore{font-size:clamp(40px,12vw,180px);font-variant-numeric:tabular-nums}#completionLabel,#completionTeams{font-size:clamp(16px,3vw,40px);opacity:.8}
+</style>
 </head>
 <body class="disconnected" data-disconnected-label="WebSocket disconnected">
+  <div id="completionOverlay" role="status" hidden><span id="completionLabel"></span><strong id="completionOutcome"></strong><span id="completionScore"></span><span id="completionTeams"></span></div>
   <main id="scorebug" class="scorebug">
     <section class="teams">
       <div class="team home">
@@ -717,6 +720,18 @@
       el('pauseStatus').textContent = seconds == null ? '' : seconds === 0 ? (zh ? '暂停时间到' : 'Pause Timer Expired') : !pause.isRunning ? (zh ? '暂停计时已暂停' : 'Pause Timer Paused') : '';
     }
 
+    function applyCompletion(completion, hidden) {
+      el('completionOverlay').hidden = !completion || hidden;
+      if (!completion) return;
+      const zh = document.documentElement.lang.startsWith('zh');
+      el('completionLabel').textContent = zh ? '最终结果' : 'Final Result';
+      const winner = completion.outcome === 'homeWin' ? completion.homeName : completion.guestName;
+      el('completionOutcome').textContent = completion.outcome === 'tie' ? (zh ? '平局' : 'Tie') : completion.outcome === 'aborted' ? (zh ? '比赛中止' : 'Game aborted') : `${winner}${zh ? '获胜' : ' wins'}`;
+      el('completionScore').hidden = !completion.showsScore;
+      el('completionScore').textContent = completion.showsScore ? `${completion.homePeriodWins ?? completion.homeScore} – ${completion.guestPeriodWins ?? completion.guestScore}` : '';
+      el('completionTeams').textContent = `${completion.homeName} · ${completion.guestName}`;
+    }
+
     function applyState(state) {
       if (!state || !state.teams || !state.clocks) return;
 
@@ -730,7 +745,8 @@
       const mode = displayMode(display);
       const isBlackoutMode = mode === 'blackScreen' || mode === 'backgroundOnly';
       document.body.classList.toggle('blackout', isBlackoutMode);
-      applyPauseTimer(clocks, state.teams, display, isBlackoutMode);
+      applyPauseTimer(clocks, state.teams, display, isBlackoutMode || !!game.completion);
+      applyCompletion(game.completion, isBlackoutMode);
       if (isBlackoutMode) return;
 
       const supportedMode = mode === 'eventLogo' || mode === 'teamView' || mode === 'playerView' ? mode : 'scoreboard';

@@ -58,9 +58,9 @@ struct ScoreboardMatchGuestJoinForm: View {
             }
             if cloud.cloudEnabled { Label("Cloud connections use \(cloud.connectionServiceName)", systemImage: "cloud").font(.caption).foregroundStyle(.secondary) }
             #if os(tvOS)
-            Label("Apple TV joins as a display only.", systemImage: "tv").foregroundStyle(.secondary)
+            Label("Apple TV joins in View Only mode.", systemImage: "tv").foregroundStyle(.secondary)
             #else
-            Picker("Join as", selection: $requestsControl) { Text("Display").tag(false); Text("Controller · owner approval").tag(true) }
+            Picker("Join as", selection: $requestsControl) { Text("View Only").tag(false); Text("Controller · owner approval").tag(true) }
                 .pickerStyle(.menu)
             #endif
             LazyVGrid(columns: actionColumns, alignment: .leading, spacing: 12) {
@@ -360,7 +360,7 @@ struct ScoreboardConnectedDevicesSection: View {
                             }))
                             .accessibilityIdentifier("connection.control.\(peer.id)")
                     } else if let allowed = peer.controlEnabled {
-                        Label(allowed ? "Control enabled" : "Remote Display", systemImage: allowed ? "gamecontroller" : "eye").font(.caption).foregroundStyle(.secondary)
+                        Label(allowed ? "Control enabled" : "View Only", systemImage: allowed ? "gamecontroller" : "eye").font(.caption).foregroundStyle(.secondary)
                     }
                     if canManage, paired || member != nil {
                         Menu("Device Options", systemImage: "ellipsis.circle") {

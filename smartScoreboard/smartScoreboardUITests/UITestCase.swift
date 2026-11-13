@@ -200,6 +200,13 @@ class ScoreboardUITestCase: XCTestCase {
         if element.elementType == .staticText { return element.label }
         return element.value as? String ?? element.label
     }
+    func showResetAndSideControls() {
+        if action("Swap Sides").exists { return }
+        let section = mainWindow.otherElements["live.resetAndSides"].firstMatch
+        tap(section.buttons["Resets & Swap Sides"].firstMatch)
+        XCTAssertTrue(action("Swap Sides").waitForExistence(timeout: 5))
+    }
+
     func action(_ title: String) -> XCUIElement { mainWindow.buttons["action.\(title)"].firstMatch }
     func score(_ side: String = "home") -> XCUIElement {
         let live = mainWindow.staticTexts["live.score.\(side)"].firstMatch

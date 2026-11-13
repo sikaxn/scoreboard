@@ -254,6 +254,7 @@ extension ScoreboardSetupEditing {
     }
 
     func commitSetupEdits(forceRefresh: Bool = false, animated: Bool = false) {
+        guard !store.isGameViewOnly else { return }
         guard !isCommittingSetupEdits else {
             return
         }

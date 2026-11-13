@@ -152,7 +152,7 @@ struct ScoreboardKioskHomeView: View {
             if hasLiveState || store.isJoinedMatchActive {
                 KioskActionButton("Leave Scoreboard", symbol: "rectangle.portrait.and.arrow.right", id: "tv.leave", focus: $focused, destructive: true) { confirmsLeave = true }
             }
-            Text(ScoreboardRemoteDisplayDeviceType.current.supportsControl ? "Join as a display or an approved control board. Received match data is cleared when disconnected." : "Join as a scoreboard display. Received match data is cleared when disconnected.")
+            Text(ScoreboardRemoteDisplayDeviceType.current.supportsControl ? "Join in View Only mode or as an approved control board. Received match data is cleared when disconnected." : "Join as a scoreboard display. Received match data is cleared when disconnected.")
                 .font(.system(size: compact ? 20 : 22)).foregroundStyle(.secondary)
         }.scoreboardHomeEntrance(order: 1)
     }

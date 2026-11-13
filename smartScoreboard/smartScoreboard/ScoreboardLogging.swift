@@ -29,6 +29,8 @@ enum ScoreboardLogOutcome: String, Codable, CaseIterable, Sendable {
 }
 
 enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
+    case gameComplete
+    case gameCompletionUndo
     case scoreAdjustment
     case scoresReset
     case clockToggle
@@ -89,6 +91,8 @@ enum ScoreboardLogOperationKind: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
+        case .gameComplete: return "Game complete"
+        case .gameCompletionUndo: return "Undo completion"
         case .scoreAdjustment:
             return "Score Change"
         case .scoresReset:

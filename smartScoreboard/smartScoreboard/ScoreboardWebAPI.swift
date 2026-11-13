@@ -543,8 +543,18 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         let rules = state.rules
         let home = state.teams.home
         let guest = state.teams.guest
-        let leader = leaderValue(homeScore: home.score, guestScore: guest.score, supportsScore: rules.supportsScore)
-        let margin = rules.supportsScore && leader != "tied" ? abs(home.score - guest.score) : nil
+        let leader: String
+        if let completion = state.game.completion {
+            switch completion.outcome {
+            case .homeWin: leader = "home"
+            case .guestWin: leader = "guest"
+            case .tie: leader = "tied"
+            case .aborted: leader = "none"
+            }
+        } else {
+            leader = leaderValue(homeScore: home.score, guestScore: guest.score, supportsScore: rules.supportsScore)
+        }
+        let margin = state.game.completion == nil && rules.supportsScore && leader != "tied" ? abs(home.score - guest.score) : nil
         let latestHockeyPenaltySummary = logSession?.entries
             .reversed()
             .compactMap(\.context.hockeyPenaltySummary)
@@ -567,7 +577,8 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
             possession: makePossessionSummary(from: state),
             hockeyPenaltySummary: rules.supportsHockeyPenalties ? latestHockeyPenaltySummary : nil,
             rosterWatch: makeRosterWatch(from: state),
-            modeTags: makeModeTags(from: state)
+            modeTags: makeModeTags(from: state),
+            completion: state.game.completion
         )
     }
 
@@ -793,6 +804,11 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
         let clocks = state.clocks
         var insights: [ScoreboardWebAPICommentatorInsight] = []
 
+        if let completion = state.game.completion {
+            return [insight(id: "game-complete", priority: "high", category: "match",
+                            title: completion.resultTitle,
+                            detail: completion.showsScore ? "Final score: \(completion.scoreLine)" : "Game complete")]
+        }
         if let pause = clocks.pauseTimer {
             insights.append(insight(id: "active-pause", priority: "high", category: "clock",
                 title: clocks.pauseTitle ?? "Pause", detail: pause.remainingSeconds == nil ? "Indefinite Pause" : "\(pause.formattedTime) · \(pause.isRunning ? "Running" : "Stopped")"))
@@ -926,7 +942,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
                 insights.append(entryInsight(entry, priority: "high", category: "debate"))
             case .chessClockToggle, .chessClockSwitch, .chessClockAdjustment, .chessClockReset:
                 insights.append(entryInsight(entry, priority: "high", category: "clock"))
-            case .possessionChange, .sideSwap, .periodAdjustment, .volleyballSetAward, .volleyballSetUndo:
+            case .gameComplete, .gameCompletionUndo, .possessionChange, .sideSwap, .periodAdjustment, .volleyballSetAward, .volleyballSetUndo:
                 insights.append(entryInsight(entry, priority: "normal", category: "match"))
             case .customSportConfigChange:
                 insights.append(entryInsight(entry, priority: "normal", category: "mode"))
@@ -1009,7 +1025,7 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
             return "debate"
         case .possessionChange:
             return "possession"
-        case .periodAdjustment, .sideSwap, .customSportConfigChange:
+        case .gameComplete, .gameCompletionUndo, .periodAdjustment, .sideSwap, .customSportConfigChange:
             return "match"
         case .fileCreate, .fileImport, .fileLoad, .fileRename, .fileExport, .fileDelete:
             return "admin"
@@ -1018,6 +1034,8 @@ nonisolated struct ScoreboardWebAPICommentatorPayload: Codable, Sendable {
 
     private static func operationTitle(_ kind: ScoreboardLogOperationKind) -> String {
         switch kind {
+        case .gameComplete: return "Game complete"
+        case .gameCompletionUndo: return "Undo completion"
         case .scoreAdjustment:
             return "Score Change"
         case .scoresReset:
@@ -1410,6 +1428,7 @@ nonisolated struct ScoreboardWebAPICommentatorSummary: Codable, Sendable {
     let hockeyPenaltySummary: String?
     let rosterWatch: [ScoreboardWebAPICommentatorPlayerWatch]
     let modeTags: [String]
+    var completion: ScoreboardGameCompletion? = nil
 
     static let empty = ScoreboardWebAPICommentatorSummary(
         sport: .simple,
