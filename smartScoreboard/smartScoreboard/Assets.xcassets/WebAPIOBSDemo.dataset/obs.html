@@ -5,431 +5,106 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SmartScoreboard OBS Source</title>
   <style>
-    :root {
-      color-scheme: dark;
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: #fff;
-      background: transparent;
-    }
-    * {
-      box-sizing: border-box;
-    }
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      overflow: hidden;
-      background: transparent;
-    }
-    body {
-      position: relative;
-    }
-    body.blackout main,
-    body.blackout::after {
-      display: none !important;
-    }
-    .scorebug {
-      position: absolute;
-      left: 40px;
-      bottom: 40px;
-      width: min(760px, calc(100vw - 80px));
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      border-radius: 8px;
-      overflow: hidden;
-      filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
-    }
-    .event-bug, .team-bug, .player-bug {
-      position: absolute;
-      left: 40px;
-      bottom: 40px;
-      filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.45));
-    }
-    .event-bug {
-      width: min(780px, calc(100vw - 80px));
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      align-items: center;
-      gap: 18px;
-      padding: 14px 18px;
-      border-radius: 8px;
-      background: rgba(8, 13, 24, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-    }
-    .event-logo {
-      width: 92px;
-      height: 72px;
-      object-fit: contain;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.12);
-    }
-    .event-copy {
-      min-width: 0;
-      display: grid;
-      gap: 5px;
-    }
-    .event-title {
-      min-width: 0;
-      font-size: 34px;
-      font-weight: 1000;
-      line-height: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .event-subtitle {
-      min-width: 0;
-      color: rgba(255, 255, 255, 0.78);
-      font-size: 16px;
-      font-weight: 950;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .team-bug {
-      width: min(860px, calc(100vw - 80px));
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      overflow: hidden;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      background: rgba(8, 13, 24, 0.92);
-    }
-    .team-card {
-      min-width: 0;
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 14px;
-      min-height: 96px;
-      padding: 14px;
-    }
-    .team-card.home {
-      border-left: 8px solid #38bdf8;
-    }
-    .team-card.guest {
-      border-left: 8px solid #f97316;
-      border-top: 0;
-    }
-    .team-card + .team-card {
-      border-left-width: 8px;
-      box-shadow: inset 1px 0 rgba(255, 255, 255, 0.14);
-    }
-    .team-card-logo {
-      width: 58px;
-      height: 58px;
-      object-fit: contain;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.12);
-    }
-    .team-card-name {
-      min-width: 0;
-      font-size: 25px;
-      font-weight: 1000;
-      line-height: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .team-card-score {
-      min-width: 66px;
-      height: 58px;
-      display: grid;
-      place-items: center;
-      padding: 0 10px;
-      border-radius: 6px;
-      background: #f8fafc;
-      color: #101623;
-      font-size: 38px;
-      font-weight: 1000;
-      font-variant-numeric: tabular-nums;
-    }
-    .player-bug {
-      width: min(880px, calc(100vw - 80px));
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .player-panel {
-      min-width: 0;
-      overflow: hidden;
-      border-radius: 8px;
-      background: rgba(8, 13, 24, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-    }
-    .player-panel-title {
-      min-width: 0;
-      padding: 10px 14px;
-      font-size: 18px;
-      font-weight: 1000;
-      line-height: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .player-panel.home .player-panel-title {
-      border-left: 8px solid #38bdf8;
-    }
-    .player-panel.guest .player-panel-title {
-      border-left: 8px solid #f97316;
-    }
-    .player-list {
-      display: grid;
-      gap: 1px;
-      background: rgba(255, 255, 255, 0.1);
-    }
-    .player-row {
-      min-width: 0;
-      display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 8px;
-      min-height: 34px;
-      padding: 6px 10px;
-      background: rgba(8, 13, 24, 0.92);
-      font-size: 15px;
-      font-weight: 900;
-    }
-    .player-number {
-      font-size: 1.1em;
-      font-weight: 1000;
-      font-variant-numeric: tabular-nums;
-    }
-    .player-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .player-meta {
-      color: rgba(255, 255, 255, 0.72);
-      font-size: 0.82em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .empty-players {
-      min-height: 44px;
-      display: grid;
-      place-items: center;
-      background: rgba(8, 13, 24, 0.92);
-      color: rgba(255, 255, 255, 0.72);
-      font-size: 14px;
-      font-weight: 900;
-      text-transform: uppercase;
-    }
-    .teams {
-      display: grid;
-      grid-template-rows: 1fr 1fr;
-      background: rgba(8, 13, 24, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-right: 0;
-    }
-    .team {
-      min-width: 0;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto 92px;
-      align-items: center;
-      min-height: 64px;
-    }
-    .team.has-logo {
-      grid-template-columns: auto minmax(0, 1fr) auto 92px;
-    }
-    .team + .team {
-      border-top: 1px solid rgba(255, 255, 255, 0.16);
-    }
-    .name {
-      min-width: 0;
-      padding: 0 18px;
-      font-size: 25px;
-      font-weight: 950;
-      line-height: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: uppercase;
-    }
-    .logo {
-      width: 42px;
-      height: 42px;
-      margin-left: 14px;
-      object-fit: contain;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.12);
-    }
-    .score {
-      height: 100%;
-      display: grid;
-      place-items: center;
-      font-size: 38px;
-      font-weight: 1000;
-      font-variant-numeric: tabular-nums;
-      background: #f8fafc;
-      color: #101623;
-    }
-    .team-pause {
-      min-width: 54px;
-      height: 36px;
-      display: grid;
-      place-items: center;
-      margin-right: 10px;
-      padding: 0 8px;
-      border-radius: 6px;
-      background: rgba(248, 250, 252, 0.14);
-      color: rgba(255, 255, 255, 0.9);
-      font-size: 13px;
-      font-weight: 1000;
-      font-variant-numeric: tabular-nums;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .hidden {
-      display: none !important;
-    }
-    .home .name {
-      border-left: 8px solid #38bdf8;
-    }
-    .guest .name {
-      border-left: 8px solid #f97316;
-    }
-    .clockbox {
-      width: 176px;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      background: rgba(248, 250, 252, 0.96);
-      color: #101623;
-      border: 1px solid rgba(255, 255, 255, 0.24);
-    }
-    .period {
-      padding: 8px 10px 0;
-      text-align: center;
-      font-size: 16px;
-      font-weight: 950;
-      text-transform: uppercase;
-    }
-    .clock {
-      display: grid;
-      place-items: center;
-      padding: 4px 10px;
-      font-size: 38px;
-      font-weight: 1000;
-      font-variant-numeric: tabular-nums;
-      line-height: 1;
-      overflow: hidden;
-      text-overflow: clip;
-      white-space: nowrap;
-    }
-    .extra {
-      min-height: 26px;
-      display: grid;
-      place-items: center;
-      padding: 0 8px 8px;
-      font-size: 14px;
-      font-weight: 950;
-      text-transform: uppercase;
-    }
-    .extra.injury {
-      margin: 0 16px 8px;
-      padding: 5px 8px;
-      border-radius: 999px;
-      background: #f59e0b;
-      color: #101623;
-    }
-    .disconnected::after {
-      content: attr(data-disconnected-label);
-      position: absolute;
-      left: 40px;
-      bottom: 184px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(185, 28, 28, 0.9);
-      color: #fff;
-      font-size: 13px;
-      font-weight: 900;
-    }
-    @media (max-width: 640px) {
-      .scorebug {
-        left: 20px;
-        bottom: 20px;
-        width: calc(100vw - 40px);
-        grid-template-columns: 1fr;
-      }
-      .event-bug, .team-bug, .player-bug {
-        left: 20px;
-        bottom: 20px;
-        width: calc(100vw - 40px);
-      }
-      .team-bug, .player-bug {
-        grid-template-columns: 1fr;
-      }
-      .event-bug {
-        grid-template-columns: 1fr;
-      }
-      .event-logo {
-        width: 84px;
-        height: 62px;
-      }
-      .clockbox {
-        width: 100%;
-        min-height: 72px;
-        grid-template-columns: 100px 1fr 100px;
-        grid-template-rows: 1fr;
-      }
-      .period, .extra {
-        padding: 0 8px;
-        align-self: center;
-      }
-      .disconnected::after {
-        left: 20px;
-        bottom: 220px;
-      }
-      .logo {
-        width: 36px;
-        height: 36px;
-        margin-left: 10px;
-      }
-      .team-pause {
-        min-width: 46px;
-        margin-right: 8px;
-        padding: 0 6px;
-        font-size: 12px;
-      }
-    }
-    .pause-overlay { position:absolute; left:40px; top:40px; width:min(760px,calc(100vw - 80px)); z-index:20; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px 24px; padding:18px 24px; border-radius:8px; border:1px solid rgba(255,255,255,.18); background:rgba(8,13,24,.92); color:white; pointer-events:none; }
-    .pause-overlay[hidden], .pause-overlay [hidden] { display:none !important; }
-    .pause-logo { width:clamp(48px,18vh,180px); height:clamp(48px,18vh,180px); object-fit:contain; }
-    .pause-overlay.indefinite { text-align:center; }
-    .pause-overlay strong { font-size:clamp(18px,3vw,32px); overflow-wrap:anywhere; }
-    .pause-overlay .pause-time { font:900 clamp(32px,5vw,64px) ui-monospace,monospace; font-variant-numeric:tabular-nums; }
-    .pause-overlay.has-logo { grid-template-columns:64px minmax(0,1fr) auto; }
-    .pause-overlay .pause-logo { width:64px; height:64px; }
-    .pause-overlay.indefinite { display:flex; flex-direction:column; justify-content:center; align-items:center; }
-    #pauseStatus { grid-column:1 / -1; color:rgba(255,255,255,.8); }
-    #pauseStatus:empty { display:none; }
-    @media(max-width:800px) { .pause-overlay { left:20px; top:20px; width:calc(100vw - 40px); } }
-      #completionOverlay{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3vh;padding:5vw;box-sizing:border-box;background:rgba(0,0,0,.86);color:white;text-align:center;font:700 clamp(18px,4vw,60px) system-ui}
-    #completionOverlay[hidden]{display:none}#completionScore{font-size:clamp(40px,12vw,180px);font-variant-numeric:tabular-nums}#completionLabel,#completionTeams{font-size:clamp(16px,3vw,40px);opacity:.8}
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f5f8ff; background: transparent; --home: #82c3ff; --guest: #ff9ba2; }
+    * { box-sizing: border-box; }
+    [hidden], .hidden { display: none !important; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    .home { --accent: var(--home); } .guest { --accent: var(--guest); }
+    body.blackout main, body.blackout::after { display: none !important; }
+    .scorebug { position: absolute; left: 4vw; bottom: 10.4vh; width: 92vw; display: flex; align-items: stretch; filter: drop-shadow(0 18px 30px #0005); border-radius: 14px; }
+    .teams { display: contents; }
+    .team { flex: 1; min-width: 0; min-height: clamp(60px, 9.7vh, 112px); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; background: #101c2b; border-left: 6px solid var(--accent); }
+    .team.has-logo { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+    .team-logo, .logo { width: clamp(26px, 3vw, 46px); height: clamp(26px, 3vw, 46px); margin-left: 12px; object-fit: contain; }
+    .name { min-width: 0; padding: 12px 16px; font-size: clamp(14px, 2vw, 34px); font-weight: 800; line-height: 1.12; overflow-wrap: anywhere; text-wrap: balance; }
+    .score-wrap { position: relative; align-self: stretch; min-width: clamp(42px, 5vw, 96px); display: grid; place-items: center; background: #f8fafc; color: #101623; }
+    .score { width: 100%; text-align: center; font-size: clamp(26px, 3vw, 54px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; padding: 8px; }
+    .team-pause { padding: 5px 8px; margin-right: 10px; border-radius: 6px; background: #ffffff17; font-size: clamp(9px, .85vw, 14px); font-weight: 800; white-space: nowrap; }
+    .clockbox { order: 2; flex: 0 0 clamp(110px, 12vw, 220px); display: grid; grid-template-rows: auto 1fr auto; background: #f8fafcf5; color: #101623; text-align: center; }
+    .period { font-size: clamp(10px, 1vw, 16px); font-weight: 800; padding: 8px 6px 0; }
+    .clock { min-width: 0; font-size: clamp(24px, 2.6vw, 46px); font-weight: 900; font-variant-numeric: tabular-nums; padding: 4px 6px; white-space: nowrap; align-self: center; }
+    .extra { font-size: clamp(9px, .85vw, 14px); font-weight: 800; padding: 0 6px 8px; }
+    .extra.injury { color: #a04d00; }
+    .scorebug .team.home { order: 1; } .scorebug .team.guest { order: 3; }
+    .scorebug[data-reversed="true"] .home { order: 3 !important; } .scorebug[data-reversed="true"] .guest { order: 1 !important; }
+    .scorebug:not([data-reversed="true"]) .guest, .scorebug[data-reversed="true"] .home { direction: rtl; border-left: 0; border-right: 6px solid var(--accent); }
+    .scorebug .team > * { direction: ltr; }
+    .scorebug:not([data-reversed="true"]) .guest .logo, .scorebug[data-reversed="true"] .home .logo { margin: 0 12px 0 0; }
+    .scorebug:not([data-reversed="true"]) .guest .team-pause, .scorebug[data-reversed="true"] .home .team-pause { margin: 0 0 0 10px; }
+    .event-bug, .team-bug, .player-bug { position: absolute; inset: 10vh 4vw; width: 92vw; height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: clamp(16px, 2.1vw, 40px); background: #08101b9e; border: 1px solid #e1eeff33; border-radius: 24px; box-shadow: 0 20px 64px #0004; }
+    .event-logo { width: min(44vw, 45vh); height: min(44vw, 45vh); object-fit: contain; }
+    .event-copy { display: grid; gap: 12px; text-align: center; }
+    .event-title, .presentation-title { margin: 0; font-size: clamp(24px, 3.2vw, 60px); font-weight: 800; line-height: 1.1; letter-spacing: -.035em; overflow-wrap: anywhere; text-wrap: balance; text-align: center; }
+    .event-subtitle { display: none; }
+    .presentation-title:empty { display: none; }
+    .team-grid { flex: 1; min-height: 0; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .team-card { min-width: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 28px; padding: 28px; background: #101c2b; border: 1px solid #e1eeff22; border-radius: 18px; }
+    .team-card-logo { width: min(25vw, 32vh); height: min(25vw, 32vh); object-fit: contain; }
+    .team-card-name { font-size: clamp(22px, 3vw, 50px); font-weight: 800; line-height: 1.1; text-align: center; overflow-wrap: anywhere; text-wrap: balance; color: var(--accent); }
+    .team-card-score { display: none; }
+    .player-bug { justify-content: start; }
+    .player-columns { min-height: 0; flex: 1; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .player-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 12px; }
+    .player-panel-title { padding: 16px 18px; border-radius: 12px; background: #101c2b; color: var(--accent); font-size: clamp(18px, 2vw, 32px); font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+    .player-list { min-height: 0; flex: 1; display: grid; grid-auto-rows: minmax(0, 1fr); gap: 4px; }
+    .player-row { min-height: 0; min-width: 0; display: grid; grid-template-columns: 2.5em minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 3px 14px; border: 1px solid #223144; border-radius: 10px; background: #101b2a; font-size: clamp(11px, min(1.25vw, var(--roster-font, 2.2vh)), 22px); font-weight: 650; }
+    .player-number { color: #92a8bf; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .player-name { overflow-wrap: anywhere; line-height: 1.1; }
+    .player-meta { color: #a6b7cb; font-size: .8em; white-space: nowrap; }
+    .player-row[data-card="yellow"] .player-meta { color: #facc15; } .player-row[data-card="red"] .player-meta { color: #fb5268; }
+    .empty-players { padding: 20px; border-radius: 10px; color: #a6b7cb; background: #101b2a; text-align: center; }
+    main[data-motion="entering"] { animation: panel-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+    main[data-motion="exiting"] { animation: panel-out 360ms cubic-bezier(.4,0,.8,.2) both; }
+    #scorebug[data-motion="entering"] { animation: scorebar-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+    #scorebug[data-motion="exiting"] { animation: scorebar-out 360ms ease-in both; }
+    @keyframes panel-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+    @keyframes panel-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.97); } }
+    @keyframes scorebar-in { from { opacity: 0; clip-path: inset(-100vh 50% -100vh 50%); } to { opacity: 1; clip-path: inset(-100vh -10% -100vh -10%); } }
+    @keyframes scorebar-out { from { opacity: 1; clip-path: inset(-100vh -10% -100vh -10%); } to { opacity: 0; clip-path: inset(-100vh 50% -100vh 50%); } }
+    .score-change { position: absolute; inset: 0; z-index: 2; background: #f8fafc; pointer-events: none; }
+    .score-old, .score-new { position: absolute; inset: 0; display: grid; place-items: center; font-size: clamp(26px, 3vw, 54px); font-weight: 900; }
+    .score-old { animation: score-old-out 1100ms both; } .score-new { animation: score-new-in 1100ms both; }
+    .score-delta { position: absolute; left: 50%; top: -14px; padding: 4px 10px; border-radius: 99px; background: #0ea5e9; color: #fff; font-size: 24px; font-weight: 900; animation: score-bonus 1100ms both; }
+    .guest .score-delta { background: #e85267; }
+    @keyframes score-old-out { 0%,25% { opacity: 1; transform: translateY(0); } 55%,100% { opacity: 0; transform: translateY(-24px); } }
+    @keyframes score-new-in { 0%,35% { opacity: 0; transform: translateY(24px); } 70%,100% { opacity: 1; transform: translateY(0); } }
+    @keyframes score-bonus { 0% { opacity: 0; transform: translate(-50%,10px) scale(.7); } 18%,62% { opacity: 1; transform: translate(-50%,0) scale(1); } 100% { opacity: 0; transform: translate(-50%,-14px) scale(.9); } }
+    .broadcast-toast { position: absolute; z-index: 5; top: calc(100% + 12px); left: 50%; width: min(100%, 1100px); padding: 12px 20px; border-radius: 12px; border: 1px solid #ffffff30; border-left: 6px solid #f9b84a; background: #101c2b; font-size: clamp(12px, 1.4vw, 25px); font-weight: 700; text-align: center; overflow-wrap: anywhere; transform: translateX(-50%); }
+    .broadcast-toast[data-kind="yellow"] { border-left-color: #facc15; } .broadcast-toast[data-kind="red"] { border-left-color: #fb5268; }
+    .broadcast-toast[data-motion="entering"] { animation: toast-in 300ms both; } .broadcast-toast[data-motion="exiting"] { animation: toast-out 260ms both; }
+    @keyframes toast-in { from { opacity: 0; transform: translate(-50%,12px); } to { opacity: 1; transform: translate(-50%,0); } }
+    @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translate(-50%,8px); } }
+    #scorePowered { position: absolute; left: 50%; bottom: 100%; width: min(28vw, 520px); padding-bottom: 12px; overflow: hidden; transform: translateX(-50%); }
+    #scorePowered img { width: 100%; height: auto; display: block; }
+    #scorePowered[data-motion="entering"] img { animation: powered-rise 420ms both; } #scorePowered[data-motion="exiting"] img { animation: powered-drop 360ms both; }
+    @keyframes powered-rise { from { opacity: 0; transform: translateY(100%) scale(.8); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes powered-drop { from { opacity: 1; } to { opacity: 0; transform: translateY(100%) scale(.9); } }
+    #scenePowered { position: fixed; bottom: 1.2vh; left: 50%; width: min(22vw, 360px); height: 7vh; object-fit: contain; transform: translateX(-50%); }
+    .disconnected::after { content: attr(data-disconnected-label); position: absolute; left: 4vw; top: 3vh; padding: 8px 12px; border-radius: 99px; background: #7f1d1de6; font-size: 12px; font-weight: 700; }
+    .pause-overlay, #completionOverlay { position: absolute; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, 1200px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 4vw; border: 1px solid #e1eeff33; border-radius: 24px; background: #08101bd9; text-align: center; }
+    .pause-logo { width: min(14vw, 160px); height: min(14vw, 160px); object-fit: contain; }
+    .pause-overlay strong, #completionOutcome { font-size: clamp(22px, 4vw, 70px); overflow-wrap: anywhere; }
+    .pause-time, #completionScore { font-size: clamp(40px, 9vw, 150px); font-weight: 900; font-variant-numeric: tabular-nums; }
+    #completionOverlay { z-index: 50; } #completionLabel, #completionTeams { font-size: clamp(14px, 2vw, 32px); opacity: .75; }
+    .timer-alert { color: #ef4444; }
+    @media (max-width: 800px) { .name { padding: 8px; font-size: 14px; } .logo { margin-left: 6px; } .team { border-width: 3px; } .team-pause { margin-right: 4px; padding: 4px; } .team-card { padding: 14px; gap: 18px; } .player-columns { gap: 10px; } .player-panel-title { padding: 12px; font-size: 18px; } .player-row { grid-template-columns: 1.8em minmax(0, 1fr) auto; gap: 4px; padding: 3px 7px; } }
 </style>
 </head>
 <body class="disconnected" data-disconnected-label="WebSocket disconnected">
   <div id="completionOverlay" role="status" hidden><span id="completionLabel"></span><strong id="completionOutcome"></strong><span id="completionScore"></span><span id="completionTeams"></span></div>
-  <main id="scorebug" class="scorebug">
+  <main id="scorebug" class="scorebug hidden">
     <section class="teams">
       <div class="team home">
         <img id="homeLogo" class="logo hidden" alt="">
         <div id="homeName" class="name" data-i18n="home">HOME</div>
         <div id="homePause" class="team-pause hidden">PA 0</div>
-        <div id="homeScore" class="score">0</div>
+        <div class="score-wrap"><div id="homeScore" class="score">0</div></div>
       </div>
       <div class="team guest">
         <img id="guestLogo" class="logo hidden" alt="">
         <div id="guestName" class="name" data-i18n="guest">GUEST</div>
         <div id="guestPause" class="team-pause hidden">PA 0</div>
-        <div id="guestScore" class="score">0</div>
+        <div class="score-wrap"><div id="guestScore" class="score">0</div></div>
       </div>
     </section>
     <section class="clockbox">
@@ -437,6 +112,8 @@
       <div id="clock" class="clock">00:00</div>
       <div id="extra" class="extra">Live</div>
     </section>
+    <div id="scorePowered" hidden><img src="/demo/powered.png" alt="GameData powered by Smart Scoreboard"></div>
+    <div id="foulToast" class="broadcast-toast" role="status" hidden></div>
   </main>
 
   <main id="eventBug" class="event-bug hidden">
@@ -448,6 +125,8 @@
   </main>
 
   <main id="teamBug" class="team-bug hidden">
+    <h1 id="teamEventName" class="presentation-title"></h1>
+    <div class="team-grid">
     <section id="teamBugHome" class="team-card home">
       <img id="teamBugHomeLogo" class="team-card-logo hidden" alt="">
       <div id="teamBugHomeName" class="team-card-name">HOME</div>
@@ -458,9 +137,12 @@
       <div id="teamBugGuestName" class="team-card-name">GUEST</div>
       <div id="teamBugGuestScore" class="team-card-score">0</div>
     </section>
+    </div>
   </main>
 
   <main id="playerBug" class="player-bug hidden">
+    <h1 id="playerEventName" class="presentation-title"></h1>
+    <div class="player-columns">
     <section id="playerBugHome" class="player-panel home">
       <div id="playerBugHomeTitle" class="player-panel-title">HOME</div>
       <div id="playerBugHomeList" class="player-list"></div>
@@ -469,7 +151,9 @@
       <div id="playerBugGuestTitle" class="player-panel-title">GUEST</div>
       <div id="playerBugGuestList" class="player-list"></div>
     </section>
+    </div>
   </main>
+  <img id="scenePowered" src="/demo/powered.png" alt="GameData powered by Smart Scoreboard" hidden>
 
   <div id="pauseOverlay" class="pause-overlay" role="status" hidden><img id="pauseLogo" class="pause-logo hidden" alt=""><strong id="pauseTitle"></strong><span id="pauseTime" class="pause-time"></span><span id="pauseStatus"></span></div>
   <script>
@@ -543,12 +227,14 @@
 
     function setConnected(isConnected) {
       document.body.classList.toggle('disconnected', !isConnected);
+      if (!isConnected) { transitionScene(null); scoreSnapshot = null; playerSnapshots.clear(); }
     }
 
     function logoURL(logo) {
       if (!logo || !logo.path) return '';
+      if (/^(blob:|data:)/.test(logo.path)) return logo.path;
       const version = logo.id || logo.updatedAtUnixTime || '';
-      return version ? `${logo.path}?v=${encodeURIComponent(version)}` : logo.path;
+      return version ? `${logo.path}${logo.path.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}` : logo.path;
     }
 
     function applyLogo(elementID, logo) {
@@ -578,18 +264,14 @@
       }
     }
 
-    function setActiveView(mode) {
-      el('scorebug').classList.toggle('hidden', mode !== 'scoreboard');
-      el('eventBug').classList.toggle('hidden', mode !== 'eventLogo');
-      el('teamBug').classList.toggle('hidden', mode !== 'teamView');
-      el('playerBug').classList.toggle('hidden', mode !== 'playerView');
-    }
+    function setActiveView(mode) { transitionScene(mode); }
 
     function applyDisplayDirection(display, runtime) {
       const direction = text(display.direction, runtime.areSidesSwapped ? 'guestLeft' : 'homeLeft');
       const guestLeft = direction === 'guestLeft';
-      document.querySelector('.team.home').style.order = guestLeft ? '2' : '1';
-      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '2';
+      el('scorebug').dataset.reversed = String(guestLeft);
+      document.querySelector('.team.home').style.order = guestLeft ? '3' : '1';
+      document.querySelector('.team.guest').style.order = guestLeft ? '1' : '3';
     }
 
     function fitClockToOneLine() {
@@ -622,7 +304,7 @@
     }
 
     function applyEventBug(game, rules, display) {
-      applyImage('eventBugLogo', display.eventLogo);
+      applyImage('eventBugLogo', display.showsEventLogo === false ? null : display.eventLogo);
       const eventName = text(game.eventName, '');
       el('eventBugTitle').textContent = eventName || text(rules.title, 'SmartScoreboard');
       el('eventBugSubtitle').textContent = eventName ? text(rules.title, t('live')) : t('eventLogo');
@@ -633,8 +315,8 @@
       const guestLeft = direction === 'guestLeft';
       el('teamBugHome').style.order = guestLeft ? '2' : '1';
       el('teamBugGuest').style.order = guestLeft ? '1' : '2';
-      applyImage('teamBugHomeLogo', home.logo);
-      applyImage('teamBugGuestLogo', guest.logo);
+      applyImage('teamBugHomeLogo', display.showsTeamLogos === false ? null : home.logo);
+      applyImage('teamBugGuestLogo', display.showsTeamLogos === false ? null : guest.logo);
       el('teamBugHomeName').textContent = text(home.name, t('home'));
       el('teamBugGuestName').textContent = text(guest.name, t('guest'));
       el('teamBugHomeScore').textContent = text(home.score, 0);
@@ -657,9 +339,11 @@
         container.appendChild(empty);
         return;
       }
-      players.slice(0, 8).forEach(player => {
+      container.style.setProperty('--roster-font', `${Math.min(2.2, 48 / Math.max(1, players.length))}vh`);
+      players.forEach(player => {
         const row = document.createElement('div');
         row.className = 'player-row';
+        row.dataset.card = player.cardStatus || 'none';
 
         const number = document.createElement('div');
         number.className = 'player-number';
@@ -747,10 +431,13 @@
       document.body.classList.toggle('blackout', isBlackoutMode);
       applyPauseTimer(clocks, state.teams, display, isBlackoutMode || !!game.completion);
       applyCompletion(game.completion, isBlackoutMode);
-      if (isBlackoutMode) return;
+      if (isBlackoutMode) { transitionScene(null); observeBroadcastEvents(state); return; }
 
       const supportedMode = mode === 'eventLogo' || mode === 'teamView' || mode === 'playerView' ? mode : 'scoreboard';
       setActiveView(supportedMode);
+      el('teamEventName').textContent = game.eventName || '';
+      el('playerEventName').textContent = game.eventName || '';
+      observeBroadcastEvents(state);
       if (supportedMode === 'eventLogo') {
         applyEventBug(game, rules, display);
         return;
@@ -768,8 +455,9 @@
 
       el('homeName').textContent = text(home.name, t('home'));
       el('guestName').textContent = text(guest.name, t('guest'));
-      applyLogo('homeLogo', home.logo);
-      applyLogo('guestLogo', guest.logo);
+      applyLogo('homeLogo', display.showsTeamLogos === false ? null : home.logo);
+      applyLogo('guestLogo', display.showsTeamLogos === false ? null : guest.logo);
+      document.querySelectorAll('.score-wrap').forEach(node => node.classList.toggle('hidden', rules.supportsScore === false));
       el('homeScore').textContent = text(home.score, 0);
       el('guestScore').textContent = text(guest.score, 0);
       applyPauseCounters(home, guest, rules);
@@ -782,6 +470,8 @@
       } else {
         el('clock').textContent = clocks.showsGameClock ? text(clocks.formattedGameClock, '00:00') : t('live');
       }
+      el('clock').classList.toggle('timer-alert', clocks.gameClockSeconds === 0 && clocks.showsGameClock !== false);
+      if (state.debate?.segmentTitle) el('period').textContent = state.debate.segmentTitle;
       fitClockToOneLine();
 
       const injuryMinutes = Number(clocks.activeInjuryTimeMinutes || 0);
@@ -789,6 +479,87 @@
       el('extra').textContent = injuryMinutes > 0
         ? `+${injuryMinutes} min`
         : (rules.supportsShotClock ? `${t('shotClockShort')} ${text(clocks.formattedShotClock, '0.0')}` : text(rules.title, t('live')));
+    }
+
+    let currentScene = null, desiredScene = null, sceneTimer;
+    let scoreSnapshot = null;
+    const playerSnapshots = new Map(), scoreTimers = new Map();
+    let foulQueue = [], foulTimer, foulCloseTimer, poweredEntryTimer, poweredHoldTimer, poweredExitTimer;
+
+    function clearBroadcastEffects() {
+      for (const timer of scoreTimers.values()) clearTimeout(timer);
+      scoreTimers.clear(); document.querySelectorAll('.score-change').forEach(node => node.remove());
+      foulQueue = []; clearTimeout(foulTimer); clearTimeout(foulCloseTimer); el('foulToast').hidden = true;
+      clearTimeout(poweredEntryTimer); clearTimeout(poweredHoldTimer); clearTimeout(poweredExitTimer); el('scorePowered').hidden = true;
+    }
+
+    function transitionScene(mode) {
+      if (desiredScene === mode) return;
+      desiredScene = mode; clearTimeout(sceneTimer); clearBroadcastEffects();
+      const ids = {scoreboard:'scorebug', teamView:'teamBug', playerView:'playerBug', eventLogo:'eventBug'};
+      const panels = Object.values(ids).map(el);
+      const outgoing = panels.find(panel => !panel.classList.contains('hidden'));
+      const open = () => {
+        panels.forEach(panel => { panel.classList.add('hidden'); panel.dataset.motion = 'hidden'; });
+        currentScene = mode;
+        const incoming = ids[mode] && el(ids[mode]);
+        el('scenePowered').hidden = !incoming || mode === 'scoreboard';
+        if (!incoming) return;
+        incoming.classList.remove('hidden'); incoming.dataset.motion = 'entering';
+        if (mode === 'scoreboard') {
+          const logo = el('scorePowered'); logo.hidden = false; logo.dataset.motion = 'entering';
+          poweredEntryTimer = setTimeout(() => {
+            logo.dataset.motion = 'visible';
+            poweredHoldTimer = setTimeout(() => { logo.dataset.motion = 'exiting'; poweredExitTimer = setTimeout(() => { logo.hidden = true; }, 400); }, 5000);
+          }, 450);
+        }
+      };
+      el('scenePowered').hidden = true;
+      if (outgoing) { outgoing.dataset.motion = 'exiting'; sceneTimer = setTimeout(open, 400); }
+      else open();
+    }
+
+    function canAnnounce() { return desiredScene === 'scoreboard' && currentScene === 'scoreboard' && !document.body.classList.contains('blackout') && el('completionOverlay').hidden; }
+
+    function observeBroadcastEvents(state) {
+      const {teams = {}, players = {}, display = {}} = state;
+      for (const side of ['home', 'guest']) {
+        const team = teams[side] || {}, next = Number(team.score), previous = scoreSnapshot?.[side];
+        const wrapper = el(`${side}Score`).parentElement;
+        if (Number.isFinite(previous) && Number.isFinite(next) && next !== previous) {
+          clearTimeout(scoreTimers.get(side)); wrapper.querySelector('.score-change')?.remove();
+          if (next > previous && canAnnounce() && state.rules?.supportsScore !== false) {
+            const effect = document.createElement('div'); effect.className = 'score-change';
+            for (const [name, value] of [['score-old',previous],['score-delta',`+${next-previous}`],['score-new',next]]) { const span = document.createElement('span'); span.className = name; span.textContent = value; effect.appendChild(span); }
+            wrapper.appendChild(effect); scoreTimers.set(side, setTimeout(() => { effect.remove(); scoreTimers.delete(side); }, 1100));
+          }
+        }
+        const roster = players[`${side}Roster`]?.players;
+        const currentPlayers = roster?.length ? roster : players[`${side}Displayed`] || [];
+        const present = new Set();
+        for (const player of currentPlayers) {
+          if (!player.id) continue;
+          const key = `${side}:${player.id}`; present.add(key);
+          const before = playerSnapshots.get(key), after = {fouls: Number(player.foulCount || 0), card: player.cardStatus || 'none'};
+          playerSnapshots.set(key, after);
+          if (!before || !canAnnounce() || !String(player.name || '').trim() || !String(player.number ?? '').trim()) continue;
+          const details = [], zh = document.documentElement.lang.startsWith('zh');
+          if (after.fouls > before.fouls) details.push(zh ? `犯规 +${after.fouls-before.fouls} · 共 ${after.fouls} 次` : `Foul +${after.fouls-before.fouls} · ${after.fouls} total`);
+          const added = ({none:0,yellow:1,red:2}[after.card] || 0) > ({none:0,yellow:1,red:2}[before.card] || 0);
+          if (added) details.push(after.card === 'red' ? (zh ? '红牌' : 'Red card') : (zh ? '黄牌' : 'Yellow card'));
+          if (details.length) foulQueue.push({text:`${team.name || t(side)} · #${player.number} ${player.name} — ${details.join(' · ')}`, kind: added ? after.card : 'foul'});
+        }
+        for (const key of playerSnapshots.keys()) if (key.startsWith(`${side}:`) && !present.has(key)) playerSnapshots.delete(key);
+      }
+      scoreSnapshot = Object.fromEntries(['home','guest'].map(side => [side, Number(teams[side]?.score)]));
+      showNextFoul();
+    }
+
+    function showNextFoul() {
+      const toast = el('foulToast');
+      if (!toast.hidden || !foulQueue.length || !canAnnounce()) return;
+      const event = foulQueue.shift(); toast.textContent = event.text; toast.dataset.kind = event.kind; toast.dataset.motion = 'entering'; toast.hidden = false;
+      foulTimer = setTimeout(() => { toast.dataset.motion = 'exiting'; foulCloseTimer = setTimeout(() => { toast.hidden = true; showNextFoul(); }, 300); }, 3200);
     }
 
     function handleV2Message(message) {

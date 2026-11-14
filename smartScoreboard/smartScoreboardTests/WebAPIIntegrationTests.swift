@@ -2,6 +2,25 @@ import Foundation
 import Testing
 
 extension ScoreboardTests {
+    @Test("Web display penalty timers survive v1, v2, and legacy team payloads")
+    func webDisplayPenaltyPayload() throws {
+        store.setSelectedSport(.hockey)
+        let timer = HockeyPenaltyTimer(teamSide: .home, playerNumber: "7", playerName: "Alex", remainingSeconds: 85)
+        store.homePenaltyTimers = [timer]
+        let state = store.currentWebAPIState()
+        #expect(state.teams.home.penaltyTimers == [timer])
+        #expect(state.teams.guest.penaltyTimers == [])
+        #expect(state.teams.v2ImagePathPayload.home.penaltyTimers == [timer])
+        let encoded = try JSONEncoder().encode(state.teams.home)
+        #expect(try JSONDecoder().decode(ScoreboardWebAPITeam.self, from: encoded).penaltyTimers == [timer])
+        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacy.removeValue(forKey: "penaltyTimers")
+        let decoded = try JSONDecoder().decode(ScoreboardWebAPITeam.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(decoded.penaltyTimers == nil)
+        store.setSelectedSport(.basketball)
+        #expect(store.currentWebAPIState().teams.home.penaltyTimers == nil)
+    }
+
     @Test("HTTP catalog, authentication, duplicate commands, validation, and key revocation", .timeLimit(.minutes(1)))
     func webAPIHTTPIntegration() async throws {
         store.isWebControlEnabled = true

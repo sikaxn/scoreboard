@@ -138,6 +138,8 @@ On Apple TV, the host's working copy uses tvOS cache storage, which the system c
 
 Game files, setup, and integration settings remain on the owner. The host records game events and sends log updates to clients when available, with control and timer traffic taking priority. Web API and Companion run on the host; their settings pages show the host name and IP. Use the host's URL for web integrations. API responses expose session identity through `control.session` in v1, `/api/v2/state/session`, and status endpoints.
 
+Browser displays are available at `/demo/scoreboard` and `/demo/obs` on the host's Web API. The scoreboard follows the native themes, backgrounds, layout and numeric font, with lineups, period wins, chess/debate clocks, prep and penalty timers, pauses, and final results. OBS uses the square-clip demo's horizontal score bar, translucent presentation panels, scene fades, score changes, and foul/card messages; Player View shows two team roster columns. Use a 1920 × 1080 OBS browser source. Both pages respect logo visibility, side order, and `displayId` assignments. Cloud viewing pages use these same templates.
+
 For browser or script control, enable the Web API and **Web Control**, then copy the API key. Use `POST /api/v2/control` with `X-API-Key` and a JSON command containing a unique UUID `id`, an `action`, and the current `sport`. The key has 16 letters/digits, is case-insensitive, and can be reset to revoke access. Setup operations are excluded. Open `/demo/control` for the browser controller or `/` for API documentation; `/api/v2/control/operations` lists every shared command and its parameters. Use a trusted local network because HTTP does not encrypt the key.
 
 ### Build and test with Xcode

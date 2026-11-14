@@ -280,6 +280,7 @@ nonisolated struct ScoreboardWebAPITeam: Codable, Sendable {
     let pausesAllowed: Int?
     let pausesUsed: Int?
     let pausesRemaining: Int?
+    var penaltyTimers: [HockeyPenaltyTimer]? = nil
 }
 
 nonisolated struct ScoreboardWebAPIClocks: Codable, Sendable {
@@ -1791,7 +1792,8 @@ extension ScoreboardWebAPITeam {
             substitutionsRemaining: substitutionsRemaining,
             pausesAllowed: pausesAllowed,
             pausesUsed: pausesUsed,
-            pausesRemaining: pausesRemaining
+            pausesRemaining: pausesRemaining,
+            penaltyTimers: penaltyTimers
         )
     }
 }
@@ -2358,6 +2360,10 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 contentType: "text/html; charset=utf-8",
                 body: Self.webAssetData(.scoreboard)
             )
+        case "/demo/scoreboard-background.jpg":
+            sendHTTPResponse(connection, statusCode: 200, reason: "OK", contentType: "image/jpeg", body: Self.webAssetData(.background))
+        case "/demo/powered.png":
+            sendHTTPResponse(connection, statusCode: 200, reason: "OK", contentType: "image/png", body: Self.webAssetData(.powered))
         case "/demo/obs", "/demo/obs.html":
             sendHTTPResponse(
                 connection,
@@ -3188,6 +3194,8 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
         case commentator
         case control
         case notFound
+        case background
+        case powered
 
         var assetName: String {
             switch self {
@@ -3203,6 +3211,10 @@ nonisolated final class ScoreboardWebAPIService: @unchecked Sendable {
                 return "WebAPIControlDemo"
             case .notFound:
                 return "WebAPI404"
+            case .background:
+                return "WebAPIBackground"
+            case .powered:
+                return "WebAPIPowered"
             }
         }
     }
@@ -3398,7 +3410,8 @@ extension ScoreboardStore {
             substitutionsRemaining: substitutionsRemaining(for: side),
             pausesAllowed: pausesAllowed(for: side),
             pausesUsed: pausesUsed(for: side),
-            pausesRemaining: pausesRemaining(for: side)
+            pausesRemaining: pausesRemaining(for: side),
+            penaltyTimers: supportsHockeyPenalties ? (side == .home ? homePenaltyTimers : guestPenaltyTimers) : nil
         )
     }
 
